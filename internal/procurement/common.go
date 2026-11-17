@@ -33,6 +33,9 @@ const (
 	Active          = "active"
 	Terminated      = "terminated"
 	Expired         = "expired"
+	// InSourcing is a requisition an RFQ was created from (T82e), until
+	// an award orders it.
+	InSourcing = "in_sourcing"
 )
 
 // Valuations of a purchase order (T33): how its receipts and invoices are

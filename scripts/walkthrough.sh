@@ -12505,6 +12505,95 @@ step_billing_cancellation() {
   passed
 }
 
+# step_rfq_requisition is T82e (ADR-0069 As built, plan-depth-1 §T82e):
+# Ben raises a requisition for two items, needed in three weeks, and
+# Priya approves it; he then asks Tyrell and step 3's DP_SUPPLIER to
+# quote for it by an RFQ created from the requisition, which takes its
+# items, quantities, accounts and need date. The requisition is in
+# sourcing, naming the RFQ, until an award orders it. Then (T82f) both
+# suppliers quote; Ben awards the dearer one, which can deliver by the
+# need date, to a purchase order with his reason: the order carries the
+# quoted prices, the need date and the requisition, which is ordered.
+step_rfq_requisition() {
+  heading "Step 115 — An RFQ from a requisition: an approved requisition's items, quantities and need date taken into an RFQ; the requisition in sourcing, naming the RFQ; awarded with a reason to the dearer quotation as a purchase order naming the requisition, which is ordered"
+  as ben
+  local needed due expense req request rfq body valid tyrells award po
+  accounts
+  expense=$(account 6000)
+  needed=$(date_add "$(company_day)" 21)
+  due=$(date_add "$(company_day)" 7)
+  say "Ben needs monitors and docking stations for the new office in three weeks. He raises a requisition with his"
+  say "estimates and no supplier: purchasing is to find one."
+  api 201 '"requisition \(.document_number): \(.status), needed by \(.needed_by), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no): \(.quantity.value) \(.quantity.unit) \(.description) at \(.unit_price.amount) \(.unit_price.currency)")' createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"needed_by\": \"$needed\", \"items\": [
+      {\"description\": \"27-inch monitors\", \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"320.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"},
+      {\"description\": \"USB-C docking stations\", \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"180.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"}]}"
+  req=$(field .id)
+  api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
+  request=$(field .workflow_request_id)
+  approve priya "$request" "Equipment for the new office"
+  as ben
+  say "Ben asks for quotations on the requisition itself (T82e): he names it, the due date and the suppliers; the RFQ"
+  say "takes the requisition's items, quantities, units and accounts, its need date as each item's delivery date,"
+  say "and its currency:"
+  body="{\"legal_entity_id\": \"$LE\", \"requisition_id\": \"$req\", \"due_date\": \"$due\", \"supplier_ids\": [\"$SUPPLIER\", \"$DP_SUPPLIER\"]}"
+  api 201 '"RFQ \(.document_number) from requisition \(.requisition_document_number): \(.status), quotations in \(.currency) due \(.due_date)", (.items[] | "  item \(.item_no) \(.material_key) \(.description): \(.quantity.value) \(.quantity.unit) by \(.delivery_date), requisition item \(.requisition_item_no), on \(.account_number)")' \
+    createRfq -body "$body"
+  rfq=$(field .id)
+  expect "the RFQ from the requisition" "$(field '"\(.requisition_id) \(.currency) \(.status)"')" "$req CAD draft"
+  expect "its items, the requisition's" "$(field '[.items[] | "\(.description) \(.quantity.value) \(.quantity.unit) \(.delivery_date) \(.requisition_item_no) \(.account_number)"] | join(", ")')" \
+    "27-inch monitors 12 EA $needed 1 6000, USB-C docking stations 12 EA $needed 2 6000"
+  say "The requisition is in sourcing now and names the RFQ; it is not ordered directly or sourced twice:"
+  api 200 '"requisition \(.document_number): \(.status), sourced by RFQ \(.rfq_document_number)"' getRequisition -p "id=$req"
+  expect "the requisition in sourcing" "$(field '"\(.status) \(.rfq_id)"')" "in_sourcing $rfq"
+  refused 409 procurement.invalid_status createRfq -body "$body"
+  say "Items are the requisition's; an RFQ from it sends none of its own:"
+  refused 422 procurement.rfq_items_from_requisition createRfq -body "{\"legal_entity_id\": \"$LE\", \"requisition_id\": \"$req\", \"due_date\": \"$due\",
+    \"items\": [{\"material_key\": \"X\", \"description\": \"X\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}], \"supplier_ids\": [\"$SUPPLIER\"]}"
+  say "Ben publishes the RFQ; it is the one RFQ of the requisition:"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  api 200 '"RFQ \(.document_number): \(.status)"' publishRfq -p "id=$rfq" -if-match "$ETAG"
+  api 200 '.items[] | "  RFQ \(.document_number) from \(.requisition_document_number): \(.status)"' listRfqs -p "requisition_id=$req"
+  expect "the RFQs of the requisition" "$(field '[.items[].id] | join(" ")')" "$rfq"
+  valid=$(date_add "$(company_day)" 30)
+  say "Both suppliers quote. $DP_NAME is cheaper, 300.00 a monitor and 170.00 a dock; Tyrell asks 310.00 and 175.00 but"
+  say "is the one that can deliver by the need date:"
+  api 201 '"quotation \(.supplier_reference) of \(.supplier_number): total \(.total.amount) \(.total.currency)"' createSupplierQuotation -p "id=$rfq" \
+    -body "{\"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-Q-131\", \"valid_until\": \"$valid\", \"items\": [
+      {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"310.00\", \"currency\": \"CAD\"}}, {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"175.00\", \"currency\": \"CAD\"}}]}"
+  tyrells=$(field .id)
+  api 201 '"quotation \(.supplier_reference) of \(.supplier_number): total \(.total.amount) \(.total.currency)"' createSupplierQuotation -p "id=$rfq" \
+    -body "{\"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"CB-7790\", \"valid_until\": \"$valid\", \"items\": [
+      {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}}, {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"170.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '.suppliers[] | "  rank \(.rank): \(.supplier_number) \(.supplier_name), total \(.total.amount) \(.total.currency)"' getRfqComparison -p "id=$rfq"
+  expect "Tyrell ranked second" "$(field ".suppliers[] | select(.supplier_quotation_id == \"$tyrells\") | .rank")" 2
+  say "Ben awards the RFQ to Tyrell's quotation as a purchase order (T82f): an RFQ from a requisition is awarded to"
+  say "an order, which names the requisition, and an award to any quotation but the lowest records why it wins:"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  award="{\"quotation_id\": \"$tyrells\", \"award_to\": \"purchase_order\"}"
+  refused 422 procurement.rfq_from_requisition awardRfq -p "id=$rfq" -if-match "$ETAG" \
+    -body "{\"quotation_id\": \"$tyrells\", \"valid_from\": \"$(company_day)\", \"valid_to\": \"$valid\", \"reason\": \"Delivery date\"}"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  refused 422 procurement.award_reason_required awardRfq -p "id=$rfq" -if-match "$ETAG" -body "$award"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  api 200 '"RFQ \(.document_number): \(.status) to purchase order \(.purchase_order_document_number), because: \(.award_reason)"' awardRfq -p "id=$rfq" -if-match "$ETAG" \
+    -body "{\"quotation_id\": \"$tyrells\", \"award_to\": \"purchase_order\", \"reason\": \"The only supplier that delivers by the need date\"}"
+  po=$(field .purchase_order_id)
+  expect "the RFQ awarded to an order, with its reason" "$(field '"\(.status) \(.award_reason)"')" "awarded The only supplier that delivers by the need date"
+  say "The draft order carries Tyrell, the quoted prices, the need date and the requisition, which is ordered now:"
+  api 200 '"purchase order \(.document_number) of \(.order_date) from requisition \(.requisition_id): \(.status), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) by \(.delivery_date)")' \
+    getPurchaseOrder -p "id=$po"
+  expect "the order" "$(field '"\(.supplier_id) \(.requisition_id) \(.order_date) \(.total_amount.amount) \(.total_amount.currency)"')" "$SUPPLIER $req $(company_day) 5820.00 CAD"
+  expect "its items" "$(field '[.items[] | "\(.unit_price.amount) \(.delivery_date)"] | join(", ")')" "310.00 $needed, 175.00 $needed"
+  api 200 '"requisition \(.document_number): \(.status)"' getRequisition -p "id=$req"
+  expect "the requisition" "$(field .status)" ordered
+  say "Ben releases the order as any other; within the requisition's approved total, it needs no further approval:"
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  api 200 '"purchase order \(.document_number): \(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  expect "the released order" "$(field .status)" released
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -14535,7 +14624,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_close'
 
 main() {
   stop_unseen

@@ -91,6 +91,7 @@ func requisitionToAPI(r Requisition) gen.Requisition {
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), DocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, RequesterID: r.RequesterID,
 		SupplierID: apitypes.OptUUID(r.SupplierID), ContractID: apitypes.OptUUID(r.ContractID), Currency: r.Currency, RequisitionDate: r.RequisitionDate,
 		Status: r.Status, WorkflowRequestID: apitypes.OptUUID(r.WorkflowRequestID), TotalAmount: apitypes.Money(r.Total(), r.Currency, r.Exponent), Extensions: apitypes.EncodeObject(r.Extensions),
+		RfqID: apitypes.OptUUID(r.RFQID), RfqDocumentNumber: apitypes.OptString(r.RFQNumber),
 		Items: make([]gen.RequisitionItem, len(r.Items))}
 	if r.NeededBy != nil {
 		out.NeededBy.SetTo(*r.NeededBy)

@@ -400,3 +400,145 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
 - **Walkthrough.** `step_rfq_award` (step 66): the RFQ of `step_rfq` is
   awarded to the quotation ranked first; the draft contract carries its
   prices and supplier, names the RFQ and is released.
+
+### T82e RFQ created from a requisition (migrations 000359, 000360)
+
+The first of the depth variants (`plan-depth-1.md` §T82e, product owner
+2026-11-17). §1's "an RFQ is free-standing" now holds for an RFQ with
+its own items; one may instead be created from a requisition.
+
+- **API.** `POST /v1/rfqs` takes `requisition_id`: the items come from
+  the requisition and are not sent (422
+  `procurement.rfq_items_from_requisition`, `items`), the currency
+  defaults to the requisition's (another is 422
+  `procurement.requisition_mismatch`, `currency`). The requisition must be
+  `approved` (409 `procurement.invalid_status`), of the RFQ's legal
+  entity (422 `procurement.requisition_mismatch`, `requisition_id`) and
+  name no contract (422 `procurement.requisition_on_contract`,
+  `requisition_id`: its order is a release against that contract, with
+  the contract's supplier, so an award to another could never order it); one
+  the caller cannot see is 422 `request.reference_not_found`. Without a
+  requisition, `currency` and `items` are required (422
+  `request.validation_failed`, one field error each; they were required
+  by the schema before, a relaxation of the request). `GET /v1/rfqs`
+  filters by `requisition_id`. An RFQ shows `requisition_id` and
+  `requisition_document_number`, each item `delivery_date` and
+  `requisition_item_no`; a buyer's own item may carry a `delivery_date`.
+  A requisition shows `rfq_id` and `rfq_document_number`, the RFQ last
+  created from it, and the status `in_sourcing` (both open enumerations).
+- **Behaviour.** The requisition is read under its row lock
+  (`getRequisition`, as `orderedRequisition` reads it) and moved to
+  `in_sourcing` by `setStatus` before the RFQ is written, in the same
+  transaction, so a second RFQ from it finds it in sourcing (409). Every
+  live item becomes an RFQ item in its order through `rfqItems` (the
+  account is checked again: one no longer postable is refused by the RFQ
+  item it would become, `items[i].account_id`), with its description,
+  quantity, unit and account, the requisition's need date as delivery
+  date and its item number as `requisition_item_no`. Its material key is
+  the item's catalog key, or `<requisition number>/<item no>` for an item
+  without one or sharing it with another (`sourcedInputs`). A requisition
+  in sourcing is neither ordered directly (`orderedRequisition` asks for
+  `approved`) nor cancelled (`cancelRequisition` refuses it): both 409, the
+  existing rules unchanged. No agent below level 2 gets this far: creating
+  an RFQ is already a write.
+- **Schema.** `procurement.rfq.requisition_id` (a foreign key to the
+  requisition, added NOT VALID and validated by 000360, as is the wider
+  requisition status check), `rfq_item.delivery_date` and
+  `rfq_item.requisition_item_no`, index `rfq_by_requisition`. `check_rfq`
+  refuses an RFQ from a requisition that is not in sourcing, of its
+  company and in its currency (`rfq_of_requisition_in_sourcing`, the
+  requisition read FOR SHARE) or that already has an open RFQ, one not
+  awarded (`rfq_one_open_per_requisition`), and keeps an RFQ's
+  requisition (`rfq_identity_kept`). Trigger `rfq_item_of_requisition`:
+  an item names a live item of its RFQ's requisition exactly when the RFQ
+  has one. The revert refuses while an RFQ names a requisition. Schema
+  tests in `db/rfq_requisition_test.go`.
+- **Events and audit.** `RfqChanged` and `RfqPublished` carry
+  `requisition_id` and `requisition_document_number` when the RFQ has a
+  requisition (added within v1). The requisition's move is audited
+  (`procurement.requisition.in_sourcing`) and publishes no requisition
+  event: `RfqChanged` (`created`) names it.
+- **Code.** `internal/procurement/rfq_requisition.go` (`sourced`,
+  `sourcedInputs`); `createRFQ` and `writeRFQ` in `rfq.go`
+  (`rfqContent`); the requisition's `rfq_id` in `requisitionSelect`.
+- **Walkthrough.** `step_rfq_requisition` (step 109): Ben raises a
+  requisition for two items, Priya approves it, and Ben creates an RFQ
+  from it, which takes its items, quantities and need date; the
+  requisition reads `in_sourcing` naming the RFQ; a second RFQ from it and
+  items sent beside it are refused; the RFQ is published.
+- **Defaults** (20-23, for the digest): a requisition is sourced as a
+  whole, its status marking all its items; the RFQ is created through
+  `POST /v1/rfqs`, not a custom method of the requisition; a requisition
+  in sourcing is neither cancelled nor ordered directly until its RFQ is
+  awarded (closing an RFQ without an award stays later); no requisition
+  event is published for the move to `in_sourcing`.
+
+### T82f RFQ awarded to a purchase order (migrations 000361, 000362)
+
+The second depth variant (`plan-depth-1.md` §T82f, product owner
+2026-11-17). Default 14 ("no reason is recorded when it is another") is
+replaced: an award to a quotation not ranked first now needs a reason.
+
+- **API.** `POST /v1/rfqs/{id}:award` takes `award_to` (`contract`, the
+  default, or `purchase_order`; an open enumeration, another value 422
+  `request.validation_failed`) and `reason` (1 to 500 characters, not
+  white space alone). `valid_from` and `valid_to` are required for a
+  contract and not sent for an order (422 `request.validation_failed`,
+  one field error each; required by the schema before, a relaxation of
+  the request). A quotation not ranked first needs a reason (422
+  `procurement.award_reason_required`, `reason`): equal lowest totals
+  share rank 1, so any of them wins without one. An RFQ from a
+  requisition is awarded to an order only (422
+  `procurement.rfq_from_requisition`, `award_to`, checked first, so an
+  award naming no `award_to` is told so). An award to an order also needs
+  `procurement.order.create` (403 `identity.permission_missing`), as `POST
+  /v1/purchase-orders` does; `procurement.rfq.award` alone creates a
+  contract, as before. The RFQ shows
+  `purchase_order_id`, `purchase_order_document_number` and
+  `award_reason`.
+- **Order.** Created by `createOrder`, the code path of `POST
+  /v1/purchase-orders`, with its checks, number (range `purchase_order`),
+  rules and audit record: the quotation's supplier and its payment
+  terms, the RFQ's currency, dated the legal entity's date today, the
+  RFQ's items at the quoted prices and price units with their delivery
+  dates; for an RFQ from a requisition it names the requisition, each
+  item takes its requisition item's material, account assignment and cost
+  center, and the requisition moves `in_sourcing` → `ordered`
+  (`orderedRequisition` accepts `in_sourcing` only for the award of the
+  RFQ sourcing it, `NewOrder.sourcedBy`) and publishes
+  `RequisitionOrdered` with `previous_status` `in_sourcing`. The order is
+  a draft, released with `purchase-orders/{id}:release`; its release
+  strategy judges it against the requisition as any order's. Locks: the
+  RFQ, then the requisition (as `createOrder` takes it); no path takes
+  them the other way round.
+- **Schema.** `procurement.rfq.purchase_order_id` (a foreign key, added
+  NOT VALID with the replaced checks and validated by 000362), unique
+  (`rfq_purchase_order_once`), and `award_reason` (`rfq_award_reason_check`:
+  only on an awarded RFQ, not blank, at most 500 characters).
+  `rfq_awarded_to_contract` becomes `rfq_awarded_to_one_document`: an
+  awarded RFQ names exactly one of a contract and an order. `check_rfq`:
+  the award names a contract (never for an RFQ from a requisition) or an
+  order naming the RFQ's requisition, if any, of its company, in its
+  currency, with the awarded quotation's supplier; an awarded RFQ keeps
+  its document and reason. The revert refuses while an RFQ names an order
+  or a reason. Schema tests in `db/rfq_award_order_test.go`.
+- **Events and audit.** `RfqAwardedToOrder` (the RFQ, the quotation, the
+  supplier by id and number, the order by id and number and its date, the
+  requisition, the total and the reason) beside `RfqChanged`
+  (`awarded`); `RfqAwarded` gains `reason` (added within v1). Neither is
+  offered to webhooks. Audit `procurement.rfq.award` names the order and
+  the reason.
+- **Code.** `internal/procurement/rfq_award.go` (`Award.check`,
+  `Award.reasoned`, `awardedDocument`, `awardPayload`) and
+  `rfq_award_order.go` (`awardedOrder`, `orderOf`); `orderedRequisition`
+  in `purchase_orders.go` by `NewOrder.sourcedFrom`.
+- **Walkthrough.** `step_rfq_requisition` (step 109) extended: both
+  suppliers quote; an award to a contract and one without a reason are
+  refused; the RFQ is awarded to Tyrell's dearer quotation as a purchase
+  order with the reason; the order carries the quoted prices, the need
+  date and the requisition, which reads `ordered`; it is released.
+- **Defaults** (24-27, for the digest): an RFQ from a requisition is
+  awarded to an order only; the order is dated the company's date today
+  with the supplier's payment terms; the reason is required for any
+  quotation not ranked first, for a contract as for an order; the link is
+  kept once, on the RFQ (the order shows its requisition, not its RFQ).

@@ -4523,8 +4523,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A buyer creates an RFQ from an approved requisition: its items, quantities, units, accounts and need date become the RFQ's, the RFQ names the requisition, and the requisition is in sourcing until an award orders it (POST /v1/rfqs with requisition_id)",
+        "r": "T82e · docs/design/plan-depth-1.md §T82e · migrations 000359, 000360 · internal/procurement/rfq_requisition.go, rfq.go · POST /v1/rfqs requisition_id · ADR-0069 As built · walkthrough step_rfq_requisition",
+        "src": "split:T82b · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: RFQ variants: an RFQ from a requisition, suppliers answering themselves through a portal or the supplier network, several rounds and revised quotations, sealed bids, auctions, attachments and questions, sending the RFQ as a document, cancelling or closing an RFQ without an award, quotations in another currency (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: RFQ variants: a requisition sourced in part or several requisitions in one RFQ, suppliers answering themselves through a portal or the supplier network, several rounds and revised quotations, sealed bids, auctions, attachments and questions, sending the RFQ as a document, cancelling or closing an RFQ without an award, quotations in another currency (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T82b, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
@@ -4572,8 +4579,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The buyer awards an RFQ to one quotation as a draft purchase order in place of a contract, the order at the quoted prices and naming the requisition the RFQ came from; an award to any quotation but the lowest needs a recorded reason (POST /v1/rfqs/{id}:award with award_to purchase_order, reason)",
+        "r": "T82f · docs/design/plan-depth-1.md §T82f · migrations 000361, 000362 · internal/procurement/rfq_award.go, rfq_award_order.go · RfqAwardedToOrder · ADR-0069 As built · walkthrough step_rfq_requisition",
+        "src": "split:T82d · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: award variants: award to a purchase order in place of a contract, splitting an award between suppliers or by item, approval of an award above an amount, a recorded reason when the lowest quotation does not win, notifying the suppliers not awarded, withdrawing an award (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: award variants: an award of a requisition's RFQ to a contract, splitting an award between suppliers or by item, approval of an award above an amount, notifying the suppliers not awarded, withdrawing an award (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T82d, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []

@@ -270,6 +270,7 @@ channels:
       RfqPublished: {$ref: '#/components/messages/RfqPublished'}
       SupplierQuotationRecorded: {$ref: '#/components/messages/SupplierQuotationRecorded'}
       RfqAwarded: {$ref: '#/components/messages/RfqAwarded'}
+      RfqAwardedToOrder: {$ref: '#/components/messages/RfqAwardedToOrder'}
       ScheduleLineChanged: {$ref: '#/components/messages/ScheduleLineChanged'}
       ScheduleLineCalledOff: {$ref: '#/components/messages/ScheduleLineCalledOff'}
   payables:
@@ -654,6 +655,7 @@ operations:
       - $ref: '#/channels/procurement/messages/RfqPublished'
       - $ref: '#/channels/procurement/messages/SupplierQuotationRecorded'
       - $ref: '#/channels/procurement/messages/RfqAwarded'
+      - $ref: '#/channels/procurement/messages/RfqAwardedToOrder'
       - $ref: '#/channels/procurement/messages/ScheduleLineChanged'
       - $ref: '#/channels/procurement/messages/ScheduleLineCalledOff'
   publishPayablesEvents:
@@ -3142,6 +3144,31 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000704", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_awarded.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-12-07T11:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
           payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_quotation_id": "0192a000-0000-7000-8000-000000000711", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "supplier_reference": "Q-2026-0457", "contract_id": "0192a000-0000-7000-8000-000000000721", "contract_document_number": "4600100000", "valid_from": "2027-01-01", "valid_to": "2027-12-31", "total": {"amount": "20666.67", "currency": "EUR"}}
+    RfqAwardedToOrder:
+      name: RfqAwardedToOrder
+      title: Request for quotation awarded to a purchase order
+      summary: "A request for quotation was awarded to one supplier's quotation, and a draft purchase order created from it."
+      description: |
+        Emitted by `rfqs/{id}:award` with `award_to` `purchase_order`
+        (T82f, ADR-0069 As built), once per RFQ: the quotation that won, the
+        draft purchase order created with its supplier (the RFQ's items at
+        the quoted prices), the requisition the RFQ was created from, if
+        any, which the order names, the quotation's total and the reason
+        recorded with the award, if any. The supplier is named by id and
+        number, never by name (a partner may be a person; product owner,
+        2026-11-05). The RFQ's other quotations are not awarded. Subject
+        is the RFQ id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.rfq_awarded_to_order.v1}
+      payload: {$ref: '#/components/schemas/RfqAwardedToOrderV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000705", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_awarded_to_order.v1", "subject": "0192a000-0000-7000-8000-000000000702", "time": "2026-12-07T11:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"rfq_id": "0192a000-0000-7000-8000-000000000702", "document_number": "RQ100001", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_quotation_id": "0192a000-0000-7000-8000-000000000712", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "supplier_reference": "Q-2026-0458", "purchase_order_id": "0192a000-0000-7000-8000-000000000722", "purchase_order_document_number": "4500100000", "order_date": "2026-12-07", "requisition_id": "0192a000-0000-7000-8000-000000000601", "requisition_document_number": "PR100000", "total": {"amount": "5820.00", "currency": "EUR"}, "reason": "The only supplier that delivers by the need date."}
     ScheduleLineChanged:
       name: ScheduleLineChanged
       title: Schedule line changed
@@ -7828,7 +7855,7 @@ components:
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         purchase_order_id: {"$ref": "#/components/schemas/Uuid"}
-        previous_status: {"type": "string", "description": "Open enum; approved in v1."}
+        previous_status: {"type": "string", "description": "Open enum: approved, or in_sourcing for a requisition ordered by the award of its RFQ (T82f)."}
         status: {"type": "string", "description": "Open enum; ordered in v1."}
     PurchaseOrderClosedV1:
       type: object
@@ -7880,6 +7907,8 @@ components:
         change: {"type": "string", "description": "Open enum: created, published, awarded."}
         item_count: {"type": "integer", "description": "The items asked for."}
         supplier_count: {"type": "integer", "description": "The suppliers invited."}
+        requisition_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.requisition.id`: the requisition the RFQ was created from (T82e), which is `in_sourcing` from then on; absent for an RFQ created with its own items. Added within v1."}
+        requisition_document_number: {"type": "string", "description": "That requisition's document number; absent with it. Added within v1."}
     RfqPublishedV1:
       type: object
       required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "currency", "due_date", "item_count", "suppliers"]
@@ -7891,6 +7920,8 @@ components:
         currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
         due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
         item_count: {"type": "integer", "description": "The items asked for."}
+        requisition_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.requisition.id`: the requisition the RFQ was created from (T82e); absent for an RFQ created with its own items. Added within v1."}
+        requisition_document_number: {"type": "string", "description": "That requisition's document number; absent with it. Added within v1."}
         suppliers:
           type: array
           description: "The suppliers invited, in the order they were named."
@@ -7933,6 +7964,26 @@ components:
         valid_from: {"$ref": "#/components/schemas/Date", "description": "The first day the contract is valid."}
         valid_to: {"$ref": "#/components/schemas/Date", "description": "The last day the contract is valid."}
         total: {"$ref": "#/components/schemas/Money", "description": "The quotation's total, the contract's target value, in the RFQ's currency."}
+        reason: {"type": "string", "description": "The reason recorded with the award (T82f): required when the quotation was not ranked first; absent when none was given. Added within v1."}
+    RfqAwardedToOrderV1:
+      type: object
+      required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "supplier_quotation_id", "supplier_id", "supplier_number", "supplier_reference", "purchase_order_id", "purchase_order_document_number", "order_date", "total"]
+      properties:
+        rfq_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.rfq.id`."}
+        document_number: {"type": "string", "description": "The RFQ's document number."}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplier_quotation_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.supplier_quotation.id`: the quotation that won."}
+        supplier_id: {"$ref": "#/components/schemas/Uuid", "description": "`partner.business_partner.id`: the supplier awarded."}
+        supplier_number: {"type": "string", "description": "The business partner's number."}
+        supplier_reference: {"type": "string", "description": "The supplier's own reference of its quotation."}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the draft purchase order the award created."}
+        purchase_order_document_number: {"type": "string", "description": "The purchase order's document number."}
+        order_date: {"$ref": "#/components/schemas/Date", "description": "The order's date: the legal entity's date today when it was awarded."}
+        requisition_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.requisition.id`: the requisition the RFQ was created from, which the order names and which is `ordered` now; absent for an RFQ with its own items."}
+        requisition_document_number: {"type": "string", "description": "That requisition's document number; absent with it."}
+        total: {"$ref": "#/components/schemas/Money", "description": "The quotation's total, the order's value, in the RFQ's currency."}
+        reason: {"type": "string", "description": "The reason recorded with the award: required when the quotation was not ranked first; absent when none was given."}
     ScheduleLineChangedV1:
       type: object
       required: ["schedule_line_id", "contract_id", "document_number", "legal_entity_id", "legal_entity_code", "supplier_id", "supplier_number", "line_no", "contract_item_no", "material_key", "delivery_date", "quantity", "amount", "status", "change"]

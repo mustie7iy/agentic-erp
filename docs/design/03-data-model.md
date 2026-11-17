@@ -1687,6 +1687,8 @@ erDiagram
   rfq ||--|{ rfq_supplier : invites
   rfq_supplier ||--o| supplier_quotation : quotes
   rfq |o--o| contract : "awarded to"
+  rfq |o--o| purchase_order : "awarded to"
+  requisition |o--o{ rfq : "sourced by"
   supplier_quotation ||--|{ supplier_quotation_item : prices
   rfq_item ||--o{ supplier_quotation_item : "priced by"
   contract ||--o{ schedule_line : schedules
@@ -1700,7 +1702,7 @@ erDiagram
     uuid contract_id
     char currency
     date requisition_date
-    text status
+    text status "draft | pending_approval | approved | rejected | cancelled | ordered | in_sourcing"
     uuid workflow_request_id
     int version }
   requisition_item { uuid requisition_id PK
@@ -1782,6 +1784,9 @@ erDiagram
     date due_date
     text status "draft | published | awarded"
     uuid contract_id FK "the contract an award created"
+    uuid purchase_order_id FK "the purchase order an award created (T82f)"
+    text award_reason "why the quotation won, when it was not ranked first"
+    uuid requisition_id FK "the requisition it was created from (T82e)"
     int version }
   rfq_item { uuid rfq_id PK
     int item_no PK
@@ -1789,7 +1794,9 @@ erDiagram
     text description
     numeric quantity
     text uom_code
-    uuid account_id }
+    uuid account_id
+    date delivery_date
+    int requisition_item_no "the requisition item it was taken from" }
   rfq_supplier { uuid rfq_id PK
     uuid supplier_id PK
     int invite_no }
