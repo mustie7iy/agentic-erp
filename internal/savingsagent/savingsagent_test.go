@@ -108,6 +108,8 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch path {
 	case "/v1/legal-entities":
 		answer(200, `{"items": [{"id": "`+le+`", "code": "3000"}]}`)
+	case "/v1/legal-entities/" + le + "/today":
+		answer(200, `{"legal_entity_id": "`+le+`", "date": "2026-11-15", "time_zone": "America/Toronto"}`)
 	case "/v1/analytics-queries":
 		a.queries = append(a.queries, string(b))
 		if strings.Contains(string(b), "vendor_name") && a.suppliers != "" {
@@ -272,7 +274,9 @@ func TestAdvise(t *testing.T) {
 }
 
 // TestAdviseMax: a run recommends on at most Max opportunities, the
-// suppliers first; the default period is the year to today, UTC.
+// suppliers first; the default period is the year to today, the
+// company's day: at 23:00 in Toronto the 15th, though the 16th in UTC
+// (review:batch77).
 func TestAdviseMax(t *testing.T) {
 	a := &fakeAPI{}
 	model := llmtest.New(t, on("account", office, "consolidate_suppliers", spentOn600), llmtest.Final("One."))
@@ -287,7 +291,7 @@ func TestAdviseMax(t *testing.T) {
 	if res.Refused != 1 {
 		t.Errorf("refused: got %d, want 1 (the account, not an object of the run)", res.Refused)
 	}
-	told(t, model.Requests[:1], "the period is 2025-11-17 to 2026-11-16.", "you recommend on one opportunity of them, at most one opportunity a run.")
+	told(t, model.Requests[:1], "the period is 2025-11-16 to 2026-11-15.", "you recommend on one opportunity of them, at most one opportunity a run.")
 }
 
 // TestAdviseCurrencies: amounts of two currencies are never ranked
@@ -345,6 +349,7 @@ func TestAdviseRefusals(t *testing.T) {
 		"a bad end":          {&fakeAPI{}, "3000", "2026-01-01..soon", 0, "the period is FROM..TO"},
 		"below one":          {&fakeAPI{}, "3000", period, -1, "at least one"},
 		"another company":    {&fakeAPI{}, "9999", period, 0, "no company 9999"},
+		"the company's day":  {&fakeAPI{status: map[string]int{"/v1/legal-entities/" + le + "/today": 403}}, "3000", "", 0, "savingsagent: company 3000"},
 		"the companies":      {&fakeAPI{status: map[string]int{"/v1/legal-entities": 403}}, "3000", period, 0, "403"},
 		"the spend":          {&fakeAPI{status: map[string]int{"/v1/analytics-queries": 403}}, "3000", period, 0, "spend_off_contract of company 3000 by vendor, vendor_name"},
 		"a supplier":         {&fakeAPI{empty: map[string]bool{"/v1/business-partners": true}}, "3000", period, 0, "supplier 100001: /v1/business-partners?number=100001 lists none"},

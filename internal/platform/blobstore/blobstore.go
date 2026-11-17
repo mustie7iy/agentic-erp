@@ -106,7 +106,8 @@ const (
 	// never changed.
 	KindArchives = "archives"
 	// KindReportRuns are saved reports' scheduled runs' results, named by
-	// run id (ADR-0076 §5).
+	// report, run date and the digest of their definition and access since
+	// 2026-11-17, by run id before (ADR-0076 §5).
 	KindReportRuns = "report-runs"
 	// KindEvidence are the audit context's evidence exports, one directory
 	// per export id holding its manifest and the files it names (T101a):

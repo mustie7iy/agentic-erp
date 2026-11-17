@@ -2,6 +2,7 @@ package apitools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -15,10 +16,12 @@ import (
 // company's date in its time zone, as the API judges every date of the
 // company (getLegalEntityToday, over config.DocumentDay; ADR-0051 As
 // built), and any other run UTC's (coordinator 2026-11-17, ERP practice).
-// The instant is Now's, so a test fixes the day; the API gives the zone.
+// The API gives the date; a Days with a clock (Now) takes the instant from
+// it, in the zone the API gives, so a test fixes the day.
 type Days struct {
 	API *Client
-	// Now is the clock; nil reads the wall clock (clock.Now).
+	// Now is the clock; nil takes the API's date, and UTC's from the wall
+	// clock (clock.Now).
 	Now func() time.Time
 }
 
@@ -33,16 +36,23 @@ func (d Days) Of(ctx context.Context, legalEntity string) (string, error) {
 		return "", fmt.Errorf("apitools: today of legal entity %s: %w", legalEntity, err)
 	}
 	var today struct {
+		Date     string `json:"date"`
 		TimeZone string `json:"time_zone"`
 	}
 	if err := resp.Decode(&today); err != nil {
 		return "", fmt.Errorf("apitools: today of legal entity %s: %w", legalEntity, err)
 	}
 	loc, err := time.LoadLocation(today.TimeZone)
+	if today.TimeZone == "" { // LoadLocation reads "" as UTC: a zone the API did not give is refused, not assumed
+		err = errors.New("the API gave none")
+	}
 	if err != nil {
 		return "", fmt.Errorf("apitools: today of legal entity %s: time zone %q: %w", legalEntity, today.TimeZone, err)
 	}
-	return clock.Now(d.Now).In(loc).Format(time.DateOnly), nil
+	if d.Now == nil { // the API's own date, which a client whose clock is off cannot change
+		return today.Date, nil
+	}
+	return d.Now().In(loc).Format(time.DateOnly), nil
 }
 
 // OfCompanies is today's date of a run over the companies, by their codes:

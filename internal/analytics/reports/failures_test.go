@@ -581,6 +581,21 @@ func (s stopsAfterWrite) Put(ctx context.Context, key string, body []byte, opts 
 	return errStore
 }
 
+// objects are the result files the store holds.
+func (e stored) objects(t *testing.T) []string {
+	t.Helper()
+	var objects []string
+	if err := filepath.WalkDir(e.root, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".json") {
+			objects = append(objects, p)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return objects
+}
+
 // TestSchedulerKeepsTheResultsStoredBefore: results an attempt stored and
 // never kept are the day's: the next round keeps its run on them, with
 // their digest, and the store holds one object of the day, not one no
@@ -602,15 +617,7 @@ func TestSchedulerKeepsTheResultsStoredBefore(t *testing.T) {
 	if len(runs) != 1 {
 		t.Fatalf("runs: got %d, want 1", len(runs))
 	}
-	var objects []string
-	if err := filepath.WalkDir(e.root, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".json") {
-			objects = append(objects, p)
-		}
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
+	objects := e.objects(t)
 	if len(objects) != 1 {
 		t.Fatalf("objects: got %v, want the day's one", objects)
 	}
@@ -650,7 +657,7 @@ func TestSchedulerResultsStoredBeforeUnusable(t *testing.T) {
 		want  string
 	}{
 		"unreadable":     {takenKey{unreadable: true}, errStore.Error()},
-		"not a report's": {takenKey{}, "not a report's"},
+		"not a report's": {takenKey{}, "are not report"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := withObjects(t)
@@ -666,5 +673,44 @@ func TestSchedulerResultsStoredBeforeUnusable(t *testing.T) {
 				t.Errorf("runs: got %v, want none", runs)
 			}
 		})
+	}
+}
+
+// TestSchedulerLabelsTheResultsItKeeps: results an attempt stored under
+// another definition (or another access: the label covers both) are not
+// the next round's: it stores and keeps its own, so a run is never read
+// under a label its results were not computed with (review:batch77).
+func TestSchedulerLabelsTheResultsItKeeps(t *testing.T) {
+	e := withObjects(t)
+	id := e.scheduled(t)
+	stopped := *e.s
+	rep := *stopped.Reports
+	rep.Objects = stopsAfterWrite{blobstore.Dir{Root: e.root}}
+	stopped.Reports = &rep
+	if _, err := stopped.RunOnce(context.Background()); !errors.Is(err, errStore) {
+		t.Fatalf("the stopped round: got %v, want %v", err, errStore)
+	}
+	pgtest.Exec(t, `UPDATE analytics.report SET spec = jsonb_set(spec, '{commentary}', '"Changed meanwhile."'), version = version + 1 WHERE id = $1`, id)
+	if _, err := e.s.RunOnce(context.Background()); err != nil {
+		t.Fatalf("round: %v", err)
+	}
+	runs := e.runs(t, id)
+	if len(runs) != 1 {
+		t.Fatalf("runs: got %d, want 1", len(runs))
+	}
+	objects := e.objects(t)
+	if len(objects) != 2 {
+		t.Fatalf("objects: got %v, want the stopped attempt's and the kept run's", objects)
+	}
+	for _, o := range objects {
+		body, err := os.ReadFile(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(body)
+		kept := fmt.Sprint(runs[0]["sha256"]) == hex.EncodeToString(sum[:])
+		if changed := strings.Contains(string(body), "Changed meanwhile."); kept != changed {
+			t.Errorf("object %s: kept %v, of the changed definition %v; want the run kept on the changed definition's alone", o, kept, changed)
+		}
 	}
 }

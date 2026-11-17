@@ -138,7 +138,7 @@ advisory lock of the report, so replicas never run one report at once:
   database, a busy server) leaves the day due for the next round.
 - A run that succeeds keeps its specification and results as one JSON
   object written once to object storage under the tenant
-  (`report-runs/<report id>/<run date>.json` since 2026-11-17, before
+  (`report-runs/<report id>/<run date>/<label>.json` since 2026-11-17, before
   `report-runs/<run id>.json`), recorded with its SHA-256, which every
   read compares (409 `analytics.report_run_changed` when the bytes differ).
 - A run is recorded once per report and day (`report_run_once`): a second
@@ -439,10 +439,16 @@ write took. Never two runs of a day (`report_run_once`).
 
 **One object per report and day (2026-11-17, batch 77 review).** The
 results are stored under the day's key, `report-runs/<report id>/<run
-date>.json`, no longer the run's id: an attempt that stored them and was
-not kept (a replica that stopped after the write, or one whose day another
-replica kept meanwhile) left an object no run named. A write that finds
-the key taken (`blobstore.ErrExists`) takes the results there as the
-day's, and the run keeps them with their SHA-256 and data date; results
-there that cannot be read, or are no report's, leave the day due. Runs
-kept before keep the keys they were kept with.
+date>/<label>.json`, no longer the run's id: an attempt that stored them
+and was not kept (a replica that stopped after the write, or one whose day
+another replica kept meanwhile) left an object no run named. The label is
+a digest of what the results are computed from and read under: the
+report's specification and queries and the run's companies and
+permissions (§7). A write that finds the key taken (`blobstore.ErrExists`)
+takes the results there as the day's, made under the same label, and the
+run keeps them with their SHA-256 and data date; results there that cannot
+be read, or are not the report's, leave the day due. An attempt under
+another definition or access stores and keeps its own, so a run is never
+read under a label its results were not made with; the earlier attempt's
+object is then left unreferenced, as before. Runs kept before keep the keys
+they were kept with.

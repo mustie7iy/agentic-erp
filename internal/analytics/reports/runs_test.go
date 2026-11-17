@@ -156,7 +156,11 @@ func TestScheduledRun(t *testing.T) {
 		}
 	}
 	e.Problem(422, "analytics.unknown_query", "GET", "/v1/report-runs/"+runID+"?format=xlsx&query_id=nope", "", "")
-	path := filepath.Join(e.root, filepath.FromSlash(blobstore.Key(e.Tenant.ID, blobstore.KindReportRuns, id+"/"+today+".json")))
+	paths, _ := filepath.Glob(filepath.Join(e.root, filepath.FromSlash(blobstore.Key(e.Tenant.ID, blobstore.KindReportRuns, id+"/"+today)), "*.json")) // a fixed pattern
+	if len(paths) != 1 {
+		t.Fatalf("stored results: got %v, want the day's one", paths)
+	}
+	path := paths[0]
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}

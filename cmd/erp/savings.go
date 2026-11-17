@@ -18,7 +18,7 @@ import (
 func agentSavings(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("agent savings", flag.ContinueOnError)
 	company := fs.String("company", "", "company code")
-	period := fs.String("period", "", "FROM..TO, YYYY-MM-DD..YYYY-MM-DD (default: the year to today, UTC)")
+	period := fs.String("period", "", "FROM..TO, YYYY-MM-DD..YYYY-MM-DD (default: the year to today in the company's time zone)")
 	limit := fs.Int("max", savingsagent.MaxOpportunities, "the most recommendations the run makes")
 	if err := parseFlags(fs, args); err != nil {
 		return err
