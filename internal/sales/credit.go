@@ -294,23 +294,28 @@ func (e *Endpoints) creditCheck(ctx context.Context, tx pgx.Tx, o Order, le tena
 	if c.gross, c.amount, err = v.value(ctx, openOrder{Number: o.DocumentNumber, Date: o.OrderDate, Currency: o.Currency, Lines: lines}); err != nil {
 		return checked{}, err
 	}
-	return c, e.creditDecision(ctx, tx, o, le, &c, true)
+	if err := e.askCredit(ctx, o, le, &c); err != nil {
+		return checked{}, err
+	}
+	return c, companyExponent(ctx, tx, le, &c)
 }
 
-// creditDecision asks credit whether c's amount is within the order's customer's
-// limit, when ask says to, blocks c when it is not, and gives c the
-// company currency's minor-unit digits the audit record writes its
-// amounts in.
-func (e *Endpoints) creditDecision(ctx context.Context, tx pgx.Tx, o Order, le tenancy.Entity, c *checked, ask bool) error {
-	if ask {
-		var err error
-		if c.answer, err = e.Credit.Check(ctx, le.ID, o.CustomerID, c.amount); err != nil {
-			return fmt.Errorf("sales: credit check of sales order %s: %w", o.DocumentNumber, err)
-		}
-		if !c.answer.Within {
-			c.block = Blocked
-		}
+// askCredit asks credit whether c's amount is within the order's
+// customer's limit and blocks c when it is not.
+func (e *Endpoints) askCredit(ctx context.Context, o Order, le tenancy.Entity, c *checked) error {
+	var err error
+	if c.answer, err = e.Credit.Check(ctx, le.ID, o.CustomerID, c.amount); err != nil {
+		return fmt.Errorf("sales: credit check of sales order %s: %w", o.DocumentNumber, err)
 	}
+	if !c.answer.Within {
+		c.block = Blocked
+	}
+	return nil
+}
+
+// companyExponent gives c the company currency's minor-unit digits, in
+// which the audit record writes the check's amounts.
+func companyExponent(ctx context.Context, tx pgx.Tx, le tenancy.Entity, c *checked) error {
 	exp, err := currency.Exponent(ctx, tx, le.LocalCurrency, nil) // a legal entity's currency exists
 	if err != nil {
 		return fmt.Errorf("sales: currency of company %s: %w", le.Code, err)
@@ -346,7 +351,12 @@ func (e *Endpoints) increaseCheck(ctx context.Context, tx pgx.Tx, o Order, after
 		}
 	}
 	c.amount = inCompany[1] - inCompany[0] // two amounts in range, neither negative
-	return c, e.creditDecision(ctx, tx, o, le, &c, c.amount > 0)
+	if c.amount > 0 {                      // a change that does not raise the value in the company's currency takes no room
+		if err := e.askCredit(ctx, o, le, &c); err != nil {
+			return checked{}, err
+		}
+	}
+	return c, companyExponent(ctx, tx, le, &c)
 }
 
 // blockedEvent is SalesOrderCreditBlocked for the confirmed order: its

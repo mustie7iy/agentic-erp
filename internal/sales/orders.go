@@ -216,6 +216,25 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	return o, true, nil
 }
 
+// Shared is Order under a share lock on the order's row (ADR-0008),
+// which the revenue context reads an order with before it makes the
+// order's contract (ADR-0067, As built T78d): a change or cancellation of
+// the order, which holds the row FOR UPDATE and then asks whether a
+// contract exists (RevenueContracts), waits for the contract's
+// transaction and then sees its contract, or the contract's reading waits
+// for the change and reads the order as it was left. The lock is taken by
+// a statement of its own, for the reason loadOrder takes its own.
+func (o Orders) Shared(ctx context.Context, id uuid.UUID) (Order, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return Order{}, false, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT FROM sales.sales_order WHERE id = $1 FOR SHARE`, id); err != nil {
+		return Order{}, false, fmt.Errorf("sales: share lock on sales order %s: %w", id, err)
+	}
+	return o.Order(ctx, id)
+}
+
 // ordered is what a new order is made of, from its quotation or from the
 // request: its company, its customer, its currency and date, its items
 // with their sum, and the request's field that names the customer.

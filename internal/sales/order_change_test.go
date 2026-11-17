@@ -357,3 +357,33 @@ func TestCancelledOrderNotReleased(t *testing.T) {
 	e.Must(200, "POST", cancelling(id), `{"reason": "Over the limit"}`, `"2"`)
 	e.Problem(409, "sales.invalid_status", "POST", "/v1/sales-orders/"+id+":releaseCreditBlock", "", `"3"`)
 }
+
+// TestOrderChangeRacingContract: a change of a confirmed order's item and
+// the creation of its revenue contract wait for one another on the
+// order's row: either the change is refused for the contract, or the
+// contract is made from the changed order. A contract never holds a value
+// the order no longer has (T78d, review round 2).
+func TestOrderChangeRacingContract(t *testing.T) {
+	e := setup(t)
+	id, _ := e.confirmed(t, e.item(line{quantity: "3"}))
+	codes := make([]int, 2)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		codes[0] = e.API.Do(apitest.Req{Method: "POST", Path: changing(id), Body: changeBody("", itemChange("1 5 EA", "")), IfMatch: `"2"`,
+			Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey()}).Code
+	})
+	wg.Go(func() {
+		codes[1] = e.API.Do(apitest.Req{Method: "POST", Path: "/v1/revenue-contracts", Body: fmt.Sprintf(`{"sales_order_id": %q}`, id),
+			Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey()}).Code
+	})
+	wg.Wait()
+	if codes[1] != 201 || (codes[0] != 200 && codes[0] != 409) {
+		t.Fatalf("statuses: got change %d, contract %d, want the contract made and the change made or refused", codes[0], codes[1])
+	}
+	var same bool
+	pgtest.Scan(t, `SELECT k.transaction_price = o.net_amount FROM revenue.contract k JOIN sales.sales_order o ON o.tenant_id = k.tenant_id AND o.id = k.sales_order_id
+		WHERE k.tenant_id = $1 AND k.sales_order_id = $2`, []any{e.Tenant.ID, id}, &same)
+	if !same {
+		t.Errorf("the contract's transaction price: got another than the order's net value (change %d), want the order's", codes[0])
+	}
+}

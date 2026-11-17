@@ -142,7 +142,7 @@ func (d *declined) problem() *problem.Problem {
 // (revenue.order_not_confirmed) and one in another currency than its
 // company's local currency (revenue.foreign_currency).
 func (e *Endpoints) basisOf(ctx context.Context, orderID uuid.UUID, allowed func(company uuid.UUID) bool) (basis, *declined, error) {
-	o, ok, err := e.SalesOrders.Order(ctx, orderID)
+	o, ok, err := e.SalesOrders.Shared(ctx, orderID)
 	if err != nil {
 		return basis{}, nil, fmt.Errorf("revenue: sales order %s of a contract: %w", orderID, err)
 	}

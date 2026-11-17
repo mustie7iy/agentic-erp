@@ -1683,7 +1683,15 @@ delivered, are the reference.
   confirmed order with a contract, draft or active, keeps its items'
   quantities and prices and is not cancelled (money rule, decided by
   default as the safer one and listed for the product owner); a draft
-  order has none.
+  order has none. Since a contract is made for every confirmed order in
+  its company's currency shortly after its confirmation, an item's
+  quantity or price in practice changes while the order is a draft, or
+  in the moments before its contract is made. The check is serialized
+  with the contract's making (ADR-0008): revenue reads the order under a
+  share lock (`sales.Orders.Shared`, revenue's `basisOf`) before it
+  inserts the contract, and a change or cancellation holds the order FOR
+  UPDATE before it asks, so one waits for the other and sees what it
+  committed (`TestOrderChangeRacingContract`).
 - `GET /v1/sales-orders/{id}/changes`: the changes by number, each with
   the order's version after it, its reason, who and when, and its net
   value, requested delivery date, credit block and items changed before
