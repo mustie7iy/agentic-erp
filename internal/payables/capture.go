@@ -97,7 +97,8 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 		if refused := capture.Refusal(err); refused != nil {
 			return operations.Operation{}, refused
 		}
-		return operations.Operation{}, unreadable(err.Error())
+		// Its cause is logged, never shown: the gateway's or the model's own words are not the caller's to read.
+		return operations.Operation{}, problem.Unprocessable("payables.unreadable_document", "The document cannot be captured: it could not be read as an invoice.").WithCause(err)
 	}
 	in, held, err := e.capturedInput(ctx, tx, legalEntity, ext)
 	if err != nil {
