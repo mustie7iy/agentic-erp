@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -146,10 +145,9 @@ const (
 
 func scanReceivable(r pgx.CollectableRow) (ReceivableItem, error) {
 	var it ReceivableItem
-	var t storedTerms
-	err := errs.Wrapf(r.Scan(append([]any{&it.FiscalYear, &it.EntryID, &it.LineNo, &it.AccountID, &it.PartnerID, &it.DocumentDate, &it.PostingDate,
-		&it.Currency, &it.Exponent, &it.Amount, &it.LocalCurrency, &it.LocalExponent, &it.AmountLC, &it.SpecialGL, &it.Number, &it.Reference,
-		&it.SourceContext, &it.SourceDocumentID}, t.fields()...)...), "scan receivable item")
-	it.Terms = t.terms()
+	var err error
+	it.Terms, err = scanWithTerms(r, "scan receivable item", []any{&it.FiscalYear, &it.EntryID, &it.LineNo, &it.AccountID, &it.PartnerID, &it.DocumentDate,
+		&it.PostingDate, &it.Currency, &it.Exponent, &it.Amount, &it.LocalCurrency, &it.LocalExponent, &it.AmountLC, &it.SpecialGL, &it.Number, &it.Reference,
+		&it.SourceContext, &it.SourceDocumentID})
 	return it, err
 }

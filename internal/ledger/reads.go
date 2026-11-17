@@ -120,10 +120,9 @@ const openItemSelect = `SELECT * FROM (SELECT l.fiscal_year, l.journal_entry_id,
 
 func scanOpenItem(row pgx.Row) (OpenItem, error) {
 	var o OpenItem
-	var t storedTerms
-	err := errs.Wrapf(row.Scan(append([]any{&o.FiscalYear, &o.EntryID, &o.LineNo, &o.ID, &o.LegalEntityID, &o.AccountID, &o.PartnerID, &o.PostingDate,
-		&o.TC, &o.LC, &o.CurrencyTC, &o.CurrencyLC, &o.ExpTC, &o.ExpLC, &o.DocumentNumber, &o.Reference, &o.SpecialGL, &o.PaymentMethod}, t.fields()...)...), "scan open item")
-	o.Terms = t.terms()
+	var err error
+	o.Terms, err = scanWithTerms(row, "scan open item", []any{&o.FiscalYear, &o.EntryID, &o.LineNo, &o.ID, &o.LegalEntityID, &o.AccountID, &o.PartnerID,
+		&o.PostingDate, &o.TC, &o.LC, &o.CurrencyTC, &o.CurrencyLC, &o.ExpTC, &o.ExpLC, &o.DocumentNumber, &o.Reference, &o.SpecialGL, &o.PaymentMethod})
 	return o, err
 }
 
