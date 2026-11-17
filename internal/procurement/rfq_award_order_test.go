@@ -54,6 +54,7 @@ func TestAwardRFQToOrder(t *testing.T) {
 			body, code, fields string
 		}{
 			"to a contract":         {awardBody(tyrells), "procurement.rfq_from_requisition", "award_to"},
+			"to nothing named":      {fmt.Sprintf(`{"quotation_id": %q}`, tyrells), "procurement.rfq_from_requisition", "award_to"},
 			"without a reason":      {orderAward(tyrells, ""), "procurement.award_reason_required", "reason"},
 			"a blank reason":        {orderAward(tyrells, `, "reason": " "`), "request.validation_failed", "reason"},
 			"a contract validity":   {orderAward(tyrells, `, "valid_from": "2026-07-01", "valid_to": "2027-06-30", "reason": "R"`), "request.validation_failed", "valid_from, valid_to"},
