@@ -11444,6 +11444,41 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "The tax agent's recommendation half still hand-writes what recommend.Agent now provides (a recommendation held to the run's object); the accounts payable exceptions agent was moved onto it in batch 77 (R6 of the batch 76 review).",
+        "r": "internal/taxagent · internal/recommend Agent · ADR-0072 as built (hardening 2)",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "API naming nits on the agents' read models: AiUsagePrincipal has no name beside its id, AiUsage has no token totals, and a Recommendation's agent_id and object_id carry no reference (R6 of the batch 76 review).",
+        "r": "api/openapi.yaml AiUsage, AiUsagePrincipal, Recommendation · getAiUsage (agents.model_call) · ADR-0050 names beside ids · T42f",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The gateway's redaction screen leaves a document block's title and context and a search_result block's title and source unredacted, though they reach the model like the text beside them (found in the batch 77 integration, reading the fail-closed change).",
+        "r": "internal/agents screen.go · ADR-0036 · ADR-0039 · internal/platform/redact",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "taxfiling prepare reads the registration FOR UPDATE where FOR NO KEY UPDATE is enough: the return it inserts references the registration, and FOR UPDATE also blocks another writer's foreign key share (R4 of the batch 76 review).",
+        "r": "internal/taxfiling prepare.go (tax.registration read) · REVIEW.md locks · BRIEF-RULES 17b",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The assets and consolidation runs repeat the same run scaffolding (lockRun, liveRun, Fail*Run, Unfinished*Runs), as do leases and revenue (basisOfRun, ordering, MaxRunContracts, recordRun): one shared runs helper (R1 of the batch 76 review, duplication).",
+        "r": "internal/assets runs.go · internal/consolidation runs.go · internal/leases · internal/revenue · CLAUDE.md helpers",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "A tenant's connector credentials resolve only under its own vault namespace, vault:<mount>/tenants/<tenant_id>/…: env:, file: and any other path, another tenant's included, are refused when written (422 integration.invalid_secret_ref) and on use (integration.secret_unavailable); SAP OData is read through the egress client (https, public addresses, 32 MiB a page) and SFTP channels dial public addresses only, the walkthrough's stand-ins apart",
         "r": "R5 B1 (batch 76 review) · product owner 2026-11-16 · ADR-0017 as built · ADR-0041 as built · internal/platform/secrets tenant.go TenantRef, ResolveTenant · internal/integration tenantSecret, checkSecretRef (connectors.go, runs.go, einvoice.go, channels.go) · internal/sap odata.go NewClient, Getter · internal/platform/egress DialControl, LoopbackDialForTests · internal/platform/sftpclient Endpoint.Control · ERP_WALKTHROUGH_SFTP · TestTenantRef, TestResolveTenant, TestConnectorsAndRunRules, TestBankChannels, TestEInvoiceProviders, TestODataEgress, TestDialControl, TestWalkthroughSFTP · walkthrough step 35 (a file: reference refused; credentials in the vault stand-in)",
