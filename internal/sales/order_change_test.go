@@ -1,6 +1,7 @@
 package sales_test
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -8,8 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/sales"
 )
 
 func changing(id string) string { return "/v1/sales-orders/" + id + ":change" }
@@ -377,7 +381,8 @@ func TestOrderChangeRacingContract(t *testing.T) {
 			Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey()}).Code
 	})
 	wg.Wait()
-	if codes[1] != 201 || (codes[0] != 200 && codes[0] != 409) {
+	// The contract may already be there if a consumer made it (409 revenue.contract_exists); the price check below is what matters.
+	if (codes[1] != 201 && codes[1] != 409) || (codes[0] != 200 && codes[0] != 409) {
 		t.Fatalf("statuses: got change %d, contract %d, want the contract made and the change made or refused", codes[0], codes[1])
 	}
 	var same bool
@@ -385,5 +390,13 @@ func TestOrderChangeRacingContract(t *testing.T) {
 		WHERE k.tenant_id = $1 AND k.sales_order_id = $2`, []any{e.Tenant.ID, id}, &same)
 	if !same {
 		t.Errorf("the contract's transaction price: got another than the order's net value (change %d), want the order's", codes[0])
+	}
+}
+
+// TestSharedOrderOutsideARequest: the share-locked read is made in a
+// request's transaction alone.
+func TestSharedOrderOutsideARequest(t *testing.T) {
+	if _, _, err := (sales.Orders{}).Shared(context.Background(), uuid.New()); err == nil {
+		t.Error("outside a unit of work: got nil error, want an error")
 	}
 }
