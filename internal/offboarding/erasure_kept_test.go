@@ -21,12 +21,15 @@ import (
 func TestErasureKeepsExportAndAnchors(t *testing.T) {
 	pool := pgtest.Pool(t)
 	clock := time.Now().UTC().Truncate(time.Second)
+	// A bank statement locked by its own retention is kept by a directory,
+	// which refuses its delete, and hidden behind a delete marker by S3.
 	cases := map[string]struct {
-		store     blobstore.Store
-		retention time.Duration
+		store            blobstore.Store
+		retention        time.Duration
+		statementDeleted bool
 	}{
-		"versioned S3 bucket under Object Lock": {blobstoretest.New(t).Store(), 24 * time.Hour},
-		"directory without retention":           {blobstore.Dir{Root: t.TempDir(), Now: func() time.Time { return clock }}, 0},
+		"versioned S3 bucket under Object Lock": {blobstoretest.New(t).Store(), 24 * time.Hour, true},
+		"directory without retention":           {blobstore.Dir{Root: t.TempDir(), Now: func() time.Time { return clock }}, 0, false},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -45,6 +48,10 @@ func TestErasureKeepsExportAndAnchors(t *testing.T) {
 					t.Fatalf("store %s: %v", key, err)
 				}
 			}
+			statement := blobstore.Key(tenant, blobstore.KindStatements, "abc")
+			if err := c.store.Put(ctx, statement, []byte("{}"), blobstore.PutOptions{RetainUntil: clock.Add(time.Hour)}); err != nil {
+				t.Fatalf("store the statement: %v", err)
+			}
 			pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'offboarded', version = version + 1 WHERE id = $1`, tenant)
 			ex, err := w.Export(ctx, tenant)
 			if err != nil {
@@ -58,11 +65,17 @@ func TestErasureKeepsExportAndAnchors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("erase: %v", err)
 			}
-			if want := len(exported) + 1; er.Kept != want {
-				t.Errorf("kept: got %d, want %d (the export's objects and the anchor)", er.Kept, want)
+			wantKept, wantDeleted := len(exported)+1, 1 // the export's objects and the anchor; the document
+			if c.statementDeleted {
+				wantDeleted++
+			} else {
+				wantKept++
 			}
-			if er.Objects != 1 {
-				t.Errorf("deleted: got %d, want 1 (the document)", er.Objects)
+			if er.Kept != wantKept {
+				t.Errorf("kept: got %d, want %d", er.Kept, wantKept)
+			}
+			if er.Objects != wantDeleted {
+				t.Errorf("deleted: got %d, want %d", er.Objects, wantDeleted)
 			}
 			for _, key := range append(exported, anchor, ex.Ref) {
 				if _, _, err := c.store.Get(ctx, key); err != nil {
