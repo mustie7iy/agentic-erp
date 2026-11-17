@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -206,11 +207,7 @@ func (e *Endpoints) PlaceBlock(ctx context.Context, in BlockInput) (Block, error
 // block would hold for no run started from now on, or after LastKeyDate,
 // the latest key date of a run.
 func (e *Endpoints) blockEnd(ctx context.Context, le tenancy.Entity, validTo time.Time) error {
-	doc, _, err := e.Settings.Document(ctx)
-	if err != nil {
-		return fmt.Errorf("collections: company %s's day: %w", le.Code, err)
-	}
-	today, err := doc.CompanyDay(le.Code, clock.Now(e.Now))
+	today, err := config.DocumentDay(ctx, e.Settings, le.Code, clock.Now(e.Now))
 	if err != nil {
 		return fmt.Errorf("collections: company %s's day: %w", le.Code, err)
 	}
