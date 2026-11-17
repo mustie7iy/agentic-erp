@@ -594,6 +594,10 @@ func (sc *failuresScenario) erasureStoreFailures(t *testing.T) {
 	sc.broken = worker(t, sc.pool, brokenEraser{Store: sc.store, list: errors.New("list down")}, sc.clock)
 	_, err = sc.broken.Erase(sc.ctx, sc.tenant, offboarding.Actor, nil)
 	pgtest.WantErr(t, err, "list down")
+	// A document to delete: the export alone is kept, never deleted.
+	if err := sc.store.Put(sc.ctx, blobstore.Key(sc.tenant, blobstore.KindDocuments, "abc"), []byte("%PDF"), blobstore.PutOptions{}); err != nil {
+		t.Fatalf("store a document: %v", err)
+	}
 	sc.broken = worker(t, sc.pool, brokenEraser{Store: sc.store, del: errors.New("delete down")}, sc.clock)
 	_, err = sc.broken.Erase(sc.ctx, sc.tenant, offboarding.Actor, nil)
 	pgtest.WantErr(t, err, "delete down")

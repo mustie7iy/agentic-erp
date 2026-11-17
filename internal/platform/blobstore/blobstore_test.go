@@ -299,9 +299,33 @@ func TestStatAndPresignedUploads(t *testing.T) {
 	}
 }
 
-// TestListAndDelete: both stores list a prefix and delete objects, and
-// refuse to delete one whose retention holds (the one deletion the
-// platform makes is the erasure of an offboarded tenant).
+// lockedDelete checks the answer to a DELETE of a locked object: a
+// directory refuses it; a versioned S3 bucket writes a delete marker, so
+// the key reads as missing while its locked version stays.
+func lockedDelete(t *testing.T, name string, srv *blobstoretest.Server, key string, err error) {
+	t.Helper()
+	if name == "dir" {
+		if !errors.Is(err, blobstore.ErrLocked) {
+			t.Fatalf("dir: delete of a locked object: got %v, want ErrLocked", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("s3: delete of a locked object: got %v, want a delete marker", err)
+	}
+	if _, current := srv.Object(key); current {
+		t.Errorf("s3: got the locked object still current, want it behind a delete marker")
+	}
+	if v := srv.Versions(key); len(v) != 1 || v[0].RetainUntil == "" {
+		t.Errorf("s3: got versions %v, want the locked version kept", v)
+	}
+}
+
+// TestListAndDelete: both stores list a prefix and delete objects; a
+// directory refuses to delete one whose retention holds, and S3 hides it
+// behind a delete marker and keeps its version (the one deletion the
+// platform makes is the erasure of an offboarded tenant, which therefore
+// leaves the objects it must keep alone).
 func TestListAndDelete(t *testing.T) {
 	ctx := context.Background()
 	clock := time.Now()
@@ -349,15 +373,9 @@ func TestListAndDelete(t *testing.T) {
 			if _, err := store.List(ctx, "../"); err == nil {
 				t.Fatalf("%s: listed a bad prefix", name)
 			}
-			err = store.Delete(ctx, tenant+"/audit/anchors/000000000001.json")
-			if !errors.Is(err, blobstore.ErrLocked) {
-				t.Fatalf("%s: deleted a locked object: %v", name, err)
-			}
-			// From S3, the store's refusal stays in the chain behind ErrLocked.
-			var both interface{ Unwrap() []error }
-			if name == "s3" && (!errors.As(err, &both) || len(both.Unwrap()) != 2) {
-				t.Errorf("%s: got %v, want ErrLocked wrapping the store's refusal", name, err)
-			}
+			anchor := tenant + "/audit/anchors/000000000001.json"
+			err = store.Delete(ctx, anchor)
+			lockedDelete(t, name, srv, anchor, err)
 			for _, k := range []string{"/documents/a", "/documents/b", "/bank-files/f.xml", "/uploads/u1", "/uploads/u1"} { // the last one twice: nothing to do
 				if err := store.Delete(ctx, tenant+k); err != nil {
 					t.Fatalf("%s: delete %s: %v", name, k, err)
@@ -367,14 +385,14 @@ func TestListAndDelete(t *testing.T) {
 				t.Fatalf("%s: deleted a bad key", name)
 			}
 			keys, _ = store.List(ctx, tenant+"/")
-			if len(keys) != 1 || !strings.Contains(keys[0], "anchors") {
-				t.Fatalf("%s: after deletes: %v", name, keys)
+			if want := map[string]int{"dir": 1, "s3": 0}[name]; len(keys) != want {
+				t.Fatalf("%s: after deletes: got %v, want %d keys (the locked anchor in a directory)", name, keys, want)
 			}
 			if _, _, err := st.Get(ctx, tenant+"-other/documents/c"); err != nil {
 				t.Fatalf("%s: the other tenant's object went: %v", name, err)
 			}
 			clock = clock.Add(2 * time.Hour) // the retention ends
-			if err := store.Delete(ctx, tenant+"/audit/anchors/000000000001.json"); err != nil {
+			if err := store.Delete(ctx, anchor); err != nil {
 				t.Fatalf("%s: delete after retention: %v", name, err)
 			}
 			clock = clock.Add(-2 * time.Hour)

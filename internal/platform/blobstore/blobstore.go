@@ -35,7 +35,8 @@ var (
 	ErrExists = errors.New("blobstore: object exists")
 	// ErrNotFound is returned by Get when the key holds nothing.
 	ErrNotFound = errors.New("blobstore: object not found")
-	// ErrLocked is returned by Delete while the object's retention holds.
+	// ErrLocked is returned by Dir's Delete while the object's retention
+	// holds.
 	ErrLocked = errors.New("blobstore: object is locked")
 )
 
@@ -59,8 +60,11 @@ type Store interface {
 
 // Eraser is a store that can list and delete a tenant's objects, for the
 // one deletion the platform makes: the erasure of an offboarded tenant
-// (ADR-0021). Locked objects (anchors, exports) stay: Delete returns
-// ErrLocked for them until their retention ends.
+// (ADR-0021). Dir's Delete returns ErrLocked for a locked object until its
+// retention ends; S3's hides it behind a delete marker and keeps the
+// locked version (S3.Delete), so a lock does not keep an object readable
+// and the erasure leaves the objects that must stay (anchors, exports)
+// alone.
 type Eraser interface {
 	// List returns the keys below prefix (a key prefix ending in "/" lists a
 	// directory; without it, keys starting with the prefix).

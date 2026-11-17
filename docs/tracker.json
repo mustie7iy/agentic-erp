@@ -7072,6 +7072,13 @@
           "r": "internal/offboarding exportTable, tenantTable.order (primary key from pg_index; the row's text without one) · TestResumedExportReadsInKeyOrder · TestExportOrder · ADR-0021",
           "src": "review:batch76",
           "c": []
+         },
+         {
+          "s": "D",
+          "t": "The erasure never deletes the tenant's export or its audit anchors and counts them kept: a versioned S3 bucket under Object Lock answers a DELETE without a version with a delete marker, so they vanished from reads (the export could not be reinstated, the verifier reported tampering), and a store without retention deleted them outright; production refuses ERP_OBJECT_RETENTION 0 or shorter than ERP_OFFBOARD_GRACE, and the S3 test double answers a DELETE of a locked object as S3 does (R2 B1 of the batch 77 review).",
+          "r": "offboarding eraseObjects · blobstore.S3.Delete · blobstoretest (delete markers, Versions) · config checkRetention · TestErasureKeepsExportAndAnchors · TestListAndDelete · TestProductionFailsClosed · ADR-0021 As built 2026-11-17",
+          "src": "review:batch77",
+          "c": []
          }
         ]
        },

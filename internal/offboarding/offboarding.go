@@ -76,7 +76,7 @@ type Export struct {
 type Erasure struct {
 	Rows     map[string]int64 `json:"rows"`    // deleted, per table
 	Objects  int              `json:"objects"` // deleted from the tenant's prefix by the round that completed the erasure
-	Kept     int              `json:"kept"`    // objects whose retention holds (anchors, exports)
+	Kept     int              `json:"kept"`    // objects left: the export and the anchors, and any other whose retention holds
 	ErasedAt time.Time        `json:"erased_at"`
 }
 
@@ -507,8 +507,18 @@ func recordErasure(ctx context.Context, tx pgx.Tx, tenant, actor uuid.UUID, deta
 }
 
 // eraseObjects deletes the tenant's objects and its analytical store
-// (ADR-0044; its pointer rows go with the tenant's rows), keeping those
-// objects whose retention holds (anchors, exports) and counting them.
+// (ADR-0044; its pointer rows go with the tenant's rows), keeping and
+// counting its export and its audit anchors, which it never deletes, and
+// any other object whose retention holds.
+//
+// The export and the anchors are kept by the erasure itself, not by the
+// store's lock: a versioned S3 bucket under Object Lock answers a DELETE
+// without a version with a delete marker, so the object would vanish from
+// reads while its version stays locked, and a store without retention
+// (ERP_OBJECT_RETENTION 0, a directory in development) would delete it
+// outright. Either way the export could not be reinstated (import.go) and
+// the verifier would find the chain's anchors gone and report tampering
+// (ADR-0021 As built, coordinator 2026-11-17).
 func (w *Worker) eraseObjects(ctx context.Context, tenant uuid.UUID) (deleted, kept int, err error) {
 	eraser, ok := w.Store.(blobstore.Eraser)
 	if !ok {
@@ -522,7 +532,12 @@ func (w *Worker) eraseObjects(ctx context.Context, tenant uuid.UUID) (deleted, k
 		}
 		keys = append(keys, listed...)
 	}
+	keep := []string{blobstore.Key(tenant, blobstore.KindExports, ""), blobstore.Key(tenant, blobstore.KindAnchors, "")}
 	for _, key := range keys {
+		if strings.HasPrefix(key, keep[0]) || strings.HasPrefix(key, keep[1]) {
+			kept++
+			continue
+		}
 		switch err := eraser.Delete(ctx, key); {
 		case errors.Is(err, blobstore.ErrLocked):
 			kept++

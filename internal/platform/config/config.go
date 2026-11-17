@@ -735,8 +735,23 @@ func checkEnvironment(c Config) []error {
 	if c.AuditVerify == 0 {
 		errs = append(errs, errors.New("ERP_AUDIT_VERIFY_INTERVAL must not be 0 with ERP_ENV=production: audit chains would go unverified against their anchors"))
 	}
+	errs = append(errs, checkRetention(c)...)
 	errs = append(errs, checkAtRest(c)...)
 	return append(errs, checkTransport(c)...)
+}
+
+// checkRetention refuses, in production, an object lock that is off or
+// ends before an offboarded tenant's erasure: the audit anchors and the
+// export are evidence, and an export must outlive the grace period it is
+// kept for (ADR-0016, ADR-0021 As built, coordinator 2026-11-17).
+func checkRetention(c Config) []error {
+	switch {
+	case c.Objects.Retention == 0:
+		return []error{errors.New("ERP_OBJECT_RETENTION must not be 0 with ERP_ENV=production: audit anchors and tenant exports would not be locked (ADR-0016)")}
+	case c.Objects.Retention < c.OffboardGrace:
+		return []error{errors.New("ERP_OBJECT_RETENTION must not be shorter than ERP_OFFBOARD_GRACE with ERP_ENV=production: a tenant's export would lose its lock before the tenant is erased (ADR-0021)")}
+	}
+	return nil
 }
 
 // checkAtRest refuses, in production, a store whose encryption at rest is
