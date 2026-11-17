@@ -92,6 +92,19 @@ func TestReleaseHoldsItsPeriodOpen(t *testing.T) {
 	// the period closed while the run is releasing: it is not locked.
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE id = $1`, period)
 	refused("lock")
+	// The close's and the year close's sign-offs lock through the app's
+	// own wiring of the port (app.Closing), refused alike: one wired
+	// without it would fail with a 500, not this 409.
+	err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		p, err := ledger.GetPeriod(ctx, period)
+		if err != nil {
+			return err
+		}
+		return app.Closing(app.Config{}).Ledger.Lock(ctx, period, p.Version)
+	})
+	if got := problem.From(err).Code; got != "ledger.payment_release_pending" {
+		t.Errorf("sign-off's lock: got %v, want ledger.payment_release_pending", err)
+	}
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'open', version = version + 1 WHERE id = $1`, period)
 
 	e.resumed(t, run)

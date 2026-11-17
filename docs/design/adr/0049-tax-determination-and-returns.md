@@ -1183,7 +1183,10 @@ companies (all in the tenant, under RLS). A registration change is financial
     through `ledger.ReturnPeriods.Lock` (`lockFiscalPeriod`'s change,
     audited, `PeriodLocked`), the filer's `tax.return.file` sufficing,
     as the lock is filing's consequence here; those already locked are
-    left.
+    left. A lock is refused, and the filing with it (409
+    `ledger.payment_release_pending`), while a payment run of the company
+    releases in the period with payments not posted yet (ADR-0038 as
+    built, review batch 77).
   - **Approval** through the approvals context: object type
     `tax_return`, approval permission `tax.return.approve` (agents hold
     none), one approval by the fixed role `tax_manager`

@@ -652,6 +652,8 @@ cursor-paged with filters, 04 §4.5):
   (from `Park`), `ledger.not_entry_owner` and
   `ledger.invalid_parked_status` (from `Cancel`),
   `identity.permission_missing`, `ledger.invalid_period_status` (a lock refused),
+  `ledger.payment_release_pending` (a lock refused while a payment run
+  releases in the period, ADR-0038 as built, review batch 77),
   `agents.not_an_agent`, `agents.not_your_session`,
   `agents.session_ended`, `request.version_mismatch`,
   `request.invalid_amount`, `config.not_bootstrapped`.
