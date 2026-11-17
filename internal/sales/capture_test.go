@@ -240,6 +240,9 @@ func TestCaptureOrderRefusals(t *testing.T) {
 			if c.field != "" && field(got) != c.field {
 				t.Errorf("field: got %v, want %s", field(got), c.field)
 			}
+			if detail, _ := got["detail"].(string); strings.Contains(detail, "valid JSON") { // a type assertion that fails leaves "", which passes
+				t.Errorf("detail: got %q, want the reader's own words kept out of it", detail)
+			}
 			if n := e.count(t, `SELECT count(*) FROM sales.sales_order WHERE tenant_id = $1`); n != 0 {
 				t.Errorf("orders: got %d, want none", n)
 			}

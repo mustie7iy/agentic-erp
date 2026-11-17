@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 )
 
 // ebicsSettings are valid bank_ebics settings as the API decodes them.
@@ -31,7 +32,7 @@ func TestEBICSRefusedInProduction(t *testing.T) {
 	err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
 		create := func(h *integration.Endpoints, name string) (gen.CreateConnectorRes, error) {
 			return h.CreateConnector(ctx, &gen.ConnectorCreate{Kind: integration.BankEBICS, Name: name, Settings: ebicsSettings(),
-				SecretRef: gen.NewOptString("env:EBICS_KEYS")}, gen.CreateConnectorParams{})
+				SecretRef: gen.NewOptString(vaulttest.TenantRef(f.Tenant.ID, "ebics"))}, gen.CreateConnectorParams{})
 		}
 		if _, err := create(production, "EBICS refused"); problem.From(err).Code != "integration.ebics_not_certified" {
 			t.Errorf("create in production: got %v, want integration.ebics_not_certified", err)

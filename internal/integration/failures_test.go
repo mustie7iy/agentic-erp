@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -172,7 +173,7 @@ func failureCalls(h *integration.Endpoints, e env, r failureRuns) map[string]fun
 	return map[string]func(ctx context.Context) error{
 		"create connector": func(ctx context.Context) error {
 			_, err := h.CreateConnector(ctx, &gen.ConnectorCreate{Kind: "email", Name: "Mail", Settings: gen.ConnectorCreateSettings{},
-				SecretRef: gen.NewOptString("env:X")}, gen.CreateConnectorParams{})
+				SecretRef: gen.NewOptString(vaulttest.TenantRef(e.Tenant.ID, "mail"))}, gen.CreateConnectorParams{})
 			return err
 		},
 		"get connector": func(ctx context.Context) error {

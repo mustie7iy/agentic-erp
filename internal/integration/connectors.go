@@ -276,8 +276,8 @@ func checkODataSettings(settings map[string]any) error {
 	}
 	b, ok := settings["base_url"].(string)
 	u, err := url.Parse(b)
-	if !ok || err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return problem.Invalid("integration.invalid_settings", "settings.base_url", "The SAP system's base URL, for example https://sap.example.com.")
+	if !ok || err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return problem.Invalid("integration.invalid_settings", "settings.base_url", "The SAP system's base URL, https, without credentials, for example https://sap.example.com.")
 	}
 	if c, ok := settings["client"]; ok {
 		if _, isString := c.(string); !isString {
@@ -315,6 +315,9 @@ func CreateConnector(ctx context.Context, in NewConnector) (Connector, error) {
 		return Connector{}, problem.Invalid("integration.unknown_kind", "kind", "A connector kind of the contract.")
 	}
 	if err := checkSettings(in.Kind, in.Settings); err != nil {
+		return Connector{}, err
+	}
+	if err := checkSecretRef(in.SecretRef, p.TenantID); err != nil {
 		return Connector{}, err
 	}
 	c, err := scanConnector(tx.QueryRow(ctx, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
@@ -356,6 +359,9 @@ func UpdateConnector(ctx context.Context, id uuid.UUID, ifMatch func(int32) erro
 		c.Settings = ch.Settings
 	}
 	if ch.SecretRef != nil {
+		if err := checkSecretRef(*ch.SecretRef, p.TenantID); err != nil {
+			return Connector{}, err
+		}
 		c.SecretRef = *ch.SecretRef
 	}
 	updated, err := scanConnector(tx.QueryRow(ctx, `UPDATE integration.connector SET name = $2, settings = $3, secret_ref = $4, version = version + 1,

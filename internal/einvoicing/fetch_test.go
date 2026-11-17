@@ -30,7 +30,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
-	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
@@ -66,8 +66,7 @@ func setup(t *testing.T) *scene {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vars := map[string]string{"PROVIDER_TOKEN": "tok"}
-	s.cfg = app.Config{Secrets: secrets.Local{Getenv: func(n string) string { return vars[n] }}, Objects: s.store, Providers: client, Pages: pages}
+	s.cfg = app.Config{Secrets: vaulttest.ByPath{"provider": "tok"}, Objects: s.store, Providers: client, Pages: pages}
 	s.e = app.EInvoicing(s.cfg)
 	s.connector = s.conn(t, "Provider", s.srv.URL, "active")
 	t.Cleanup(func() { // the test carries out its own fetches, never another package's runner
@@ -83,8 +82,8 @@ func (s *scene) conn(t *testing.T, name, base, status string) uuid.UUID {
 	id := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
 		VALUES ($1, $2, 'einvoice_provider', $3, jsonb_build_object('adapter', 'standin', 'base_url', $4::text, 'format', 'pint_ae',
-		'participants', jsonb_build_object('1000', $5::text, '2000', $6::text)), 'env:PROVIDER_TOKEN', $7, $8, $8)`,
-		s.f.Tenant.ID, id, name, base, usParticipant, deParticipant, status, s.f.Tenant.Human.ID)
+		'participants', jsonb_build_object('1000', $5::text, '2000', $6::text)), $9, $7, $8, $8)`,
+		s.f.Tenant.ID, id, name, base, usParticipant, deParticipant, status, s.f.Tenant.Human.ID, vaulttest.TenantRef(s.f.Tenant.ID, "provider"))
 	return id
 }
 

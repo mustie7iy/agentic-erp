@@ -11445,6 +11445,13 @@
        },
        {
         "s": "D",
+        "t": "A tenant's connector credentials resolve only under its own vault namespace, vault:<mount>/tenants/<tenant_id>/…: env:, file: and any other path, another tenant's included, are refused when written (422 integration.invalid_secret_ref) and on use (integration.secret_unavailable); SAP OData is read through the egress client (https, public addresses, 32 MiB a page) and SFTP channels dial public addresses only, the walkthrough's stand-ins apart",
+        "r": "R5 B1 (batch 76 review) · product owner 2026-11-16 · ADR-0017 as built · ADR-0041 as built · internal/platform/secrets tenant.go TenantRef, ResolveTenant · internal/integration tenantSecret, checkSecretRef (connectors.go, runs.go, einvoice.go, channels.go) · internal/sap odata.go NewClient, Getter · internal/platform/egress DialControl, LoopbackDialForTests · internal/platform/sftpclient Endpoint.Control · ERP_WALKTHROUGH_SFTP · TestTenantRef, TestResolveTenant, TestConnectorsAndRunRules, TestBankChannels, TestEInvoiceProviders, TestODataEgress, TestDialControl, TestWalkthroughSFTP · walkthrough step 35 (a file: reference refused; credentials in the vault stand-in)",
+        "src": "review:batch76 · po:2026-11-16",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "A migration run's new supplier may have its first bank account start on UTC's day minus one, so that on a cutover evening in Toronto a payment run dated on the company's day finds it; only partner.Migration.Create, for the partner that call creates, and never two days back; people, agents, the API and a later change to an existing partner keep the backdating control; the walkthrough dates its payment runs on the company's day and no longer stops on New Year's Eve",
         "r": "product owner 2026-11-02 (option A) · ADR-0051 as built (the migration's bank accounts on a cutover evening) · internal/partner migration.go backdating (unexported), Migration.Create → createPartner/applyChange · changes.go sealBanks, applyCreate/insertBank · internal/integration banks.go supplierBank · TestMigrationBackdating · TestCutoverEveningBankAccount · TestWalkthroughDates · 03-data-model (bank accounts) · docs/migration.md · walkthrough step 7 (run on the company's day)",
         "src": "po:2026-11-02 · review:batch37",

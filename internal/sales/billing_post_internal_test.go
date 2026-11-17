@@ -72,3 +72,25 @@ func TestAsBilling(t *testing.T) {
 		}
 	})
 }
+
+// TestFieldsOfCaptureCopies: a refusal of the captured order names the
+// capture request's fields; the problem it was made from is not changed,
+// and another error passes as it is.
+func TestFieldsOfCaptureCopies(t *testing.T) {
+	p := problem.Unprocessable("sales.account_not_postable", "Not postable.",
+		problem.FieldError{Field: "items[0].account_id", Code: "invalid"}, problem.FieldError{Field: "items[1].quantity", Code: "invalid"})
+	var got *problem.Problem
+	if !errors.As(fieldsOfCapture(p), &got) {
+		t.Fatal("got no problem, want one")
+	}
+	if got.Errors[0].Field != "account_id" || got.Errors[1].Field != "items[1].quantity" {
+		t.Errorf("fields: got %s and %s, want account_id and items[1].quantity", got.Errors[0].Field, got.Errors[1].Field)
+	}
+	if p.Errors[0].Field != "items[0].account_id" {
+		t.Errorf("the original's field: got %s, want items[0].account_id unchanged", p.Errors[0].Field)
+	}
+	other := errors.New("not a problem")
+	if err := fieldsOfCapture(other); err != other { //nolint:errorlint // the very error passed, unwrapped, is what is checked
+		t.Errorf("another error: got %v, want it as it is", err)
+	}
+}

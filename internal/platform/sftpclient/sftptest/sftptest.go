@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient"
 )
 
@@ -121,9 +122,10 @@ func (s *Server) HostKey() string {
 	return string(ssh.MarshalAuthorizedKey(s.HostSigners[0].PublicKey()))
 }
 
-// Endpoint is the server's root directory, signed in to as erp.
+// Endpoint is the server's root directory, signed in to as erp, dialled
+// to loopback as only a test may (egress.LoopbackDialForTests).
 func (s *Server) Endpoint(client ssh.Signer) sftpclient.Endpoint {
-	return sftpclient.Endpoint{Addr: s.Addr, User: "erp", HostKey: s.HostSigners[0].PublicKey(), Signer: client, Dir: "/"}
+	return sftpclient.Endpoint{Addr: s.Addr, User: "erp", HostKey: s.HostSigners[0].PublicKey(), Signer: client, Dir: "/", Control: egress.LoopbackDialForTests}
 }
 
 func (s *Server) serve() {

@@ -18,6 +18,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -32,6 +33,11 @@ type Endpoint struct {
 	Dir     string        // the directory the bank collects from
 	Inbound string        // the directory the bank leaves statements in; "": it sends none (T49d)
 	Archive string        // the directory fetched statements are moved to
+	// Control judges every address dialled (a net.Dialer Control): the
+	// server is a tenant's, so egress.DialControl's, which refuses
+	// addresses that are not public. An endpoint without one is never
+	// dialled.
+	Control func(network, address string, c syscall.RawConn) error
 }
 
 // ParseHostKey reads a server's public key in authorized_keys form, for
@@ -160,7 +166,10 @@ func (e Endpoint) session(ctx context.Context, fn func(*sftp.Client) error) erro
 	if e.HostKey == nil || e.Signer == nil {
 		return fmt.Errorf("sftpclient: %s has no pinned host key or no client key", e.Addr) // fail closed, never trust on first use
 	}
-	var d net.Dialer
+	if e.Control == nil {
+		return fmt.Errorf("sftpclient: %s has no dial control", e.Addr) // fail closed: an address never judged could be the cell's own network
+	}
+	d := net.Dialer{Control: e.Control}
 	conn, err := d.DialContext(ctx, "tcp", e.Addr)
 	if err != nil {
 		return fmt.Errorf("sftpclient: connect to %s: %w", e.Addr, err)

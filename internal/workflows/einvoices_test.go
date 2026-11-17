@@ -24,7 +24,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
-	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
 
@@ -58,13 +58,13 @@ func einvoiceSetup(t *testing.T) *einvoiceScenario {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.cfg = app.Config{Secrets: secrets.Local{Getenv: func(string) string { return "tok" }}, Objects: blobstore.Dir{Root: t.TempDir()}, Providers: client}
+	s.cfg = app.Config{Secrets: vaulttest.ByPath{"provider": "tok"}, Objects: blobstore.Dir{Root: t.TempDir()}, Providers: client}
 	s.f = &workflows.EInvoiceFetches{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Fetches: app.EInvoiceFetches(s.cfg)}
 	s.connector = uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
 		VALUES ($1, $2, 'einvoice_provider', 'Provider', jsonb_build_object('adapter', 'standin', 'base_url', $3::text, 'format', 'pint_ae',
-		'participants', jsonb_build_object('1000', $4::text)), 'env:PROVIDER_TOKEN', 'active', $5, $5)`,
-		s.e.Tenant.ID, s.connector, s.srv.URL, fetchParticipant, s.e.Tenant.Human.ID)
+		'participants', jsonb_build_object('1000', $4::text)), $6, 'active', $5, $5)`,
+		s.e.Tenant.ID, s.connector, s.srv.URL, fetchParticipant, s.e.Tenant.Human.ID, vaulttest.TenantRef(s.e.Tenant.ID, "provider"))
 	return s
 }
 

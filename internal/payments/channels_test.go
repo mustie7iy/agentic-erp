@@ -14,9 +14,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
-	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient/sftptest"
 )
 
@@ -40,13 +41,15 @@ func channelDoc(t *testing.T, connector string) *config.Config {
 // connector, and a channel that cannot be used is refused with nothing sent.
 func TestHouseBankChannel(t *testing.T) {
 	key, client := sftptest.PrivateKey(t)
-	vars := map[string]string{"BANK_KEY": string(key)}
-	e := setupWith(t, nil, func(cfg *app.Config) { cfg.Secrets = secrets.Local{Getenv: func(n string) string { return vars[n] }} })
+	e := setupWith(t, nil, func(cfg *app.Config) {
+		cfg.Secrets, cfg.SFTPControl = vaulttest.ByPath{"bank": string(key)}, egress.LoopbackDialForTests // the test servers listen on loopback
+	})
+	bankKey := vaulttest.TenantRef(e.Tenant.ID, "bank")
 	server := sftptest.NewServer(t, client.PublicKey(), func(*sftptest.Server) {})
 	conn := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
-		VALUES ($1, $2, 'bank_sftp', 'Bank SFTP', $3, 'env:BANK_KEY', 'active', $4, $4),
-			($1, gen_random_uuid(), 'sap_file', 'SAP', '{"path": "x.json"}', NULL, 'active', $4, $4)`, e.Tenant.ID, conn, sftpSettings(server), e.Tenant.Human.ID)
+		VALUES ($1, $2, 'bank_sftp', 'Bank SFTP', $3, $5, 'active', $4, $4),
+			($1, gen_random_uuid(), 'sap_file', 'SAP', '{"path": "x.json"}', NULL, 'active', $4, $4)`, e.Tenant.ID, conn, sftpSettings(server), e.Tenant.Human.ID, bankKey)
 	h := houseBanks()
 	t.Run("configuration", func(t *testing.T) { checkChannelConfig(t, e, h, conn) })
 
@@ -62,8 +65,8 @@ func TestHouseBankChannel(t *testing.T) {
 	// is transmitted either way.
 	pgtest.Exec(t, `UPDATE integration.connector SET secret_ref = NULL, version = version + 1 WHERE id = $1`, conn)
 	e.failedWith(t, e.transmit(t, id(file), `"1"`), "integration.secret_required")
-	pgtest.Exec(t, `UPDATE integration.connector SET secret_ref = 'env:BANK_KEY', settings = $2, version = version + 1 WHERE id = $1`, conn,
-		sftpSettings(sftptest.NewServer(t, client.PublicKey(), func(s *sftptest.Server) { s.FailRename = true })))
+	pgtest.Exec(t, `UPDATE integration.connector SET secret_ref = $3, settings = $2, version = version + 1 WHERE id = $1`, conn,
+		sftpSettings(sftptest.NewServer(t, client.PublicKey(), func(s *sftptest.Server) { s.FailRename = true })), bankKey)
 	e.transmit(t, id(file), version(t, e, id(file)))
 	if status, attempts, code := fileState(t, id(file)); status != "to_send" || attempts != 1 || code != "platform.unavailable" {
 		t.Fatalf("file the server did not take: got %s, %d attempts, %s; want to_send, 1, platform.unavailable", status, attempts, code)

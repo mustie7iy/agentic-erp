@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestContractEdges(t *testing.T) {
@@ -118,6 +119,10 @@ func TestAnswers(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "ask for a smaller page)") {
 		t.Errorf("truncated answer: got ...%s, want it to end asking for a smaller page", got[max(0, len(got)-40):])
+	}
+	body = `["x` + strings.Repeat("é", maxResult) + `"]` // two bytes each after an odd prefix: the cut falls inside one unless moved
+	if got := result(t); !utf8.ValidString(got) {
+		t.Errorf("truncated answer: got invalid UTF-8 at the cut ...%q", got[max(0, len(got)-48):])
 	}
 	body = "cut"
 	if _, err := tool.client.Do(context.Background(), http.MethodGet, "/v1/x", nil, nil, ""); err == nil {
@@ -264,5 +269,36 @@ func TestEveryOperationBuilds(t *testing.T) {
 	// loop above checked nothing.
 	if built < 100 {
 		t.Errorf("got %d operations, want the contract's (over 100)", built)
+	}
+}
+
+// TestParamNumbers: a number the model gives a parameter is written in
+// full, never in exponent form, in the path, the query and a list.
+func TestParamNumbers(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Path + "?" + r.URL.RawQuery
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	c, _ := load([]byte(`paths:
+  /v1/x/{n}:
+    get:
+      operationId: getX
+      parameters:
+        - {name: n, in: path, schema: {type: integer}}
+        - {name: amount, in: query, schema: {type: number}}
+        - {name: ids, in: query, schema: {type: array, items: {type: integer}}}
+`))
+	tool, err := c.tool("getX")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool.client = &Client{BaseURL: srv.URL}
+	if _, err := tool.Execute(context.Background(), json.RawMessage(`{"n": 1000000, "amount": 0.000001, "ids": [20000000, 3]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if want := "/v1/x/1000000?amount=0.000001&ids=20000000%2C3"; got != want {
+		t.Errorf("request: got %s, want %s", got, want)
 	}
 }

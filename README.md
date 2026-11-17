@@ -173,9 +173,14 @@ On-demand analytics reads the data you may see through the API (see
 ```
 
 Against a real S/4HANA system, create a `sap_odata` connector instead
-(`settings`: `base_url`, `client`, `page_size`; `secret_ref`: `env:NAME` with
-`user:password`). `config generate -source odata:https://my-s4.example.com`
-reads customizing with `SAP_USER`, `SAP_PASSWORD` and `SAP_CLIENT`.
+(`settings`: `base_url`, https, `client`, `page_size`; `secret_ref`: a vault
+reference under the tenant's own namespace,
+`vault:<mount>/tenants/<tenant_id>/<path>#<field>`, whose value is
+`user:password`; `env:` and `file:` references are refused, ADR-0017). The
+server reads it at public addresses only (ADR-0041). `config generate -source
+odata:https://my-s4.example.com` reads customizing with `SAP_USER`,
+`SAP_PASSWORD` and `SAP_CLIENT` through the same egress rules; a system on a
+private network is read from an extract file (`file:`).
 
 ## Layout
 

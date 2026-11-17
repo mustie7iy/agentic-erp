@@ -5,12 +5,18 @@
 package vaulttest
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 )
 
 // Credentials the server accepts.
@@ -101,4 +107,43 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": fields, "metadata": map[string]any{"version": 1}}}) // a failed response write means the client is gone: no one is left to tell
+}
+
+// Refs resolves fixed references to their values, as the server's
+// resolver would from a vault that holds them: for tests of what resolves
+// tenants' references (secrets.ResolveTenant), not of the vault client.
+type Refs map[string]string
+
+// Resolve implements secrets.Resolver.
+func (r Refs) Resolve(_ context.Context, ref string) (string, error) {
+	v, ok := r[ref]
+	if !ok {
+		return "", fmt.Errorf("vaulttest: %s: %w", ref, secrets.ErrNotFound)
+	}
+	return v, nil
+}
+
+// TenantRef is the reference of a tenant's secret at path, field value:
+// vault:secret/tenants/<tenant>/<path>#value, the form a tenant may name
+// (secrets.TenantRef).
+func TenantRef(tenant uuid.UUID, path string) string {
+	return "vault:secret/" + secrets.TenantNamespace + "/" + tenant.String() + "/" + path + "#value"
+}
+
+// ByPath resolves any tenant's reference of TenantRef's form by its path
+// alone: for tests whose server is configured before their tenant exists.
+// What a tenant may name is secrets.ResolveTenant's to refuse, before a
+// resolver is asked.
+type ByPath map[string]string
+
+// Resolve implements secrets.Resolver.
+func (b ByPath) Resolve(_ context.Context, ref string) (string, error) {
+	rest, ok := strings.CutPrefix(ref, "vault:secret/"+secrets.TenantNamespace+"/")
+	_, path, _ := strings.Cut(rest, "/")
+	path, field, _ := strings.Cut(path, "#")
+	v, found := b[path]
+	if !ok || field != "value" || !found {
+		return "", fmt.Errorf("vaulttest: %s: %w", ref, secrets.ErrNotFound)
+	}
+	return v, nil
 }

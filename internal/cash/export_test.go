@@ -23,8 +23,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient/sftptest"
 )
 
@@ -33,6 +35,7 @@ import (
 type exportEnv struct {
 	drillEnv
 	server             *sftptest.Server
+	key                string    // the channels' private key, in the tenant's vault namespace
 	jsonl, csv, others uuid.UUID // channels of 3000 in each format, and one of another company
 	clock              *exportClock
 }
@@ -55,16 +58,13 @@ func (c *exportClock) add(d time.Duration) {
 	c.at = c.at.Add(d)
 }
 
-// treasuryKey is the environment variable the channels' secret_ref names.
-const treasuryKey = "CASH_TREASURY_KEY"
-
 func setupExport(t *testing.T) exportEnv {
 	t.Helper()
 	e := exportEnv{drillEnv: setupSnapshot(t), clock: &exportClock{at: readAt.Add(time.Minute)}}
 	e.Tenant.Grant(t, "cash.export.read", e.Tenant.Human)
 	e.Tenant.Grant(t, "cash.export.send", e.Tenant.Human)
 	key, client := sftptest.PrivateKey(t)
-	t.Setenv(treasuryKey, string(key))
+	e.key = string(key)
 	e.server = sftptest.NewServer(t, client.PublicKey(), func(*sftptest.Server) {})
 	e.server.Mkdir(t, "/cash")
 	e.jsonl = e.channel(t, "Treasury A", "active", `"format": "jsonl", "companies": ["3000"]`)
@@ -90,12 +90,13 @@ func (e exportEnv) channel(t *testing.T, name, status, fields string) uuid.UUID 
 	settings := fmt.Sprintf(`{"host": %q, "port": %s, "user": "erp", "host_key": %q, "directory": "/cash", %s}`, host, port,
 		strings.TrimSpace(e.server.HostKey()), fields)
 	pgtest.Exec(t, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
-		VALUES ($1, $2, 'treasury_export', $3, $4, 'env:`+treasuryKey+`', $5, $6, $6)`, e.Tenant.ID, id, name, settings, status, e.Tenant.Human.ID)
+		VALUES ($1, $2, 'treasury_export', $3, $4, $5, $6, $7, $7)`, e.Tenant.ID, id, name, settings, vaulttest.TenantRef(e.Tenant.ID, "treasury"), status, e.Tenant.Human.ID)
 	return id
 }
 
 func (e exportEnv) exporter() *cash.Exporter {
-	return &cash.Exporter{Endpoints: app.Cash(app.Config{Now: func() time.Time { return readAt }}), Pool: pgtest.Pool(e.T), AppRole: "erp_app",
+	cfg := app.Config{Now: func() time.Time { return readAt }, Secrets: vaulttest.ByPath{"treasury": e.key}, SFTPControl: egress.LoopbackDialForTests}
+	return &cash.Exporter{Endpoints: app.Cash(cfg), Pool: pgtest.Pool(e.T), AppRole: "erp_app",
 		WorkerRole: "erp_worker", Now: e.clock.now}
 }
 
