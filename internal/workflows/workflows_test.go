@@ -1423,6 +1423,9 @@ func TestApprovalDeadline(t *testing.T) {
 	if !t.Run("the dispatcher watches each pending request once", s.dispatch) {
 		t.FailNow()
 	}
+	if !t.Run("no request is locked across a call to the engine", s.noLockAcrossTheEngine) {
+		t.FailNow()
+	}
 	if !t.Run("the activity's database failures are reported", s.activityFailures) {
 		t.FailNow()
 	}
@@ -1536,6 +1539,38 @@ func (s *deadlineScenario) dispatch(t *testing.T) {
 	before := len(engine.started)
 	if _, err := d.RunOnce(context.Background()); err != nil || len(engine.started) != before {
 		t.Fatalf("watched twice: %v %d", err, len(engine.started))
+	}
+}
+
+// noLockAcrossTheEngine: while the engine starts the deadline workflow of
+// a later request, an earlier one, already watched, is not locked by the
+// dispatcher: each watch is recorded and committed on its own (ADR-0012).
+func (s *deadlineScenario) noLockAcrossTheEngine(t *testing.T) {
+	_, first, _ := approvalPending(t)
+	e, second, _ := approvalPending(t)
+	ctx := context.Background()
+	later := workflows.DeadlineWorkflowID(e.Tenant.ID, uuid.MustParse(id(second)))
+	var lockErr error
+	checked := false
+	s.engine.before = func(st workflow.Start) {
+		if st.ID != later {
+			return
+		}
+		checked = true
+		lockErr = pgx.BeginFunc(ctx, pgtest.Admin(t), func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `SELECT 1 FROM workflow.approval_request WHERE id = $1 FOR UPDATE NOWAIT`, uuid.MustParse(id(first)))
+			return err
+		})
+	}
+	defer func() { s.engine.before = nil }()
+	if _, err := s.d.RunOnce(ctx); err != nil {
+		t.Fatalf("round: %v", err)
+	}
+	if !checked {
+		t.Fatalf("got no start of %s, want the later request watched", later)
+	}
+	if lockErr != nil {
+		t.Errorf("got %v locking the earlier request while the later one's workflow started, want it free", lockErr)
 	}
 }
 
