@@ -693,7 +693,7 @@ func TestPaymentOnAccountRules(t *testing.T) {
 				VALUES ($1, $2, 1, '2026-03-22', 2026, $3, 0, 100, 0, 2026, gen_random_uuid(), $1)`, s.tenant, s.doc, s.credit))
 		}, "incoming_payment_application_credit_line_no_check"},
 		{"an application leaving a negative amount", func(tx pgx.Tx, s scene) error {
-			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(-1), noLine, id()))
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(-1), &line, id()))
 		}, "incoming_payment_application_on_account"},
 		{"an application leaving its amount on line 0", func(tx pgx.Tx, s scene) error {
 			zero := int32(0)
