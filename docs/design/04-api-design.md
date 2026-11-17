@@ -432,7 +432,19 @@ before and after and published as `InternalOrderBudgetChanged`. `GET
 (the order's balance in the leading ledger over every fiscal year, exact
 at the read), what remains (the budget less the actual, negative once
 exceeded) and `exceeded`, with the order's code and name and the budget's
-version as `ETag`. Exceeding a budget refuses no posting.
+version as `ETag`. Exceeding a budget refuses no posting unless the
+budget has an availability control (T60h): the `PATCH` also sets or
+removes (null) `availability_control`, a warning and a refusal limit in
+whole percent of the budget, and the read adds `consumed_percent` and
+`availability` (`within`, `above_warning`, `above_refusal`). A posting
+taking the order's consumption above the refusal limit is 422
+`ledger.internal_order_invalid` with the reason `budget_exceeded`; one
+above the warning limit is published as `InternalOrderBudgetWarned`. `POST
+/v1/internal-orders/{id}/budget-changes` (same permissions) supplements or
+returns the budget at its version (409 `controlling.order_budget_missing`
+without one, 409 `controlling.order_budget_return_too_large` below the
+actual), answering 201 with the change and the budget's new version as
+`ETag`; `GET` on the same path lists every version since T60h.
 
 An order's settlement rule (ADR-0064 §3, T60d) is likewise a part of the
 order: `PATCH /v1/internal-orders/{id}/settlement-rule`

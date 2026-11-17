@@ -357,6 +357,10 @@ type CreateIncomingPaymentRes interface {
 	createIncomingPaymentRes()
 }
 
+type CreateInternalOrderBudgetChangeRes interface {
+	createInternalOrderBudgetChangeRes()
+}
+
 type CreateInternalOrderRes interface {
 	createInternalOrderRes()
 }
@@ -1487,6 +1491,10 @@ type ListIntercompanyDifferencesRes interface {
 
 type ListInternalOrderBalancesRes interface {
 	listInternalOrderBalancesRes()
+}
+
+type ListInternalOrderBudgetChangesRes interface {
+	listInternalOrderBudgetChangesRes()
 }
 
 type ListInternalOrderSettlementsRes interface {

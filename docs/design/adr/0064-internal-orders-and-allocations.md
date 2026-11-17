@@ -120,7 +120,8 @@ account and period, read by the ledger and shown by controlling
   (`controlling.order_budget`), changed with the caller's version and
   audited with the amounts before and after. The read shows budget, actual
   and what remains and says when the actual exceeds the budget; **no
-  posting is refused for it** (plan default 10; question 1 below).
+  posting is refused for it** (plan default 10; question 1 below) unless
+  the budget is given an availability control (T60h, As built).
 - **Settlement rule**: one receiver per order, a cost center of the
   order's company, taking the whole (`controlling.settlement_rule`).
 - **Settlement** posts through `ledger.Postings.Post` with
@@ -825,3 +826,89 @@ adding up to 100, all active and of one company.
   credited with 1,000.01 there and its rent still on account 510000, the
   centers' reports showing the assessment account's lines; a second run
   and a distribution of the same sender are refused.
+
+### T60h: budget supplements and returns, and availability control (migration 000350)
+The order budget variants of plan-depth-1 §T60h. SAP S/4HANA is the
+reference, stated from memory for the specialist to confirm: a budget
+supplement (KO24) and return (KO25) change the current budget, and the
+availability control of a budget profile has tolerance limits per
+activity group, each a usage percentage with an action (warning, warning
+with mail to the person responsible, error).
+- **Table** `controlling.order_budget` gains `warn_percent` and
+  `refuse_percent` (each 1-999, the warning below the refusal); a new
+  insert-only table, `controlling.order_budget_change`, keeps one row per
+  version of a budget from T60h on (budgets set before have no row for
+  their earlier versions: the amounts they replaced were never kept).
+  Schema test: `db/internal_order_test.go` (`TestOrderBudgetChangeRules`).
+- **API**: `POST /v1/internal-orders/{id}/budget-changes` (`kind`
+  `supplement` or `return`, a positive `amount` in the company's
+  currency, an optional `text` of up to 200 characters; `If-Match` the
+  budget's version; 201 with the change and the budget's new version as
+  `ETag`); `GET` on the same path lists the versions, latest first
+  (cursor over `version`). The budget's `PATCH` takes
+  `availability_control` beside `budget` (each optional, at least one;
+  null removes the control; an order without a budget needs `budget`),
+  and its read adds `consumed_percent` (absent for a budget of zero),
+  `availability_control` and `availability` (`within`, `above_warning`,
+  `above_refusal`).
+- **Consumption** is the order's actual costs over every year, the
+  leading ledger's balance of its lines (the same figure as the read's
+  `actual`), plus what the posting adds. Commitments are not counted:
+  orders on purchase requisitions and orders are in the order master's
+  "Later" and do not exist yet; once they do, they count here.
+- **The check** is a second method of `ledger.CostObjects`, `Consume`,
+  asked by the ledger's `assignOrders` after the orders are held, for the
+  orders a posting debits on balance (the local amounts of its lines on
+  the order total more than zero). Controlling holds the budgets that
+  have a control `FOR UPDATE` in order id order, reads the actual under
+  that lock and returns the first order above its refusal limit, which
+  the ledger refuses on the first line naming it (422
+  `ledger.internal_order_invalid`, reason `budget_exceeded`); an order
+  above its warning limit is published as `InternalOrderBudgetWarned`
+  (every such posting, not only the first to cross the limit) and
+  posted. "Above" is strict: a consumption equal to a limit is within
+  it (`money.AbovePercent`, exact in big integers).
+- **The lock order** extends T60e's: period statuses `FOR SHARE`, orders
+  `FOR SHARE`, the orders' budgets `FOR UPDATE`, centers, number range.
+  A budget change takes the order `FOR UPDATE` and then its budget, so it
+  never holds the budget while a posting holds the order; two postings to
+  one order wait on the budget and the second reads the first's lines
+  (`TestInternalOrderAvailabilitySerialized`). A settlement holds its
+  order `FOR UPDATE` and credits it, so it never asks.
+- **A return** is refused below the order's actual costs (or below zero
+  for an order with a credit balance) (409
+  `controlling.order_budget_return_too_large`, naming what may be
+  returned): budget that is used is not returned (SAP likewise, from
+  memory). A `PATCH` may still set any budget of zero or more, below the
+  actual included, as T60c built.
+- **Events and audit**: `InternalOrderBudgetChanged` gains `kind`, the
+  limits after the change and the text; audit actions
+  `controlling.internal_order.supplement_budget` and `.return_budget`
+  beside `.set_budget`, each with the kind, the amounts and the limits
+  before and after. The warning is published, not audited: it changes
+  nothing of the order's, and the ledger audits the posting.
+- **Decided by default:**
+  1. The limits are per order budget, not in a budget profile per order
+     type (order types are in the order master's "Later") nor per
+     activity group (postings are the only activity there is).
+  2. A posting that lowers an order's consumption (a credit, a
+     settlement) and a reversal (which copies its original and is never
+     derived again, §2) are never refused or warned for the budget; a
+     budget lowered below the consumption, or a limit lowered, shows
+     `above_refusal` without refusing anything already posted.
+  3. The warning is an event, not a part of the posting's answer
+     (`JournalEntry` is the ledger's and carries no warnings); a warning
+     on the answer is in the "Later" list.
+  4. Supplements and returns are a person's (`x-agent: false`), under
+     `controlling.order.budget`, and need `ledger.entry.read` as the
+     budget's `PATCH` does; reading the history needs
+     `controlling.order.read` alone, since it shows no ledger amount.
+  5. A supplement or return needs a budget set (409
+     `controlling.order_budget_missing`); its text is optional.
+  6. A budget of zero with a control refuses or warns of any cost.
+- **Walkthrough**: `step_order_budget` extended: Carla supplements
+  `FAIR-<year>`'s budget by CAD 1,000.00 and returns CAD 2,000.00 (a
+  return of CAD 3,000.00 is refused: CAD 2,500.00 may be returned), gives
+  it a warning limit of 30 % and a refusal limit of 100 % (the order at
+  37.50 %, `above_warning`), lists its five versions; Alex's CAD 2,600.00
+  posting to the order is refused (`budget_exceeded`).

@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	orders "github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -186,6 +187,18 @@ func (failingOrders) Orders(context.Context, []uuid.UUID, bool) (map[uuid.UUID]l
 	return nil, errors.New("controlling is away")
 }
 
+func (failingOrders) Consume(context.Context, uuid.UUID, string, map[uuid.UUID]money.Minor) (uuid.UUID, error) {
+	return uuid.Nil, errors.New("controlling is away")
+}
+
+// budgetsAway is a controlling context that answers for the orders but
+// not for their budgets (T60h).
+type budgetsAway struct{ orders.CostObjects }
+
+func (budgetsAway) Consume(context.Context, uuid.UUID, string, map[uuid.UUID]money.Minor) (uuid.UUID, error) {
+	return uuid.Nil, errors.New("budgets are away")
+}
+
 // TestInternalOrderPort: a line naming an order is never posted unchecked:
 // a handler wired without the port, and a port that fails, are
 // errors; and the database's check is the application's problem.
@@ -200,8 +213,9 @@ func TestInternalOrderPort(t *testing.T) {
 		port ledger.CostObjects
 		want string
 	}{
-		"no port wired":   {nil, "cost objects port is not wired"},
-		"a port in error": {failingOrders{}, "controlling is away"},
+		"no port wired":          {nil, "cost objects port is not wired"},
+		"a port in error":        {failingOrders{}, "controlling is away"},
+		"a budget port in error": {budgetsAway{}, "budgets are away"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := endpoints()

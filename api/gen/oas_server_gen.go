@@ -1579,6 +1579,26 @@ type Handler interface {
 	//
 	// POST /v1/internal-orders
 	CreateInternalOrder(ctx context.Context, req *InternalOrderCreate, params CreateInternalOrderParams) (CreateInternalOrderRes, error)
+	// CreateInternalOrderBudgetChange implements createInternalOrderBudgetChange operation.
+	//
+	// Supplements an internal order's budget or returns part of it (ADR-0064 §3, T60h): `kind`
+	// `supplement` adds the amount to the budget, `return` takes it off. The amount is positive and in the
+	// order's legal entity's local currency (422 `controlling.order_budget_invalid` on `amount.amount` or
+	// `amount.currency`). The order needs a budget set first (409 `controlling.order_budget_missing`). A
+	// return never takes the budget below the order's actual costs, the debits less the credits of the
+	// leading ledger's lines naming it over every fiscal year, nor below zero (409
+	// `controlling.order_budget_return_too_large`, naming what may be returned): budget that is used is
+	// not returned. `If-Match` is the budget's version as `GET /v1/internal-orders/{id}/budget` gave it;
+	// the order is read under a row lock, so of two changes at one version the second is refused (412).
+	// The change is one new version of the budget, kept with the budget before and after it and an
+	// optional text, audited and published as InternalOrderBudgetChanged; the answer's `ETag` is the
+	// budget's new version, the `If-Match` of the next change. The availability control is kept as it is.
+	// Changed directly by permission, with no approval request; the amounts are budget amounts, and the
+	// return's check reads the actual costs, so the caller also needs `ledger.entry.read`. An order of a
+	// legal entity the caller cannot act in is answered as missing (404). Agents may not change a budget.
+	//
+	// POST /v1/internal-orders/{id}/budget-changes
+	CreateInternalOrderBudgetChange(ctx context.Context, req *InternalOrderBudgetChangeCreate, params CreateInternalOrderBudgetChangeParams) (CreateInternalOrderBudgetChangeRes, error)
 	// CreateLeaseContract implements createLeaseContract operation.
 	//
 	// Creates a lease contract a company enters as lessee (ADR-0073 §3-§4, T88a), with its payment
@@ -3429,10 +3449,12 @@ type Handler interface {
 	// of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the
 	// budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so.
 	// An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a
-	// budget is shown here and refuses no posting. The `ETag` is the budget's version, the one `PATCH`
-	// takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual
-	// is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for
-	// the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	// budget refuses no posting unless the budget has an availability control (T60h): then
+	// `availability_control` gives its limits and `availability` says where the actual stands against
+	// them; a posting above the refusal limit is refused. The `ETag` is the budget's version, the one
+	// `PATCH` takes. An order of a legal entity the caller cannot act in is answered as missing (404). The
+	// actual is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`,
+	// as for the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 	//
 	// GET /v1/internal-orders/{id}/budget
 	GetInternalOrderBudget(ctx context.Context, params GetInternalOrderBudgetParams) (GetInternalOrderBudgetRes, error)
@@ -5142,6 +5164,17 @@ type Handler interface {
 	//
 	// GET /v1/internal-order-balances
 	ListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (ListInternalOrderBalancesRes, error)
+	// ListInternalOrderBudgetChanges implements listInternalOrderBudgetChanges operation.
+	//
+	// The versions of one internal order's budget (ADR-0064 §3, T60h), latest first: each change with its
+	// kind (`set` by `PATCH /v1/internal-orders/{id}/budget`, `supplement` or `return` by `POST`), the
+	// budget before and after it, the availability control after it, its text, who made it and when. A
+	// change is never changed or removed. Changes made before T60h are not kept, so a budget's history may
+	// start after its version 1. An order of a legal entity the caller cannot act in is answered as
+	// missing (404). Sortable by: `version`.
+	//
+	// GET /v1/internal-orders/{id}/budget-changes
+	ListInternalOrderBudgetChanges(ctx context.Context, params ListInternalOrderBudgetChangesParams) (ListInternalOrderBudgetChangesRes, error)
 	// ListInternalOrderSettlements implements listInternalOrderSettlements operation.
 	//
 	// The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it
@@ -7745,16 +7778,22 @@ type Handler interface {
 	UpdateEntryTemplate(ctx context.Context, req *EntryTemplateUpdate, params UpdateEntryTemplateParams) (UpdateEntryTemplateRes, error)
 	// UpdateInternalOrderBudget implements updateInternalOrderBudget operation.
 	//
-	// Sets or replaces the budget of an internal order (ADR-0064 §3): one overall amount, zero or more,
-	// in the order's legal entity's local currency (422 `controlling.order_budget_invalid`, whose field
-	// error names `budget.currency` or `budget.amount`). JSON Merge Patch (RFC 7396) of the order's
-	// budget, whose one field, `budget`, is replaced whole. `If-Match` is the budget's version as `GET`
-	// gave it, `"0"` for an order whose budget was never set; the order is read under a row lock, so of
-	// two changes at one version the second is refused (412). The budget may be set on an order in any
-	// status and may be below the order's actual costs: nothing is refused for it. Set directly by
-	// permission, with no approval request. Audited with the amounts before and after, and published as
-	// InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so
-	// the caller also needs `ledger.entry.read`. Agents may not set a budget.
+	// Sets or replaces the budget of an internal order (ADR-0064 §3), its availability control (T60h), or
+	// both. JSON Merge Patch (RFC 7396) of the order's budget: `budget`, one overall amount, zero or more,
+	// in the order's legal entity's local currency, is replaced whole (422
+	// `controlling.order_budget_invalid`, whose field error names `budget.currency` or `budget.amount`);
+	// `availability_control`, the warning and refusal limits, is replaced whole, and null removes it (422
+	// `controlling.order_budget_invalid` on `availability_control.warn_percent` when the warning limit is
+	// not below the refusal limit). An order whose budget was never set needs `budget` (422
+	// `controlling.order_budget_invalid` on `budget`), and a patch naming neither field is refused the
+	// same way. `If-Match` is the budget's version as `GET` gave it, `"0"` for an order whose budget was
+	// never set; the order is read under a row lock, so of two changes at one version the second is
+	// refused (412). The budget may be set on an order in any status and may be below the order's actual
+	// costs. Set directly by permission, with no approval request. Each patch is one new version of the
+	// budget, kept in its history (`GET /v1/internal-orders/{id}/budget-changes`, kind `set`), audited
+	// with the amounts and limits before and after, and published as InternalOrderBudgetChanged. The
+	// answer is the budget against the actual costs, as `GET` gives it, so the caller also needs
+	// `ledger.entry.read`. Agents may not set a budget.
 	//
 	// PATCH /v1/internal-orders/{id}/budget
 	UpdateInternalOrderBudget(ctx context.Context, req *InternalOrderBudgetUpdate, params UpdateInternalOrderBudgetParams) (UpdateInternalOrderBudgetRes, error)

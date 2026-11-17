@@ -399,7 +399,7 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	// range, which every posting of the company waits for.
 	if d.reversalOf == nil {
 		d.lines = slices.Clone(d.lines)
-		if err := e.assignOrders(ctx, d.entity.ID, d.lines); err != nil {
+		if err := e.assignOrders(ctx, d.entity, d.lines); err != nil {
 			return nil, err
 		}
 		if err := assign(ctx, tx, d.entity.ID, year, d.postingDate, d.lines, true); err != nil {

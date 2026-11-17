@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -13,8 +14,10 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Account assignment on the journal line (ADR-0050 §5, T56d). Every
@@ -52,6 +55,14 @@ type CostObjects interface {
 	// that a status change waits for a posting under way and a posting
 	// after it sees it.
 	Orders(ctx context.Context, ids []uuid.UUID, hold bool) (map[uuid.UUID]CostOrder, error)
+	// Consume checks what a posting adds to the orders, in the legal
+	// entity's local currency (T60h), against their budgets' availability
+	// control: it returns the first order, in id order, whose consumption
+	// with the posting would be above its refusal limit, or uuid.Nil.
+	// Asked after Orders with hold, for the orders the posting debits on
+	// balance; it holds their budgets until the transaction ends, so two
+	// postings to an order are checked one after the other.
+	Consume(ctx context.Context, legalEntity uuid.UUID, currency string, posted map[uuid.UUID]money.Minor) (uuid.UUID, error)
 }
 
 // CostOrder is an internal order as a posting reads it: its company, its
@@ -118,6 +129,7 @@ const (
 	reasonWithCostCenter   = "with_cost_center"
 	reasonNotACostAccount  = "not_a_cost_account"
 	reasonCenterNotOnDate  = "cost_center_not_valid_on_date"
+	reasonBudgetExceeded   = "budget_exceeded"
 	internalOrderInvalid   = "ledger.internal_order_invalid"
 	internalOrderFieldName = "internal_order_id"
 )
@@ -137,6 +149,7 @@ var reasonTexts = map[string]string{
 	reasonWithCostCenter:    "cannot be named beside a cost center: a line carries one real cost object",
 	reasonNotACostAccount:   "can be posted only on a primary cost account",
 	reasonCenterNotOnDate:   "has a responsible cost center that is not valid on the posting date, so the line's profit center cannot be derived",
+	reasonBudgetExceeded:    "would be taken above its budget's refusal limit by the entry",
 }
 
 // assignRules are a company's controlling as a posting in one fiscal year
@@ -233,8 +246,9 @@ func entered(l Line) bool {
 // posting's company and released, and its line names no cost center (422
 // ledger.internal_order_invalid, naming the line and why). The orders are
 // held until the transaction ends. A posting whose lines name none asks
-// nothing.
-func (e *Endpoints) assignOrders(ctx context.Context, le uuid.UUID, lines []Line) error {
+// nothing. The orders the posting debits on balance are then checked
+// against their budgets' availability control (consume).
+func (e *Endpoints) assignOrders(ctx context.Context, le tenancy.Entity, lines []Line) error {
 	ids := centerIDs(lines, func(l Line) *uuid.UUID { return l.InternalOrderID })
 	if len(ids) == 0 {
 		return nil
@@ -249,12 +263,44 @@ func (e *Endpoints) assignOrders(ctx context.Context, le uuid.UUID, lines []Line
 			continue
 		}
 		o, known := orders[*l.InternalOrderID]
-		if reason := orderState(known, o.LegalEntityID == le, o, l.CostCenterID != nil); reason != "" {
+		if reason := orderState(known, o.LegalEntityID == le.ID, o, l.CostCenterID != nil); reason != "" {
 			return orderRefused(i, reason)
 		}
 		l.orderCenter = &o.CostCenterID
 	}
-	return nil
+	return e.consume(ctx, le, lines)
+}
+
+// consume asks the controlling context about the orders the lines add to
+// (T60h): an order whose lines' local amounts total more than zero. One
+// the posting credits on balance, a settlement's, lowers its consumption
+// and is never refused for it; a reversal is never asked (holdOrders). A
+// refused order is named on its first line (422
+// ledger.internal_order_invalid, budget_exceeded).
+func (e *Endpoints) consume(ctx context.Context, le tenancy.Entity, lines []Line) error {
+	totals := map[uuid.UUID]money.Minor{}
+	for _, l := range lines {
+		if l.InternalOrderID != nil {
+			sum, err := money.Sum(totals[*l.InternalOrderID], l.LC)
+			if err != nil {
+				return fmt.Errorf("ledger: what the entry posts to internal order %s: %w", *l.InternalOrderID, err)
+			}
+			totals[*l.InternalOrderID] = sum
+		}
+	}
+	maps.DeleteFunc(totals, func(_ uuid.UUID, m money.Minor) bool { return m <= 0 })
+	if len(totals) == 0 {
+		return nil
+	}
+	refused, err := e.CostObjects.Consume(ctx, le.ID, le.LocalCurrency, totals)
+	if err != nil {
+		return fmt.Errorf("ledger: budgets of the internal orders of the lines: %w", err)
+	}
+	if refused == uuid.Nil {
+		return nil
+	}
+	i := slices.IndexFunc(lines, func(l Line) bool { return l.InternalOrderID != nil && *l.InternalOrderID == refused })
+	return orderRefused(i, reasonBudgetExceeded)
 }
 
 // holdOrders holds the internal orders a reversal's lines carry over from

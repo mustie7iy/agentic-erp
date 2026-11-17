@@ -375,6 +375,7 @@ channels:
       PlanBatchApplied: {$ref: '#/components/messages/PlanBatchApplied'}
       InternalOrderChanged: {$ref: '#/components/messages/InternalOrderChanged'}
       InternalOrderBudgetChanged: {$ref: '#/components/messages/InternalOrderBudgetChanged'}
+      InternalOrderBudgetWarned: {$ref: '#/components/messages/InternalOrderBudgetWarned'}
       InternalOrderSettled: {$ref: '#/components/messages/InternalOrderSettled'}
       AllocationCycleChanged: {$ref: '#/components/messages/AllocationCycleChanged'}
       AllocationRunPosted: {$ref: '#/components/messages/AllocationRunPosted'}
@@ -741,6 +742,7 @@ operations:
       - $ref: '#/channels/controlling/messages/PlanBatchApplied'
       - $ref: '#/channels/controlling/messages/InternalOrderChanged'
       - $ref: '#/channels/controlling/messages/InternalOrderBudgetChanged'
+      - $ref: '#/channels/controlling/messages/InternalOrderBudgetWarned'
       - $ref: '#/channels/controlling/messages/InternalOrderSettled'
       - $ref: '#/channels/controlling/messages/AllocationCycleChanged'
       - $ref: '#/channels/controlling/messages/AllocationRunPosted'
@@ -3647,13 +3649,15 @@ components:
     InternalOrderBudgetChanged:
       name: InternalOrderBudgetChanged
       title: Internal order budget changed
-      summary: An internal order's budget was set or replaced.
+      summary: An internal order's budget was set, replaced, supplemented or returned.
       description: |
-        Emitted by `internal-orders/{id}/budget` (PATCH), ADR-0064 §3: the
-        order's budget, one overall amount in its legal entity's local
-        currency, with the amount it replaced. Nothing is refused for a
-        budget; `GET /v1/internal-orders/{id}/budget` compares it with the
-        order's actual costs. Subject is the internal order id.
+        Emitted by `internal-orders/{id}/budget` (PATCH, kind `set`) and
+        `internal-orders/{id}/budget-changes` (POST, kind `supplement` or
+        `return`, T60h), ADR-0064 §3: the order's budget, one overall
+        amount in its legal entity's local currency, with the amount it
+        replaced and its availability control. `GET
+        /v1/internal-orders/{id}/budget` compares it with the order's
+        actual costs. Subject is the internal order id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -3664,7 +3668,31 @@ components:
       examples:
         - name: replaced
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000604, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_budget_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-12T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, budget: {amount: '20000.00', currency: EUR}, previous_budget: {amount: '15000.00', currency: EUR}, version: 2}
+          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, budget: {amount: '20000.00', currency: EUR}, previous_budget: {amount: '15000.00', currency: EUR}, version: 2, kind: set, warn_percent: 90, refuse_percent: 105}
+    InternalOrderBudgetWarned:
+      name: InternalOrderBudgetWarned
+      title: Internal order budget warning
+      summary: A posting took an internal order's consumption above its budget's warning limit.
+      description: |
+        Emitted by the ledger's posting of an entry naming the order (T60h,
+        ADR-0064 §3), in the posting's transaction, when the entry adds to
+        the order's consumption and the consumption after it is above the
+        warning limit of the budget's availability control but not above
+        its refusal limit (a posting above that is refused). Emitted for
+        every such posting, so the person responsible can follow each one.
+        The entry is posted in the same transaction and published by the
+        ledger as JournalEntryPosted. Subject is the internal order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.internal_order_budget_warned.v1}
+      payload: {$ref: '#/components/schemas/InternalOrderBudgetWarnedV1'}
+      examples:
+        - name: warned
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000606, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_budget_warned.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-17T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, budget: {amount: '20000.00', currency: EUR}, consumption: {amount: '18500.00', currency: EUR}, posted: {amount: '1500.00', currency: EUR}, consumed_percent: '92.50', warn_percent: 90}
     InternalOrderSettled:
       name: InternalOrderSettled
       title: Internal order settled
@@ -6416,6 +6444,23 @@ components:
         budget: {$ref: '#/components/schemas/Money', description: The budget after the change, in the legal entity's local currency.}
         previous_budget: {$ref: '#/components/schemas/Money', description: The budget before the change. Absent when the order had none.}
         version: {type: integer, description: 'The budget''s version after the change: 1 when first set.'}
+        kind: {type: string, description: 'How the budget changed (T60h). Open enum: set, supplement, return.'}
+        warn_percent: {type: integer, description: 'The warning limit of the availability control after the change, in percent of the budget. Absent without one.'}
+        refuse_percent: {type: integer, description: 'The refusal limit of the availability control after the change, in percent of the budget. Absent without one.'}
+        text: {type: string, description: Why the budget changed, as a supplement or return gave it. Absent without one.}
+    InternalOrderBudgetWarnedV1:
+      type: object
+      required: [internal_order_id, legal_entity_id, code, name, budget, consumption, posted, warn_percent]
+      properties:
+        internal_order_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.internal_order.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The order's code, unique in its legal entity.}
+        name: {type: string}
+        budget: {$ref: '#/components/schemas/Money', description: The order's budget, in the legal entity's local currency.}
+        consumption: {$ref: '#/components/schemas/Money', description: 'The order''s consumption with the posting: its actual costs over every fiscal year (commitments are not counted yet).'}
+        posted: {$ref: '#/components/schemas/Money', description: 'What the posting adds to the order: its debits on the order less its credits.'}
+        consumed_percent: {type: string, description: 'The consumption in percent of the budget, two decimals. Absent when the budget is zero.'}
+        warn_percent: {type: integer, description: The warning limit the consumption is above, in percent of the budget.}
     InternalOrderSettledV1:
       type: object
       required: [internal_order_id, legal_entity_id, code, name, settlement_id, fiscal_year, fiscal_period, posting_date, receiver_cost_center_id, receiver_cost_center_code, amount, account_count, journal_entry_id, journal_entry_number]
