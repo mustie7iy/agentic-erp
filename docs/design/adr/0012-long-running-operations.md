@@ -186,3 +186,5 @@ the reading transaction, so each recorded row stayed locked while the
 engine was called for every later job, and a person deciding an approval
 request waited on it. A start whose record fails is started again by the
 next round under the same id, which the engine answers as known.
+`TestDispatcher` and `TestApprovalDeadline` lock an operation and an
+approval request recorded earlier in the round while the engine is called.
