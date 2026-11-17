@@ -15091,6 +15091,7 @@ paths:
       x-agent: false
       x-problem-codes:
         - config.not_bootstrapped
+        - ledger.item_reserved
         - ledger.no_exchange_rate
         - payments.discount_lapsed
         - payments.invalid_status

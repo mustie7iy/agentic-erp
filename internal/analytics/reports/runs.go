@@ -141,7 +141,7 @@ func (s *Scheduler) runReport(ctx context.Context, sc scheduled) (bool, error) {
 		// The report may have been removed or unscheduled while its results
 		// were stored, or the day kept by another replica: then nothing is kept.
 		r, err := report(ctx, tx, owner(p.ID), sc.report, false)
-		if err != nil || r.Schedule == nil {
+		if err != nil || r.Schedule == nil || !r.Schedule.On(run.Date) {
 			return err
 		}
 		done, err := kept(ctx, tx, run.Report.ID, run.Date)

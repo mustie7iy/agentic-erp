@@ -46,7 +46,10 @@ func TestPrepareLocksTheRegistrationFirst(t *testing.T) {
 	gstID := uuid.MustParse(id(t, e, "GST"))
 	var sql []string
 	_ = apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { // the outcome does not matter, only the order
-		tx, _ := reqctx.TxFrom(ctx)
+		tx, ok := reqctx.TxFrom(ctx)
+		if !ok {
+			t.Fatal("no transaction in the request")
+		}
 		ctx = reqctx.WithTx(ctx, recording{Tx: tx, sql: &sql})
 		_, err := h.PrepareTaxReturn(ctx, &gen.TaxReturnPrepare{PeriodStart: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}, gen.PrepareTaxReturnParams{ID: gstID})
 		return err
