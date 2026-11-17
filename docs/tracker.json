@@ -11467,7 +11467,7 @@
        {
         "s": "T",
         "t": "A configuration change request names its author and a configuration version who activated it only by id (ChangeRequest.author_id, ConfigVersion.activated_by): their names beside them, as other resources give a principal's (R3 of the batch 77 review, API-consumer class: an identifier without the name its consumer needs).",
-        "r": "api/openapi.yaml ChangeRequest, ConfigVersion · internal/configuration api.go (crToAPI and the version mapping) · ADR-0050 names beside ids",
+        "r": "api/openapi.yaml ChangeRequest, ConfigVersion · internal/configuration api.go (crToAPI, versionToAPI) · ADR-0050 names beside ids",
         "src": "review:batch77",
         "c": []
        },
