@@ -240,10 +240,14 @@ func (s *server) firstFailure() error {
 // server is what run wires together, one step after the other, before it
 // serves.
 type server struct {
-	cfg  config.Config
-	log  *slog.Logger
-	tp   *sdktrace.TracerProvider
-	pool *database.Pool
+	cfg config.Config
+	// sapClient builds the egress client for a tenant's SAP system; nil:
+	// sap.NewClient. Its options are fixed constants, so a test replaces
+	// it to reach the refusal newAPI returns.
+	sapClient func(...egress.Option) (*egress.Client, error)
+	log       *slog.Logger
+	tp        *sdktrace.TracerProvider
+	pool      *database.Pool
 	// replica is the cell's read replica, which the analytics extract
 	// reads (DATABASE_REPLICA_URL); nil: the primary.
 	replica *database.Pool
@@ -701,8 +705,12 @@ func (s *server) newAPI() error {
 	if s.apiCfg.SFTPControl, err = egress.DialControl(cfg.Walkthrough.SFTP); err != nil { // config.Load refuses a stand-in outside development
 		return fmt.Errorf("erp-server: the walkthrough's SFTP stand-in: %w", err)
 	}
-	if s.apiCfg.SAP, err = sap.NewClient(); err != nil { // a tenant's SAP system: public addresses only, no walkthrough exception (it reads extract files)
-		return err
+	newSAP := s.sapClient
+	if newSAP == nil {
+		newSAP = sap.NewClient
+	}
+	if s.apiCfg.SAP, err = newSAP(); err != nil { // a tenant's SAP system: public addresses only, no walkthrough exception (it reads extract files)
+		return fmt.Errorf("erp-server: the SAP client: %w", err)
 	}
 	if s.apiHandler, err = app.New(s.apiCfg); err != nil {
 		return err

@@ -54,6 +54,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt/kmstest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -2635,5 +2636,19 @@ func TestProviderClient(t *testing.T) {
 	refused := config.Config{Walkthrough: config.Walkthrough{Provider: netip.MustParseAddrPort("10.0.0.1:18444"), ProviderRoots: roots}}
 	if err := (&server{cfg: refused}).newAPI(); err == nil || !strings.Contains(err.Error(), "the walkthrough's e-invoicing provider") {
 		t.Errorf("a stand-in off the machine: got %v, want the server refused", err)
+	}
+}
+
+// TestSAPAndSFTPClients: the server stops before it serves when the
+// walkthrough's SFTP stand-in is off the machine (config.Load refuses it
+// too) or the SAP egress client cannot be built (ADR-0041 As built).
+func TestSAPAndSFTPClients(t *testing.T) {
+	off := config.Config{Walkthrough: config.Walkthrough{SFTP: netip.MustParseAddrPort("10.0.0.1:18022")}}
+	if err := (&server{cfg: off}).newAPI(); err == nil || !strings.Contains(err.Error(), "the walkthrough's SFTP stand-in") {
+		t.Errorf("a stand-in off the machine: got %v, want the server refused", err)
+	}
+	failing := &server{sapClient: func(...egress.Option) (*egress.Client, error) { return nil, errors.New("no client") }}
+	if err := failing.newAPI(); err == nil || !strings.Contains(err.Error(), "the SAP client: no client") {
+		t.Errorf("an SAP client that cannot be built: got %v, want its error", err)
 	}
 }
