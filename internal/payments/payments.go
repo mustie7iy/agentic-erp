@@ -25,9 +25,16 @@
 //
 // :release posts one entry per payment (document type ZP, on the run date)
 // that offsets the supplier's items, credits the house bank's account and
-// clears the items, then writes the pain.001 bank file. :reject frees the
-// items. Bank files are rebuilt from the run when transmitted and checked
-// against the hash stored at release, until object storage exists.
+// clears the items, then writes the pain.001 bank files, one per house bank
+// and payment method (ADR-0038). It runs as an operation, as a workflow
+// with Temporal or in-process without it (ADR-0012), one transaction per
+// payment, each reading the run FOR UPDATE (ADR-0008), so a step run again
+// posts nothing twice; a release stopped with payments posted is resumed
+// by :release, and the run date's period stays open until it finishes
+// (ledger.PaymentReleases). :reject frees the items. A bank file is kept in
+// object storage when the server has it, else rebuilt from the run when
+// transmitted; either way it is checked against the hash stored at
+// release.
 //
 // Bank statements (ADR-0047) are imported from the bank's camt.053 or MT940
 // file per house bank, once per file and statement, each compared with the
