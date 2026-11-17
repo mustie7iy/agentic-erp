@@ -48,6 +48,12 @@ func TestDatabaseFailures(t *testing.T) {
 	opened, _ := e.Must(201, "POST", "/v1/dispute-cases", dispute(e.DE, entries[1], "1.00", "EUR", fmt.Sprintf(`, "assignee_id": %q`, e.Tenant.Human.ID)), "")
 	caseID := uuid.MustParse(apitest.String(t, opened, "id"))
 	colleague := e.Reader(t, "A colleague in company 2000", e.DE)
+	// A block placed and released, so that reading it names a person, and one to release.
+	placed, placedTag := e.Must(201, "POST", "/v1/dunning-blocks", blockOf(e.DE, e.east, nil, lastHeld), "")
+	e.Must(200, "POST", "/v1/dunning-blocks/"+apitest.String(t, placed, "id")+":release", "", placedTag)
+	releasedID := uuid.MustParse(apitest.String(t, placed, "id"))
+	active, _ := e.Must(201, "POST", "/v1/dunning-blocks", blockOf(e.DE, e.east, nil, lastHeld), "")
+	activeID := uuid.MustParse(apitest.String(t, active, "id"))
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateDunningRun(ctx, &gen.DunningRunCreate{LegalEntityID: e.DE, KeyDate: date(t, keyDate)}, gen.CreateDunningRunParams{})
@@ -96,6 +102,24 @@ func TestDatabaseFailures(t *testing.T) {
 				gen.UpdateDisputeCaseParams{ID: caseID, IfMatch: `"1"`})
 			return err
 		},
+		"place item block": func(ctx context.Context) error {
+			_, err := h.CreateDunningBlock(ctx, &gen.DunningBlockCreate{LegalEntityID: e.DE, CustomerID: e.north, FiscalYear: gen.NewOptInt32(2026),
+				JournalEntryID: gen.NewOptUUID(entries[0].ID), LineNo: gen.NewOptInt32(1), Reason: "x", ValidTo: date(t, lastHeld)},
+				gen.CreateDunningBlockParams{})
+			return err
+		},
+		"get block": func(ctx context.Context) error {
+			_, err := h.GetDunningBlock(ctx, gen.GetDunningBlockParams{ID: releasedID})
+			return err
+		},
+		"list blocks": func(ctx context.Context) error {
+			_, err := h.ListDunningBlocks(ctx, gen.ListDunningBlocksParams{})
+			return err
+		},
+		"release block": func(ctx context.Context) error {
+			_, err := h.ReleaseDunningBlock(ctx, gen.ReleaseDunningBlockParams{ID: activeID, IfMatch: `"1"`})
+			return err
+		},
 		"close dispute": func(ctx context.Context) error {
 			_, err := h.CloseDisputeCase(ctx, &gen.DisputeCaseClose{Outcome: "rejected", Reason: "x"},
 				gen.CloseDisputeCaseParams{ID: caseID, IfMatch: `"1"`})
@@ -117,6 +141,10 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"notices page size": func(ctx context.Context) error {
 			_, err := h.ListDunningNotices(ctx, gen.ListDunningNoticesParams{ID: id, PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"blocks page size": func(ctx context.Context) error {
+			_, err := h.ListDunningBlocks(ctx, gen.ListDunningBlocksParams{PageSize: gen.NewOptInt32(0)})
 			return err
 		},
 		"disputes page size": func(ctx context.Context) error {

@@ -616,3 +616,163 @@ each listed for the product owner's digest.
   proposes the invoice again (since T105b in `step_collections_agent`,
   step 98, once the collections agent has recommended on the worklist
   while the case is open; ADR-0072 As built).
+
+### T76d Dunning charges, interest, grace days and minimum amounts (migration 000353)
+
+Decided by default under this ADR (`plan-depth-1.md` §T76d; SAP
+S/4HANA's dunning procedure, FBMP, as the reference; product owner
+2026-11-17: the variants start), each listed for the product owner's
+digest. It answers question 1 above for the first version: charges,
+interest and a minimum amount are the tenant's configuration, and no
+rule of law is built in.
+
+- **Configuration.** `companies[].dunning` is the company's one dunning
+  procedure (procedures per customer stay later): `grace_days` (0-365),
+  `minimum_amount` (in the company's currency), `interest_rate_percent`
+  (a year, above 0 and below 100, three places at most) and per level
+  `charge` (in the company's currency) and `interest` (true: the level's
+  items are charged interest; the rate is then required). Validated
+  with each field named (`config.validation_failed`); tier 2 as the
+  levels, since nothing is posted. None is shipped.
+- **Grace days.** An item overdue by no more than the grace days is not
+  proposed, whatever level its days reach (SAP's line item grace
+  periods). The levels' days still count from the net due date, and the
+  worklist, which proposes nothing, ignores them.
+- **Minimum amount.** One per procedure, compared with a notice's
+  overdue amount before charges and interest (SAP keeps one per level
+  and currency: later). A notice below it is not proposed: its items are
+  in no notice and are not recorded when the run is confirmed, so their
+  level stays. The run counts such notices (`below_minimum_notice_count`,
+  `below_minimum_amount`) and names no customer for them. The minimum
+  applies after the disputed items are left out. A notice amounting to
+  0.00 in the company's currency (a foreign-currency item booked at 0)
+  is below any minimum and counted (review round 1).
+- **Levels dropped.** An item keeps a level a confirmed run recorded
+  even after the company drops that level (a level never falls, §4);
+  its charge and interest are then the highest configured level's
+  (`procedure.rule`, review round 1).
+- **Charge.** The charge of the notice's level, a fixed amount in the
+  company's currency, once per notice (SAP's charges per level; a
+  charge by percentage or per currency is later).
+- **Interest.** Per item at a level whose `interest` is true:
+  `amount_lc × rate ÷ 100 × days overdue ÷ 365`, actual days over a
+  year of 365, from the net due date to the key date, rounded half away
+  from zero once per item in the company's currency
+  (`collections.interestOn`). It is the interest to the key date, not
+  the interest since the last notice: each notice states it in full. A
+  statutory rate (a central bank's base rate plus points, as some
+  countries set for late payment) is not built in: the tenant sets the
+  rate (specialist question below).
+- **Nothing is posted.** Charges and interest are what the notices ask
+  for. Posting them to the customer's account is later, as SAP's
+  dunning run does not post them either.
+- **Stored.** The run keeps the procedure as it applied it (grace days,
+  minimum amount, rate, null for none) and its charge, interest and
+  below-minimum totals; a notice its charge and interest; an item its
+  interest. Columns with defaults (06 §6.4 expand only): earlier runs
+  read as without a procedure. The application's update grant on a run
+  leaves them out, and notices and items stay insert-only. The checks
+  are in 03 §3.27 and `db/collections_test.go` (`TestDunningCharges`).
+- **API and events.** `DunningRun` gains `charge_amount`,
+  `interest_amount`, `total_amount`, `grace_days`, `minimum_amount`,
+  `interest_rate_percent` (absent for none),
+  `below_minimum_notice_count` and `below_minimum_amount`;
+  `DunningNotice` `charge_amount`, `interest_amount` and `total_amount`;
+  `DunningNoticeItem` `interest_amount`. `DunningRunChanged` carries the
+  run's charges and interest, `DunningNoticeIssued` the notice's and its
+  total. Every amount carries its currency. Amounts that add up past an
+  amount's range are refused, 422 `collections.amount_too_large`, as
+  before.
+- **Walkthrough.** `step_dunning_charges` (step 109): a new customer,
+  Lakeshore Hardware, with a CAD 30.00 invoice on NT30 and a CAD 600.00
+  one on NT60; Ada sets 7 grace days, a CAD 50.00 minimum, 9% interest
+  and level 2's CAD 15.00 and level 3's CAD 25.00 with interest through a
+  tier 2 change; a run 6 days past the small invoice's due date leaves
+  it out, one 10 days past counts Lakeshore's notice as below the
+  minimum; at 50 and 20 days the notice is proposed at level 1 for CAD
+  630.00 without charges and confirmed; at 70 and 40 days it is level 2:
+  CAD 15.00 and interest of 0.52 and 5.92, CAD 651.44 in all.
+- **Specialist question.** Whether a pilot country fixes the rate or
+  the day count of interest on late payment, or caps dunning charges,
+  for business customers: not built in, the tenant's rate and charges
+  apply as configured.
+
+### T76e Dunning blocks (migration 000354)
+
+Decided by default under this ADR (`plan-depth-1.md` §T76e; SAP
+S/4HANA's dunning block on the customer's company code data and on the
+line item, MANSP, as the reference), each listed for the product owner's
+digest.
+
+- **Schema.** `collections.dunning_block`: the company, the customer (id
+  and number when placed), the open item by its journal line with its
+  document number or none of them (a block of the whole customer), the
+  reason (free text up to 500 characters: SAP's blocking reasons are
+  codes; a reason list is later), `valid_to`, the last key date it holds
+  for, and once released when and by whom. The checks are in 03 §3.27 and
+  `db/collections_test.go` (`TestDunningBlockRules`,
+  `TestDunningBlockReleasedForTheOwner`). The application may set the
+  release's columns, the version and `updated_by` alone; the trigger
+  `dunning_block_released_once` keeps a released block as it is for
+  every role. Permission `collections.dunning.block` places and releases
+  blocks; `collections.dunning.read` reads them (a block is part of
+  dunning, decided by default).
+- **What a block names.** A customer that is a business partner of the
+  tenant (422 `request.reference_not_found` naming `customer_id`) and,
+  for an item, an open item of the company the customer owes, read as a
+  dispute case's is (422 `collections.item_not_open` naming
+  `journal_entry_id`; the shared message now names both). A journal line
+  named in part is 422 `request.validation_failed`. The end date is
+  required (the brief: a reason and an end date), not before the
+  company's today in its time zone, so a block holds for some run, and at
+  most 2100-12-31, the last key date (422 `collections.invalid_block_end`
+  naming `valid_to`, today and the zone in the detail). The clock is the
+  endpoints' (`Endpoints.Now`, the composition root's).
+- **In force.** A block holds for a run started while it is not released
+  whose key date is on or before `valid_to`; the run reads the company's
+  unreleased blocks ending on or after its key date
+  (`collections.blocksInForce`, index `dunning_block_in_force`). Blocks
+  are not exclusive: several of one customer or item may be active, each
+  ending or released on its own, so no unique key refuses a second one
+  (a run names the latest placed).
+- **The run.** An item that would reach a level and is blocked, by its
+  own block or its customer's, is in no notice and in none of the run's
+  totals; the run lists it in `dunning_run.blocked_items` (a JSON list
+  as `disputed_items`, written once, left out of the update grant), with
+  the block, the customer's number and what the run read of the item,
+  and gives `blocked_item_count` and `blocked_amount`. A blocked item is
+  not listed as disputed too: the block is checked first. Blocked items
+  count towards the 5,000 a run takes, as disputed ones do. The minimum
+  amount (T76d) applies to what is left.
+- **Stale on confirmation.** Unlike a dispute case opened after a
+  proposal (T86b, plan acceptance), a block in force for the run's key
+  date when the run is confirmed makes the proposal stale (409
+  `collections.proposal_stale`, the detail counting the blocked items):
+  a block is the explicit instruction not to dun (the safer default).
+  The check reads the blocks after the company's advisory lock; a block
+  placed while a confirmation is running takes no lock and may commit
+  after the confirmation read the blocks, as if placed after it.
+- **Release.** `POST /v1/dunning-blocks/{id}:release` with `If-Match`
+  reads the block `FOR UPDATE`, refuses a released one (409
+  `collections.block_released`) and updates it guarded by
+  `released_at IS NULL` (ADR-0008). The end date is not changed: a new
+  block is placed instead (decided by default, no patch).
+- **Lock order.** Placing takes no row lock (it reads the open items and
+  inserts); releasing locks the one block row. A confirmation takes the
+  company's advisory lock and reads blocks without locking them, so no
+  two writers take locks in opposite orders.
+- **Audit, no event.** Audit actions `collections.dunning_block.place`
+  and `.release`, whose detail holds the reason. No event: a block
+  changes nothing outside the context, and the runs started afterwards
+  name the items it holds back (decided by default).
+- **Not in the worklist.** The collection worklist does not show blocks
+  yet (later).
+- **Walkthrough.** `step_dunning_blocks` (step 110): Ruth blocks
+  Lakeshore's gasket invoice up to a date 120 days away and a run at
+  step 109's last key date names it as blocked and duns the pump invoice
+  alone; an end date in the past is refused; a colleague's proposal is
+  refused as stale once Ruth blocks the whole customer for a payment
+  plan; a run at the key date duns nothing of Lakeshore's, each invoice
+  named with its block; after the customer's block has ended the pump
+  is dunned again; the gasket's block released, once, the next run duns
+  both.

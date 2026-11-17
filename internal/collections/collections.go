@@ -10,6 +10,9 @@
 // (ADR-0065 §9, T76c). A dispute case is a customer's dispute of an
 // amount of one of its open items, worked by a person and closed as
 // accepted or rejected; closing posts nothing (ADR-0065 As built, T86a).
+// A run charges its notices and their items as the company's dunning
+// procedure says (T76d), and leaves out the items a dunning block of the
+// item or its customer holds back (T76e).
 //
 // The context is a leaf (ADR-0065 §1): it reads the ledger's customer
 // open items, the partner context's names, the identity context's people,
@@ -107,6 +110,9 @@ type Endpoints struct {
 	Partners      Partners
 	Settings      Settings
 	People        People
+	// Now is the clock a dunning block's end date is judged by, against
+	// the company's today; nil: the wall clock.
+	Now func() time.Time
 	// MaxItems is the most overdue items one run proposes; 0: MaxRunItems.
 	MaxItems int
 }
@@ -127,31 +133,70 @@ type Run struct {
 	// cases (T86b), by customer and item; DisputedLC what their amounts in
 	// the run's currency add up to, which total checked when the run was
 	// proposed.
-	Disputed  []DisputedItem
-	Version   int32
-	CreatedAt time.Time
-	CreatedBy uuid.UUID
-	UpdatedAt time.Time
-	UpdatedBy uuid.UUID
+	Disputed []DisputedItem
+	// Blocked are the items the run left out for a dunning block of the
+	// item or its customer (T76e), by customer and item, as Disputed.
+	Blocked []BlockedItem
+	// The company's dunning procedure as the run applied it (T76d): its
+	// grace days, minimum amount and annual interest rate (a decimal of
+	// three places; nil: none), and what the run charges: its notices'
+	// charges and interest, and the notices it left out for being below
+	// the minimum amount, by count and overdue amount. Amounts are minor
+	// units of Currency.
+	GraceDays          int32
+	MinimumAmount      money.Minor
+	InterestRate       *string
+	ChargeAmount       money.Minor
+	InterestAmount     money.Minor
+	BelowMinimumCount  int32
+	BelowMinimumAmount money.Minor
+	Version            int32
+	CreatedAt          time.Time
+	CreatedBy          uuid.UUID
+	UpdatedAt          time.Time
+	UpdatedBy          uuid.UUID
 }
 
 // DisputedLC is what the run's disputed items add up to in its currency.
-func (r Run) DisputedLC() money.Minor {
-	amounts := make([]money.Minor, len(r.Disputed))
-	for i, d := range r.Disputed {
-		amounts[i] = d.AmountLC
-	}
-	sum, _ := money.Sum(amounts...) // in range: total refused the run otherwise when it was proposed
+func (r Run) DisputedLC() money.Minor { return heldLC(heldAmounts(r.Disputed, DisputedItem.held)) }
+
+// BlockedLC is what the run's blocked items add up to in its currency.
+func (r Run) BlockedLC() money.Minor { return heldLC(heldAmounts(r.Blocked, BlockedItem.held)) }
+
+// heldLC adds up the amounts of items a run held back, which sums
+// checked for range when the run was proposed.
+func heldLC(amounts []money.Minor) money.Minor {
+	sum, _ := money.Sum(amounts...) // in range: sums refused the run otherwise when it was proposed
 	return sum
 }
 
-// DisputedItem is an item a run would have proposed but left out, its
-// open dispute case named, with what the run read of it
-// (collections.dunning_run.disputed_items, T86b): Amount is minor units
-// of Currency, the item's, whose digits are Exponent (read with the run,
-// not stored); AmountLC of the run's currency.
-type DisputedItem struct {
-	CaseID         uuid.UUID `json:"dispute_case_id"`
+// heldAmounts are the amounts in the run's currency of items a run held
+// back.
+func heldAmounts[T any](items []T, held func(T) HeldItem) []money.Minor {
+	amounts := make([]money.Minor, len(items))
+	for i, it := range items {
+		amounts[i] = held(it).AmountLC
+	}
+	return amounts
+}
+
+// stored is a copy of a run's list as it is written, each item changed by
+// strip: a list, empty and not null without any.
+func stored[T any](items []T, strip func(*T)) []T {
+	out := make([]T, len(items))
+	copy(out, items)
+	for i := range out {
+		strip(&out[i])
+	}
+	return out
+}
+
+// HeldItem is an item a run would have proposed but held back, with what
+// the run read of it, as a run's list keeps it (dunning_run.disputed_items,
+// T86b; .blocked_items, T76e): Amount is minor units of Currency, the
+// item's, whose digits are Exponent (read with the run, not stored);
+// AmountLC of the run's currency.
+type HeldItem struct {
 	CustomerID     uuid.UUID `json:"customer_id"`
 	CustomerNumber string    `json:"customer_number"`
 	ledger.ItemRef
@@ -164,6 +209,24 @@ type DisputedItem struct {
 	Amount         money.Minor `json:"amount"`
 	AmountLC       money.Minor `json:"amount_lc"`
 }
+
+// DisputedItem is an item a run left out for its open dispute case,
+// named (T86b).
+type DisputedItem struct {
+	CaseID uuid.UUID `json:"dispute_case_id"`
+	HeldItem
+}
+
+func (d DisputedItem) held() HeldItem { return d.HeldItem }
+
+// BlockedItem is an item a run left out for a dunning block of the item
+// or its customer, named (T76e).
+type BlockedItem struct {
+	BlockID uuid.UUID `json:"dunning_block_id"`
+	HeldItem
+}
+
+func (b BlockedItem) held() HeldItem { return b.HeldItem }
 
 // Item is a row of collections.dunning_notice_item: a customer's open
 // item overdue on its run's key date, as the run read it. Amount is minor
@@ -183,6 +246,9 @@ type Item struct {
 	AmountLC       money.Minor
 	PreviousLevel  int32
 	Level          int32
+	// InterestAmount is the interest the item is charged at its level, in
+	// the run's currency (T76d); 0 at a level that charges none.
+	InterestAmount money.Minor
 	// PreviousDunnings is how often the item had been dunned when the run
 	// proposed it, which a confirmation compares with how often it has
 	// been by then (ADR-0065 §8).
@@ -190,8 +256,9 @@ type Item struct {
 }
 
 // Notice is a row of collections.dunning_notice with its items by item
-// number: what a run proposes for one customer. OverdueAmount is minor
-// units of its run's currency.
+// number: what a run proposes for one customer. OverdueAmount,
+// ChargeAmount (its level's charge) and InterestAmount (its items') are
+// minor units of its run's currency (T76d).
 type Notice struct {
 	ID             uuid.UUID
 	RunID          uuid.UUID
@@ -200,21 +267,41 @@ type Notice struct {
 	Level          int32
 	ItemCount      int32
 	OverdueAmount  money.Minor
+	ChargeAmount   money.Minor
+	InterestAmount money.Minor
 	Items          []Item
 }
 
-// runSelect reads a run with its disputed items, each given its
-// currency's digits.
+// Total is what the notice asks the customer for: its overdue amount, its
+// charge and its interest, which the run checked for range when it was
+// proposed.
+func (n Notice) Total() money.Minor {
+	sum, _ := money.Sum(n.OverdueAmount, n.ChargeAmount, n.InterestAmount) // in range: charge refused the run otherwise
+	return sum
+}
+
+// Total is what the run's notices ask for, as Notice.Total adds it.
+func (r Run) Total() money.Minor {
+	sum, _ := money.Sum(r.OverdueAmount, r.ChargeAmount, r.InterestAmount) // in range: total refused the run otherwise
+	return sum
+}
+
+// runSelect reads a run with its disputed and blocked items, each given
+// its currency's digits.
 const runSelect = `SELECT r.id, r.legal_entity_id, r.key_date, r.status, r.currency, c.exponent, r.notice_count, r.item_count, r.overdue_amount,
 		(SELECT coalesce(jsonb_agg(d || jsonb_build_object('exponent', x.exponent) ORDER BY n), '[]')
 		 FROM jsonb_array_elements(r.disputed_items) WITH ORDINALITY AS e(d, n) JOIN ref.currency x ON x.code = d->>'currency'),
-		r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
+		(SELECT coalesce(jsonb_agg(d || jsonb_build_object('exponent', x.exponent) ORDER BY n), '[]')
+		 FROM jsonb_array_elements(r.blocked_items) WITH ORDINALITY AS e(d, n) JOIN ref.currency x ON x.code = d->>'currency'),
+		r.grace_days, r.minimum_amount, r.interest_rate_percent::text, r.charge_amount, r.interest_amount, r.below_minimum_count,
+		r.below_minimum_amount, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
 	FROM collections.dunning_run r JOIN ref.currency c ON c.code = r.currency`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.LegalEntityID, &r.KeyDate, &r.Status, &r.Currency, &r.Exponent, &r.NoticeCount, &r.ItemCount, &r.OverdueAmount,
-		&r.Disputed, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
+		&r.Disputed, &r.Blocked, &r.GraceDays, &r.MinimumAmount, &r.InterestRate, &r.ChargeAmount, &r.InterestAmount, &r.BelowMinimumCount,
+		&r.BelowMinimumAmount, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
 	return r, errs.Wrapf(err, "scan dunning run")
 }
 
@@ -248,11 +335,12 @@ func GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
 	return r, err
 }
 
-const noticeSelect = `SELECT id, dunning_run_id, customer_id, customer_number, level, item_count, overdue_amount FROM collections.dunning_notice`
+const noticeSelect = `SELECT id, dunning_run_id, customer_id, customer_number, level, item_count, overdue_amount, charge_amount, interest_amount
+	FROM collections.dunning_notice`
 
 func scanNotice(r pgx.CollectableRow) (Notice, error) {
 	var n Notice
-	err := r.Scan(&n.ID, &n.RunID, &n.CustomerID, &n.CustomerNumber, &n.Level, &n.ItemCount, &n.OverdueAmount)
+	err := r.Scan(&n.ID, &n.RunID, &n.CustomerID, &n.CustomerNumber, &n.Level, &n.ItemCount, &n.OverdueAmount, &n.ChargeAmount, &n.InterestAmount)
 	return n, errs.Wrapf(err, "scan dunning notice")
 }
 
@@ -332,14 +420,14 @@ func items(ctx context.Context, tx pgx.Tx, notices []Notice) error {
 	}
 	rows, _ := tx.Query(ctx, `SELECT i.dunning_notice_id, i.item_no, i.fiscal_year, i.journal_entry_id, i.line_no, i.document_number, i.reference,
 			i.document_date, i.net_due_date, i.days_overdue, i.currency, c.exponent, i.amount, i.amount_lc, i.previous_level, i.level,
-			i.previous_dunnings
+			i.previous_dunnings, i.interest_amount
 		FROM collections.dunning_notice_item i JOIN ref.currency c ON c.code = i.currency
 		WHERE i.dunning_notice_id = ANY($1) ORDER BY i.dunning_notice_id, i.item_no`, ids)
 	var notice uuid.UUID
 	var it Item
 	_, err := pgx.ForEachRow(rows, []any{&notice, &it.ItemNo, &it.FiscalYear, &it.EntryID, &it.LineNo, &it.DocumentNumber, &it.Reference,
 		&it.DocumentDate, &it.NetDueDate, &it.DaysOverdue, &it.Currency, &it.Exponent, &it.Amount, &it.AmountLC, &it.PreviousLevel, &it.Level,
-		&it.PreviousDunnings},
+		&it.PreviousDunnings, &it.InterestAmount},
 		func() error {
 			n := &notices[at[notice]]
 			n.Items = append(n.Items, it)

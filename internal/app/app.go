@@ -568,7 +568,7 @@ func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef
 // its ports.
 func Collections(cfg Config) *collections.Endpoints {
 	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
-		Settings: configuration.Settings{}, People: LedgerPeople{}}
+		Settings: configuration.Settings{}, People: LedgerPeople{}, Now: cfg.Now}
 }
 
 // Audit is the audit context as the API wires it (ADR-0011): its

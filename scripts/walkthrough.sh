@@ -12121,6 +12121,184 @@ step_payment_on_account() {
   passed
 }
 
+# step_dunning_charges is T76d (ADR-0065 As built): Ruth creates Lakeshore
+# Hardware, a new customer of Maple, and posts it a small invoice on NT30
+# and a larger one on NT60. Ada gives Maple's dunning its procedure through
+# a tier 2 change: 7 grace days, no notice below CAD 50.00, interest at 9%
+# a year, level 2 charging CAD 15.00 and interest, level 3 CAD 25.00 and
+# interest. A run six days past the small invoice's due date leaves it out
+# for the grace days; one ten days past names Lakeshore's notice as below
+# the minimum; once both invoices are overdue Lakeshore's notice is
+# proposed at level 1, which charges nothing, and confirmed; twenty days
+# later the next run charges the notice level 2's CAD 15.00 and each
+# item's interest for its days overdue. The customer is the step's own,
+# so its notices hold whatever else is open; the key dates are the
+# requests'. step_dunning_blocks blocks the same invoices.
+step_dunning_charges() {
+  heading "Step 111 — Dunning charges and interest: the company's grace days, minimum amount, interest rate and charges per level through a governed change; an item within the grace days and a notice below the minimum left out; a notice charged its level's charge and its items' interest"
+  local customer small large ar base cr request run tag k1 k2 k3 k4 due1 due2
+  due1=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  due2=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 60 * 86400 | strftime("%Y-%m-%d")')
+  k1=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 36 * 86400 | strftime("%Y-%m-%d")')
+  k2=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
+  k3=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 80 * 86400 | strftime("%Y-%m-%d")')
+  k4=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 100 * 86400 | strftime("%Y-%m-%d")')
+  ar=$(account 1200)
+  as ruth
+  say "Lakeshore Hardware starts buying from Maple. Ruth creates it as a customer, on net 30 days, and Carla approves it:"
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Lakeshore Hardware\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$ar\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys spare parts from Maple\"}"
+  customer=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its first order"
+  as ruth
+  say "She posts it two invoices: CAD 30.00 for a gasket on its terms, due $due1, and CAD 600.00 for a pump on net 60"
+  say "days, due $due2:"
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
+    \"items\": [{\"description\": \"Gasket set\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"30.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"customer invoice \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the small invoice" "$(field '"\(.gross_amount.amount) \(.net_due_date)"')" "30.00 $due1"
+  small=$(field .journal_entry_id)
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
+    \"payment_term_code\": \"NT60\", \"items\": [{\"description\": \"Circulation pump\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"600.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"customer invoice \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the large invoice" "$(field '"\(.gross_amount.amount) \(.net_due_date)"')" "600.00 $due2"
+  large=$(field .journal_entry_id)
+  as ada
+  say "Ada completes Maple's dunning procedure (T76d): an item is dunned only once it is more than 7 days overdue,"
+  say "nobody is sent a notice for less than CAD 50.00, the second level charges CAD 15.00 and the third CAD 25.00, and"
+  say "both charge interest at 9% a year for the days overdue. Like the levels, it posts nothing: tier 2."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Dunning charges and interest\", rationale: \"Maple's dunning procedure (T76d)\", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == \"$CC\" then
+      .dunning += {grace_days: 7, minimum_amount: \"50.00\", interest_rate_percent: \"9.000\"}
+      | .dunning.levels |= map(if .level == 2 then . + {charge: \"15.00\", interest: true} elif .level == 3 then . + {charge: \"25.00\", interest: true} else . end)
+    else . end))}" "$WORK/last.json" >"$WORK/dunning-charges.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @dunning-charges.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The dunning charges, as agreed with the controller"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  as ruth
+  say "On $k1 the gasket invoice is 6 days overdue, within the grace days: Lakeshore gets no notice."
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), grace days \(.grace_days), minimum \(.minimum_amount.amount) \(.minimum_amount.currency), interest \(.interest_rate_percent)% a year"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k1\"}"
+  expect "the procedure the run applied" "$(field '"\(.grace_days) \(.minimum_amount.amount) \(.interest_rate_percent)"')" "7 50.00 9.000"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notices within the grace days" "$(field '.items | length')" 0
+  say "On $k2 it is 10 days overdue, but CAD 30.00 is below the minimum: the run counts Lakeshore's notice as below it."
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.below_minimum_notice_count) below the minimum (\(.below_minimum_amount.amount) \(.below_minimum_amount.currency))"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k2\"}"
+  expect "notices below the minimum" "$(field '.below_minimum_notice_count >= 1 and (.below_minimum_amount.amount | tonumber) >= 30')" true
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notices below the minimum" "$(field '.items | length')" 0
+  say "On $k3 both invoices are overdue, CAD 630.00 in all. Never dunned, they reach level 1, which charges nothing."
+  say "Ruth confirms the run:"
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.overdue_amount.amount) overdue, \(.charge_amount.amount) charges, \(.interest_amount.amount) interest, \(.total_amount.amount) \(.total_amount.currency) in all"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k3\"}"
+  run=$(field .id) tag=$ETAG
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level), \(.overdue_amount.amount) + \(.charge_amount.amount) + \(.interest_amount.amount) = \(.total_amount.amount) \(.total_amount.currency)"' \
+    listDunningNotices -p "id=$run" -p "customer_id=$customer"
+  expect "Lakeshore's first notice" "$(field '[.items[] | "\(.level) \(.overdue_amount.amount) \(.charge_amount.amount) \(.interest_amount.amount) \(.total_amount.amount)"] | join(", ")')" \
+    "1 630.00 0.00 0.00 630.00"
+  api 200 '"dunning run at \(.key_date): \(.status)"' confirmDunningRun -p "id=$run" -if-match "$tag"
+  say "Twenty days later, on $k4, the invoices are 70 and 40 days overdue and reach level 2: the notice is charged CAD 15.00,"
+  say "and each item interest at 9% for its days overdue, 30.00 x 9% x 70/365 = 0.52 and 600.00 x 9% x 40/365 = 5.92:"
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.charge_amount.amount) charges, \(.interest_amount.amount) interest"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k4\"}"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level), \(.overdue_amount.amount) + \(.charge_amount.amount) + \(.interest_amount.amount) = \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no): \(.reference), \(.days_overdue) days overdue, \(.local_amount.amount), level \(.previous_level) -> \(.level), interest \(.interest_amount.amount)")' \
+    listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's second notice" "$(field '[.items[] | "\(.level) \(.overdue_amount.amount) \(.charge_amount.amount) \(.interest_amount.amount) \(.total_amount.amount)"] | join(", ")')" \
+    "2 630.00 15.00 6.44 651.44"
+  expect "each item's interest" "$(field "[.items[].items[] | select(.journal_entry_id == \"$small\" or .journal_entry_id == \"$large\") | \"\(.days_overdue) \(.interest_amount.amount)\"] | sort | join(\", \")")" \
+    "40 5.92, 70 0.52"
+  # What step_dunning_blocks blocks: the customer, its two invoices and a key date both are overdue on.
+  LAKESHORE=$customer LAKESHORE_SMALL=$small LAKESHORE_LARGE=$large LAKESHORE_KEY=$k4
+  passed
+}
+
+# step_dunning_blocks is T76e (ADR-0065 As built): Lakeshore Hardware,
+# step_dunning_charges' customer, says the gasket of its small invoice
+# never arrived. Ruth blocks that invoice from dunning until the matter is
+# settled, and a run at step_dunning_charges' last key date names it as
+# blocked and duns the pump invoice alone; an end date already past is
+# refused. A colleague's proposal at that key date still duns the pump;
+# Ruth agrees a payment plan with Lakeshore and blocks the whole customer
+# for ten days, and the colleague's proposal is refused as stale. A run at
+# the key date duns nothing of Lakeshore's, each invoice named with its
+# block; once the customer's block has ended the pump is dunned again.
+# The gasket is found: Ruth releases its block, once, and the next run
+# duns both invoices. The key dates are the requests'; the end dates are
+# after today.
+step_dunning_blocks() {
+  heading "Step 112 — Dunning blocks: an invoice and a whole customer blocked from dunning with a reason and an end date; a run names the blocked items and duns the rest; a stale proposal refused; after the end date and after a release the items are dunned again"
+  local customer=$LAKESHORE small=$LAKESHORE_SMALL large=$LAKESHORE_LARGE key=$LAKESHORE_KEY item year line until whole whole_until after id tag twin twin_tag body
+  [ -n "$customer" ] || fail "step 111's customer is not there"
+  until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 120 * 86400 | strftime("%Y-%m-%d")')
+  whole_until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 110 * 86400 | strftime("%Y-%m-%d")')
+  after=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 115 * 86400 | strftime("%Y-%m-%d")')
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  item=$(field "[.items[] | select(.journal_entry_id == \"$small\")][0]")
+  [ "$item" != null ] || fail "the gasket invoice of step 111 is not open any more"
+  year=$(jq -r .fiscal_year <<<"$item") line=$(jq -r .line_no <<<"$item")
+  say "Lakeshore says the gasket set of its CAD 30.00 invoice never arrived. Until the warehouse has checked, Ruth"
+  say "blocks that invoice from dunning (T76e), with the reason, up to $until:"
+  body="{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"fiscal_year\": $year, \"journal_entry_id\": \"$small\", \"line_no\": $line,
+    \"reason\": \"Gasket delivery being checked by the warehouse\", \"valid_to\": \"$until\"}"
+  api 201 '"dunning block of \(.customer_number) \(.customer_name) in \(.company_code): \(.status), entry \(.document_number), until \(.valid_to): \(.reason)"' \
+    createDunningBlock -body "$body"
+  id=$(field .id) tag=$ETAG
+  expect "the block" "$(field '"\(.status) \(.customer_id) \(.journal_entry_id) \(.valid_to) \(.version)"')" "active $customer $small $until 1"
+  say "A block ends on a day still to come: one that ended yesterday would hold for no run, and is refused:"
+  refused 422 collections.invalid_block_end createDunningBlock -body "${body/$until/$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime - 86400 | strftime("%Y-%m-%d")')}"
+  say "A run at $key names the gasket invoice as blocked, outside its totals, and duns the pump invoice alone:"
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.blocked_item_count) blocked (\(.blocked_amount.amount) \(.blocked_amount.currency))", (.blocked_items[] | "  blocked: entry \(.document_number) (\(.reference)) of \(.customer_number), \(.days_overdue) days overdue, \(.local_amount.amount) \(.local_amount.currency)")' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  expect "the gasket invoice blocked" "$(field "[.blocked_items[] | select(.journal_entry_id == \"$small\") | .dunning_block_id] | join(\" \")")" "$id"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notice" "$(field '[.items[] | "\(.overdue_amount.amount) \([.items[].journal_entry_id] | join(" "))"] | join(", ")')" "600.00 $large"
+  say "A colleague starts a proposal at the same key date, which duns the pump. Then Lakeshore agrees a payment plan"
+  say "with Ruth, and she blocks the whole customer up to $whole_until:"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  twin=$(field .id) twin_tag=$ETAG
+  api 201 '"dunning block of \(.customer_number) \(.customer_name): \(.status), the whole customer, until \(.valid_to): \(.reason)"' \
+    createDunningBlock -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"reason\": \"Payment plan agreed\", \"valid_to\": \"$whole_until\"}"
+  whole=$(field .id)
+  expect "the customer's block names no item" "$(field '"\(.status) \(has("journal_entry_id"))"')" "active false"
+  say "The colleague's proposal would dun a customer blocked since it was started: it is stale."
+  refused 409 collections.proposal_stale confirmDunningRun -p "id=$twin" -if-match "$twin_tag"
+  say "A run at $key duns nothing of Lakeshore's, and names each invoice with the block that holds it:"
+  api 201 '"dunning run at \(.key_date): \(.blocked_item_count) blocked item(s)"' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  expect "Lakeshore's blocked invoices" \
+    "$(field "[.blocked_items[] | select(.customer_id == \"$customer\") | \"\(.journal_entry_id) \(.dunning_block_id)\"] | sort | join(\", \")")" \
+    "$(printf '%s\n' "$large $whole" "$small $id" | sort | paste -sd, - | sed 's/,/, /')"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notices" "$(field '.items | length')" 0
+  say "On $after the payment plan's block has ended: the pump is dunned again, the gasket still blocked."
+  api 201 '"dunning run at \(.key_date): \(.blocked_item_count) blocked item(s)"' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$after\"}"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notice after the customer's block" "$(field '[.items[].items[].journal_entry_id] | join(" ")')" "$large"
+  say "The warehouse finds the gasket was delivered. Ruth releases its block, once:"
+  api 200 '"dunning block \(.status) by \(.released_by_name), version \(.version)"' releaseDunningBlock -p "id=$id" -if-match "$tag"
+  expect "the released block" "$(field '"\(.status) \(.version)"')" "released 2"
+  refused 409 collections.block_released releaseDunningBlock -p "id=$id" -if-match "$ETAG"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$after\"}"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level), \(.overdue_amount.amount) + \(.charge_amount.amount) + \(.interest_amount.amount) = \(.total_amount.amount) \(.total_amount.currency)"' \
+    listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "both invoices dunned again" "$(field '[.items[].items[].journal_entry_id] | sort | join(" ")')" "$(printf '%s\n' "$small" "$large" | sort | paste -sd' ' -)"
+  QUIET=1 api 200 '' listDunningBlocks -p "customer_id=$customer"
+  expect "Lakeshore's blocks" "$(field '[.items[] | "\(.id) \(.status)"] | join(", ")')" "$whole active, $id released"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -14151,7 +14329,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_close'
 
 main() {
   stop_unseen

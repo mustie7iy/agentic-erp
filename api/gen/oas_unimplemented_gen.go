@@ -871,14 +871,15 @@ func (UnimplementedHandler) CompleteYearCloseTask(ctx context.Context, req OptCl
 // confirmed, the proposal is compared with the open items again: when an item of it was cleared since
 // the run was started, or was dunned since by another confirmed run of the company (its recorded level
 // is no longer the run's `previous_level`), the proposal is stale and refused (409
-// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
-// `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run
-// was started does not make the proposal stale: the run is confirmed as proposed and the item recorded
-// as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a
-// second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers
-// the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is
-// not cancelled. A run of a company the caller may not act in is not found (404). Human-only
-// (`x-agent: false`).
+// `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the
+// item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a
+// stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays
+// `proposed`. A dispute case opened on an item after the run was started does not make the proposal
+// stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not
+// `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and
+// publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without
+// notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company
+// the caller may not act in is not found (404). Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs/{id}:confirm
 func (UnimplementedHandler) ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (r ConfirmDunningRunRes, _ error) {
@@ -1683,6 +1684,31 @@ func (UnimplementedHandler) CreateDownPaymentRequest(ctx context.Context, req *D
 	return r, ht.ErrNotImplemented
 }
 
+// CreateDunningBlock implements createDunningBlock operation.
+//
+// Places a dunning block (ADR-0065 As built, T76e): the customer (`customer_id`), or one of its open
+// items named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's
+// item names it), is not dunned in the company, for a reason, up to an end date. The company is one
+// the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`); the customer a
+// business partner of the tenant (422 `request.reference_not_found` naming `customer_id`); an item an
+// open item on a customer reconciliation account of the company in the leading ledger that this
+// customer owes (422 `collections.item_not_open` naming `journal_entry_id`); the journal line is named
+// whole or not at all (422 `request.validation_failed`). `valid_to` is the last key date the block
+// holds for: not before the company's today and at most 2100-12-31 (422
+// `collections.invalid_block_end` naming `valid_to`). `reason` is a text of more than white space (422
+// `request.validation_failed`). The block is created `active`. A dunning run started while it is
+// active, at a key date up to `valid_to`, leaves the blocked items out of its notices and names them
+// in `blocked_items`; a run proposed before the block is refused as stale when it is confirmed
+// (`confirmDunningRun`). Several blocks of one customer or item may be active at once; each holds
+// until its own end date or release. Placing a block posts nothing and changes nothing on the items.
+// Audited. A retry with the same `Idempotency-Key` answers the block placed. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/dunning-blocks
+func (UnimplementedHandler) CreateDunningBlock(ctx context.Context, req *DunningBlockCreate, params CreateDunningBlockParams) (r CreateDunningBlockRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateDunningRun implements createDunningRun operation.
 //
 // Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a):
@@ -1698,11 +1724,22 @@ func (UnimplementedHandler) CreateDownPaymentRequest(ctx context.Context, req *D
 // dunned and reduce nothing, with or without terms. An item with an open dispute case
 // (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in
 // `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a
-// new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level
-// the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would
-// reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days,
-// and one at the highest level stays there. A notice's level is the highest among its items. A key
-// date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
+// new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its
+// own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the
+// run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items`
+// (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs
+// recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one
+// dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+// highest level stays there. A notice's level is the highest among its items. The company's dunning
+// procedure applies as the configuration has it when the run is started, and the run keeps it (T76d):
+// an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose
+// notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the
+// run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its
+// level's `charge`, and each item at a level that charges `interest` is charged interest at
+// `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue`
+// ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it
+// asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date
+// after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
 // without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
 // 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
 // larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
@@ -3961,6 +3998,18 @@ func (UnimplementedHandler) GetDownPaymentRequest(ctx context.Context, params Ge
 	return r, ht.ErrNotImplemented
 }
 
+// GetDunningBlock implements getDunningBlock operation.
+//
+// One dunning block (ADR-0065 As built, T76e) with its company's code and name, its customer's number
+// and name, the open item it blocks by journal line and document number (none for a block of the whole
+// customer), its reason, its end date and its status, and once released who released it when. One of a
+// company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/dunning-blocks/{id}
+func (UnimplementedHandler) GetDunningBlock(ctx context.Context, params GetDunningBlockParams) (r GetDunningBlockRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetDunningRun implements getDunningRun operation.
 //
 // One dunning run (ADR-0065 §3, T76a) with its company's code and name, its key date, its status and
@@ -6041,6 +6090,19 @@ func (UnimplementedHandler) ListDisputeCases(ctx context.Context, params ListDis
 //
 // GET /v1/down-payment-requests
 func (UnimplementedHandler) ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (r ListDownPaymentRequestsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListDunningBlocks implements listDunningBlocks operation.
+//
+// The dunning blocks of the companies the caller may act in (ADR-0065 As built, T76e), each as
+// `getDunningBlock` gives it: with its company's code and name, its customer's number and name, the
+// open item it blocks (none for a block of the whole customer), its reason, its end date and its
+// status. Filtered by company, customer and status. Sortable by: `created_at` (default, the latest
+// first).
+//
+// GET /v1/dunning-blocks
+func (UnimplementedHandler) ListDunningBlocks(ctx context.Context, params ListDunningBlocksParams) (r ListDunningBlocksRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -8275,6 +8337,21 @@ func (UnimplementedHandler) ReleaseContract(ctx context.Context, params ReleaseC
 //
 // POST /v1/credit-memo-requests/{id}:release
 func (UnimplementedHandler) ReleaseCreditMemoRequest(ctx context.Context, params ReleaseCreditMemoRequestParams) (r ReleaseCreditMemoRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ReleaseDunningBlock implements releaseDunningBlock operation.
+//
+// Releases an `active` dunning block once, before its end date (ADR-0065 As built, T76e), at the
+// version the caller read (`If-Match`; 412 when another change came first): the block is read under a
+// row lock and becomes `released`; a run started from then on duns the items again. A released block
+// is refused (409 `collections.block_released`). A block past its end date is released too, which
+// changes nothing for runs. Audited. A retry with the same `Idempotency-Key` answers the released
+// block. A block of a company the caller may not act in is not found (404). Human-only
+// (`x-agent: false`).
+//
+// POST /v1/dunning-blocks/{id}:release
+func (UnimplementedHandler) ReleaseDunningBlock(ctx context.Context, params ReleaseDunningBlockParams) (r ReleaseDunningBlockRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

@@ -198,8 +198,8 @@ func (e *Endpoints) openItem(ctx context.Context, le tenancy.Entity, ref ledger.
 		return it, nil
 	}
 	return ledger.ReceivableItem{}, problem.Invalid("collections.item_not_open", "journal_entry_id", fmt.Sprintf("Line %d of the journal entry "+
-		"of fiscal year %d is no open item a customer owes company %s: a dispute case is opened on an uncleared debit on a customer "+
-		"reconciliation account in the leading ledger.", ref.LineNo, ref.FiscalYear, le.Code))
+		"of fiscal year %d is no open item a customer owes company %s: a dispute case and an item's dunning block name an uncleared "+
+		"debit on a customer reconciliation account in the leading ledger.", ref.LineNo, ref.FiscalYear, le.Code))
 }
 
 // disputed reads the disputed amount: in the item's currency, more than

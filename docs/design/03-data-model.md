@@ -524,7 +524,12 @@ entry, by its debits, a service principal posts; above it the entry is
 parked for a person; without it the manual entry approval limit; posting-relevant) and its dunning levels
 (`dunning.levels`, optional, ADR-0065 §2: each a `level` numbered from 1 and
 the `days_overdue` an item must have reached for it, ascending, at most
-nine; operational, tier 2; a company without any has no dunning, §3.27). Its retention rules (`retention`, optional, ADR-0079 §2: per document kind, `journal_entry` or `personal_data`, once each, the whole `years` from 0 to 99 a document is kept after its fiscal year's last day; tier 3, two approvers, product owner 2026-11-13; none shipped, and a kind without a rule has nothing past retention, §3.32). The amounts are read with the digits of the
+nine, each with an optional `charge` in the company's currency and
+`interest` whether its items are charged interest; with them the
+procedure's `grace_days` 0-365, `minimum_amount` in the company's currency
+and annual `interest_rate_percent` above 0 and below 100 with three
+places, needed when a level charges interest, T76d; operational, tier 2;
+a company without levels has no dunning, §3.27). Its retention rules (`retention`, optional, ADR-0079 §2: per document kind, `journal_entry` or `personal_data`, once each, the whole `years` from 0 to 99 a document is kept after its fiscal year's last day; tier 3, two approvers, product owner 2026-11-13; none shipped, and a kind without a rule has nothing past retention, §3.32). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -4641,7 +4646,12 @@ the dispute case: a customer's dispute of an amount of one of its open
 items, named by its journal line as a notice's item is, worked by a
 person and closed as accepted or rejected; closing posts nothing.
 T86b (migration 000325) leaves an item with an open case out of a run's
-notices and lists it on the run.
+notices and lists it on the run. T76d (migration 000353) applies the
+company's dunning procedure: a run keeps its grace days, minimum amount
+and interest rate, and charges its notices their level's charge and
+their items interest; nothing is posted. T76e (migration 000354) adds the
+dunning block: a customer, or one of its open items, that the company
+does not dun up to an end date; a run lists the items it holds back.
 
 ```mermaid
 erDiagram
@@ -4657,6 +4667,14 @@ erDiagram
     int item_count
     bigint overdue_amount "in currency"
     jsonb disputed_items "items left out for an open case"
+    smallint grace_days "0-365, the procedure's"
+    bigint minimum_amount "in currency, 0: none"
+    numeric interest_rate_percent "a year; null: none"
+    bigint charge_amount "the notices'"
+    bigint interest_amount "the notices'"
+    int below_minimum_count "notices left out"
+    bigint below_minimum_amount "their amount"
+    jsonb blocked_items "items left out for a block"
     int version }
   dunning_notice { uuid id PK
     uuid dunning_run_id FK
@@ -4664,7 +4682,9 @@ erDiagram
     text customer_number "when proposed"
     smallint level "1-9, the highest of its items"
     int item_count "above 0"
-    bigint overdue_amount "in the run's currency" }
+    bigint overdue_amount "in the run's currency"
+    bigint charge_amount "its level's"
+    bigint interest_amount "its items'" }
   dunning_notice_item { int item_no PK
     uuid dunning_run_id "its notice's"
     smallint fiscal_year "ledger: the journal line"
@@ -4680,13 +4700,27 @@ erDiagram
     bigint amount_lc "in the run's currency, as booked"
     smallint previous_level "0: never dunned"
     smallint level "1-9"
-    int previous_dunnings "times dunned when proposed" }
+    int previous_dunnings "times dunned when proposed"
+    bigint interest_amount "at its level, in the run's currency" }
   dunned_item { smallint fiscal_year PK "ledger: the journal line"
     uuid journal_entry_id PK
     int line_no PK
     uuid dunning_run_id PK "the confirmed run"
     smallint level "1-9"
     date dunning_date "the run's key date" }
+  dunning_block { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner"
+    text customer_number "when placed"
+    smallint fiscal_year "ledger: the item's line, or none"
+    uuid journal_entry_id
+    int line_no
+    text document_number
+    text reason
+    date valid_to "the last key date it holds for"
+    timestamptz released_at
+    uuid released_by
+    int version }
   dispute_case { uuid id PK
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner"
@@ -4723,14 +4757,30 @@ erDiagram
   stay; it may not delete a run. `disputed_items` (T86b, migration
   000325) lists the items the run left out for their open dispute
   cases, a JSON list (`dunning_run_disputed_items_check`), empty by
-  default; it is written with the run and not changed.
+  default; it is written with the run and not changed. T76d (migration
+  000353): the procedure the run applied, `grace_days` from 0 to 365
+  (`dunning_run_grace_days_check`), `minimum_amount` not negative
+  (`dunning_run_minimum_amount_check`) and `interest_rate_percent` above
+  0 and below 100 (`dunning_run_interest_rate_check`, null for none);
+  its `charge_amount` and `interest_amount`, not negative
+  (`dunning_run_charge_amount_check`,
+  `dunning_run_interest_amount_check`); the notices it left out below
+  the minimum, `below_minimum_count` and `below_minimum_amount`, not
+  negative (`dunning_run_below_minimum_count_check`,
+  `dunning_run_below_minimum_amount_check`), an amount only with notices
+  (which may amount to 0, an item booked at 0.00) and notices only with
+  a minimum (`dunning_run_below_minimum_check`). Each defaults to
+  none, and the application's update grant leaves them out.
 - `collections.dunning_notice`: one per customer in a run
   (`dunning_notice_customer_once`), at a level from 1 to 9
   (`dunning_notice_level_check`), with at least one item
   (`dunning_notice_item_count_check`) and its customer's number
   (`dunning_notice_customer_number_check`); insert-only
   (`platform.forbid_mutation`). The list reads a run's notices by
-  customer number (`dunning_notice_by_customer_number`).
+  customer number (`dunning_notice_by_customer_number`). Its
+  `charge_amount` (its level's charge) and `interest_amount` (its items')
+  are not negative (`dunning_notice_charge_amount_check`,
+  `dunning_notice_interest_amount_check`; T76d).
 - `collections.dunning_notice_item`: an open item of the ledger, named
   by its journal line and proposed once in a run
   (`dunning_notice_item_once_per_run`), in its notice's run
@@ -4746,7 +4796,9 @@ erDiagram
   number of its rows there then, which a confirmation compares with the
   number as it is to tell that another confirmed run dunned the item
   since; it is at least the previous level and 0 exactly when that is
-  (`dunning_notice_item_dunnings_check`).
+  (`dunning_notice_item_dunnings_check`). `interest_amount` (T76d), the
+  interest at its level, is not negative
+  (`dunning_notice_item_interest_amount_check`).
 - `collections.dunned_item` (T76b): an item at the level a confirmed run
   dunned it at, on the run's key date; one of the items that run proposed
   (`dunned_item_proposed_fkey`, into `dunning_notice_item`), once per run
@@ -4755,6 +4807,22 @@ erDiagram
   (`dunned_item_level_check`); insert-only. An item's level is the
   highest among its rows and its last dunning date the latest; an item at
   the highest level gets a row per confirmed run that took it.
+- `collections.dunning_block` (T76e, migration 000354): a customer, by
+  its number (`dunning_block_customer_number_check`), and either an open
+  item by its whole journal line with its document number or none of
+  them (`dunning_block_item_check`, `dunning_block_line_no_check`,
+  `dunning_block_document_number_check`); a reason of more than white
+  space, at most 500 characters (`dunning_block_reason_check`); released
+  with when and by whom or neither (`dunning_block_released_check`);
+  version from 1 (`dunning_block_version_check`). A released block is not
+  changed (the trigger `dunning_block_released_once`, for every role);
+  the application may set the release's columns, the version and
+  `updated_by` alone, and deletes none. A run reads a company's
+  unreleased blocks by end date (`dunning_block_in_force`), the list the
+  tenant's by creation (`dunning_block_by_created_at`).
+  `dunning_run.blocked_items` lists the items a run left out for a block,
+  a JSON list (`dunning_run_blocked_items_check`), empty by default,
+  written with the run and not changed.
 - `collections.dispute_case` (T86a, migration 000324): an open item of
   the ledger, named by its journal line (`dispute_case_line_no_check`),
   with its customer's number and its document number
