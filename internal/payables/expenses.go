@@ -92,8 +92,10 @@ type ExpenseReport struct {
 }
 
 // Totals are the report's gross amount, the tax its lines hold and its
-// net amount. A stored report's lines add up within range: entering it
-// checked their sum (sumLines).
+// net amount. The plain additions cannot overflow: entering the report
+// checked its lines' amounts add up within range (sumLines, money.Sum),
+// and each line's tax is less than its amount (expense_report_line_tax,
+// 000329), so the tax adds up below the gross amount.
 func (r ExpenseReport) Totals() (gross, tax, net money.Minor) {
 	for _, l := range r.Lines {
 		gross += l.Amount
