@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/mustie7iy/agentic-erp/internal/sap"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -22,6 +23,17 @@ func TestRunExtractsCompaniesInOrder(t *testing.T) {
 		}
 		if s.FiscalYear != "2026" {
 			t.Fatalf("fiscal year: got %q, want 2026", s.FiscalYear)
+		}
+	}
+}
+
+// TestBankDetailsID: the quality gate names an account by its bank
+// details ID, or "none" for a file extract's, which has none
+// (review:batch77).
+func TestBankDetailsID(t *testing.T) {
+	for want, b := range map[string]sap.LFBK{"0001": {BKVID: "0001"}, "none": {}} {
+		if got := bankDetailsID(b); got != want {
+			t.Errorf("bankDetailsID(%+v): got %q, want %q", b, got, want)
 		}
 	}
 }

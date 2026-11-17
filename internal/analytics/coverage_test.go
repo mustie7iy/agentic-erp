@@ -791,3 +791,13 @@ func TestAgentToolsOfOneTurnRunOneAtATime(t *testing.T) {
 		t.Error("report: got none, want the dashboard")
 	}
 }
+
+// TestAskWithoutTheCompanysDay: a question of one company is dated in
+// that company's time zone; an API that cannot give it fails the answer
+// before any model request (review:batch77).
+func TestAskWithoutTheCompanysDay(t *testing.T) {
+	a := llmAgent(llmtest.New(t))
+	a.Days = apitools.Days{API: &apitools.Client{BaseURL: "http://127.0.0.1:1", Token: "t"}}
+	_, err := a.Ask(context.Background(), session(t, us), "q")
+	pgtest.WantErr(t, err, "analytics: the date of the question")
+}
