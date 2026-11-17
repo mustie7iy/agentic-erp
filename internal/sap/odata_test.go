@@ -2,6 +2,7 @@ package sap
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 )
 
 func TestODataValue(t *testing.T) {
@@ -34,7 +37,7 @@ func TestODataValue(t *testing.T) {
 func TestODataSourcePagesAndFilters(t *testing.T) {
 	const total = 5
 	var filters []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if u, p, _ := r.BasicAuth(); u != "user" || p != "pw" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -59,7 +62,7 @@ func TestODataSourcePagesAndFilters(t *testing.T) {
 	defer srv.Close()
 
 	src := &ODataSource{
-		BaseURL: srv.URL, User: "user", Password: "pw", PageSize: 2,
+		HTTP: via(t, srv), BaseURL: srv.URL, User: "user", Password: "pw", PageSize: 2,
 		Entities: []EntityMapping{entity(t, "EKKO")},
 	}
 	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
@@ -113,13 +116,13 @@ func TestODataBankAccountsAttachToTheirSupplier(t *testing.T) {
 			{"BusinessPartner": "0000100003", "BankCountryKey": "DE", "BankAccount": "other company's"},
 			{"BusinessPartner": "0000777777", "BankCountryKey": "DE", "BankAccount": "no partner's"}},
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		entitySet := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
 		// A failed write reaches the source as a broken answer, which the test asserts on.
 		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": rows[entitySet]}})
 	}))
 	defer srv.Close()
-	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "LFA1"), entity(t, "LFB1"), entity(t, "LFBK"), entity(t, PartnerLink)}}
+	src := &ODataSource{HTTP: via(t, srv), BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "LFA1"), entity(t, "LFB1"), entity(t, "LFBK"), entity(t, PartnerLink)}}
 	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
 	if err != nil {
 		t.Fatal(err)
@@ -146,11 +149,11 @@ func TestODataBankAccountsAttachToTheirSupplier(t *testing.T) {
 // Without an LFBK mapping the extraction reads no bank accounts and names
 // no vendor as without a partner: it never looked.
 func TestODataWithoutBankAccountsNamesNoVendor(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"d":{"results":[{"Supplier": "0000100001", "CompanyCode": "1000"}]}}`))
 	}))
 	defer srv.Close()
-	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "LFA1"), entity(t, "LFB1")}}
+	src := &ODataSource{HTTP: via(t, srv), BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "LFA1"), entity(t, "LFB1")}}
 	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
 	if err != nil {
 		t.Fatal(err)
@@ -168,13 +171,13 @@ func TestODataWithoutBankAccountsNamesNoVendor(t *testing.T) {
 // blank that would read as a credit memo; the quality gate refuses it
 // (T72b).
 func TestODataInvoicesHaveNoKindIndicator(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		row := map[string]any{"SupplierInvoice": "5100000001", "FiscalYear": "2026", "CompanyCode": "1000", "SupplierInvoiceStatus": "A"}
 		// A failed write reaches the source as a broken answer, which the test asserts on.
 		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": []map[string]any{row}}})
 	}))
 	defer srv.Close()
-	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "RBKP")}}
+	src := &ODataSource{HTTP: via(t, srv), BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "RBKP")}}
 	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
 	if err != nil {
 		t.Fatal(err)
@@ -192,14 +195,14 @@ func TestODataInvoicesHaveNoKindIndicator(t *testing.T) {
 // "100000" and "10000", and the extract holds no TCURX, which only a table
 // export's internal form needs.
 func TestODataAmountsAreExternal(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		row := map[string]any{"SupplierInvoice": "5100000001", "FiscalYear": "2026", "CompanyCode": "1000", "DocumentCurrency": "JPY",
 			"InvoiceGrossAmount": "100000", "TaxAmount": json.Number("10000")}
 		// A failed write reaches the source as a broken answer, which the test asserts on.
 		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": []map[string]any{row}}})
 	}))
 	defer srv.Close()
-	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "RBKP")}}
+	src := &ODataSource{HTTP: via(t, srv), BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "RBKP")}}
 	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
 	if err != nil {
 		t.Fatal(err)
@@ -219,12 +222,12 @@ func TestODataAmountsAreExternal(t *testing.T) {
 // it cannot end the literal and change the filter.
 func TestODataFilterEscapesQuotes(t *testing.T) {
 	var filter string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		filter = r.URL.Query().Get("$filter")
 		w.Write([]byte(`{"d":{"results":[]}}`))
 	}))
 	defer srv.Close()
-	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{{
+	src := &ODataSource{HTTP: via(t, srv), BaseURL: srv.URL, Entities: []EntityMapping{{
 		Table: "BKPF", Service: "S", Entity: "E", CompanyField: "CompanyCode", YearField: "FiscalYear",
 	}}}
 	cases := map[string]struct{ company, year, want string }{
@@ -249,11 +252,11 @@ func TestODataFilterEscapesQuotes(t *testing.T) {
 // A number the service sends unquoted keeps every digit: amounts beyond a
 // float64's 15-17 significant digits are not rounded on the way in.
 func TestODataNumbersKeepEveryDigit(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"d":{"results":[{"Amount": 12345678901234567.89, "Count": 9007199254740993, "Small": 0.1, "Exp": 1.5e3, "Huge": 1e999999}]}}`))
 	}))
 	defer srv.Close()
-	results, err := (&ODataSource{}).page(context.Background(), srv.Client(), srv.URL, 0)
+	results, err := (&ODataSource{HTTP: via(t, srv)}).page(context.Background(), srv.URL, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,5 +324,61 @@ func TestMockIsBalancedAndDeterministic(t *testing.T) {
 	jb, _ := json.Marshal(b)
 	if string(ja) != string(jb) {
 		t.Fatal("same seed must produce identical extracts")
+	}
+}
+
+// via is the egress client a test reads srv through: the server's own
+// client widened to loopback, which only a test binary may do.
+func via(t *testing.T, srv *httptest.Server) Getter {
+	t.Helper()
+	roots := x509.NewCertPool()
+	roots.AddCert(srv.Certificate())
+	c, err := NewClient(egress.LoopbackForTests(roots))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	return c
+}
+
+// TestODataEgress: a tenant's SAP system is read through the egress
+// client alone (product owner 2026-11-16): without one nothing is read;
+// the server's own client refuses http and every address that is not
+// public, loopback included; a page larger than the client's bound is
+// refused, not cut short and decoded.
+func TestODataEgress(t *testing.T) {
+	ctx := context.Background()
+	scope := Scope{CompanyCodes: []string{"1000"}}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"d":{"results":[{"CompanyCode": "1000", "CompanyCodeName": "` + strings.Repeat("x", 64) + `"}]}}`))
+	}))
+	defer srv.Close()
+	public, err := NewClient()
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(srv.Certificate())
+	small, err := egress.New(egress.ResponseLimit(16), egress.LoopbackForTests(roots))
+	if err != nil {
+		t.Fatalf("egress.New: %v", err)
+	}
+	for name, c := range map[string]struct {
+		src  *ODataSource
+		want string
+	}{
+		"no client":        {&ODataSource{BaseURL: srv.URL}, "no egress client"},
+		"loopback refused": {&ODataSource{HTTP: public, BaseURL: srv.URL}, "not a public unicast address"},
+		"http refused":     {&ODataSource{HTTP: via(t, srv), BaseURL: strings.Replace(srv.URL, "https:", "http:", 1)}, "not an https URL"},
+		"page too large":   {&ODataSource{HTTP: small, BaseURL: srv.URL}, "larger than 16 bytes"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c.src.Entities = []EntityMapping{DefaultEntities[0]}
+			if _, err := c.src.Extract(ctx, scope); err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("Extract: got %v, want an error saying %q", err, c.want)
+			}
+		})
+	}
+	if _, err := NewClient(egress.ResponseLimit(0)); err == nil {
+		t.Error("NewClient with a response limit of 0: got a client, want an error")
 	}
 }

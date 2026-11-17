@@ -189,8 +189,8 @@ func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error)
 		path, _ := c.Settings["path"].(string) // checkSettings held it to a local path
 		return sap.FileSource{Path: filepath.Join(e.ExtractDir, path)}, nil
 	}
-	baseURL, _ := c.Settings["base_url"].(string) // checkSettings held it to an http(s) URL
-	o := &sap.ODataSource{BaseURL: baseURL, HTTP: e.HTTP}
+	baseURL, _ := c.Settings["base_url"].(string) // checkSettings held it to an https URL
+	o := &sap.ODataSource{BaseURL: baseURL, HTTP: e.SAP}
 	if v, ok := c.Settings["client"].(string); ok {
 		o.Client = v
 	}
@@ -199,12 +199,15 @@ func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error)
 		o.PageSize = int(v)
 	}
 	if c.SecretRef != nil {
-		credentials, err := e.Secrets.Resolve(ctx, *c.SecretRef)
+		credentials, err := tenantSecret(ctx, e.Secrets, *c.SecretRef)
 		user, password, found := strings.Cut(credentials, ":")
 		if err != nil || !found {
 			return nil, problem.Unprocessable("integration.secret_unavailable", "The connector's credentials ("+*c.SecretRef+") cannot be resolved as user:password.").WithCause(err)
 		}
 		o.User, o.Password = user, password
+	}
+	if e.SAP == nil {
+		return nil, problem.Unavailable("SAP systems cannot be read on this server: it has no egress client for them.", 0)
 	}
 	return o, nil
 }

@@ -40,11 +40,17 @@ func TestNewBounds(t *testing.T) {
 // TestLoopbackOnlyInTests: outside a test binary the test option fails
 // New rather than opening loopback to tenants' URLs.
 func TestLoopbackOnlyInTests(t *testing.T) {
+	if err := LoopbackDialForTests("tcp", "127.0.0.1:22", nil); err != nil {
+		t.Errorf("dial loopback in a test: got %v, want allowed", err)
+	}
 	prev := inTest
 	inTest = func() bool { return false }
 	t.Cleanup(func() { inTest = prev })
 	if _, err := New(LoopbackForTests(x509.NewCertPool())); err == nil {
 		t.Error("got a client, want an error")
+	}
+	if err := LoopbackDialForTests("tcp", "93.184.216.34:22", nil); err == nil {
+		t.Error("dial outside a test: got allowed, want refused")
 	}
 }
 
@@ -132,5 +138,30 @@ func TestOwnBounds(t *testing.T) {
 	}
 	if tr, _ := c.http.Transport.(*http.Transport); tr == nil || tr.MaxResponseHeaderBytes != MaxResponse { // not a transport: nil, refused
 		t.Errorf("header bound: got %v, want %d", tr, MaxResponse)
+	}
+}
+
+// TestDialControl: without a stand-in the control is RefusePrivate; with
+// one it lets that loopback address and port through and nothing else of
+// the machine; a stand-in off loopback, or without a port, is refused.
+func TestDialControl(t *testing.T) {
+	if c, err := DialControl(netip.AddrPort{}); err != nil || c("tcp", "127.0.0.1:2222", nil) == nil || c("tcp", "93.184.216.34:22", nil) != nil {
+		t.Errorf("no stand-in: got error %v, want RefusePrivate", err)
+	}
+	c, err := DialControl(netip.MustParseAddrPort("127.0.0.1:2222"))
+	if err != nil {
+		t.Fatalf("DialControl: %v", err)
+	}
+	for address, allowed := range map[string]bool{"127.0.0.1:2222": true, "127.0.0.1:2223": false, "10.0.0.1:2222": false, "93.184.216.34:22": true} {
+		t.Run(address, func(t *testing.T) {
+			if got := c("tcp", address, nil) == nil; got != allowed {
+				t.Errorf("allowed: got %v, want %v", got, allowed)
+			}
+		})
+	}
+	for _, standIn := range []netip.AddrPort{netip.MustParseAddrPort("10.0.0.1:2222"), netip.MustParseAddrPort("127.0.0.1:0")} {
+		if _, err := DialControl(standIn); err == nil {
+			t.Errorf("stand-in %s: got a control, want an error", standIn)
+		}
 	}
 }

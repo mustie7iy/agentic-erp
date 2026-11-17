@@ -3,9 +3,9 @@ package sap
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 )
 
 // ODataSource extracts from a live S/4HANA system through its standard
@@ -21,14 +23,43 @@ import (
 // and adjust Entities, since releases and activated APIs differ.
 //
 // Every request is a read. Agents never write to SAP through this source.
+//
+// The system is a tenant's (its connector's base_url), so every page is
+// read through HTTP, the egress client (ADR-0041 As built, product owner
+// 2026-11-16): https to public addresses only, no redirect followed, each
+// answer bounded (NewClient). A source without one reads nothing.
 type ODataSource struct {
 	BaseURL  string // e.g. https://my-s4.example.com
 	User     string
 	Password string
 	Client   string // sap-client, optional
 	PageSize int
-	HTTP     *http.Client
+	HTTP     Getter
 	Entities []EntityMapping
+}
+
+// Getter reads a URL: *egress.Client.
+type Getter interface {
+	Get(ctx context.Context, rawURL string, header http.Header) (egress.Response, error)
+}
+
+// The egress client's bounds for OData (NewClient): a page of at most
+// 5000 records (the connector's page_size) fits in MaxPage, and a slow
+// system has PageTimeout to send it.
+const (
+	MaxPage     = 32 << 20
+	PageTimeout = 2 * time.Minute
+)
+
+// NewClient is the egress client OData pages are read through: public
+// addresses only, an answer of at most MaxPage bytes, PageTimeout per
+// page; opts widen it for tests (egress.LoopbackForTests).
+func NewClient(opts ...egress.Option) (*egress.Client, error) {
+	c, err := egress.New(append([]egress.Option{egress.ResponseLimit(MaxPage), egress.CallTimeout(PageTimeout)}, opts...)...)
+	if err != nil {
+		return nil, fmt.Errorf("sap: odata client: %w", err)
+	}
+	return c, nil
 }
 
 // EntityMapping maps one OData entity set onto one SAP table struct.
@@ -242,9 +273,8 @@ func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, 
 	if pageSize <= 0 {
 		pageSize = 1000
 	}
-	httpc := o.HTTP
-	if httpc == nil {
-		httpc = &http.Client{Timeout: 2 * time.Minute}
+	if o.HTTP == nil {
+		return nil, fmt.Errorf("sap: odata source %s has no egress client", o.BaseURL) // fail closed: never a client that reaches the cell's own network
 	}
 	var filters []string
 	if companyCode != "" {
@@ -272,7 +302,7 @@ func (o *ODataSource) fetch(ctx context.Context, em EntityMapping, companyCode, 
 			q.Set("sap-client", o.Client)
 		}
 		u := fmt.Sprintf("%s/sap/opu/odata/sap/%s/%s?%s", strings.TrimRight(o.BaseURL, "/"), em.Service, em.Entity, q.Encode())
-		results, err := o.page(ctx, httpc, u, skip)
+		results, err := o.page(ctx, u, skip)
 		if err != nil {
 			return nil, err
 		}
@@ -291,24 +321,19 @@ func odataString(s string) string {
 }
 
 // page reads one page of an entity set.
-func (o *ODataSource) page(ctx context.Context, httpc *http.Client, u string, skip int) ([]map[string]any, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request for page at offset %d: %w", skip, err)
-	}
-	req.SetBasicAuth(o.User, o.Password)
-	req.Header.Set("Accept", "application/json")
-	resp, err := httpc.Do(req)
+func (o *ODataSource) page(ctx context.Context, u string, skip int) ([]map[string]any, error) {
+	header := http.Header{"Accept": {"application/json"}}
+	header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(o.User+":"+o.Password)))
+	resp, err := o.HTTP.Get(ctx, u, header)
 	if err != nil {
 		return nil, fmt.Errorf("request page at offset %d: %w", skip, err)
 	}
-	body, err := io.ReadAll(resp.Body)
-	_ = resp.Body.Close() // the body has been read; a close error cannot change what it held
-	if err != nil {
-		return nil, fmt.Errorf("read page at offset %d: %w", skip, err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %.300s", resp.StatusCode, body)
+	body := resp.Body
+	switch {
+	case resp.Status != http.StatusOK:
+		return nil, fmt.Errorf("HTTP %d: %.300s", resp.Status, body)
+	case resp.Truncated:
+		return nil, fmt.Errorf("page at offset %d: larger than %d bytes; lower the connector's page_size", skip, len(body))
 	}
 	var page struct {
 		D struct {

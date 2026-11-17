@@ -21,11 +21,12 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore/blobstoretest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient/sftptest"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
@@ -56,13 +57,13 @@ func fetchSetup(t *testing.T) *fetchScenario {
 	host, port, _ := net.SplitHostPort(server.Addr) // the listener's own address
 	conn := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
-		VALUES ($1, $2, 'bank_sftp', 'Bank SFTP', $3, 'env:BANK_KEY', 'active', $4, $4)`, e.Tenant.ID, conn,
+		VALUES ($1, $2, 'bank_sftp', 'Bank SFTP', $3, $5, 'active', $4, $4)`, e.Tenant.ID, conn,
 		fmt.Sprintf(`{"host": %q, "port": %s, "user": "erp", "host_key": %q, "directory": "/", "statements_directory": "/in", "statements_archive": "/archive"}`,
-			host, port, strings.TrimSpace(server.HostKey())), e.Tenant.Human.ID)
+			host, port, strings.TrimSpace(server.HostKey())), e.Tenant.Human.ID, vaulttest.TenantRef(e.Tenant.ID, "bank"))
 	pgtest.Exec(t, `UPDATE payments.house_bank SET connector_id = $2, version = version + 1 WHERE id = $1`, e.bank, conn)
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	h := app.Payments(app.Config{Pages: pages, FieldKeys: apitest.FieldKeys(), Objects: blobstoretest.New(t).Store(),
-		Secrets: secrets.Local{Getenv: func(n string) string { return map[string]string{"BANK_KEY": string(key)}[n] }}})
+		Secrets: vaulttest.ByPath{"bank": string(key)}, SFTPControl: egress.LoopbackDialForTests})
 	return &fetchScenario{e: e, server: server, conn: conn, in: workflows.FetchInput{TenantID: e.Tenant.ID, HouseBankID: e.bank},
 		a: &workflows.Statements{Pool: pgtest.Pool(t), AppRole: "erp_app", Endpoints: h}}
 }

@@ -31321,6 +31321,7 @@ paths:
         - integration.adapter_not_certified
         - integration.duplicate_name
         - integration.ebics_not_certified
+        - integration.invalid_secret_ref
         - integration.invalid_settings
         - integration.unknown_kind
       parameters:
@@ -31402,6 +31403,7 @@ paths:
       x-permission: integration.connector.manage
       x-problem-codes:
         - integration.duplicate_name
+        - integration.invalid_secret_ref
         - integration.invalid_settings
         - request.version_mismatch
       parameters:
@@ -64515,7 +64517,7 @@ components:
               description: "Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
             secret_ref:
               type: string
-              description: Vault path of the credentials.
+              description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`."
               maxLength: 500
             status:
               type: string
@@ -64567,7 +64569,7 @@ components:
           description: "Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
         secret_ref:
           type: string
-          description: Vault path of the credentials.
+          description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`."
           maxLength: 500
       additionalProperties: false
       examples:
@@ -64591,7 +64593,7 @@ components:
           type:
             - string
             - "null"
-          description: Vault path of the credentials. Send null to clear.
+          description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`. Send null to clear."
           maxLength: 500
       additionalProperties: false
       examples:

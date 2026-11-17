@@ -10,10 +10,11 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient/sftptest"
 )
@@ -25,8 +26,9 @@ func TestBankChannels(t *testing.T) {
 	f := fixture.New(t)
 	key, client := sftptest.PrivateKey(t)
 	host := sftptest.Signer(t).PublicKey()
-	vars := map[string]string{"BANK_KEY": string(key), "NOT_A_KEY": "password"}
-	b := integration.BankChannels{Secrets: secrets.Local{Getenv: func(n string) string { return vars[n] }}}
+	ref := func(path string) string { return vaulttest.TenantRef(f.Tenant.ID, path) }
+	other := vaulttest.TenantRef(uuid.New(), "bank")
+	b := integration.BankChannels{Secrets: vaulttest.Refs{ref("bank"): string(key), ref("password"): "password", other: string(key), "env:BANK_KEY": string(key)}}
 	settings := `{"host": "sftp.bank.example", "port": 2222, "user": "erp", "host_key": "` + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(host))) + `", "directory": "/in"}`
 	conn := func(kind, name, settings, ref, status string) uuid.UUID {
 		id := uuid.Must(uuid.NewV7())
@@ -38,7 +40,7 @@ func TestBankChannels(t *testing.T) {
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`, f.Tenant.ID, id, kind, name, settings, secret, status, f.Tenant.Human.ID)
 		return id
 	}
-	valid := conn("bank_sftp", "Bank SFTP", settings, "env:BANK_KEY", "active")
+	valid := conn("bank_sftp", "Bank SFTP", settings, ref("bank"), "active")
 	sap := conn("sap_file", "SAP", `{"path": "x.json"}`, "", "active")
 
 	ep, err := endpointOf(t, f, b, valid)
@@ -57,6 +59,9 @@ func TestBankChannels(t *testing.T) {
 	if ep.Signer == nil || string(ep.Signer.PublicKey().Marshal()) != string(client.PublicKey().Marshal()) {
 		t.Error("client key: got another, want the secret's")
 	}
+	if ep.Control == nil || ep.Control("tcp", "127.0.0.1:2222", nil) == nil || ep.Control("tcp", "10.0.0.1:22", nil) == nil {
+		t.Error("dial control: got none or one letting private addresses through, want egress's refusal")
+	}
 
 	for name, c := range map[string]struct {
 		id   uuid.UUID
@@ -64,11 +69,13 @@ func TestBankChannels(t *testing.T) {
 	}{
 		"unknown":            {uuid.New(), "request.not_found"},
 		"not a bank channel": {sap, "integration.not_a_bank_channel"},
-		"disabled":           {conn("bank_sftp", "Off", settings, "env:BANK_KEY", "disabled"), "integration.connector_disabled"},
+		"disabled":           {conn("bank_sftp", "Off", settings, ref("bank"), "disabled"), "integration.connector_disabled"},
 		"no secret_ref":      {conn("bank_sftp", "No key", settings, "", "active"), "integration.secret_required"},
-		"invalid settings":   {conn("bank_sftp", "Old", `{"host": "h", "user": "u", "host_key": "x", "directory": "/"}`, "env:BANK_KEY", "active"), "integration.invalid_settings"},
-		"secret missing":     {conn("bank_sftp", "Missing", settings, "env:MISSING", "active"), "integration.secret_unavailable"},
-		"secret not a key":   {conn("bank_sftp", "Password", settings, "env:NOT_A_KEY", "active"), "integration.secret_unavailable"},
+		"invalid settings":   {conn("bank_sftp", "Old", `{"host": "h", "user": "u", "host_key": "x", "directory": "/"}`, ref("bank"), "active"), "integration.invalid_settings"},
+		"secret missing":     {conn("bank_sftp", "Missing", settings, ref("missing"), "active"), "integration.secret_unavailable"},
+		"secret not a key":   {conn("bank_sftp", "Password", settings, ref("password"), "active"), "integration.secret_unavailable"},
+		"an env: reference":  {conn("bank_sftp", "Env", settings, "env:BANK_KEY", "active"), "integration.secret_unavailable"},
+		"another tenant's":   {conn("bank_sftp", "Other", settings, other, "active"), "integration.secret_unavailable"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := endpointOf(t, f, b, c.id); problem.From(err).Code != c.code {
@@ -76,6 +83,13 @@ func TestBankChannels(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("a configured control", func(t *testing.T) {
+		stub := integration.BankChannels{Secrets: b.Secrets, Control: egress.LoopbackDialForTests}
+		if ep, err := endpointOf(t, f, stub, valid); err != nil || ep.Control("tcp", "127.0.0.1:2222", nil) != nil {
+			t.Errorf("got %v, want the configured control, letting loopback through", err)
+		}
+	})
 
 	for name, want := range map[string]bool{"Bank SFTP": true, "SAP": false, "Nobody": false} {
 		t.Run("by name "+name, func(t *testing.T) {
@@ -125,15 +139,14 @@ func TestTreasuryChannels(t *testing.T) {
 	f := fixture.New(t)
 	key, client := sftptest.PrivateKey(t)
 	host := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sftptest.Signer(t).PublicKey())))
-	vars := map[string]string{"TREASURY_KEY": string(key)}
-	tc := integration.TreasuryChannels{Secrets: secrets.Local{Getenv: func(n string) string { return vars[n] }}}
+	tc := integration.TreasuryChannels{Secrets: vaulttest.Refs{vaulttest.TenantRef(f.Tenant.ID, "treasury"): string(key)}}
 	settings := func(format, companies string) string {
 		return `{"host": "sftp.treasury.example", "user": "erp", "host_key": "` + host + `", "directory": "/cash", "format": "` + format + `", "companies": ` + companies + `}`
 	}
 	conn := func(kind, name, settings, status string) uuid.UUID {
 		id := uuid.Must(uuid.NewV7())
 		pgtest.Exec(t, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
-			VALUES ($1, $2, $3, $4, $5, 'env:TREASURY_KEY', $6, $7, $7)`, f.Tenant.ID, id, kind, name, settings, status, f.Tenant.Human.ID)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`, f.Tenant.ID, id, kind, name, settings, vaulttest.TenantRef(f.Tenant.ID, "treasury"), status, f.Tenant.Human.ID)
 		return id
 	}
 	csv := conn(integration.TreasuryExport, "Treasury B", settings("csv", `["3000", "4000"]`), "active")

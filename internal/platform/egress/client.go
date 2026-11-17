@@ -169,6 +169,33 @@ func (o options) control() (func(network, address string, c syscall.RawConn) err
 	return RefusePrivate, nil
 }
 
+// DialControl is the dialer control of a connection to an address a
+// tenant names outside HTTP (an SFTP server, ADR-0038): RefusePrivate, or,
+// with a stand-in, RefusePrivate letting that one loopback address and
+// port through, as WalkthroughReceiver does for HTTP. Only
+// ERP_WALKTHROUGH_SFTP sets the stand-in, which config.Load refuses
+// outside development, and tests; one that is not a loopback address and
+// port is refused.
+func DialControl(standIn netip.AddrPort) (func(network, address string, c syscall.RawConn) error, error) {
+	if standIn == (netip.AddrPort{}) {
+		return RefusePrivate, nil
+	}
+	if !standIn.IsValid() || !standIn.Addr().Unmap().IsLoopback() || standIn.Port() == 0 {
+		return nil, fmt.Errorf("egress: the stand-in %s is not a loopback address and port", standIn)
+	}
+	return allowReceiver(netip.AddrPortFrom(standIn.Addr().Unmap(), standIn.Port())), nil
+}
+
+// LoopbackDialForTests is a dialer control letting loopback addresses
+// through besides public ones, in a test binary only, where test servers
+// listen on loopback (sftptest); elsewhere it refuses every address.
+func LoopbackDialForTests(network, address string, c syscall.RawConn) error {
+	if !inTest() {
+		return errors.New("egress: loopback is allowed only in tests")
+	}
+	return allowLoopback(network, address, c)
+}
+
 // allowReceiver is RefusePrivate letting the one address and port of the
 // walkthrough's receiver through: another port of the machine stays
 // refused.

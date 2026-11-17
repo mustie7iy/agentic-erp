@@ -67,6 +67,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
 	"github.com/mustie7iy/agentic-erp/internal/records"
 	"github.com/mustie7iy/agentic-erp/internal/revenue"
+	"github.com/mustie7iy/agentic-erp/internal/sap"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 	"go.opentelemetry.io/otel"
@@ -695,6 +696,12 @@ func (s *server) newAPI() error {
 		return err
 	}
 	if s.apiCfg.Providers, err = providerClient(cfg); err != nil {
+		return err
+	}
+	if s.apiCfg.SFTPControl, err = egress.DialControl(cfg.Walkthrough.SFTP); err != nil { // config.Load refuses a stand-in outside development
+		return fmt.Errorf("erp-server: the walkthrough's SFTP stand-in: %w", err)
+	}
+	if s.apiCfg.SAP, err = sap.NewClient(); err != nil { // a tenant's SAP system: public addresses only, no walkthrough exception (it reads extract files)
 		return err
 	}
 	if s.apiHandler, err = app.New(s.apiCfg); err != nil {

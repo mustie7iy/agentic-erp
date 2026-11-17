@@ -337,6 +337,42 @@ identifier and not a name, may be (`supplier_number`).
   `bank_account_holder_name` or `counterparty_name`, the names the
   contracts give a partner's or account holder's name.
 
+### As built: every call to a tenant's address through the egress rules (PO 2026-11-16)
+
+The batch 76 review (R5 B1) found `sap_odata` connectors read with a plain
+HTTP client: `http` or any host, loopback and private addresses included,
+and the whole answer read. The product owner decided on 16 Nov 2026 that
+SAP OData goes through the egress client as webhooks do; the sweep of
+every outbound call to an address a tenant gives (rule 17) applied the
+same rule to SFTP:
+
+- **SAP OData** (`sap.NewClient`): the egress client of this ADR, https
+  only (the connector's `base_url` is refused otherwise, and with
+  credentials in it, 422 `integration.invalid_settings`), public unicast
+  addresses only, judged on every address dialled, no redirect followed,
+  each page at most `sap.MaxPage` (32 MiB; a 5000-record page fits) in
+  `sap.PageTimeout` (2 min, as before); a larger page is refused, not cut
+  short and decoded, and the run stays queued. A server without the
+  client answers 503. Decided by default: the URL's host is not resolved
+  when written (webhooks do it): the connector is used by runs, which
+  refuse it at once on the address dialled, and a write-time lookup would
+  add DNS to every connector change.
+- **SFTP channels** (`bank_sftp`, `treasury_export`): the SFTP server is
+  the tenant's, so `sftpclient.Endpoint` dials only through a control,
+  `egress.DialControl`: public addresses only, and an endpoint without a
+  control is never dialled. Decided by default as the safer posture: a
+  bank's or treasury system's server on a private network (a VPN) is
+  refused, as a webhook's is; it would need its own ADR.
+- **The walkthrough's SFTP stand-in**, `ERP_WALKTHROUGH_SFTP`, a loopback
+  address and port in development only (config.Load refuses it elsewhere),
+  is the one local address channels may reach, as
+  `ERP_WALKTHROUGH_RECEIVER` is for webhooks. Tests dial loopback through
+  `egress.LoopbackDialForTests`, which refuses every address outside a
+  test binary.
+- **Already within the rules**: webhooks and e-invoicing providers (this
+  egress client), identity providers (ADR-0031, `RefusePrivate` in
+  production, set by the operator); EBICS makes no call until T44d.
+
 ## Alternatives
 - **Versions in a header or media type:** keeps URLs stable but hides the
   version from logs, caches and gateways; paths are what 04 §4.2 already

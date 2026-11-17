@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient"
 	"github.com/mustie7iy/agentic-erp/internal/platform/sftpclient/sftptest"
 )
@@ -69,6 +70,8 @@ func TestUploadFailures(t *testing.T) {
 		"the parent":         {func(*sftptest.Server) {}, keep, "..", "not a file name"},
 		"no pinned host key": {func(*sftptest.Server) {}, func(e sftpclient.Endpoint) sftpclient.Endpoint { e.HostKey = nil; return e }, "f.xml", "no pinned host key"},
 		"no client key":      {func(*sftptest.Server) {}, func(e sftpclient.Endpoint) sftpclient.Endpoint { e.Signer = nil; return e }, "f.xml", "no client key"},
+		"no dial control":    {func(*sftptest.Server) {}, func(e sftpclient.Endpoint) sftpclient.Endpoint { e.Control = nil; return e }, "f.xml", "no dial control"},
+		"loopback refused":   {func(*sftptest.Server) {}, func(e sftpclient.Endpoint) sftpclient.Endpoint { e.Control = egress.RefusePrivate; return e }, "f.xml", "not a public unicast address"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			b := sftptest.NewServer(t, client.PublicKey(), c.configure)

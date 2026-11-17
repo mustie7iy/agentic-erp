@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +11,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -413,14 +417,15 @@ func conforms(t *testing.T, completed []map[string]any) {
 
 func TestConnectorsAndRunRules(t *testing.T) {
 	e := setup(t)
+	sapRef := vaulttest.TenantRef(e.Tenant.ID, "sap")
 	c, tag := e.Must(201, "POST", "/v1/connectors", `{"kind": "sap_odata", "name": "S4", "settings": {"base_url": "https://s4.example.com", "client": "100",
-		"page_size": 500, "system": "S4_PRD"}, "secret_ref": "env:ERP_TEST_SAP"}`, "")
+		"page_size": 500, "system": "S4_PRD"}, "secret_ref": "`+sapRef+`"}`, "")
 	path := "/v1/connectors/" + c["id"].(string)
 	if c["status"] != "active" {
 		t.Fatalf("created status: got %v, want active", c["status"])
 	}
-	if c["secret_ref"] != "env:ERP_TEST_SAP" {
-		t.Fatalf("created secret_ref: got %v, want env:ERP_TEST_SAP", c["secret_ref"])
+	if c["secret_ref"] != sapRef {
+		t.Fatalf("created secret_ref: got %v, want %s", c["secret_ref"], sapRef)
 	}
 	if tag != `"1"` {
 		t.Fatalf("created ETag: got %s, want %s", tag, `"1"`)
@@ -429,6 +434,8 @@ func TestConnectorsAndRunRules(t *testing.T) {
 		"unknown kind":        `{"kind": "fax", "name": "x", "settings": {}}`,
 		"path escapes":        `{"kind": "sap_file", "name": "x", "settings": {"path": "../etc"}}`,
 		"not http":            `{"kind": "sap_odata", "name": "x", "settings": {"base_url": "ftp://x"}}`,
+		"plain http":          `{"kind": "sap_odata", "name": "x", "settings": {"base_url": "http://x"}}`,
+		"credentials in URL":  `{"kind": "sap_odata", "name": "x", "settings": {"base_url": "https://u:p@x"}}`,
 		"client not a string": `{"kind": "sap_odata", "name": "x", "settings": {"base_url": "https://x", "client": 100}}`,
 		"page size 0":         `{"kind": "sap_odata", "name": "x", "settings": {"base_url": "https://x", "page_size": 0}}`,
 		"lower-case system":   `{"kind": "sap_file", "name": "x", "settings": {"path": "a.json", "system": "sap"}}`,
@@ -440,6 +447,14 @@ func TestConnectorsAndRunRules(t *testing.T) {
 		})
 	}
 	e.Problem(409, "integration.duplicate_name", "POST", "/v1/connectors", `{"kind": "email", "name": "S4", "settings": {}}`, "")
+	// A tenant names only secrets under its own vault namespace (product owner 2026-11-16): the server resolves them.
+	for name, ref := range map[string]string{"env": "env:DATABASE_URL", "file": "file:/etc/passwd", "server's vault": "vault:secret/erp/field-key#value",
+		"another tenant's": vaulttest.TenantRef(uuid.New(), "sap")} {
+		t.Run("secret_ref "+name, func(t *testing.T) {
+			e.Client.In(t).Problem(422, "integration.invalid_secret_ref", "POST", "/v1/connectors", `{"kind": "email", "name": "x", "settings": {}, "secret_ref": "`+ref+`"}`, "")
+			e.Client.In(t).Problem(422, "integration.invalid_secret_ref", "PATCH", path, `{"secret_ref": "`+ref+`"}`, tag)
+		})
+	}
 	upd, tag := e.Must(200, "PATCH", path, `{"name": "S4 PRD", "settings": {"base_url": "https://s4.example.com"}, "secret_ref": null}`, tag)
 	if upd["name"] != "S4 PRD" {
 		t.Fatalf("updated name: got %v, want S4 PRD", upd["name"])
@@ -451,7 +466,7 @@ func TestConnectorsAndRunRules(t *testing.T) {
 		t.Fatalf("updated settings.client: got %v, want nil", client)
 	}
 	e.Problem(422, "integration.invalid_settings", "PATCH", path, `{"settings": {}}`, tag)
-	_, tag = e.Must(200, "PATCH", path, `{"secret_ref": "env:ERP_TEST_SAP"}`, tag)
+	_, tag = e.Must(200, "PATCH", path, `{"secret_ref": "`+sapRef+`"}`, tag)
 	e.Problem(409, "integration.invalid_status", "POST", path+":enable", "", tag)
 	disabled, tag := e.Must(200, "POST", path+":disable", `{"reason": "Cutover done"}`, tag)
 	if disabled["status"] != "disabled" {
@@ -484,30 +499,33 @@ func TestConnectorsAndRunRules(t *testing.T) {
 		t.Fatalf("list page: %v", page)
 	}
 
-	// OData sources: credentials come from the referenced secret; extraction failures leave the run queued.
+	// OData sources: credentials come from the tenant's vault namespace, the system is read through the egress
+	// client; a reference resolving to nothing is 422, a server without the client 503, and an extraction
+	// failure leaves the run queued.
 	runPath := "/v1/migration-runs/" + run["id"].(string)
-	e.Problem(422, "integration.secret_unavailable", "POST", runPath+":start", "", `"1"`)
-	sapServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
+	e.Problem(422, "integration.secret_unavailable", "POST", runPath+":start", "", `"1"`) // this server resolves no vault: references
+	sapServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
 	defer sapServer.Close()
-	t.Setenv("ERP_TEST_SAP", "user:secret")
-	e.Must(200, "PATCH", path, fmt.Sprintf(`{"settings": {"base_url": %q, "client": "100", "page_size": 10}}`, sapServer.URL), `"5"`)
-	e.Problem(503, "platform.unavailable", "POST", runPath+":start", "", `"1"`)
+	roots := x509.NewCertPool()
+	roots.AddCert(sapServer.Certificate())
+	sapClient, err := sap.NewClient(egress.LoopbackForTests(roots))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vault := vaulttest.New(t)
+	vault.Secrets["secret/tenants/"+e.Tenant.ID.String()+"/sap"] = map[string]any{"value": "user:secret"}
+	vaultResolver := &secrets.Vault{Address: vault.URL, Token: vaulttest.Token}
+	vaulted := apitest.Client{T: t, API: apitest.NewWith(t, func(cfg *app.Config) { cfg.Secrets, cfg.SAP = vaultResolver, sapClient }), Tenant: e.Tenant, As: e.Tenant.Human}
+	_, tag = vaulted.Must(200, "PATCH", path, fmt.Sprintf(`{"settings": {"base_url": %q, "client": "100", "page_size": 10}}`, sapServer.URL), `"5"`)
+	noClient := apitest.Client{T: t, API: apitest.NewWith(t, func(cfg *app.Config) { cfg.Secrets = vaultResolver }), Tenant: e.Tenant, As: e.Tenant.Human}
+	noClient.Problem(503, "platform.unavailable", "POST", runPath+":start", "", `"1"`)
+	vaulted.Problem(503, "platform.unavailable", "POST", runPath+":start", "", `"1"`) // resolved; SAP answers 503
 	if got, _ := e.Must(200, "GET", runPath, "", ""); got["status"] != "queued" {
 		t.Fatalf("after a failed extraction: %v", got)
 	}
-	// Credentials in a vault: the server's resolver reads them; a reference to nothing is 422.
-	vault := vaulttest.New(t)
-	vault.Secrets["secret/erp/sap"] = map[string]any{"credentials": "user:secret"}
-	local := secrets.Local{}
-	withVault := apitest.NewWith(t, func(cfg *app.Config) {
-		cfg.Secrets = secrets.Multi{secrets.SchemeEnv: local, secrets.SchemeVault: &secrets.Vault{Address: vault.URL, Token: vaulttest.Token}}
-	})
-	vaulted := apitest.Client{T: t, API: withVault, Tenant: e.Tenant, As: e.Tenant.Human}
-	_, tag = vaulted.Must(200, "PATCH", path, `{"secret_ref": "vault:secret/erp/sap#credentials"}`, `"6"`)
-	vaulted.Problem(503, "platform.unavailable", "POST", runPath+":start", "", `"1"`) // resolved; SAP answers 503
-	_, tag = vaulted.Must(200, "PATCH", path, `{"secret_ref": "vault:secret/erp/sap#missing"}`, tag)
+	_, tag = vaulted.Must(200, "PATCH", path, `{"secret_ref": "`+vaulttest.TenantRef(e.Tenant.ID, "missing")+`"}`, tag)
 	vaulted.Problem(422, "integration.secret_unavailable", "POST", runPath+":start", "", `"1"`)
-	e.Must(200, "PATCH", path, `{"secret_ref": "env:ERP_TEST_SAP"}`, tag)
+	e.Must(200, "PATCH", path, `{"secret_ref": "`+sapRef+`"}`, tag)
 
 	// Runs need a source connector, a known mode and active legal entities the caller may act in.
 	mail := ""

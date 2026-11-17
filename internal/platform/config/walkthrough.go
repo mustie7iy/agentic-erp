@@ -25,6 +25,12 @@ type Walkthrough struct {
 	// ProviderRoots is ERP_WALKTHROUGH_PROVIDER_CA, a PEM file with the
 	// stand-in's certificate, trusted for it alone.
 	ProviderRoots *x509.CertPool
+	// SFTP is ERP_WALKTHROUGH_SFTP, the SFTP stand-in (the treasury
+	// system's), the one loopback address and port a bank or treasury
+	// channel may reach (ADR-0041 As built, product owner 2026-11-16); zero:
+	// none. Its host key is pinned on the connector, so it needs no
+	// certificate.
+	SFTP netip.AddrPort
 }
 
 // walkthrough reads the walkthrough's stand-ins once ERP_ENV is known.
@@ -32,6 +38,27 @@ func (l *loader) walkthrough(c *Config) {
 	c.Walkthrough.Receiver, c.Walkthrough.Roots = l.standIn(c, "ERP_WALKTHROUGH_RECEIVER", "let webhooks reach a loopback address, for the walkthrough alone (ADR-0041)")
 	c.Walkthrough.Provider, c.Walkthrough.ProviderRoots = l.standIn(c, "ERP_WALKTHROUGH_PROVIDER",
 		"let the e-invoicing stand-in be read on a loopback address, for the walkthrough alone (ADR-0061)")
+	c.Walkthrough.SFTP = l.sftpStandIn(c)
+}
+
+// sftpStandIn reads ERP_WALKTHROUGH_SFTP: a loopback address and port, in
+// development only.
+func (l *loader) sftpStandIn(c *Config) netip.AddrPort {
+	const name = "ERP_WALKTHROUGH_SFTP"
+	addr := l.getenv(name)
+	if addr == "" {
+		return netip.AddrPort{}
+	}
+	if c.Environment != Development {
+		l.errs = append(l.errs, fmt.Errorf("%s must not be set unless ERP_ENV=development: it lets SFTP channels reach a loopback address, for the walkthrough alone (ADR-0041)", name))
+		return netip.AddrPort{}
+	}
+	at, err := netip.ParseAddrPort(addr)
+	if err != nil || !at.Addr().Unmap().IsLoopback() || at.Port() == 0 {
+		l.errs = append(l.errs, fmt.Errorf("%s %q must be a loopback address and port, such as 127.0.0.1:2222", name, addr))
+		return netip.AddrPort{}
+	}
+	return at
 }
 
 // standIn reads a walkthrough stand-in's address (the variable name) and

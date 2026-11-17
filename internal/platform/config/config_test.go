@@ -677,6 +677,7 @@ func TestProductionFailsClosed(t *testing.T) {
 		{"production walkthrough receiver's address alone", prod(map[string]string{"ERP_WALKTHROUGH_RECEIVER": "127.0.0.1:18443"}), []string{receiverRefused}},
 		{"production walkthrough receiver's certificate alone", prod(map[string]string{"ERP_WALKTHROUGH_RECEIVER_CA": receiver["ERP_WALKTHROUGH_RECEIVER_CA"]}), []string{receiverRefused}},
 		{"production walkthrough provider", prod(map[string]string{"ERP_WALKTHROUGH_PROVIDER": "127.0.0.1:18444"}), []string{providerRefused}},
+		{"production walkthrough SFTP", prod(map[string]string{"ERP_WALKTHROUGH_SFTP": "127.0.0.1:2222"}), []string{"ERP_WALKTHROUGH_SFTP must not be set unless ERP_ENV=development"}},
 		{"no environment, walkthrough receiver", with(receiver, map[string]string{"ERP_ENV": ""}), []string{envRequired, receiverRefused}},
 		{"production packs", prod(map[string]string{"ERP_PACKS_DIR": t.TempDir()}), []string{"ERP_PACKS_DIR must not be set with ERP_ENV=production"}},
 		{"production engine without codec", prod(map[string]string{"ERP_TEMPORAL_ADDRESS": "localhost:7233"}), []string{codecRefused}},
@@ -1000,6 +1001,33 @@ func walkthroughStandIn(t *testing.T, name string) {
 		t.Run(label, func(t *testing.T) {
 			m := valid()
 			m[name], m[name+"_CA"] = set.addr, set.ca
+			if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), set.want) {
+				t.Errorf("got %v, want an error containing %q", err, set.want)
+			}
+		})
+	}
+}
+
+// TestWalkthroughSFTP: in development the walkthrough's SFTP stand-in is
+// read as one loopback address and port; anything else, or the variable
+// outside development, stops the server at start.
+func TestWalkthroughSFTP(t *testing.T) {
+	m := valid()
+	m["ERP_WALKTHROUGH_SFTP"] = "127.0.0.1:2222"
+	if c := mustLoad(t, m); c.Walkthrough.SFTP != netip.MustParseAddrPort("127.0.0.1:2222") {
+		t.Errorf("stand-in: got %v, want 127.0.0.1:2222", c.Walkthrough.SFTP)
+	}
+	if c := mustLoad(t, valid()); c.Walkthrough.SFTP.IsValid() {
+		t.Errorf("without it: got %v, want none", c.Walkthrough.SFTP)
+	}
+	for label, set := range map[string]struct{ addr, want string }{
+		"a private address": {"10.0.0.1:2222", "must be a loopback address and port"},
+		"a name":            {"localhost:2222", "must be a loopback address and port"},
+		"port zero":         {"127.0.0.1:0", "must be a loopback address and port"},
+	} {
+		t.Run(label, func(t *testing.T) {
+			m := valid()
+			m["ERP_WALKTHROUGH_SFTP"] = set.addr
 			if _, err := Load(env(m)); err == nil || !strings.Contains(err.Error(), set.want) {
 				t.Errorf("got %v, want an error containing %q", err, set.want)
 			}

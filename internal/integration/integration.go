@@ -19,7 +19,7 @@ package integration
 import (
 	"context"
 	"errors"
-	"net/http"
+	"fmt"
 	"net/netip"
 	"time"
 
@@ -36,7 +36,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
+	"github.com/mustie7iy/agentic-erp/internal/sap"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -144,10 +147,40 @@ type Reports interface {
 	OpenGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]map[int32]ledger.OpenGRIR, error)
 }
 
-// Secrets resolves a connector's secret reference (env:, file: or vault:;
-// internal/platform/secrets).
+// Secrets resolves a connector's secret reference: the server's resolver
+// (internal/platform/secrets), which connectors reach only through
+// tenantSecret.
 type Secrets interface {
 	Resolve(ctx context.Context, ref string) (string, error)
+}
+
+// tenantSecret resolves a connector's secret_ref through the server's
+// resolver only when it is under the tenant's own namespace,
+// vault:<mount>/tenants/<tenant_id>/… (product owner 2026-11-16, ADR-0017
+// As built): the resolver reads whatever the server may, so an env: or
+// file: reference, or another tenant's path, would hand a tenant the
+// server's or another tenant's credentials. A reference stored before the
+// rule is refused here, on use.
+func tenantSecret(ctx context.Context, r Secrets, ref string) (string, error) {
+	_, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return "", err
+	}
+	v, err := secrets.ResolveTenant(ctx, r, p.TenantID, ref)
+	if err != nil {
+		return "", fmt.Errorf("integration: secret_ref %s: %w", ref, err)
+	}
+	return v, nil
+}
+
+// checkSecretRef refuses a secret_ref a tenant writes outside its own
+// namespace (tenantSecret); nil, no reference, passes.
+func checkSecretRef(ref *string, tenant uuid.UUID) error {
+	if ref == nil || secrets.TenantRef(*ref, tenant) == nil {
+		return nil
+	}
+	return invalid("integration.invalid_secret_ref", "secret_ref", "A vault reference under the tenant's own namespace, vault:<mount>/tenants/"+
+		tenant.String()+"/<path>#<field>: env: and file: references, and any other vault path, are the server's.")
 }
 
 // Requesters refuses a run's deferred work acting as a requester no longer
@@ -180,7 +213,7 @@ type Endpoints struct {
 	Resolver      egress.Resolver  // resolves webhook hosts when a URL is written
 	Receiver      netip.AddrPort   // the walkthrough's webhook receiver, a URL may name it (ERP_WALKTHROUGH_RECEIVER, development only); zero: none
 	ExtractDir    string           // sap_file connectors read extracts below it; empty: they cannot be used
-	HTTP          *http.Client     // for sap_odata connectors; nil: the reader's default
+	SAP           sap.Getter       // the egress client sap_odata connectors are read through (sap.NewClient); nil: they cannot be read
 	Now           func() time.Time // the clock replay, ping and a migration run's day read, the dispatcher's where both are wired; nil: the wall clock
 	Workflows     bool             // runs leave the request and run as workflows (ADR-0012); false: they complete within it
 	RefuseEBICS   bool             // production: bank_ebics connectors and the e-invoicing stand-in cannot be created or enabled (ADR-0038, T44d; ADR-0061 §3)
