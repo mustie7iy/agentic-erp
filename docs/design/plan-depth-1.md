@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Depth plan 1: first variant slices (17 November 2026)
 
 **Status:** plan (product owner, 16–17 November 2026: breadth is built;
@@ -167,17 +166,6 @@ management); procedures per customer; charges and minimum amounts per
 currency and per level; posting dunning charges and interest to the
 customer; blocks shown in the collection worklist; scheduled and large
 runs as a workflow; cancelling a confirmed run.
-||||||| 2dfb6488
-=======
-# Depth plan, first variant slices (from 17 November 2026)
-
-**Status:** plan (product owner, 2026-11-17: breadth is built; the
-variants start, pilot-relevant first). Each lane splits the two variants
-its brief names out of a "later: …" leaf of `docs/tracker.json` into
-slices, in the form of `plan-breadth-week3.md`, and narrows that leaf to
-what remains. `docs/tracker.json` stays the only plan (07 §7.5); each new
-leaf's `r` names its section below. What every slice reuses is
-`plan-breadth-week3.md`'s list, unchanged.
 
 ## sales
 
@@ -288,7 +276,6 @@ delivery; cancelling an order with deliveries (a reason for rejection per
 item); collective cancellation; the revenue contract following an order
 change, a cancellation or a cancelled billing; clearing the cancellation
 against an open invoice automatically.
->>>>>>> sales
 
 ## orders
 
