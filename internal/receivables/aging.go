@@ -46,6 +46,9 @@ const minKeyYear, maxKeyYear = 1900, 2999
 // OpenItems reads a company's open customer items (ledger context).
 type OpenItems interface {
 	Receivable(ctx context.Context, legalEntity uuid.UUID, customers []uuid.UUID) ([]ledger.ReceivableItem, error)
+	// Unpayable names the items no longer open (T75g: a payment's credit
+	// on account).
+	Unpayable(ctx context.Context, refs []ledger.ItemRef) (map[ledger.ItemRef]string, error)
 }
 
 // agingSum is the items of a bucket, a customer or the report: how many,

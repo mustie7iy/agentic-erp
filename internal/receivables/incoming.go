@@ -54,6 +54,9 @@ type PaymentItem struct {
 	ResidualLineNo *int32       `json:"residual_line_no"`
 	ResidualReason *string      `json:"residual_reason"`
 	ResidualText   *string      `json:"residual_reason_text"`
+	// ApplicationNo is the application of the payment's credit on account
+	// that applied the item (T75g); 0 for the payment itself.
+	ApplicationNo int32 `json:"application_no"`
 }
 
 // IncomingPayment is a row of receivables.incoming_payment with its
@@ -74,11 +77,19 @@ type IncomingPayment struct {
 	// Difference is the payment difference written off (T75f): what the
 	// items, net of their residuals, exceed the receipt by.
 	Difference money.Minor
-	EntryYear  int16
-	EntryID    uuid.UUID
-	Items      []PaymentItem
-	CreatedAt  time.Time
-	CreatedBy  uuid.UUID
+	// OnAccount is what the payment left on the customer's account (T75g),
+	// a credit on OnAccountAccount, line OnAccountLine of the clearing
+	// entry; zero and nil for none. Applications are the applications of
+	// that credit, by number.
+	OnAccount        money.Minor
+	OnAccountLine    *int32
+	OnAccountAccount *uuid.UUID
+	Applications     []PaymentApplication
+	EntryYear        int16
+	EntryID          uuid.UUID
+	Items            []PaymentItem
+	CreatedAt        time.Time
+	CreatedBy        uuid.UUID
 }
 
 // PaymentInput is an incoming payment to apply, as a client sends it.
@@ -91,6 +102,9 @@ type PaymentInput struct {
 	// Residuals, one per item or none, are what stays open of the items
 	// paid in part (T75f); nil for an item paid in full.
 	Residuals []*ResidualInput
+	// OnAccount leaves what the receipt has left after the items on the
+	// customer's account as a credit (T75g).
+	OnAccount bool
 }
 
 // paymentSelect reads incoming payments with their items by item number.
@@ -98,15 +112,22 @@ const paymentSelect = `SELECT p.id, p.document_number, p.legal_entity_id, p.cust
 		p.posting_date, p.currency, c.exponent, p.amount, p.difference, p.clearing_entry_year, p.clearing_entry_id,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'fiscal_year', t.fiscal_year, 'journal_entry_id', t.journal_entry_id,
 			'line_no', t.line_no, 'amount', t.amount, 'residual_amount', t.residual_amount, 'residual_line_no', t.residual_line_no,
-			'residual_reason', t.residual_reason, 'residual_reason_text', t.residual_reason_text) ORDER BY t.item_no)
+			'residual_reason', t.residual_reason, 'residual_reason_text', t.residual_reason_text, 'application_no', t.application_no) ORDER BY t.item_no)
 		 FROM receivables.incoming_payment_item t WHERE t.tenant_id = p.tenant_id AND t.incoming_payment_id = p.id), '[]'),
+		p.on_account_amount, p.on_account_line_no, p.on_account_account_id,
+		coalesce((SELECT json_agg(json_build_object('application_no', a.application_no, 'posting_date', a.posting_date, 'credit_entry_year', a.credit_entry_year,
+			'credit_entry_id', a.credit_entry_id, 'credit_line_no', a.credit_line_no, 'amount', a.amount, 'difference', a.difference,
+			'on_account_amount', a.on_account_amount, 'on_account_line_no', a.on_account_line_no, 'clearing_entry_year', a.clearing_entry_year,
+			'clearing_entry_id', a.clearing_entry_id, 'created_at', a.created_at, 'created_by', a.created_by) ORDER BY a.application_no)
+		 FROM receivables.incoming_payment_application a WHERE a.tenant_id = p.tenant_id AND a.incoming_payment_id = p.id), '[]'),
 		p.created_at, p.created_by
 	FROM receivables.incoming_payment p JOIN ref.currency c ON c.code = p.currency`
 
 func scanPayment(row pgx.Row) (IncomingPayment, error) {
 	var v IncomingPayment
 	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.CustomerID, &v.ReceiptYear, &v.ReceiptEntryID, &v.ReceiptAccountID, &v.PostingDate,
-		&v.Currency, &v.Exponent, &v.Amount, &v.Difference, &v.EntryYear, &v.EntryID, &v.Items, &v.CreatedAt, &v.CreatedBy)
+		&v.Currency, &v.Exponent, &v.Amount, &v.Difference, &v.EntryYear, &v.EntryID, &v.Items, &v.OnAccount, &v.OnAccountLine, &v.OnAccountAccount,
+		&v.Applications, &v.CreatedAt, &v.CreatedBy)
 	return v, errs.Wrapf(err, "scan incoming payment")
 }
 
@@ -158,11 +179,8 @@ func (e *Endpoints) ApplyPayment(ctx context.Context, in PaymentInput) (Incoming
 	if err != nil {
 		return IncomingPayment{}, err
 	}
-	residuals, err := residualsOf(in.Residuals, len(in.Items), receipt.Currency, receipt.Exponent)
-	if err != nil {
-		return IncomingPayment{}, err
-	}
-	under, over, err := e.tolerance(ctx, le)
+	id := uuid.Must(uuid.NewV7())
+	app, err := e.receiptApplication(ctx, tx, le, customer, in, receipt, id)
 	if err != nil {
 		return IncomingPayment{}, err
 	}
@@ -170,19 +188,21 @@ func (e *Endpoints) ApplyPayment(ctx context.Context, in PaymentInput) (Incoming
 	if err != nil {
 		return IncomingPayment{}, err
 	}
-	id := uuid.Must(uuid.NewV7())
-	text := "Incoming payment of customer " + customer.Number
-	applied, err := e.Postings.ApplyReceipt(ctx, ledger.ReceiptApplication{LegalEntityID: le.ID, DocumentType: PaymentDocumentType, PostingDate: date,
-		Currency: receipt.Currency, ReceiptAccountID: receipt.AccountID, Receipt: receipt.Item, CustomerID: in.CustomerID, Items: in.Items,
-		Residuals: residuals, Under: under, Over: over, HeaderText: &text, SourceContext: "receivables", SourceDocumentID: id})
+	app.ledger.PostingDate = date
+	applied, err := e.Postings.ApplyReceipt(ctx, app.ledger)
 	if err != nil {
 		return IncomingPayment{}, fmt.Errorf("receivables: apply receipt %s to customer %s: %w", receipt.Number, customer.Number, err)
+	}
+	if in.OnAccount && applied.OnAccount == 0 {
+		return IncomingPayment{}, problem.Unprocessable("receivables.nothing_left_on_account",
+			"The items take the whole receipt: nothing is left to put on the customer's account.",
+			problem.FieldError{Field: "on_account", Code: "nothing_left", Message: "false, or fewer items"})
 	}
 	number, err := e.Numbers.Next(ctx, le.ID, PaymentNumberRange, year)
 	if err != nil {
 		return IncomingPayment{}, fmt.Errorf("receivables: number an incoming payment: %w", err)
 	}
-	if err := insertPayment(ctx, tx, p, id, number, in, residuals, receipt, date, applied); err != nil {
+	if err := insertPayment(ctx, tx, p, id, number, in, app, receipt, date, applied); err != nil {
 		return IncomingPayment{}, err
 	}
 	v, err := scanPayment(tx.QueryRow(ctx, paymentSelect+` WHERE p.id = $1`, id))
@@ -319,16 +339,72 @@ func (e *Endpoints) paymentDate(ctx context.Context, le tenancy.Entity, requeste
 
 // insertPayment writes the application and its items, in the request's
 // order, each with the amount the ledger cleared it at.
-func insertPayment(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, number string, in PaymentInput, residuals []ledger.Residual,
+func insertPayment(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, number string, in PaymentInput, app receiptApplication,
 	receipt ledger.Receipt, date time.Time, applied ledger.AppliedReceipt) error {
+	var line *int32
+	var account *uuid.UUID
+	if applied.OnAccountLine != 0 {
+		line, account = &applied.OnAccountLine, &app.ledger.OnAccount
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
-			receipt_entry_id, receipt_account_id, posting_date, currency, amount, difference, clearing_entry_year, clearing_entry_id, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+			receipt_entry_id, receipt_account_id, posting_date, currency, amount, difference, on_account_amount, on_account_line_no, on_account_account_id,
+			clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
 		p.TenantID, id, number, in.LegalEntityID, in.CustomerID, receipt.Item.FiscalYear, receipt.Item.EntryID, receipt.AccountID, date, receipt.Currency,
-		applied.Receipt, applied.Difference, applied.Entry.FiscalYear, applied.Entry.ID, p.ID); err != nil {
+		applied.Receipt, applied.Difference, applied.OnAccount, line, account, applied.Entry.FiscalYear, applied.Entry.ID, p.ID); err != nil {
 		return fmt.Errorf("receivables: insert incoming payment %s: %w", id, err)
 	}
-	return insertPaymentItems(ctx, tx, p.TenantID, id, 0, applying{items: in.Items, inputs: in.Residuals, residuals: residuals}, applied)
+	return insertPaymentItems(ctx, tx, p.TenantID, id, 0, 0, applying{items: in.Items, inputs: in.Residuals, residuals: app.ledger.Residuals}, applied)
+}
+
+// receiptApplication is the ledger's application of a receipt as the
+// request asks for it, but its posting date: the items with their
+// residuals (residualsOf), the company's tolerance, and with on_account
+// the customer's reconciliation account what is left goes to.
+type receiptApplication struct {
+	ledger ledger.ReceiptApplication
+}
+
+// receiptApplication reads what the request asks for into the ledger's
+// application of the receipt; the payment's id is the clearing entry's
+// source document.
+func (e *Endpoints) receiptApplication(ctx context.Context, tx pgx.Tx, le tenancy.Entity, customer partner.Named, in PaymentInput, receipt ledger.Receipt,
+	id uuid.UUID) (receiptApplication, error) {
+	residuals, err := residualsOf(in.Residuals, len(in.Items), receipt.Currency, receipt.Exponent)
+	if err != nil {
+		return receiptApplication{}, err
+	}
+	under, over, err := e.tolerance(ctx, tx, le)
+	if err != nil {
+		return receiptApplication{}, err
+	}
+	text := "Incoming payment of customer " + customer.Number
+	app := ledger.ReceiptApplication{LegalEntityID: le.ID, DocumentType: PaymentDocumentType, Currency: receipt.Currency, ReceiptAccountID: receipt.AccountID,
+		Receipt: receipt.Item, CustomerID: in.CustomerID, Items: in.Items, Residuals: residuals, Under: under, Over: over, HeaderText: &text,
+		SourceContext: "receivables", SourceDocumentID: id}
+	if in.OnAccount {
+		if app.OnAccount, err = e.customerAccount(ctx, in.CustomerID, le); err != nil {
+			return receiptApplication{}, err
+		}
+	}
+	return receiptApplication{ledger: app}, nil
+}
+
+// customerAccount is the customer's reconciliation account in the company
+// (its company data, T74a), where a payment on account is posted: a
+// customer without company data there is refused, 422
+// receivables.customer_not_usable naming customer_id. A customer blocked
+// for posting may still pay (ApplyPayment).
+func (e *Endpoints) customerAccount(ctx context.Context, customer uuid.UUID, le tenancy.Entity) (uuid.UUID, error) {
+	c, _, err := e.CustomerData.Customer(ctx, customer, le.ID) // the customer exists (payer)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("receivables: customer %s in company %s: %w", customer, le.Code, err)
+	}
+	if !c.IsCustomer || !c.SetUp {
+		return uuid.Nil, problem.Invalid("receivables.customer_not_usable", "customer_id",
+			"A payment is put on account only for a customer set up in the company, on its reconciliation account.")
+	}
+	return c.ReconciliationID, nil
 }
 
 // applying is what an application applies: the items, with the residuals
@@ -343,7 +419,7 @@ type applying struct {
 // insertPaymentItems writes the items of an application, numbered from after
 // the first, in the request's order, each with the amount the ledger
 // cleared it at and its residual item, if it left one.
-func insertPaymentItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, first int32, a applying, applied ledger.AppliedReceipt) error {
+func insertPaymentItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, first, application int32, a applying, applied ledger.AppliedReceipt) error {
 	n := len(a.items)
 	nos, years, entries, lines := make([]int32, n), make([]int16, n), make([]uuid.UUID, n), make([]int32, n)
 	amounts, residualLines, reasons, texts := make([]*money.Minor, n), make([]*int32, n), make([]*string, n), make([]*string, n)
@@ -355,11 +431,11 @@ func insertPaymentItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, fi
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
-			residual_amount, residual_line_no, residual_reason, residual_reason_text)
-		SELECT $1, $2, n, y, je, l, a, ra, rl, rr, rt
+			residual_amount, residual_line_no, residual_reason, residual_reason_text, application_no)
+		SELECT $1, $2, n, y, je, l, a, ra, rl, rr, rt, $12
 		FROM unnest($3::int[], $4::smallint[], $5::uuid[], $6::int[], $7::bigint[], $8::bigint[], $9::int[], $10::text[], $11::text[])
 			AS x(n, y, je, l, a, ra, rl, rr, rt)`,
-		tenant, id, nos, years, entries, lines, applied.Items, amounts, residualLines, reasons, texts); err != nil {
+		tenant, id, nos, years, entries, lines, applied.Items, amounts, residualLines, reasons, texts, application); err != nil {
 		return fmt.Errorf("receivables: write items of incoming payment %s: %w", id, err)
 	}
 	return nil
@@ -382,10 +458,12 @@ func recordApplied(ctx context.Context, v IncomingPayment, le tenancy.Entity, cu
 		"legal_entity_code": le.Code, "customer_id": v.CustomerID, "customer_number": customer.Number,
 		"posting_date": v.PostingDate.Format(time.DateOnly), "amount": amount, "receipt_journal_entry_id": v.ReceiptEntryID,
 		"journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "journal_entry_number": entry.DocumentNumber, "item_count": len(v.Items),
-		"residual_count": residuals, "difference": money.EventAmount(v.Difference, v.Currency, v.Exponent)}
+		"residual_count": residuals, "difference": money.EventAmount(v.Difference, v.Currency, v.Exponent),
+		"on_account_amount": money.EventAmount(v.OnAccount, v.Currency, v.Exponent)}
 	detail := map[string]any{"document_number": v.DocumentNumber, "customer_id": v.CustomerID, "posting_date": v.PostingDate.Format(time.DateOnly),
 		"amount": amount, "receipt_journal_entry_id": v.ReceiptEntryID, "journal_entry_id": entry.ID, "journal_entry_number": entry.DocumentNumber,
-		"items": len(v.Items), "residuals": residuals, "difference": money.EventAmount(v.Difference, v.Currency, v.Exponent)}
+		"items": len(v.Items), "residuals": residuals, "difference": money.EventAmount(v.Difference, v.Currency, v.Exponent),
+		"on_account": money.EventAmount(v.OnAccount, v.Currency, v.Exponent)}
 	if err := audit.Record(ctx, action, "receivables.incoming_payment", v.ID, detail,
 		outbox.Event{Context: "receivables", Name: "incoming_payment_applied", AggregateType: "receivables.incoming_payment", AggregateID: v.ID,
 			Payload: payload}); err != nil {

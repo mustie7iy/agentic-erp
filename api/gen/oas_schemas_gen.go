@@ -5494,6 +5494,26 @@ type ApplyCountryPackUnprocessableEntity Problem
 
 func (*ApplyCountryPackUnprocessableEntity) applyCountryPackRes() {}
 
+type ApplyIncomingPaymentOnAccountBadRequest Problem
+
+func (*ApplyIncomingPaymentOnAccountBadRequest) applyIncomingPaymentOnAccountRes() {}
+
+type ApplyIncomingPaymentOnAccountForbidden Problem
+
+func (*ApplyIncomingPaymentOnAccountForbidden) applyIncomingPaymentOnAccountRes() {}
+
+type ApplyIncomingPaymentOnAccountNotFound Problem
+
+func (*ApplyIncomingPaymentOnAccountNotFound) applyIncomingPaymentOnAccountRes() {}
+
+type ApplyIncomingPaymentOnAccountPreconditionRequired Problem
+
+func (*ApplyIncomingPaymentOnAccountPreconditionRequired) applyIncomingPaymentOnAccountRes() {}
+
+type ApplyIncomingPaymentOnAccountUnprocessableEntity Problem
+
+func (*ApplyIncomingPaymentOnAccountUnprocessableEntity) applyIncomingPaymentOnAccountRes() {}
+
 type ApplyPlanBatchBadRequest Problem
 
 func (*ApplyPlanBatchBadRequest) applyPlanBatchRes() {}
@@ -26704,6 +26724,7 @@ func (*ConflictHeaders) activateOrgUnitRes()                       {}
 func (*ConflictHeaders) activateRevenueContractRes()               {}
 func (*ConflictHeaders) addHierarchyNodeRes()                      {}
 func (*ConflictHeaders) applyCountryPackRes()                      {}
+func (*ConflictHeaders) applyIncomingPaymentOnAccountRes()         {}
 func (*ConflictHeaders) applyPlanBatchRes()                        {}
 func (*ConflictHeaders) approveApprovalRequestRes()                {}
 func (*ConflictHeaders) assignProfitCenterRes()                    {}
@@ -51776,11 +51797,16 @@ type IncomingPayment struct {
 	// `difference`.
 	Amount Money `json:"amount"`
 	// The payment difference written off within the company's payment tolerance
-	// (`companies[].receivables.payment_tolerance`): what the items, net of their residuals, exceed the
-	// receipt by. Positive: an underpayment, posted to the company's `payment_difference_expense` account;
-	// negative: an overpayment, kept on its `payment_difference_revenue` account; zero when the items
-	// equal the receipt.
+	// (`companies[].receivables.payment_tolerance`): what the items applied with the receipt, net of their
+	// residuals, exceed it by. Positive: an underpayment, posted to the company's
+	// `payment_difference_expense` account; negative: an overpayment, kept on its
+	// `payment_difference_revenue` account; zero when the items equal the receipt.
 	Difference Money `json:"difference"`
+	// What the payment left on the customer's account and what of it is still open; absent when it left
+	// nothing.
+	OnAccount OptIncomingPaymentOnAccount `json:"on_account"`
+	// The applications of the payment's credit on account, in their order; empty when there were none.
+	Applications []IncomingPaymentApplication `json:"applications"`
 	// The receipt: the journal entry the bank statement line posted (`GET /v1/journal-entries/{id}`).
 	ReceiptJournalEntryID uuid.UUID `json:"receipt_journal_entry_id"`
 	// The receipt entry's fiscal year.
@@ -51894,6 +51920,16 @@ func (s *IncomingPayment) GetAmount() Money {
 // GetDifference returns the value of Difference.
 func (s *IncomingPayment) GetDifference() Money {
 	return s.Difference
+}
+
+// GetOnAccount returns the value of OnAccount.
+func (s *IncomingPayment) GetOnAccount() OptIncomingPaymentOnAccount {
+	return s.OnAccount
+}
+
+// GetApplications returns the value of Applications.
+func (s *IncomingPayment) GetApplications() []IncomingPaymentApplication {
+	return s.Applications
 }
 
 // GetReceiptJournalEntryID returns the value of ReceiptJournalEntryID.
@@ -52046,6 +52082,16 @@ func (s *IncomingPayment) SetDifference(val Money) {
 	s.Difference = val
 }
 
+// SetOnAccount sets the value of OnAccount.
+func (s *IncomingPayment) SetOnAccount(val OptIncomingPaymentOnAccount) {
+	s.OnAccount = val
+}
+
+// SetApplications sets the value of Applications.
+func (s *IncomingPayment) SetApplications(val []IncomingPaymentApplication) {
+	s.Applications = val
+}
+
 // SetReceiptJournalEntryID sets the value of ReceiptJournalEntryID.
 func (s *IncomingPayment) SetReceiptJournalEntryID(val uuid.UUID) {
 	s.ReceiptJournalEntryID = val
@@ -52111,7 +52157,167 @@ func (s *IncomingPayment) SetItems(val []IncomingPaymentItem) {
 	s.Items = val
 }
 
-// Apply an incoming payment to a customer's open items, in full and exactly.
+// An application of a payment's credit on account to the customer's open items (T75g): one clearing
+// entry cleared the credit and the items, leaving what they did not take on account.
+// Ref: #/components/schemas/IncomingPaymentApplication
+type IncomingPaymentApplication struct {
+	// The application's number in the payment, from 1.
+	ApplicationNo int32 `json:"application_no"`
+	// The posting date of its clearing entry.
+	PostingDate time.Time `json:"posting_date"`
+	// The credit on account it applied, as it stood.
+	Amount Money `json:"amount"`
+	// The payment difference it wrote off within the company's payment tolerance: what the items, net of
+	// their residuals, exceed the credit by; zero for none.
+	Difference Money `json:"difference"`
+	// What it left on account: the credit less the items, net of their residuals; zero when the items took
+	// it all.
+	OnAccountAmount Money `json:"on_account_amount"`
+	// Its clearing entry (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The clearing entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The clearing entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When it was applied.
+	CreatedAt time.Time `json:"created_at"`
+	// Who applied it (`GET /v1/principal-names`).
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetApplicationNo returns the value of ApplicationNo.
+func (s *IncomingPaymentApplication) GetApplicationNo() int32 {
+	return s.ApplicationNo
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IncomingPaymentApplication) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetAmount returns the value of Amount.
+func (s *IncomingPaymentApplication) GetAmount() Money {
+	return s.Amount
+}
+
+// GetDifference returns the value of Difference.
+func (s *IncomingPaymentApplication) GetDifference() Money {
+	return s.Difference
+}
+
+// GetOnAccountAmount returns the value of OnAccountAmount.
+func (s *IncomingPaymentApplication) GetOnAccountAmount() Money {
+	return s.OnAccountAmount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPaymentApplication) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *IncomingPaymentApplication) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPaymentApplication) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *IncomingPaymentApplication) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *IncomingPaymentApplication) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetApplicationNo sets the value of ApplicationNo.
+func (s *IncomingPaymentApplication) SetApplicationNo(val int32) {
+	s.ApplicationNo = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IncomingPaymentApplication) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *IncomingPaymentApplication) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *IncomingPaymentApplication) SetDifference(val Money) {
+	s.Difference = val
+}
+
+// SetOnAccountAmount sets the value of OnAccountAmount.
+func (s *IncomingPaymentApplication) SetOnAccountAmount(val Money) {
+	s.OnAccountAmount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPaymentApplication) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *IncomingPaymentApplication) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPaymentApplication) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *IncomingPaymentApplication) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *IncomingPaymentApplication) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// Apply a payment's credit on account to the customer's open items.
+// Ref: #/components/schemas/IncomingPaymentApplicationCreate
+type IncomingPaymentApplicationCreate struct {
+	// The posting date of the clearing entry; absent: today, the company's date in its time zone.
+	PostingDate OptDate `json:"posting_date"`
+	// The customer's open items the credit is applied to, invoices and credits, each with a residual item
+	// if it is paid in part; together, net of their residuals, at most the credit, but for an underpayment
+	// within the company's payment tolerance. What they leave stays on account.
+	Items []IncomingPaymentItemRef `json:"items"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IncomingPaymentApplicationCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetItems returns the value of Items.
+func (s *IncomingPaymentApplicationCreate) GetItems() []IncomingPaymentItemRef {
+	return s.Items
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IncomingPaymentApplicationCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *IncomingPaymentApplicationCreate) SetItems(val []IncomingPaymentItemRef) {
+	s.Items = val
+}
+
+// Apply an incoming payment to a customer's open items, leaving what they do not take on the
+// customer's account if asked.
 // Ref: #/components/schemas/IncomingPaymentCreate
 type IncomingPaymentCreate struct {
 	// The company that received the payment: a legal entity the caller may act in.
@@ -52126,8 +52332,14 @@ type IncomingPaymentCreate struct {
 	PostingDate OptDate `json:"posting_date"`
 	// The customer's open items the payment is applied to (`GET /v1/open-items`), invoices and credits,
 	// each with a residual item if it is paid in part; together, net of their residuals, they equal the
-	// receipt, in its currency, but for a difference within the company's payment tolerance.
+	// receipt, in its currency, but for a difference within the company's payment tolerance and, with
+	// `on_account`, what is left on account. Empty only with `on_account`.
 	Items []IncomingPaymentItemRef `json:"items"`
+	// Leave what the receipt has left after the items, the whole receipt when there are none, on the
+	// customer's account as a credit of the customer's (T75g): an open item that
+	// `applyIncomingPaymentOnAccount` applies later. Something must be left (422
+	// `receivables.nothing_left_on_account`).
+	OnAccount OptBool `json:"on_account"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -52155,6 +52367,11 @@ func (s *IncomingPaymentCreate) GetItems() []IncomingPaymentItemRef {
 	return s.Items
 }
 
+// GetOnAccount returns the value of OnAccount.
+func (s *IncomingPaymentCreate) GetOnAccount() OptBool {
+	return s.OnAccount
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *IncomingPaymentCreate) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -52178,6 +52395,11 @@ func (s *IncomingPaymentCreate) SetPostingDate(val OptDate) {
 // SetItems sets the value of Items.
 func (s *IncomingPaymentCreate) SetItems(val []IncomingPaymentItemRef) {
 	s.Items = val
+}
+
+// SetOnAccount sets the value of OnAccount.
+func (s *IncomingPaymentCreate) SetOnAccount(val OptBool) {
+	s.OnAccount = val
 }
 
 // IncomingPaymentHeaders wraps IncomingPayment with response headers.
@@ -52228,14 +52450,18 @@ func (s *IncomingPaymentHeaders) SetResponse(val IncomingPayment) {
 	s.Response = val
 }
 
-func (*IncomingPaymentHeaders) createIncomingPaymentRes() {}
+func (*IncomingPaymentHeaders) applyIncomingPaymentOnAccountRes() {}
+func (*IncomingPaymentHeaders) createIncomingPaymentRes()         {}
 
 // An open item an incoming payment was applied to, identified by (fiscal_year, journal_entry_id,
 // line_no).
 // Ref: #/components/schemas/IncomingPaymentItem
 type IncomingPaymentItem struct {
-	// The item's number in the payment, in the order of the request.
+	// The item's number in the payment, in the order of the requests.
 	ItemNo int32 `json:"item_no"`
+	// The application that applied the item: 0 for the payment itself, else the number of the application
+	// of its credit on account (`applications`).
+	ApplicationNo int32 `json:"application_no"`
 	// Fiscal year of the item's journal entry.
 	FiscalYear int32 `json:"fiscal_year"`
 	// The item's journal entry (`GET /v1/journal-entries/{id}`).
@@ -52258,6 +52484,11 @@ type IncomingPaymentItem struct {
 // GetItemNo returns the value of ItemNo.
 func (s *IncomingPaymentItem) GetItemNo() int32 {
 	return s.ItemNo
+}
+
+// GetApplicationNo returns the value of ApplicationNo.
+func (s *IncomingPaymentItem) GetApplicationNo() int32 {
+	return s.ApplicationNo
 }
 
 // GetFiscalYear returns the value of FiscalYear.
@@ -52298,6 +52529,11 @@ func (s *IncomingPaymentItem) GetResidual() OptIncomingPaymentResidual {
 // SetItemNo sets the value of ItemNo.
 func (s *IncomingPaymentItem) SetItemNo(val int32) {
 	s.ItemNo = val
+}
+
+// SetApplicationNo sets the value of ApplicationNo.
+func (s *IncomingPaymentItem) SetApplicationNo(val int32) {
+	s.ApplicationNo = val
 }
 
 // SetFiscalYear sets the value of FiscalYear.
@@ -52386,6 +52622,89 @@ func (s *IncomingPaymentItemRef) SetLineNo(val int32) {
 // SetResidual sets the value of Residual.
 func (s *IncomingPaymentItemRef) SetResidual(val OptIncomingPaymentResidualCreate) {
 	s.Residual = val
+}
+
+// What an incoming payment left on the customer's account (T75g): a credit of the customer's on its
+// reconciliation account, a line of the payment's clearing entry, which each application of it
+// consumes, leaving what the items do not take as a new credit line.
+// Ref: #/components/schemas/IncomingPaymentOnAccount
+type IncomingPaymentOnAccount struct {
+	// What the payment left on account, in its currency.
+	Amount Money `json:"amount"`
+	// What of it is still open on account: the credit the last application left, or the payment's own
+	// before any; zero when it is all applied, or was cleared otherwise (a manual clearing, or netted as a
+	// credit item by another payment).
+	OpenAmount Money `json:"open_amount"`
+	// Fiscal year of the open credit's journal entry; absent when nothing is open.
+	FiscalYear OptInt32 `json:"fiscal_year"`
+	// The journal entry the open credit is a line of (`GET /v1/journal-entries/{id}`); absent when nothing
+	// is open.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// That entry's document number; absent when nothing is open.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// The open credit's line in the entry, an open item of the customer (`GET /v1/open-items`); absent
+	// when nothing is open.
+	LineNo OptInt32 `json:"line_no"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *IncomingPaymentOnAccount) GetAmount() Money {
+	return s.Amount
+}
+
+// GetOpenAmount returns the value of OpenAmount.
+func (s *IncomingPaymentOnAccount) GetOpenAmount() Money {
+	return s.OpenAmount
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *IncomingPaymentOnAccount) GetFiscalYear() OptInt32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPaymentOnAccount) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPaymentOnAccount) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *IncomingPaymentOnAccount) GetLineNo() OptInt32 {
+	return s.LineNo
+}
+
+// SetAmount sets the value of Amount.
+func (s *IncomingPaymentOnAccount) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetOpenAmount sets the value of OpenAmount.
+func (s *IncomingPaymentOnAccount) SetOpenAmount(val Money) {
+	s.OpenAmount = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *IncomingPaymentOnAccount) SetFiscalYear(val OptInt32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPaymentOnAccount) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPaymentOnAccount) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *IncomingPaymentOnAccount) SetLineNo(val OptInt32) {
+	s.LineNo = val
 }
 
 // One page of incoming payments applied.
@@ -69463,6 +69782,52 @@ func (o OptGroupCompany) Get() (v GroupCompany, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptGroupCompany) Or(d GroupCompany) GroupCompany {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptIncomingPaymentOnAccount returns new OptIncomingPaymentOnAccount with value set to v.
+func NewOptIncomingPaymentOnAccount(v IncomingPaymentOnAccount) OptIncomingPaymentOnAccount {
+	return OptIncomingPaymentOnAccount{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptIncomingPaymentOnAccount is optional IncomingPaymentOnAccount.
+type OptIncomingPaymentOnAccount struct {
+	Value IncomingPaymentOnAccount
+	Set   bool
+}
+
+// IsSet returns true if OptIncomingPaymentOnAccount was set.
+func (o OptIncomingPaymentOnAccount) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptIncomingPaymentOnAccount) Reset() {
+	var v IncomingPaymentOnAccount
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptIncomingPaymentOnAccount) SetTo(v IncomingPaymentOnAccount) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptIncomingPaymentOnAccount) Get() (v IncomingPaymentOnAccount, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptIncomingPaymentOnAccount) Or(d IncomingPaymentOnAccount) IncomingPaymentOnAccount {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -102608,6 +102973,7 @@ func (*TooManyRequestsHeaders) activateOrgUnitRes()                       {}
 func (*TooManyRequestsHeaders) activateRevenueContractRes()               {}
 func (*TooManyRequestsHeaders) addHierarchyNodeRes()                      {}
 func (*TooManyRequestsHeaders) applyCountryPackRes()                      {}
+func (*TooManyRequestsHeaders) applyIncomingPaymentOnAccountRes()         {}
 func (*TooManyRequestsHeaders) applyPlanBatchRes()                        {}
 func (*TooManyRequestsHeaders) approveApprovalRequestRes()                {}
 func (*TooManyRequestsHeaders) assignProfitCenterRes()                    {}
@@ -103496,6 +103862,7 @@ func (*UnauthorizedHeaders) activateOrgUnitRes()                       {}
 func (*UnauthorizedHeaders) activateRevenueContractRes()               {}
 func (*UnauthorizedHeaders) addHierarchyNodeRes()                      {}
 func (*UnauthorizedHeaders) applyCountryPackRes()                      {}
+func (*UnauthorizedHeaders) applyIncomingPaymentOnAccountRes()         {}
 func (*UnauthorizedHeaders) applyPlanBatchRes()                        {}
 func (*UnauthorizedHeaders) approveApprovalRequestRes()                {}
 func (*UnauthorizedHeaders) assignProfitCenterRes()                    {}

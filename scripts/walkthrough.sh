@@ -12073,6 +12073,54 @@ step_partial_payment() {
   passed
 }
 
+# step_payment_on_account is T75g (ADR-0063 §6 As built): the CAD 480.00
+# step 109 could not apply goes on Northwind's account as a credit, its
+# remittance naming no invoice. Ruth applies CAD 400.00 of it to the
+# disputed residual of step 109 once Northwind settles the dispute; CAD
+# 80.00 stay on account. Then she applies those to the CAD 500.00 invoice
+# step 109 left open, leaving CAD 420.00 of it as a residual item, reason
+# short_payment; nothing is left on account, and a further application is
+# refused.
+step_payment_on_account() {
+  heading "Step 110 — Payments on account: a receipt naming no invoice goes on the customer's account as a credit; applied later to open items in part, the rest staying on account, then in full"
+  local payment ref residual
+  [ -n "$SHORT_RECEIPT" ] && [ -n "$PARTIAL_RESIDUAL" ] || fail "step 109's receipt and residual are not there"
+  as ruth
+  say "Northwind's CAD 480.00 of step 109 names no invoice Ruth can match. She puts it on Northwind's account: a"
+  say "credit of Northwind's on 1200, which clears the receipt on 1015:"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), on account \(.on_account.amount.amount), open \(.on_account.open_amount.amount) on line \(.on_account.line_no) of entry \(.on_account.journal_entry_number)"' \
+    createIncomingPayment -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$SHORT_RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [], \"on_account\": true}"
+  payment=$(field .id)
+  expect "on account" "$(field '"\(.on_account.amount.amount) \(.on_account.open_amount.amount) \(.on_account.journal_entry_id) \(.on_account.line_no)"')" \
+    "480.00 480.00 $(field .journal_entry_id) 2"
+  local credit
+  credit=$(field .journal_entry_id)
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the credit among Northwind's open items" "$(field "[.items[] | select(.journal_entry_id == \"$credit\") | .amount.amount] | join(\" \")")" -480.00
+  read -r _ residual _ <<<"$PARTIAL_RESIDUAL"
+  say "Northwind settles the dispute of step 109 and asks Maple to use its credit. Ruth applies CAD 400.00 of it to the"
+  say "residual item; the CAD 80.00 left stay on account as a new credit line:"
+  ref="{\"fiscal_year\": ${PARTIAL_RESIDUAL%% *}, \"journal_entry_id\": \"$residual\", \"line_no\": ${PARTIAL_RESIDUAL##* }}"
+  api 201 '"incoming payment \(.document_number), version \(.version): application \(.applications[-1].application_no) applied \(.applications[-1].amount.amount), left \(.applications[-1].on_account_amount.amount) on account, entry \(.applications[-1].journal_entry_number)"' \
+    applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"posting_date\": \"$TODAY\", \"items\": [$ref]}"
+  expect "the application" "$(field '"\(.version) \(.applications[0].amount.amount) \(.applications[0].on_account_amount.amount) \(.on_account.open_amount.amount) \(.items[0].application_no)"')" \
+    "2 480.00 80.00 80.00 1"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the residual cleared" "$(field "[.items[] | select(.journal_entry_id == \"$residual\")] | length")" 0
+  say "The CAD 80.00 go to the CAD 500.00 invoice of step 109; Northwind still owes CAD 420.00 of it, a residual item"
+  say "with the reason short_payment. Nothing is left on account:"
+  ref="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$SHORT_INVOICE_ENTRY\", \"line_no\": 1, \"residual\": {\"amount\": {\"amount\": \"420.00\", \"currency\": \"CAD\"}, \"reason\": \"short_payment\"}}"
+  api 201 '"incoming payment \(.document_number), version \(.version): application \(.applications[-1].application_no) applied \(.applications[-1].amount.amount), left \(.applications[-1].on_account_amount.amount) on account", (.items[] | "  item \(.item_no) of application \(.application_no): \(.amount.amount)\(if .residual then ", residual \(.residual.amount.amount) (\(.residual.reason))" else "" end)")' \
+    applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"posting_date\": \"$TODAY\", \"items\": [$ref]}"
+  expect "the second application" "$(field '"\(.version) \(.applications[1].amount.amount) \(.applications[1].on_account_amount.amount) \(.on_account.open_amount.amount) \(.items[1].residual.amount.amount)"')" \
+    "3 80.00 0.00 0.00 420.00"
+  say "Read back, the payment shows both applications; a third is refused, nothing being left on account:"
+  QUIET=1 api 200 '' getIncomingPayment -p "id=$payment"
+  expect "the applications" "$(field '[.applications[] | "\(.application_no) \(.amount.amount)"] | join(", ")')" "1 480.00, 2 80.00"
+  refused 409 receivables.no_credit_on_account applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"items\": [$ref]}"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -14103,7 +14151,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_close'
 
 main() {
   stop_unseen

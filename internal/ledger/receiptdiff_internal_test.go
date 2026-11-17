@@ -1,9 +1,12 @@
 package ledger
 
 import (
+	"context"
 	"math"
 	"math/big"
 	"testing"
+
+	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -17,6 +20,25 @@ func TestApplicationAmountsOutOfRange(t *testing.T) {
 	}
 	if _, _, _, err := lineTotals([]Line{{TC: math.MaxInt64}, {TC: math.MaxInt64}}); err == nil {
 		t.Error("lineTotals: got no error, want the total too large")
+	}
+	var a application
+	if err := a.writeOff(context.Background(), nil, ReceiptApplication{}, uuid.Nil, item{tc: -math.MaxInt64}, math.MaxInt64, 0, 0); err == nil {
+		t.Error("writeOff: got no error, want the items applied too large")
+	}
+	for name, c := range map[string]struct {
+		receipt item
+		offsets []Line
+		in      ReceiptApplication
+	}{
+		"the offsets":                          {item{tc: -1}, []Line{{TC: math.MaxInt64}, {TC: math.MaxInt64}}, ReceiptApplication{}},
+		"the difference at the receipt's rate": {item{tc: -1, lc: -math.MaxInt64 / 2}, []Line{{TC: 1}, {TC: -4}}, ReceiptApplication{}},
+		"what is left on account":              {item{tc: -4, lc: 8}, []Line{{TC: 4, LC: math.MaxInt64 - 1}, {TC: -1}}, ReceiptApplication{OnAccount: uuid.New()}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := applicationLines(context.Background(), nil, c.in, uuid.Nil, []item{c.receipt, {}}, c.offsets); err == nil {
+				t.Error("got no error, want the amounts too large")
+			}
+		})
 	}
 	if _, _, err := receiptRate(item{tc: -1, lc: -math.MaxInt64 / 2}, 3); err == nil {
 		t.Error("receiptRate in local currency: got no error, want the amount too large")

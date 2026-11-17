@@ -279,13 +279,20 @@ func (v *validator) company(p string, co *Company) {
 	}
 	v.houseBanks(p, co)
 	v.paymentMethods(p, co)
+	v.cashIn(p, co, exp, known)
+	v.companyControlling(p, co)
+	v.operations(p, co)
+	v.closes(p, co, exp, known)
+}
+
+// cashIn checks how the company's money comes in: its bank statements
+// (ADR-0047) and, with a known currency to read amounts in, its payment
+// tolerance (ADR-0063 §6, T75f).
+func (v *validator) cashIn(p string, co *Company, exp int, known bool) {
 	v.bankStatements(p, co, exp, known)
 	if known {
 		v.receivables(p, co, exp)
 	}
-	v.companyControlling(p, co)
-	v.operations(p, co)
-	v.closes(p, co, exp, known)
 }
 
 // operations checks the company's settings that post nothing and decide

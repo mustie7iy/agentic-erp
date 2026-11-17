@@ -194,6 +194,19 @@ func TestApplyReceiptDifference(t *testing.T) {
 			t.Errorf("lines: got %s, want %s", got, want)
 		}
 	})
+	t.Run("failing statements", func(t *testing.T) {
+		in := app(9995, 10000, "2026-03-22")
+		terms := &ledger.ItemTerms{PaymentTermCode: "NT30", BaselineDate: date("2026-03-01"), NetDays: 30}
+		posting := customerPosting(t, r.env, north, 10000, "2026-03-01", terms)
+		invoice := r.committed(t, func(ctx context.Context) (ledger.Entry, error) { return postings().Post(ctx, posting) })
+		in.Items = append(in.Items, ledger.ItemRef{FiscalYear: invoice.FiscalYear, EntryID: invoice.ID, LineNo: 1})
+		in.Residuals = []ledger.Residual{{}, {Amount: 10000 - 5}}
+		in.Under = tolerance(500, "50")
+		apitest.EveryFailure(t, r.ten, r.ten.Human, "apply a receipt with a residual and a difference", func(ctx context.Context) error {
+			_, err := postings().ApplyReceipt(ctx, in)
+			return err
+		})
+	})
 	t.Run("the payment difference's account blocked", func(t *testing.T) {
 		pgtest.Exec(t, `UPDATE ledger.company_account SET is_posting_blocked = true, version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
 			AND account_id = $3`, r.ten.ID, r.de, settleAccount(t, r.env, "2000", "680000"))

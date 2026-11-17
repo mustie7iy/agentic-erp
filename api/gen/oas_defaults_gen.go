@@ -115,6 +115,14 @@ func (s *HierarchyCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *IncomingPaymentCreate) setDefaults() {
+	{
+		val := bool(false)
+		s.OnAccount.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *JournalEntryCreate) setDefaults() {
 	{
 		val := string("SA")

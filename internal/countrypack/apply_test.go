@@ -137,8 +137,10 @@ func TestUpgrade(t *testing.T) {
 		t.Fatalf("Apply 2026.1: %v", err)
 	}
 	co := doc.Company("C1")
-	co.ChartOfAccounts[0].Name = "Main bank" // tenant only
-	co.ChartOfAccounts[4].Name = "Office"    // the pack renames it too
+	co.ChartOfAccounts[0].Name = "Main bank"                  // tenant only
+	co.ChartOfAccounts[4].Name = "Office"                     // the pack renames it too
+	co.AccountDetermination.PaymentDifferenceExpense = "6000" // no pack ships it (T75f)
+	co.AccountDetermination.LeaseInterest = "6000"            // nor this (T88c)
 	got, notes, err := Apply(doc, lib.Get("ZZ", "2026.2"), lib, Options{Company: "C1", On: day("2027-02-01"), FiscalYear: 2027})
 	if err != nil {
 		t.Fatalf("Apply 2026.2: %v", err)
@@ -153,6 +155,8 @@ func TestUpgrade(t *testing.T) {
 		{"new account", co.Account("6100") != nil, true},
 		{"new determination field", co.AccountDetermination.CashDiscount, "6000"},
 		{"determination kept", co.AccountDetermination.Bank, "1000"},
+		{"the tenant's payment difference account kept", co.AccountDetermination.PaymentDifferenceExpense, "6000"},
+		{"the tenant's lease interest account kept", co.AccountDetermination.LeaseInterest, "6000"},
 		{"the pack's new rate taken", co.TaxCodes[0].Components[0].Rates[2].RatePercent, "18"},
 		{"dropped tax code kept", co.TaxCodes[1].Code, "V0"},
 		{"new tax code", co.TaxCodes[2].Code, "V2"},

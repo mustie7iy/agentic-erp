@@ -640,3 +640,116 @@ func TestPaymentResidualsRevert(t *testing.T) {
 		})
 	}
 }
+
+// TestPaymentOnAccountRules (T75g, migration 000352; ADR-0063 §6 As
+// built): what a payment left on account is more than zero with its line
+// and account, or zero without; an item's application number is 0 or
+// more; an application is numbered from 1 per payment, of an existing
+// payment, applies a positive credit consumed once, left on account with
+// its line or nothing, has a clearing entry of its own, and is never
+// changed or deleted.
+func TestPaymentOnAccountRules(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+		receipt_entry_id, receipt_account_id, posting_date, currency, amount, on_account_amount, on_account_line_no, on_account_account_id,
+		clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, $3, gen_random_uuid(), gen_random_uuid(), 2026, gen_random_uuid(), gen_random_uuid(), '2026-03-21', 'EUR', 10000, $4, $5, $6, 2026,
+			gen_random_uuid(), $1)`
+	const app = `INSERT INTO receivables.incoming_payment_application (tenant_id, incoming_payment_id, application_no, posting_date, credit_entry_year,
+		credit_entry_id, credit_line_no, amount, on_account_amount, on_account_line_no, clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, $3, '2026-03-22', 2026, $4, 2, $5, $6, $7, 2026, $8, $1)`
+	const item = `INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount, application_no)
+		VALUES ($1, $2, 1, 2026, gen_random_uuid(), 1, 100, $3)`
+	type scene struct{ tenant, doc, credit, account uuid.UUID }
+	line, noLine := int32(2), (*int32)(nil)
+	noAccount := (*uuid.UUID)(nil)
+	paid := func(s scene) stmt { return step(header, s.tenant, s.doc, "IP1", int64(10000), &line, &s.account) }
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string
+	}{
+		{"a payment on account applied twice over", func(tx pgx.Tx, s scene) error {
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(4000), &line, id()),
+				step(app, s.tenant, s.doc, 2, id(), int64(4000), int64(0), noLine, id()), step(item, s.tenant, s.doc, 1))
+		}, ""},
+		{"on account without a line", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(header, s.tenant, s.doc, "IP1", int64(10000), noLine, &s.account))
+		}, "incoming_payment_on_account"},
+		{"on account without an account", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(header, s.tenant, s.doc, "IP1", int64(10000), &line, noAccount))
+		}, "incoming_payment_on_account"},
+		{"a line with nothing on account", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(header, s.tenant, s.doc, "IP1", int64(0), &line, &s.account))
+		}, "incoming_payment_on_account"},
+		{"negative on account", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(header, s.tenant, s.doc, "IP1", int64(-1), &line, &s.account))
+		}, "incoming_payment_on_account"},
+		{"an item of application -1", func(tx pgx.Tx, s scene) error {
+			return all(tx, paid(s), step(item, s.tenant, s.doc, -1))
+		}, "incoming_payment_item_application_no_check"},
+		{"an application numbered 0", func(tx pgx.Tx, s scene) error {
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 0, s.credit, int64(10000), int64(0), noLine, id()))
+		}, "incoming_payment_application_application_no_check"},
+		{"an application of no payment", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(0), noLine, id()))
+		}, "incoming_payment_application_tenant_id_incoming_payment_id_fkey"},
+		{"an application of nothing", func(tx pgx.Tx, s scene) error {
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(0), int64(0), noLine, id()))
+		}, "incoming_payment_application_amount_positive"},
+		{"left on account without a line", func(tx pgx.Tx, s scene) error {
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(4000), noLine, id()))
+		}, "incoming_payment_application_on_account"},
+		{"a credit consumed twice", func(tx pgx.Tx, s scene) error {
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(0), noLine, id()),
+				step(app, s.tenant, s.doc, 2, s.credit, int64(10000), int64(0), noLine, id()))
+		}, "incoming_payment_application_credit_once"},
+		{"two applications with one clearing entry", func(tx pgx.Tx, s scene) error {
+			entry := id()
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(4000), &line, entry),
+				step(app, s.tenant, s.doc, 2, id(), int64(4000), int64(0), noLine, entry))
+		}, "incoming_payment_application_entry_once"},
+		{"an application changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(0), noLine, id()),
+				step(`UPDATE receivables.incoming_payment_application SET amount = 1 WHERE incoming_payment_id = $1`, s.doc))
+		}, "permission denied"},
+		{"an application deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(0), noLine, id()),
+				step(`DELETE FROM receivables.incoming_payment_application WHERE incoming_payment_id = $1`, s.doc))
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), doc: id(), credit: id(), account: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestPaymentOnAccountRevert (T75g, migration 000352's down): the revert
+// is refused while a payment left anything on account.
+func TestPaymentOnAccountRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000352_payment_on_account").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+			receipt_entry_id, receipt_account_id, posting_date, currency, amount, on_account_amount, on_account_line_no, on_account_account_id,
+			clearing_entry_year, clearing_entry_id, created_by)
+			VALUES ($1, $1, 'IP1', $1, $1, 2026, gen_random_uuid(), $1, '2026-03-21', 'EUR', 6000, 6000, 2, $1, 2026, gen_random_uuid(), $1)`, tenant)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "reverting would lose their credits and applications")
+}

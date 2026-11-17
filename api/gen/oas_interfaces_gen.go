@@ -61,6 +61,10 @@ type ApplyCountryPackRes interface {
 	applyCountryPackRes()
 }
 
+type ApplyIncomingPaymentOnAccountRes interface {
+	applyIncomingPaymentOnAccountRes()
+}
+
 type ApplyPlanBatchRes interface {
 	applyPlanBatchRes()
 }

@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -77,11 +78,7 @@ func residualsOf(in []*ResidualInput, n int, code string, exp int) ([]ledger.Res
 // tolerance is the company's payment tolerance (companies[].receivables.
 // payment_tolerance, SAP OBA3), its amounts in minor units of the
 // company's currency; a company without one allows no difference.
-func (e *Endpoints) tolerance(ctx context.Context, le tenancy.Entity) (under, over config.ToleranceLimit, err error) {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return under, over, err
-	}
+func (e *Endpoints) tolerance(ctx context.Context, tx pgx.Tx, le tenancy.Entity) (under, over config.ToleranceLimit, err error) {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
 		return under, over, fmt.Errorf("receivables: payment tolerance of company %s: %w", le.Code, err)

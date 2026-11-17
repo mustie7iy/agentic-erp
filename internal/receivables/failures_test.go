@@ -70,7 +70,25 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		}
 	}
+	// A payment on account, whose credit an application applies in part
+	// (T75g), and a receipt to put on account with a residual (T75f).
+	credit, _ := e.Must(201, "POST", "/v1/incoming-payments", e.onAccount(e.customer, e.receipt(t, 9000, "2026-03-14").ID), "")
+	residual := gen.NewOptIncomingPaymentResidualCreate(gen.IncomingPaymentResidualCreate{Amount: gen.Money{Amount: "20.00", Currency: "EUR"}, Reason: "other",
+		ReasonText: gen.NewOptString("Fee deducted")})
+	part := gen.IncomingPaymentItemRef{FiscalYear: 2026, JournalEntryID: entryOf(t, e.invoiced(t, e.customer, "40.00", "2026-03-10")), LineNo: 1, Residual: residual}
+	onAccount := e.receipt(t, 3000, "2026-03-14")
 	calls := map[string]func(ctx context.Context) error{
+		"apply a payment on account with a residual": func(ctx context.Context) error {
+			_, err := h.CreateIncomingPayment(ctx, &gen.IncomingPaymentCreate{LegalEntityID: e.DE, CustomerID: e.customer, ReceiptJournalEntryID: onAccount.ID,
+				Items: []gen.IncomingPaymentItemRef{part}, OnAccount: gen.NewOptBool(true)}, gen.CreateIncomingPaymentParams{})
+			return err
+		},
+		"apply a credit on account": func(ctx context.Context) error {
+			_, err := h.ApplyIncomingPaymentOnAccount(ctx, &gen.IncomingPaymentApplicationCreate{Items: []gen.IncomingPaymentItemRef{part},
+				PostingDate: gen.NewOptDate(date(t, "2026-03-22"))},
+				gen.ApplyIncomingPaymentOnAccountParams{ID: uuid.MustParse(credit["id"].(string))})
+			return err
+		},
 		"apply a payment":                       apply(receipt.ID, gen.NewOptDate(date(t, "2026-03-15"))),
 		"apply a payment on the company's date": apply(receipt.ID, gen.OptDate{}),
 		"apply a receipt applied already": func(ctx context.Context) error {

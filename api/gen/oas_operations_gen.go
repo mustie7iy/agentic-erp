@@ -21,6 +21,7 @@ const (
 	ActivateRevenueContractOperation               OperationName = "ActivateRevenueContract"
 	AddHierarchyNodeOperation                      OperationName = "AddHierarchyNode"
 	ApplyCountryPackOperation                      OperationName = "ApplyCountryPack"
+	ApplyIncomingPaymentOnAccountOperation         OperationName = "ApplyIncomingPaymentOnAccount"
 	ApplyPlanBatchOperation                        OperationName = "ApplyPlanBatch"
 	ApproveApprovalRequestOperation                OperationName = "ApproveApprovalRequest"
 	AssignProfitCenterOperation                    OperationName = "AssignProfitCenter"

@@ -917,3 +917,58 @@ rule of a company without a tolerance and of an item without a residual.
   discount granted would make) in Canada (GST/HST) and the UAE (VAT); the
   first version posts none. Not built: cash discount granted, configurable
   reason codes.
+
+### T75g Payment on account and its later application (migration 000352)
+The second variant of §6 (`plan-depth-1.md` §T75g).
+
+- **On account at the payment.** `POST /v1/incoming-payments` takes
+  `on_account`: what the receipt leaves after its items, the whole
+  receipt when it names none (the items may then be empty), is posted to
+  the customer's reconciliation account from its company data (T74a; 422
+  `receivables.customer_not_usable` without it) as a credit of the
+  customer's, a line of the payment's clearing entry, at the **receipt's
+  rate**, so a receipt left whole on account realizes no exchange
+  difference. With `on_account` an overpayment is left on account rather
+  than kept within the tolerance; something must be left (422
+  `receivables.nothing_left_on_account`). The credit is an ordinary open
+  item of the customer (SAP's payment on account, from memory): the open
+  items list, the aging and the credit exposure net it.
+- **The later application** (`POST /v1/incoming-payments/{id}/applications`,
+  `receivables.payment.apply`, idempotent, human-only): the payment's
+  credit still open, its own or the one its last application left, is
+  applied through the same ledger port as a receipt
+  (`ReceiptApplication.Credit`: the receipt is that line, on the
+  customer's account, the customer's), with residuals and the
+  underpayment tolerance as T75f; what the items leave stays on account
+  as a new credit line of the application's entry, at the credit's rate.
+  The credit is checked open first (`ledger.OpenItems.Unpayable`; 409
+  `receivables.no_credit_on_account` when it is all applied or was
+  cleared otherwise, a manual clearing or netted by another payment);
+  two applications racing for one credit both pass that read and the
+  ledger refuses the second when it marks the credit cleared (409
+  `ledger.item_already_cleared`), which rolls back whole: no lock is held
+  across anything but the request's transaction. The application is a
+  row of `receivables.incoming_payment_application`, numbered in the
+  payment from 1, with the credit it consumed, what it wrote off and left;
+  its items join the payment's with its number (`application_no`, 0 for
+  the payment's own). Its entry is `DZ`, source document the payment.
+- **The payment's version** moves with each application (1 + their
+  number; `updated_at`/`updated_by` the last one's); the representation
+  adds `on_account` (what was left, what is open now and the open
+  credit's line, read from the ledger, so a credit cleared elsewhere
+  shows nothing open) and `applications`. IncomingPaymentOnAccountApplied
+  (`x-webhook`) and the audit record
+  `receivables.incoming_payment.apply_on_account` are written with each
+  application; IncomingPaymentApplied carries `on_account_amount`.
+- **Decided by default:** (1) the credit goes to the customer's
+  reconciliation account of its company data, not to a special G/L
+  account (SAP's on-account posting without special G/L, from memory);
+  (2) receipt's rate for the credit, credit's rate for what an
+  application leaves; (3) an application writes off underpayments within
+  the tolerance but never an overpayment, which stays on account; (4) a
+  customer blocked for posting may still pay on account, as T75c lets it
+  pay; (5) an application has no number range of its own: its clearing
+  entry's number and the payment's identify it; (6) one credit open per
+  payment at a time, applied in order.
+- Not built: refunds of a credit on account, undoing an application,
+  one receipt for several customers (the placeholder's "later").

@@ -229,7 +229,8 @@ func (e env) applied(t *testing.T, got map[string]any, receipt string) {
 		"legal_entity_code": "2000", "customer_id": e.customer.String(), "customer_number": "BP70000001", "posting_date": "2026-03-21",
 		"amount": map[string]any{"amount": "150.00", "currency": "EUR"}, "receipt_journal_entry_id": receipt,
 		"journal_entry_id": got["journal_entry_id"], "journal_entry_year": float64(2026), "journal_entry_number": got["journal_entry_number"],
-		"item_count": float64(3), "residual_count": float64(0), "difference": map[string]any{"amount": "0.00", "currency": "EUR"}}
+		"item_count": float64(3), "residual_count": float64(0), "difference": map[string]any{"amount": "0.00", "currency": "EUR"},
+		"on_account_amount": map[string]any{"amount": "0.00", "currency": "EUR"}}
 	if a, b := mustJSON(t, payload), mustJSON(t, want); a != b {
 		t.Errorf("event payload: got %s, want %s", a, b)
 	}
@@ -338,7 +339,7 @@ func TestApplyRefusals(t *testing.T) {
 		{"a closed period", e.payment(e.customer, receipt, "2026-05-21", invoice), 409, "ledger.period_not_open", ""},
 		{"a date without a fiscal year", e.payment(e.customer, receipt, "2019-03-21", invoice), 422, "ledger.no_fiscal_period", ""},
 		{"an item twice", e.payment(e.customer, receipt, "2026-03-21", invoice, invoice), 400, "request.invalid_body", ""},
-		{"no items", e.payment(e.customer, receipt, "2026-03-21"), 400, "request.invalid_body", ""},
+		{"no items", e.payment(e.customer, receipt, "2026-03-21"), 422, "ledger.no_items", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			before := e.entries(t)

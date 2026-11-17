@@ -4515,6 +4515,9 @@ erDiagram
     char currency
     bigint amount "above 0: the receipt's"
     bigint difference "written off within tolerance (T75f)"
+    bigint on_account_amount "T75g: left on account"
+    int on_account_line_no
+    uuid on_account_account_id "ledger: the customer's account"
     smallint clearing_entry_year
     uuid clearing_entry_id "ledger: cleared receipt and items" }
   incoming_payment_item { int item_no PK
@@ -4525,7 +4528,18 @@ erDiagram
     bigint residual_amount "T75f: what stayed open, under amount"
     int residual_line_no "its line in the clearing entry"
     text residual_reason
-    text residual_reason_text }
+    text residual_reason_text
+    int application_no "T75g: 0 the payment's own" }
+  incoming_payment ||--o{ incoming_payment_application : "credit applied"
+  incoming_payment_application { int application_no PK
+    date posting_date
+    uuid credit_entry_id "ledger: the credit consumed, once"
+    int credit_line_no
+    bigint amount "above 0"
+    bigint difference
+    bigint on_account_amount "left on account"
+    int on_account_line_no
+    uuid clearing_entry_id "ledger" }
 ```
 
 - `receivables.customer_invoice`: amounts are minor units of `currency`,
@@ -4580,9 +4594,24 @@ erDiagram
   `difference`, 0 by default, is what the items net of their residuals
   exceed the receipt by, written off within the company's payment
   tolerance. The down migration is refused while either holds a value.
+  T75g (migration 000352): a payment's `on_account_amount` (default 0),
+  `on_account_line_no` and `on_account_account_id` are what it left on
+  the customer's account, its line in the clearing entry and the account,
+  all set or none (`incoming_payment_on_account`); an item's
+  `application_no` (default 0, `incoming_payment_item_application_no_check`)
+  names the application that applied it.
+- `receivables.incoming_payment_application` (T75g): an application of a
+  payment's credit on account, numbered from 1 per payment, with the
+  credit line it consumed, once (`incoming_payment_application_credit_once`),
+  what that stood at, above zero
+  (`incoming_payment_application_amount_positive`), the difference written
+  off, what it left on account with its line or zero without
+  (`incoming_payment_application_on_account`) and its clearing entry, one
+  application's (`incoming_payment_application_entry_once`). Insert-only.
+  The down migration is refused while anything was left on account.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
-  `IncomingPaymentApplied`).
+  `IncomingPaymentApplied`, `IncomingPaymentOnAccountApplied`).
 - Permissions `receivables.invoice.read`, `.write` and `.post`, and
   `receivables.payment.apply`.
 - In the ledger, `ledger.open_item_terms` keeps the terms of a customer

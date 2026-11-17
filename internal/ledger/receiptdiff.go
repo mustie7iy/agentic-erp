@@ -168,14 +168,10 @@ func (a *application) residuals(in ReceiptApplication, items []item) error {
 				"which is an amount the customer owes; what is left of a credit is not a residual.",
 				problem.FieldError{Field: fmt.Sprintf("items[%d].residual.amount", i), Code: "invalid", Message: "more than zero and less than the item"})
 		}
-		lc, err := prorate(it.lc, r.Amount, it.tc)
-		if err != nil {
-			return err
-		}
-		gc, err := prorate(it.gc, r.Amount, it.tc)
-		if err != nil {
-			return err
-		}
+		// A share of less than the whole of an amount in range is in range:
+		// prorate cannot fail here.
+		lc, _ := prorate(it.lc, r.Amount, it.tc)
+		gc, _ := prorate(it.gc, r.Amount, it.tc)
 		text := r.Text
 		if text == nil {
 			text = in.HeaderText
@@ -199,7 +195,11 @@ func (a *application) writeOff(ctx context.Context, tx pgx.Tx, in ReceiptApplica
 	if d < 0 {
 		limit, key, what = in.Over, "payment_difference_revenue", "an overpayment"
 	}
-	if !withinTolerance(limit, d, lc, -receipt.tc+d) {
+	base, err := money.Diff(d, receipt.tc) // the items applied, net of their residuals: the receipt and the difference
+	if err != nil {
+		return errTotalTooLarge("items")
+	}
+	if !withinTolerance(limit, d, lc, base) {
 		exps, err := exponents(ctx, tx, in.Currency)
 		if err != nil {
 			return err

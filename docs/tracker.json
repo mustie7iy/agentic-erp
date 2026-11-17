@@ -1163,9 +1163,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant puts a receipt, or what it leaves after the invoices, on the customer's account as an unapplied credit, and later applies that credit to the customer's open items in full or in part",
-        "r": "T75g · docs/design/plan-depth-1.md §T75g · on_account on POST /v1/incoming-payments, POST /v1/incoming-payments/{id}/applications · IncomingPaymentOnAccountApplied · walkthrough step_payment_on_account · ADR-0063 §6 and As built",
+        "r": "T75g · docs/design/plan-depth-1.md §T75g · on_account on POST /v1/incoming-payments, POST /v1/incoming-payments/{id}/applications · db/migrations/000352 · receivables.incoming_payment_application · IncomingPaymentOnAccountApplied · walkthrough step_payment_on_account · ADR-0063 §6 and As built",
         "src": "split:T75c · adr:ADR-0063",
         "c": []
        },
