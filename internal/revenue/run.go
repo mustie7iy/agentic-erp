@@ -206,7 +206,7 @@ func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if b.asset, b.liability, err = e.contractAccounts(ctx, le); err != nil {
 		return runBasis{}, err
 	}
-	if err := recognitionRuns.InOrder(ctx, tx, p.TenantID, le.ID, le.Code, b.period); err != nil {
+	if err := inOrder(ctx, tx, p, le, b.period); err != nil {
 		return runBasis{}, err
 	}
 	if err := e.Postings.Postable(ctx, le.ID, b.period.End); err != nil {
@@ -221,16 +221,25 @@ func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 // (recognition_run_in_order). A second run for the last run's period is
 // 409 revenue.recognition_run_exists, one for an earlier period 409
 // revenue.recognition_period_not_later.
-var recognitionRuns = ledger.PeriodRuns{Table: pgx.Identifier{"revenue", "recognition_run"}, Lock: "revenue.recognition", Name: "revenue: recognition runs",
-	Exists: func(company string, year, number int16) error {
+var recognitionRuns = ledger.PeriodRuns{Table: pgx.Identifier{"revenue", "recognition_run"}, Lock: "revenue.recognition", Name: "revenue: recognition runs"}
+
+// inOrder holds the company's recognition runs and refuses a run that
+// does not follow them (recognitionRuns).
+func inOrder(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, period ledger.FiscalPeriod) error {
+	last, order, err := recognitionRuns.InOrder(ctx, tx, p.TenantID, le.ID, le.Code, period)
+	switch {
+	case err != nil:
+		return err
+	case order == ledger.RunSamePeriod:
 		return problem.Conflict("revenue.recognition_run_exists", fmt.Sprintf("Revenue recognition was already run for company %s and %d/%d; "+
-			"GET /v1/revenue-recognition-runs?legal_entity_id=&fiscal_year=&fiscal_period= finds the run.", company, year, number))
-	},
-	NotLater: func(company string, year, number int16, day time.Time) error {
+			"GET /v1/revenue-recognition-runs?legal_entity_id=&fiscal_year=&fiscal_period= finds the run.", le.Code, last.FiscalYear, last.Period))
+	case order == ledger.RunEarlierPeriod:
 		return problem.Conflict("revenue.recognition_period_not_later", fmt.Sprintf("Company %s's last revenue recognition run was for %d/%d, to %s; "+
 			"a run is for a later period than the last. What is dated into a period already run is caught up by the next run.",
-			company, year, number, day.Format(time.DateOnly)))
-	}}
+			le.Code, last.FiscalYear, last.Period, last.PostingDate.Format(time.DateOnly)))
+	}
+	return nil
+}
 
 // activeContracts are the company's active contracts by their orders'
 // numbers; more than the run's bound are refused (422

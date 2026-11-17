@@ -146,7 +146,7 @@ func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if b.accounts, err = e.leaseAccounts(ctx, le.ID, le.Code, runKeys...); err != nil {
 		return runBasis{}, err
 	}
-	if err := leaseRuns.InOrder(ctx, tx, p.TenantID, le.ID, le.Code, b.period); err != nil {
+	if err := runsInOrder(ctx, tx, p, le, b.period); err != nil {
 		return runBasis{}, err
 	}
 	if err := e.Postings.Postable(ctx, le.ID, b.period.End); err != nil {
@@ -161,16 +161,25 @@ func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 // (lease_run_in_order, lease_line_posted_once). A second run for the last
 // run's period is 409 leases.run_exists, one for an earlier period 409
 // leases.run_period_not_later.
-var leaseRuns = ledger.PeriodRuns{Table: pgx.Identifier{"leases", "run"}, Lock: "leases.run", Name: "leases: lease runs",
-	Exists: func(company string, year, number int16) error {
+var leaseRuns = ledger.PeriodRuns{Table: pgx.Identifier{"leases", "run"}, Lock: "leases.run", Name: "leases: lease runs"}
+
+// runsInOrder holds the company's lease runs and refuses a run that does
+// not follow them (leaseRuns).
+func runsInOrder(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, period ledger.FiscalPeriod) error {
+	last, order, err := leaseRuns.InOrder(ctx, tx, p.TenantID, le.ID, le.Code, period)
+	switch {
+	case err != nil:
+		return err
+	case order == ledger.RunSamePeriod:
 		return problem.Conflict("leases.run_exists", fmt.Sprintf("Lease accounting was already run for company %s and %d/%d; "+
-			"GET /v1/lease-runs?legal_entity_id=&fiscal_year=&fiscal_period= finds the run.", company, year, number))
-	},
-	NotLater: func(company string, year, number int16, day time.Time) error {
+			"GET /v1/lease-runs?legal_entity_id=&fiscal_year=&fiscal_period= finds the run.", le.Code, last.FiscalYear, last.Period))
+	case order == ledger.RunEarlierPeriod:
 		return problem.Conflict("leases.run_period_not_later", fmt.Sprintf("Company %s's last lease run was for %d/%d, to %s; "+
 			"a run is for a later period than the last. A line whose interval ended in a period already run is caught up by the next run.",
-			company, year, number, day.Format(time.DateOnly)))
-	}}
+			le.Code, last.FiscalYear, last.Period, last.PostingDate.Format(time.DateOnly)))
+	}
+	return nil
+}
 
 // due are the number of the company's active contracts, at most the
 // run's bound (422 leases.run_too_large), and, by contract number, what
