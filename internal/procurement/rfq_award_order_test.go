@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
 // The award of an RFQ to a purchase order (T82f, ADR-0069 As built), and
@@ -165,4 +166,19 @@ func TestAwardRFQToOrderDatabaseFailures(t *testing.T) {
 		return err
 	}
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "award RFQ to an order", call)
+}
+
+// TestAwardRFQToOrderNeedsOrderCreate: an award to a purchase order
+// creates one, which procurement.order.create grants, as it does through
+// POST /v1/purchase-orders; the RFQ stays published.
+func TestAwardRFQToOrderNeedsOrderCreate(t *testing.T) {
+	e, req, path, tyrells, _ := sourcedQuoted(t)
+	pgtest.Exec(t, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND permission_code = 'procurement.order.create'`, e.Tenant.ID)
+	e.Problem(403, "identity.permission_missing", "POST", path+":award", orderAward(tyrells, `, "reason": "R"`), "*")
+	if got := mustGet(t, e.env, path); got["status"] != "published" {
+		t.Errorf("RFQ: got %v, want published", got["status"])
+	}
+	if got := mustGet(t, e.env, "/v1/requisitions/"+req); got["status"] != "in_sourcing" {
+		t.Errorf("requisition: got %v, want in_sourcing", got["status"])
+	}
 }

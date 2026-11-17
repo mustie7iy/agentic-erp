@@ -12011,7 +12011,8 @@ step_rfq_requisition() {
   expect "the requisition in sourcing" "$(field '"\(.status) \(.rfq_id)"')" "in_sourcing $rfq"
   refused 409 procurement.invalid_status createRfq -body "$body"
   say "Items are the requisition's; an RFQ from it sends none of its own:"
-  refused 422 procurement.rfq_items_from_requisition createRfq -body "${body/\"supplier_ids\"/\"items\": [{\"material_key\": \"X\", \"description\": \"X\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}], \"supplier_ids\"}"
+  refused 422 procurement.rfq_items_from_requisition createRfq -body "{\"legal_entity_id\": \"$LE\", \"requisition_id\": \"$req\", \"due_date\": \"$due\",
+    \"items\": [{\"material_key\": \"X\", \"description\": \"X\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}], \"supplier_ids\": [\"$SUPPLIER\"]}"
   say "Ben publishes the RFQ; it is the one RFQ of the requisition:"
   QUIET=1 api 200 '' getRfq -p "id=$rfq"
   api 200 '"RFQ \(.document_number): \(.status)"' publishRfq -p "id=$rfq" -if-match "$ETAG"

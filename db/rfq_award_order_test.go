@@ -106,6 +106,14 @@ func TestRFQOrderAwardRules(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			failsWith(t, asApp(t, f.tenant, c.do), c.want)
+			if c.want == notOfQuotation { // the trigger's rule holds for the owner too
+				failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+					if err := exec(tx, `SET LOCAL ROLE erp_owner`); err != nil {
+						return err
+					}
+					return c.do(tx)
+				}), c.want)
+			}
 		})
 	}
 }

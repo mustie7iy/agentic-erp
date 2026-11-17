@@ -360,11 +360,12 @@ func (UnimplementedHandler) AssignProfitCenter(ctx context.Context, req *ProfitC
 // `purchase_order_document_number`) and is released with `purchase-orders/{id}:release` as any other.
 // `valid_from` and `valid_to` are required for a contract and not sent for an order (422
 // `request.validation_failed`). An RFQ from a requisition is awarded to a purchase order only (422
-// `procurement.rfq_from_requisition`, naming `award_to`). A quotation not ranked first needs a
-// `reason` (422 `procurement.award_reason_required`, naming `reason`); a reason given is kept as
-// `award_reason`. No approval is asked for. Human-only: an award commits the company to a supplier.
-// Audited, and published as RfqAwarded for a contract or RfqAwardedToOrder for a purchase order, each
-// naming the supplier by id and number, and RfqChanged.
+// `procurement.rfq_from_requisition`, naming `award_to`). An award to a purchase order also needs
+// `procurement.order.create`, as `POST /v1/purchase-orders` does (403 `identity.permission_missing`).
+// A quotation not ranked first needs a `reason` (422 `procurement.award_reason_required`, naming
+// `reason`); a reason given is kept as `award_reason`. No approval is asked for. Human-only: an award
+// commits the company to a supplier. Audited, and published as RfqAwarded for a contract or
+// RfqAwardedToOrder for a purchase order, each naming the supplier by id and number, and RfqChanged.
 //
 // POST /v1/rfqs/{id}:award
 func (UnimplementedHandler) AwardRfq(ctx context.Context, req *RfqAward, params AwardRfqParams) (r AwardRfqRes, _ error) {
@@ -2369,15 +2370,16 @@ func (UnimplementedHandler) CreateRevenueRecognitionRun(ctx context.Context, req
 // it is published (`:publish`) as created. An RFQ from a requisition (`requisition_id`, T82e) takes
 // its items from it and none are sent (422 `procurement.rfq_items_from_requisition` otherwise): every
 // live item of an `approved` requisition of the legal entity (409 `procurement.invalid_status`; 422
-// `procurement.requisition_mismatch` for another legal entity or currency) becomes an item of the RFQ
-// in its order, with its description, quantity, unit and account, its catalog key as material key (or
-// `<requisition number>/<item no>` for an item without one or sharing it with another), the
-// requisition's need date as delivery date and its item number as `requisition_item_no`; the currency
-// defaults to the requisition's. The requisition is read under a row lock and becomes `in_sourcing`,
-// naming the RFQ, in the same transaction, so a second RFQ from it is refused (409
-// `procurement.invalid_status`); while in sourcing it is neither ordered directly nor cancelled.
-// Without a requisition, `currency` and `items` are required (422 `request.validation_failed`).
-// Audited, and published as RfqChanged.
+// `procurement.requisition_mismatch` for another legal entity or currency; 422
+// `procurement.requisition_on_contract` for one naming a contract, which is ordered as a release
+// against it) becomes an item of the RFQ in its order, with its description, quantity, unit and
+// account, its catalog key as material key (or `<requisition number>/<item no>` for an item without
+// one or sharing it with another), the requisition's need date as delivery date and its item number as
+// `requisition_item_no`; the currency defaults to the requisition's. The requisition is read under a
+// row lock and becomes `in_sourcing`, naming the RFQ, in the same transaction, so a second RFQ from it
+// is refused (409 `procurement.invalid_status`); while in sourcing it is neither ordered directly nor
+// cancelled. Without a requisition, `currency` and `items` are required (422
+// `request.validation_failed`). Audited, and published as RfqChanged.
 //
 // POST /v1/rfqs
 func (UnimplementedHandler) CreateRfq(ctx context.Context, req *RfqCreate, params CreateRfqParams) (r CreateRfqRes, _ error) {

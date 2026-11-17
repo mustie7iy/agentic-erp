@@ -412,8 +412,11 @@ its own items; one may instead be created from a requisition.
   `procurement.rfq_items_from_requisition`, `items`), the currency
   defaults to the requisition's (another is 422
   `procurement.requisition_mismatch`, `currency`). The requisition must be
-  `approved` (409 `procurement.invalid_status`) and of the RFQ's legal
-  entity (422 `procurement.requisition_mismatch`, `requisition_id`); one
+  `approved` (409 `procurement.invalid_status`), of the RFQ's legal
+  entity (422 `procurement.requisition_mismatch`, `requisition_id`) and
+  name no contract (422 `procurement.requisition_on_contract`,
+  `requisition_id`: its order is a release against that contract, with
+  the contract's supplier, so an award to another could never order it); one
   the caller cannot see is 422 `request.reference_not_found`. Without a
   requisition, `currency` and `items` are required (422
   `request.validation_failed`, one field error each; they were required
@@ -486,7 +489,11 @@ replaced: an award to a quotation not ranked first now needs a reason.
   `procurement.award_reason_required`, `reason`): equal lowest totals
   share rank 1, so any of them wins without one. An RFQ from a
   requisition is awarded to an order only (422
-  `procurement.rfq_from_requisition`, `award_to`). The RFQ shows
+  `procurement.rfq_from_requisition`, `award_to`, checked first, so an
+  award naming no `award_to` is told so). An award to an order also needs
+  `procurement.order.create` (403 `identity.permission_missing`), as `POST
+  /v1/purchase-orders` does; `procurement.rfq.award` alone creates a
+  contract, as before. The RFQ shows
   `purchase_order_id`, `purchase_order_document_number` and
   `award_reason`.
 - **Order.** Created by `createOrder`, the code path of `POST

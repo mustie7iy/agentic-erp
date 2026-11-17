@@ -37,6 +37,12 @@ func (e *Endpoints) sourced(ctx context.Context, tx pgx.Tx, le uuid.UUID, in New
 		return "", nil, nil, statusConflict("requisition", req.Status, "sourcing", Approved)
 	case req.LegalEntityID != le:
 		return "", nil, nil, problem.Invalid("procurement.requisition_mismatch", "requisition_id", "a requisition of the RFQ's legal entity")
+	case req.ContractID != nil:
+		// Its order would be a release against that contract, with the
+		// contract's supplier: there is nothing to ask quotations for, and
+		// an award to another supplier could never order it.
+		return "", nil, nil, problem.Invalid("procurement.requisition_on_contract", "requisition_id",
+			"a requisition without a contract: this one is sourced by its contract already")
 	case in.Currency != "" && in.Currency != req.Currency:
 		return "", nil, nil, problem.Invalid("procurement.requisition_mismatch", "currency", "the requisition's currency, "+req.Currency)
 	}

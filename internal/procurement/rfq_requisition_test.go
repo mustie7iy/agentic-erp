@@ -200,3 +200,18 @@ func TestRFQItemDeliveryDate(t *testing.T) {
 		t.Errorf("requisition_id: got %v, want none", r["requisition_id"])
 	}
 }
+
+// TestRFQFromRequisitionOnContract: a requisition that names a contract is
+// ordered as a release against it, not sourced: its order would take the
+// contract's supplier whatever quotation won.
+func TestRFQFromRequisitionOnContract(t *testing.T) {
+	e := setupIn2026(t)
+	c, _ := e.activeContract(t)
+	r := e.requisition(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), fmt.Sprintf(`, "contract_id": %q`, id(c)))
+	e.act(t, "/v1/requisitions/"+id(r), "submit", "")
+	e.Approve(t, id(r))
+	p := e.Problem(422, "procurement.requisition_on_contract", "POST", "/v1/rfqs", e.sourcingBody(id(r), "", e.Supplier), "")
+	if got := errorFields(p); got != "requisition_id" {
+		t.Errorf("field errors: got %s, want requisition_id", got)
+	}
+}

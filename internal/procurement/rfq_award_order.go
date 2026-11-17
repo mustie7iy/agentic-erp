@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 )
 
@@ -18,6 +19,12 @@ import (
 // awardedOrder creates the draft purchase order of an award of RFQ r to
 // the row's quotation, dated today.
 func (e *Endpoints) awardedOrder(ctx context.Context, tx pgx.Tx, r RFQ, win Compared, today time.Time) (awarded, error) {
+	// Creating a purchase order is procurement.order.create's, as through
+	// POST /v1/purchase-orders; procurement.rfq.award alone creates a
+	// contract (ADR-0069 §6, T82f).
+	if err := authz.Require(ctx, "procurement.order.create"); err != nil {
+		return awarded{}, err
+	}
 	in, err := orderOf(ctx, tx, r, win, today)
 	if err != nil {
 		return awarded{}, err

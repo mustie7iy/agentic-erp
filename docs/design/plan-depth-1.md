@@ -49,7 +49,8 @@ award orders it.
   requisition's, which reads `in_sourcing` naming the RFQ; a second RFQ
   from it and items sent beside it are refused; the RFQ is published.
 - **Acceptance:** only an approved requisition of the RFQ's company is
-  sourced (409 otherwise; 422 for another company or currency); items
+  sourced (409 otherwise; 422 for another company or currency, or for
+  one naming a contract, which is ordered as a release against it); items
   sent beside a requisition are refused (422 `items`); every live item of
   the requisition becomes an RFQ item, in its order, with its quantity,
   unit and account, its catalog key as material key (or the requisition's

@@ -58,6 +58,10 @@ func (in Award) check(r RFQ) error {
 		return problem.Unprocessable("request.validation_failed", "An award is to a contract or a purchase order.",
 			problem.FieldError{Field: "award_to", Code: "invalid", Message: "contract or purchase_order"})
 	}
+	if in.To == AwardToContract && r.RequisitionID != nil {
+		return problem.Invalid("procurement.rfq_from_requisition", "award_to",
+			"RFQ "+r.DocumentNumber+" was created from requisition "+*r.RequisitionNumber+": it is awarded to a purchase order, which names the requisition")
+	}
 	var fields []problem.FieldError
 	for field, given := range map[string]bool{"valid_from": in.ValidFrom != nil, "valid_to": in.ValidTo != nil} {
 		switch {
@@ -70,10 +74,6 @@ func (in Award) check(r RFQ) error {
 	if len(fields) > 0 {
 		slices.SortFunc(fields, func(a, b problem.FieldError) int { return strings.Compare(a.Field, b.Field) })
 		return problem.Unprocessable("request.validation_failed", "The award's validity fits what it creates.", fields...)
-	}
-	if in.To == AwardToContract && r.RequisitionID != nil {
-		return problem.Invalid("procurement.rfq_from_requisition", "award_to",
-			"RFQ "+r.DocumentNumber+" was created from requisition "+*r.RequisitionNumber+": it is awarded to a purchase order, which names the requisition")
 	}
 	if in.Reason != nil {
 		return problem.RequireText("reason", *in.Reason)
