@@ -361,15 +361,21 @@ func BlockPrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 // alone, two administrators blocking each other at once would each lock
 // only the other and both commit, leaving neither active; under these
 // locks the second waits for the first and then finds itself blocked
-// (ADR-0008). The id order keeps the two from deadlocking.
+// (ADR-0008). The id order keeps the two from deadlocking. An actor
+// blocking itself (refused next) takes its row FOR UPDATE at once: two
+// such requests each holding it FOR SHARE and then upgrading would
+// deadlock.
 func lockBlockers(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID) error {
 	order := []uuid.UUID{actor, id}
-	if bytes.Compare(id[:], actor[:]) < 0 {
+	switch c := bytes.Compare(id[:], actor[:]); {
+	case c == 0:
+		order = []uuid.UUID{id}
+	case c < 0:
 		order = []uuid.UUID{id, actor}
 	}
 	for _, p := range order {
 		q := `SELECT status FROM identity.principal WHERE id = $1 FOR UPDATE`
-		if p == actor {
+		if p != id {
 			q = `SELECT status FROM identity.principal WHERE id = $1 FOR SHARE`
 		}
 		var status string

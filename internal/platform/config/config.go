@@ -211,7 +211,7 @@ type Objects struct {
 	Region    string        // ERP_OBJECT_S3_REGION (default us-east-1)
 	AccessKey string        // ERP_OBJECT_S3_ACCESS_KEY
 	SecretKey string        // ERP_OBJECT_S3_SECRET_KEY (a vault reference later)
-	Retention time.Duration // ERP_OBJECT_RETENTION: how long audit anchors are locked against deletion (default 10 years, 01 §1.3; 0 disables the lock)
+	Retention time.Duration // ERP_OBJECT_RETENTION: how long audit anchors and tenant exports are locked against deletion (default 10 years, 01 §1.3; 0 disables the lock outside production, which refuses 0 or less than ERP_OFFBOARD_GRACE)
 }
 
 // Enabled reports whether object storage is configured.

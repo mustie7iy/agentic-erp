@@ -15,7 +15,7 @@ import (
 // Race runs two requests of the tenant that overlap, as a write-skew test
 // needs: first runs in a transaction left open; second then runs in
 // another, as b, while the first is open. Once the second waits for a lock
-// or has finished, the first commits (when it succeeded), then the second
+// or has finished, the first commits (when it succeeded; else it rolls back), then the second
 // (when it succeeded). It returns both results. A second that finishes
 // without waiting did not see the first's work: a test asserting that one
 // of the two is refused then fails, as it should without a lock.
@@ -63,6 +63,8 @@ func Race(tb testing.TB, ten pgtest.Tenant, a, b pgtest.Actor, first, second fun
 		if err := tx1.Commit(ctx); err != nil {
 			firstErr = fmt.Errorf("apitest: commit the first request: %w", err)
 		}
+	} else if err := tx1.Rollback(ctx); err != nil { // its locks go now: a second waiting on them would never finish
+		tb.Fatalf("apitest: roll back the first request: %v", err)
 	}
 	if !finished {
 		secondErr = <-done

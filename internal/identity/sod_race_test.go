@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/platform/uow"
 )
 
 // TestConcurrentAssignmentsKeepSegregation: two assignments that conflict
@@ -119,5 +120,52 @@ func TestConcurrentBlocksLeaveOneActive(t *testing.T) {
 	pgtest.Scan(t, `SELECT count(*) FROM identity.principal WHERE id IN ($1, $2) AND status = 'active'`, []any{ten.Human.ID, second.ID}, &active)
 	if active != 1 {
 		t.Errorf("got %d of the two administrators active, want 1", active)
+	}
+}
+
+// TestConcurrentSelfBlocksDoNotDeadlock: an administrator blocking
+// themselves twice at once gets the 409 both times. The request takes its
+// row FOR UPDATE at once; holding it FOR SHARE first and then upgrading,
+// as the other request (played here by tx) does, deadlocked.
+func TestConcurrentSelfBlocksDoNotDeadlock(t *testing.T) {
+	_, ten := admin(t)
+	pool, bg := pgtest.Pool(t), context.Background()
+	tx, err := pool.Begin(bg, database.Scope{Role: "erp_app", TenantID: ten.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(bg)
+	if _, err := tx.Exec(bg, `SELECT 1 FROM identity.principal WHERE id = $1 FOR SHARE`, ten.Human.ID); err != nil {
+		t.Fatalf("hold the row FOR SHARE: %v", err)
+	}
+	tx2, err := pool.Begin(bg, database.Scope{Role: "erp_app", TenantID: ten.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx2.Rollback(bg)
+	var pid int32
+	if err := tx2.QueryRow(bg, `SELECT pg_backend_pid()`).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- uow.Act(bg, tx2, reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID}, nil, func(ctx context.Context) error {
+			_, err := identity.BlockPrincipal(ctx, ten.Human.ID, func(int32) error { return nil }, "r")
+			return err
+		})
+	}()
+	pgtest.Eventually(t, 30*time.Second, func() bool {
+		var waiting bool
+		pgtest.Scan(t, `SELECT EXISTS (SELECT FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock')`, []any{pid}, &waiting)
+		return waiting
+	}, "the self-block did not wait for the row")
+	if _, err := tx.Exec(bg, `SELECT 1 FROM identity.principal WHERE id = $1 FOR UPDATE`, ten.Human.ID); err != nil {
+		t.Fatalf("got %v upgrading the other request's lock, want it granted (no deadlock)", err)
+	}
+	if err := tx.Rollback(bg); err != nil {
+		t.Fatal(err)
+	}
+	if got := problem.From(<-done).Code; got != "identity.cannot_block_self" {
+		t.Errorf("self-block: got %s, want identity.cannot_block_self", got)
 	}
 }
