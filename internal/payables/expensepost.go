@@ -97,7 +97,7 @@ func (e *Endpoints) calculateExpenseDay(ctx context.Context, r ExpenseReport, da
 			return tax.Result{}, err
 		}
 		if !ok || t.Direction != config.TaxInput {
-			return tax.Result{}, invalid("payables.unknown_tax_code", fmt.Sprintf("lines[%d].tax_code", i), "Tax code "+code+
+			return tax.Result{}, problem.Invalid("payables.unknown_tax_code", fmt.Sprintf("lines[%d].tax_code", i), "Tax code "+code+
 				" is not an input tax code of the legal entity on the line's date "+day.Format(time.DateOnly)+".")
 		}
 		doc.Codes[code] = t.Calculable()

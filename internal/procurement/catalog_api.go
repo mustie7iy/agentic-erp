@@ -112,7 +112,7 @@ func (e *Endpoints) ListCatalogItems(ctx context.Context, params gen.ListCatalog
 	}
 	items, next, err := apitypes.PageWith(ks, list, func(c CatalogItem) (string, uuid.UUID) {
 		if ks.Field() == "created_at" {
-			return timestamp(c.CreatedAt), c.ID
+			return pagination.Instant(c.CreatedAt), c.ID
 		}
 		return c.ItemKey, c.ID
 	}, func(page []CatalogItem) (map[uuid.UUID]partner.Named, error) { return e.catalogSuppliers(ctx, page) }, catalogItemToAPI)

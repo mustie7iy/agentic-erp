@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/cabank"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
@@ -190,10 +191,6 @@ func decode(payload map[string]any, into any) {
 	_ = json.Unmarshal(b, into)   // and were written from these structs
 }
 
-func invalid(code, field, message string) error {
-	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
-}
-
 // checkCountries reports the first field whose country is not in the
 // reference data.
 func checkCountries(ctx context.Context, tx pgx.Tx, fields, codes []string) error {
@@ -223,7 +220,7 @@ type companyData struct {
 // account of the entry's kind there and a configured payment term.
 func checkCompanyData(ctx context.Context, tx pgx.Tx, ports Ports, access authz.Access, seen map[uuid.UUID]bool, d companyData) error {
 	if seen[d.legalEntity] {
-		return invalid("partner.duplicate_company", d.field+".legal_entity_id", "one entry per legal entity")
+		return problem.Invalid("partner.duplicate_company", d.field+".legal_entity_id", "one entry per legal entity")
 	}
 	seen[d.legalEntity] = true
 	if _, err := tenancy.Accessible(ctx, ports.LegalEntities, access, d.legalEntity, d.field+".legal_entity_id"); err != nil {
@@ -234,7 +231,7 @@ func checkCompanyData(ctx context.Context, tx pgx.Tx, ports Ports, access authz.
 		return err
 	}
 	if !recon {
-		return invalid("partner.invalid_reconciliation_account", d.field+".reconciliation_account_id",
+		return problem.Invalid("partner.invalid_reconciliation_account", d.field+".reconciliation_account_id",
 			"an active "+d.kind+" reconciliation account of the legal entity")
 	}
 	var term bool
@@ -242,7 +239,7 @@ func checkCompanyData(ctx context.Context, tx pgx.Tx, ports Ports, access authz.
 		return fmt.Errorf("partner: find payment term %s: %w", d.term, err)
 	}
 	if !term {
-		return invalid("partner.unknown_payment_term", d.field+".payment_term_code", "payment terms from the configuration")
+		return problem.Invalid("partner.unknown_payment_term", d.field+".payment_term_code", "payment terms from the configuration")
 	}
 	return nil
 }
@@ -267,7 +264,7 @@ func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, prefix string, 
 // accounts and configured payment terms.
 func checkSupplierCompanies(ctx context.Context, tx pgx.Tx, ports Ports, access authz.Access, supplier bool, in []SupplierCompanyInput) error {
 	if len(in) > 0 && !supplier {
-		return invalid("partner.supplier_role_required", "roles", "supplier data needs the supplier role")
+		return problem.Invalid("partner.supplier_role_required", "roles", "supplier data needs the supplier role")
 	}
 	if err := lockGiven(ctx, tx, in); err != nil {
 		return err
@@ -293,7 +290,7 @@ func checkSupplierCompanies(ctx context.Context, tx pgx.Tx, ports Ports, access 
 func checkCustomerCompanies(ctx context.Context, tx pgx.Tx, ports Ports, access authz.Access, prefix string, customer bool,
 	in []CustomerCompanyInput) error {
 	if len(in) > 0 && !customer {
-		return invalid("partner.customer_role_required", prefix+"roles", "customer data needs the customer role")
+		return problem.Invalid("partner.customer_role_required", prefix+"roles", "customer data needs the customer role")
 	}
 	seen := map[uuid.UUID]bool{}
 	for i, c := range in {
@@ -322,7 +319,7 @@ func checkCompanyCodes(ctx context.Context, ports Ports, f string, s SupplierCom
 		return err
 	}
 	if !ok {
-		return invalid("partner.unknown_planning_group", f+".planning_group", "a planning group of the configuration (cash.planning_groups)")
+		return problem.Invalid("partner.unknown_planning_group", f+".planning_group", "a planning group of the configuration (cash.planning_groups)")
 	}
 	return nil
 }
@@ -386,7 +383,7 @@ func checkCodes(ctx context.Context, kind supplierCodes, f string, le uuid.UUID,
 	for j, code := range codes {
 		field := fmt.Sprintf("%s.%s[%d]", f, kind.field, j)
 		if seen[code] {
-			return invalid("partner.duplicate_"+slug, field, "each "+kind.noun+" once")
+			return problem.Invalid("partner.duplicate_"+slug, field, "each "+kind.noun+" once")
 		}
 		seen[code] = true
 		ok, err := exists(ctx, le, code)
@@ -394,7 +391,7 @@ func checkCodes(ctx context.Context, kind supplierCodes, f string, le uuid.UUID,
 			return err
 		}
 		if !ok {
-			return invalid("partner.unknown_"+slug, field, "a "+kind.noun+" of the company's configuration")
+			return problem.Invalid("partner.unknown_"+slug, field, "a "+kind.noun+" of the company's configuration")
 		}
 	}
 	return nil
@@ -407,11 +404,11 @@ func checkAddresses(day time.Time, in []AddressInput, current bool) error {
 		f := fmt.Sprintf("addresses[%d]", i)
 		switch {
 		case !slices.Contains(addressPurposes, a.Purpose):
-			return invalid("partner.unknown_address_purpose", f+".purpose", "legal, remit_to, order_from or ship_from")
+			return problem.Invalid("partner.unknown_address_purpose", f+".purpose", "legal, remit_to, order_from or ship_from")
 		case a.ValidTo != nil && !a.ValidTo.After(a.ValidFrom.Time):
-			return invalid("partner.invalid_validity", f+".valid_to", "after valid_from")
+			return problem.Invalid("partner.invalid_validity", f+".valid_to", "after valid_from")
 		case current && a.ValidFrom.Before(day):
-			return invalid("partner.backdated_address", f+".valid_from", "today or later")
+			return problem.Invalid("partner.backdated_address", f+".valid_from", "today or later")
 		}
 	}
 	return nil
@@ -422,7 +419,7 @@ func sealTaxes(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, 
 	seen := map[string]bool{}
 	for i, t := range in {
 		if seen[t.Scheme] {
-			return nil, invalid("partner.duplicate_tax_scheme", fmt.Sprintf("tax_identifiers[%d].scheme", i), "one identifier per scheme")
+			return nil, problem.Invalid("partner.duplicate_tax_scheme", fmt.Sprintf("tax_identifiers[%d].scheme", i), "one identifier per scheme")
 		}
 		seen[t.Scheme] = true
 		cipher, err := keys.Seal(ctx, tenant, t.Value)
@@ -451,11 +448,11 @@ func sealBanks(ctx context.Context, keys *fieldcrypt.Keyring, tenant uuid.UUID, 
 		}
 		switch {
 		case !slices.Contains(bankPurposes, b.Purpose):
-			return nil, invalid("partner.unknown_bank_purpose", f+"purpose", "payments or collections")
+			return nil, problem.Invalid("partner.unknown_bank_purpose", f+"purpose", "payments or collections")
 		case seen[b.Purpose]:
-			return nil, invalid("partner.duplicate_bank_purpose", f+"purpose", "one new account per purpose")
+			return nil, problem.Invalid("partner.duplicate_bank_purpose", f+"purpose", "one new account per purpose")
 		case b.ValidFrom.Before(back.earliest(day)):
-			return nil, invalid("partner.backdated_bank_account", f+"valid_from", back.allowed())
+			return nil, problem.Invalid("partner.backdated_bank_account", f+"valid_from", back.allowed())
 		}
 		seen[b.Purpose] = true
 		acct, err := checkAccount(b, f)
@@ -493,7 +490,7 @@ type checkedAccount struct {
 // three numbers (T45d), a domestic one by its characters.
 func checkAccount(b BankInput, f string) (checkedAccount, error) {
 	if !slices.Contains(accountSchemes, b.AccountScheme) {
-		return checkedAccount{}, invalid("partner.unknown_account_scheme", f+"account_scheme", "iban, domestic or ca")
+		return checkedAccount{}, problem.Invalid("partner.unknown_account_scheme", f+"account_scheme", "iban, domestic or ca")
 	}
 	if b.AccountScheme == "ca" {
 		return checkCanadian(b, f)
@@ -501,11 +498,11 @@ func checkAccount(b BankInput, f string) (checkedAccount, error) {
 	number := fieldcrypt.Normalize(b.AccountNumber)
 	switch {
 	case b.InstitutionNumber != "" || b.TransitNumber != "":
-		return checkedAccount{}, invalid("partner.routing_not_allowed", f+"institution_number", "no institution or transit number but for account_scheme ca")
+		return checkedAccount{}, problem.Invalid("partner.routing_not_allowed", f+"institution_number", "no institution or transit number but for account_scheme ca")
 	case !accountNumber.MatchString(number):
-		return checkedAccount{}, invalid("partner.invalid_account_number", f+"account_number", "4-34 letters and digits")
+		return checkedAccount{}, problem.Invalid("partner.invalid_account_number", f+"account_number", "4-34 letters and digits")
 	case b.AccountScheme == "iban" && !bankfile.ValidIBAN(number):
-		return checkedAccount{}, invalid("partner.invalid_iban", f+"account_number", "an IBAN that passes the ISO 13616 check")
+		return checkedAccount{}, problem.Invalid("partner.invalid_iban", f+"account_number", "an IBAN that passes the ISO 13616 check")
 	}
 	return checkedAccount{number: number}, nil
 }
@@ -515,13 +512,13 @@ func checkCanadian(b BankInput, f string) (checkedAccount, error) {
 	a, err := cabank.Parse(b.InstitutionNumber, b.TransitNumber, b.AccountNumber)
 	switch {
 	case b.BankCountryCode != "CA":
-		return checkedAccount{}, invalid("partner.bank_country_mismatch", f+"bank_country_code", "CA for account_scheme ca")
+		return checkedAccount{}, problem.Invalid("partner.bank_country_mismatch", f+"bank_country_code", "CA for account_scheme ca")
 	case errors.Is(err, cabank.ErrInstitution):
-		return checkedAccount{}, invalid("partner.invalid_institution_number", f+"institution_number", "3 digits")
+		return checkedAccount{}, problem.Invalid("partner.invalid_institution_number", f+"institution_number", "3 digits")
 	case errors.Is(err, cabank.ErrTransit):
-		return checkedAccount{}, invalid("partner.invalid_transit_number", f+"transit_number", "5 digits")
+		return checkedAccount{}, problem.Invalid("partner.invalid_transit_number", f+"transit_number", "5 digits")
 	case err != nil:
-		return checkedAccount{}, invalid("partner.invalid_account_number", f+"account_number", "7-12 digits")
+		return checkedAccount{}, problem.Invalid("partner.invalid_account_number", f+"account_number", "7-12 digits")
 	}
 	return checkedAccount{number: a.Number, institution: &a.Institution, transit: &a.Transit}, nil
 }
@@ -856,14 +853,14 @@ func recordCreated(ctx context.Context, w extensions.Writes, bp Partner, c Chang
 // the extensions default to none.
 func checkNewPartner(in *NewPartner) error {
 	if !slices.Contains(kinds, in.Kind) {
-		return invalid("partner.unknown_kind", "kind", "organization or person")
+		return problem.Invalid("partner.unknown_kind", "kind", "organization or person")
 	}
 	if err := problem.RequireText("name", in.Name); err != nil {
 		return err
 	}
 	for i, r := range in.Roles {
 		if !slices.Contains(roles, r) {
-			return invalid("partner.unknown_role", fmt.Sprintf("roles[%d]", i), "supplier or customer")
+			return problem.Invalid("partner.unknown_role", fmt.Sprintf("roles[%d]", i), "supplier or customer")
 		}
 	}
 	if in.Extensions == nil {
@@ -1102,12 +1099,12 @@ func updatedRoles(current, changed []string) ([]string, error) {
 	}
 	for i, r := range changed {
 		if !slices.Contains(roles, r) {
-			return nil, invalid("partner.unknown_role", fmt.Sprintf("payload.roles[%d]", i), "supplier or customer")
+			return nil, problem.Invalid("partner.unknown_role", fmt.Sprintf("payload.roles[%d]", i), "supplier or customer")
 		}
 	}
 	for _, r := range current {
 		if !slices.Contains(changed, r) {
-			return nil, invalid("partner.role_removal", "payload.roles", "roles can be added but not removed; "+r+" is missing")
+			return nil, problem.Invalid("partner.role_removal", "payload.roles", "roles can be added but not removed; "+r+" is missing")
 		}
 	}
 	return changed, nil
@@ -1167,11 +1164,11 @@ func RequestBankAccountEnd(ctx context.Context, ports Ports, partnerID, bankID u
 	}
 	switch {
 	case validTo.Before(day):
-		return Change{}, invalid("partner.invalid_end", "valid_to", "today or later")
+		return Change{}, problem.Invalid("partner.invalid_end", "valid_to", "today or later")
 	case !validTo.After(b.ValidFrom):
-		return Change{}, invalid("partner.invalid_end", "valid_to", "after the account's valid_from")
+		return Change{}, problem.Invalid("partner.invalid_end", "valid_to", "after the account's valid_from")
 	case b.ValidTo != nil && !validTo.Before(*b.ValidTo):
-		return Change{}, invalid("partner.invalid_end", "valid_to", "before the account's current valid_to")
+		return Change{}, problem.Invalid("partner.invalid_end", "valid_to", "before the account's current valid_to")
 	}
 	c, err := insertChange(ctx, tx, p, KindBankChange, partnerID, bankChangePayload{Action: "end", BankAccountID: &bankID, ValidTo: &Date{validTo}},
 		reason, nil, nil, false)
@@ -1243,18 +1240,11 @@ func applyChange(ctx context.Context, schemas Settings, now func() time.Time, id
 	return applied, audit.Record(ctx, "partner.change.apply", "partner.partner_change", id, map[string]any{"kind": c.Kind, "partner_id": c.PartnerID}, events...)
 }
 
-func later(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
-}
-
 // insertBank adds an approved account, ending the current account of its
 // purpose on the new account's first day: the requested day, or day (the
 // earliest allowed) when that has passed while the change waited.
 func insertBank(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b sealedBank, day time.Time) (outbox.Event, error) {
-	from := later(b.ValidFrom.Time, day)
+	from := clock.Later(b.ValidFrom.Time, day)
 	var ended *uuid.UUID
 	var endedTo *time.Time
 	err := tx.QueryRow(ctx, `UPDATE partner.bank_account SET valid_to = $3, ended_by = $4
@@ -1361,7 +1351,7 @@ func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 		fields = append(fields, "customer_company."+cc.LegalEntityID.String())
 	}
 	for i := range pl.Addresses {
-		pl.Addresses[i].ValidFrom = Date{later(pl.Addresses[i].ValidFrom.Time, day)}
+		pl.Addresses[i].ValidFrom = Date{clock.Later(pl.Addresses[i].ValidFrom.Time, day)}
 		fields = append(fields, "address."+pl.Addresses[i].Purpose)
 	}
 	if err := addAddresses(ctx, tx, p, bp.ID, pl.Addresses, true); err != nil {
@@ -1429,7 +1419,7 @@ func applyBankChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Chang
 	if err != nil {
 		return nil, err
 	}
-	to := later(pl.ValidTo.Time, day)
+	to := clock.Later(pl.ValidTo.Time, day)
 	if b.ValidTo != nil && !to.Before(*b.ValidTo) {
 		return nil, problem.Conflict("partner.invalid_end", "The bank account already ends on "+b.ValidTo.Format(time.DateOnly)+".")
 	}

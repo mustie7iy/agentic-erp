@@ -55,7 +55,9 @@ func (e *Endpoints) postMovement(ctx context.Context, id uuid.UUID, number strin
 var movementTexts = map[string]string{Receipt: "Goods receipt ", Reversal: "Reversal of a goods receipt, ", Return: "Return to the supplier ",
 	ReturnReversal: "Reversal of a return to the supplier, "}
 
-// negated flips the sign of a plain decimal quantity.
+// negated flips the sign of a plain decimal quantity, as the database
+// gives it (trim_scale): a return's items and every reversal's, and the
+// GR/IR side of a receipt. Quantities are never zero.
 func negated(q string) string {
 	if rest, ok := strings.CutPrefix(q, "-"); ok {
 		return rest

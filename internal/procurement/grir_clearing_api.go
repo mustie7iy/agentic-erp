@@ -73,7 +73,7 @@ func (e *Endpoints) ListGrIrClearings(ctx context.Context, params gen.ListGrIrCl
 func clearingListOf(params gen.ListGrIrClearingsParams) orderList[GRIRClearing, gen.GrIrClearing] {
 	return orderList[GRIRClearing, gen.GrIrClearing]{sort: clearingSort, scope: "listGrIrClearings",
 		page: apitypes.Page(params.OrderBy, params.PageSize, params.PageToken), query: clearingList + ` AND purchase_order_id = $1`,
-		what: "GR/IR clearings", scan: scanClearing, key: func(c GRIRClearing) (string, uuid.UUID) { return timestamp(c.CreatedAt), c.ID }, toAPI: clearingToAPI}
+		what: "GR/IR clearings", scan: scanClearing, key: func(c GRIRClearing) (string, uuid.UUID) { return pagination.Instant(c.CreatedAt), c.ID }, toAPI: clearingToAPI}
 }
 
 // orderList is a keyset-paged list of an order's documents: their query,

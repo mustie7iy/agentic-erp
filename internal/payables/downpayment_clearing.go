@@ -42,7 +42,7 @@ func (e *Endpoints) ClearDownPayments(ctx context.Context, id uuid.UUID, ifMatch
 		return Invoice{}, err
 	}
 	if v.Kind != KindInvoice {
-		return Invoice{}, invalid("payables.not_an_invoice", "id", "Down payments are cleared against an invoice, not a "+v.Kind+".")
+		return Invoice{}, problem.Invalid("payables.not_an_invoice", "id", "Down payments are cleared against an invoice, not a "+v.Kind+".")
 	}
 	if err := ledger.RequireDistinct(items); err != nil {
 		return Invoice{}, err
@@ -99,7 +99,7 @@ func requireWholeRequests(entry ledger.Entry, apAccount uuid.UUID, total money.M
 		}
 	}
 	if debits != 1 || debit != total {
-		return invalid("payables.not_a_down_payment_request", "items",
+		return problem.Invalid("payables.not_a_down_payment_request", "items",
 			"The items are not the whole down payments of the paid requests they belong to: choose every down payment of a request's payment, and no other.")
 	}
 	return nil
@@ -122,7 +122,7 @@ func clearedRequests(ctx context.Context, tx pgx.Tx, v Invoice, items []ledger.I
 		r, err := scanRequest(tx.QueryRow(ctx, requestSelect+` WHERE r.journal_entry_year = $1 AND r.journal_entry_id = $2 AND r.status IN ('paid', 'cleared')
 			AND r.supplier_id = $3 AND r.legal_entity_id = $4 AND r.currency = $5 ORDER BY r.id LIMIT 1 FOR UPDATE OF r`, it.FiscalYear, it.EntryID, v.SupplierID, v.LegalEntityID, v.Currency))
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, 0, invalid("payables.not_a_down_payment_request", fmt.Sprintf("items[%d]", i),
+			return nil, 0, problem.Invalid("payables.not_a_down_payment_request", fmt.Sprintf("items[%d]", i),
 				"The item is not the down payment of a paid request of the invoice's supplier in its currency.")
 		}
 		if err != nil {
@@ -132,7 +132,7 @@ func clearedRequests(ctx context.Context, tx pgx.Tx, v Invoice, items []ledger.I
 			return nil, 0, problem.Conflict("payables.down_payment_already_cleared", "Down payment request "+r.DocumentNumber+" is cleared already.")
 		}
 		if r.PurchaseOrderID != nil && (v.PurchaseOrderID == nil || *v.PurchaseOrderID != *r.PurchaseOrderID) {
-			return nil, 0, invalid("payables.down_payment_other_order", fmt.Sprintf("items[%d]", i),
+			return nil, 0, problem.Invalid("payables.down_payment_other_order", fmt.Sprintf("items[%d]", i),
 				"Down payment request "+r.DocumentNumber+" is for another purchase order than the invoice's.")
 		}
 		if counted[r.ID] {
@@ -151,7 +151,7 @@ func clearedRequests(ctx context.Context, tx pgx.Tx, v Invoice, items []ledger.I
 		all, err = money.Sum(total, before)
 	}
 	if err != nil || all > v.Gross {
-		return nil, 0, invalid("payables.down_payments_exceed_invoice", "items",
+		return nil, 0, problem.Invalid("payables.down_payments_exceed_invoice", "items",
 			"Only whole down payments are cleared, and with those cleared before they exceed the invoice's gross amount.")
 	}
 	return requests, total, nil

@@ -2,7 +2,6 @@ package payments
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -41,17 +40,11 @@ func (w *Proposer) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) 
 
 // tenants returns the tenants with jobs.
 func (w *Proposer) tenants(ctx context.Context) ([]uuid.UUID, error) {
-	tx, err := w.begin(ctx, database.Scope{Role: w.WorkerRole, ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT o.tenant_id FROM platform.operation o
+	tenants, err := database.Tenants(ctx, w.Pool, w.Begin, w.WorkerRole, `SELECT DISTINCT o.tenant_id FROM platform.operation o
 		JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
 		WHERE o.kind = $1 AND o.status IN ('queued', 'cancelled') AND r.status = 'proposing' AND o.tenant_id IN `+database.ActiveTenants, ProposeKind)
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
-		return tenants, fmt.Errorf("payments: list the tenants with proposal jobs: %w", err)
+		return nil, fmt.Errorf("payments: list the tenants with proposal jobs: %w", err)
 	}
 	return tenants, nil
 }
@@ -89,34 +82,14 @@ func (w *Proposer) one(ctx context.Context, tenant uuid.UUID) (bool, error) {
 
 // RunOnce does every job there is and returns how many it did. A tenant
 // whose job fails is left for the next round; the others go on.
-func (w *Proposer) RunOnce(ctx context.Context) (int, error) {
-	tenants, err := w.tenants(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("payment proposer: %w", err)
-	}
-	n := 0
-	var errs []error
-	for _, t := range tenants {
-		for {
-			did, err := w.one(ctx, t)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("payment proposer: tenant %s: %w", t, err))
-				break
-			}
-			if !did {
-				break
-			}
-			n++
-		}
-	}
-	return n, errors.Join(errs...)
+func (w *Proposer) RunOnce(ctx context.Context) (int, error) { return w.queue().RunOnce(ctx) }
+
+func (w *Proposer) queue() worker.Queue {
+	return worker.Queue{Name: "payment proposer", Tenants: w.tenants, One: w.one}
 }
 
 // Run does jobs until ctx ends; errors are logged and retried after the
 // interval.
 func (w *Proposer) Run(ctx context.Context) {
-	worker.Loop(ctx, w.Interval, time.Second, func(ctx context.Context) (bool, error) {
-		_, err := w.RunOnce(ctx)
-		return false, err
-	}, w.Log, "payment proposal failed")
+	worker.Loop(ctx, w.Interval, time.Second, w.queue().Round, w.Log, "payment proposal failed")
 }

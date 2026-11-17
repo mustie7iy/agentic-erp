@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -68,7 +67,7 @@ func (c *Clients) Find(ctx context.Context, code string) (Client, error) {
 		return hit.client, hit.err
 	}
 	var out Client
-	err := c.Store.inTx(ctx, true, func(ctx context.Context, tx pgx.Tx) error {
+	err := c.Store.inTx(ctx, true, "find the web client of login code "+code, func(ctx context.Context, tx querier) error {
 		return tx.QueryRow(ctx, `SELECT login_code, issuer, audience, tenant_id, client_id, auth_method, credential_ref, scope
 			FROM web.login_client WHERE login_code = $1`, code).Scan(
 			&out.LoginCode, &out.Issuer, &out.Audience, &out.TenantID, &out.ClientID, &out.AuthMethod, &out.CredentialRef, &out.Scope)
@@ -77,7 +76,7 @@ func (c *Clients) Find(ctx context.Context, code string) (Client, error) {
 	case errors.Is(err, pgx.ErrNoRows):
 		err = ErrUnknownCode
 	case err != nil:
-		return Client{}, fmt.Errorf("session: find the web client of login code %s: %w", code, err)
+		return Client{}, err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()

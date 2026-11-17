@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -195,7 +196,7 @@ func (e *Endpoints) RealiseMemoRecord(ctx context.Context, req gen.OptMemoRecord
 	c := Closing{Occurrence: apitypes.Ptr[time.Time](req.Value.OccurrenceDate), Comment: apitypes.Ptr[string](req.Value.Comment)}
 	statement, line := req.Value.StatementID, req.Value.LineNo
 	if statement.Set != line.Set {
-		return nil, invalid("request.validation_failed", "A statement line is named by its statement and its number, both.", "line_no", "with statement_id")
+		return nil, problem.InvalidDetail("request.validation_failed", "A statement line is named by its statement and its number, both.", "line_no", "with statement_id")
 	}
 	if statement.Set {
 		c.Line = &LineRef{StatementID: statement.Value, LineNo: line.Value}
@@ -275,7 +276,7 @@ func (e *Endpoints) ListMemoRecords(ctx context.Context, params gen.ListMemoReco
 	}
 	items, next, err := apitypes.PageWith(ks, ms, func(m MemoRecord) (string, uuid.UUID) {
 		if ks.Field() == "created_at" {
-			return m.CreatedAt.UTC().Format(time.RFC3339Nano), m.ID
+			return pagination.Instant(m.CreatedAt), m.ID
 		}
 		return m.ValueDate.Format(time.DateOnly), m.ID
 	}, func(page []MemoRecord) (map[uuid.UUID]string, error) { return e.bankCodes(ctx, page) },

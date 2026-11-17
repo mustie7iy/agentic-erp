@@ -418,7 +418,7 @@ func (s *Service) ListPrincipals(ctx context.Context, tenant uuid.UUID, binding 
 			return err
 		}
 		ps, next = pagination.Page(ks, ps, func(p identity.TenantPrincipal) (string, uuid.UUID) {
-			return p.CreatedAt.UTC().Format(time.RFC3339Nano), p.ID
+			return pagination.Instant(p.CreatedAt), p.ID
 		})
 		out = make([]TenantPrincipal, len(ps))
 		for i, p := range ps {

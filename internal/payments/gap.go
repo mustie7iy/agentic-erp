@@ -57,8 +57,8 @@ func (e *Endpoints) AcceptGap(ctx context.Context, id uuid.UUID, ifMatch func(in
 		return Statement{}, err
 	}
 	payload := map[string]any{"bank_statement_id": id, "house_bank_id": s.HouseBankID, "legal_entity_id": s.LegalEntityID, "previous_statement_id": previous,
-		"opening_balance":          map[string]any{"amount": s.Opening.Plain(s.Exponent), "currency": s.Currency},
-		"previous_closing_balance": map[string]any{"amount": previousClosing.Plain(s.Exponent), "currency": s.Currency},
+		"opening_balance":          money.EventAmount(s.Opening, s.Currency, s.Exponent),
+		"previous_closing_balance": money.EventAmount(previousClosing, s.Currency, s.Exponent),
 		"reason":                   reason, "status": StatementImported}
 	if err := record(ctx, "payments.bank_statement.accept_gap", id, map[string]any{"previous_statement_id": previous, "reason": reason,
 		"opening_balance": s.Opening.Plain(s.Exponent), "previous_closing_balance": previousClosing.Plain(s.Exponent), "status": StatementImported},

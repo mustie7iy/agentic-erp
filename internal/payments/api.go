@@ -510,7 +510,7 @@ func (e *Endpoints) ListBankFiles(ctx context.Context, params gen.ListBankFilesP
 		return nil, fmt.Errorf("payments: list bank files: %w", err)
 	}
 	items, next, err := apitypes.PageWith(ks, files, func(f BankFile) (string, uuid.UUID) {
-		return f.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), f.ID
+		return pagination.Instant(f.CreatedAt), f.ID
 	}, banksOf(ctx, bankOfFile), fileToAPI)
 	if err != nil {
 		return nil, fmt.Errorf("payments: list bank files: %w", err)

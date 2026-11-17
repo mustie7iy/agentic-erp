@@ -51,7 +51,7 @@ func written(ctx context.Context, tx pgx.Tx, id uuid.UUID, action, change string
 // occurrenceInvalid refuses an override of an occurrence a series does not
 // have.
 func occurrenceInvalid(detail string) error {
-	return invalid("cash.occurrence_invalid", detail, "occurrence_date", "an occurrence of an active series of the legal entity in the record's currency")
+	return problem.InvalidDetail("cash.occurrence_invalid", detail, "occurrence_date", "an occurrence of an active series of the legal entity in the record's currency")
 }
 
 // overrides checks an override: both its series and occurrence, the
@@ -118,7 +118,7 @@ func (e *Endpoints) line(ctx context.Context, ref LineRef, field string, fits fu
 		return StatementLine{}, fmt.Errorf("cash: line %d of statement %s: %w", ref.LineNo, ref.StatementID, err)
 	}
 	if !ok || !fits(l) {
-		return StatementLine{}, invalid("cash.statement_line_invalid", fmt.Sprintf("Line %d of statement %s is not a line of the record's legal entity, currency, bank and direction.",
+		return StatementLine{}, problem.InvalidDetail("cash.statement_line_invalid", fmt.Sprintf("Line %d of statement %s is not a line of the record's legal entity, currency, bank and direction.",
 			ref.LineNo, ref.StatementID), field, "a statement line of the record's legal entity, currency, house bank and direction")
 	}
 	return l, nil
@@ -199,7 +199,7 @@ func (e *Endpoints) UpdateMemo(ctx context.Context, id uuid.UUID, ifMatch func(i
 		return MemoRecord{}, err
 	}
 	if ch.Recurrence != nil && m.Recurrence == nil {
-		return MemoRecord{}, invalid("request.validation_failed", "A one-off memo record stays one; create a series instead.", "recurrence", "only on a series")
+		return MemoRecord{}, problem.InvalidDetail("request.validation_failed", "A one-off memo record stays one; create a series instead.", "recurrence", "only on a series")
 	}
 	c, err := e.checker(ctx, tx, m.LegalEntityID)
 	if err != nil {
@@ -229,7 +229,7 @@ func keepsIdentity(ctx context.Context, tx pgx.Tx, m MemoRecord, v memoValues) e
 	case m.RecurrenceOf != nil && v.currency != m.Currency:
 		return occurrenceInvalid("An override keeps its series' currency.")
 	case m.Origin == OriginUpload && !eq(m.Reference, v.reference):
-		return invalid("request.validation_failed", "An uploaded record's reference is how its batch knows it; it does not change.", "reference",
+		return problem.InvalidDetail("request.validation_failed", "An uploaded record's reference is how its batch knows it; it does not change.", "reference",
 			"the reference of the upload")
 	case m.Recurrence == nil || (m.ValueDate.Equal(v.valueDate) && m.Currency == v.currency && sameRule(*m.Recurrence, *v.recurrence)):
 		return nil
@@ -296,7 +296,7 @@ func (e *Endpoints) close(ctx context.Context, id uuid.UUID, ifMatch func(int32)
 		return closeOccurrence(ctx, tx, p, m, c, status, action)
 	}
 	if c.Occurrence != nil {
-		return MemoRecord{}, false, invalid("request.validation_failed", "Only a series has occurrences.", "occurrence_date", "only on a series")
+		return MemoRecord{}, false, problem.InvalidDetail("request.validation_failed", "Only a series has occurrences.", "occurrence_date", "only on a series")
 	}
 	if err := decide(ctx, tx, p, id, status, c.Comment, c.Line); err != nil {
 		return MemoRecord{}, false, err
@@ -323,7 +323,7 @@ func (e *Endpoints) realisedBy(ctx context.Context, m MemoRecord, ref *LineRef) 
 // override of it, the person's, closed at once.
 func closeOccurrence(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m MemoRecord, c Closing, status, action string) (MemoRecord, bool, error) {
 	if c.Occurrence == nil {
-		return MemoRecord{}, false, invalid("request.validation_failed", "A series is realised one occurrence at a time.", "occurrence_date", "required for a series")
+		return MemoRecord{}, false, problem.InvalidDetail("request.validation_failed", "A series is realised one occurrence at a time.", "occurrence_date", "required for a series")
 	}
 	day := clock.Day(*c.Occurrence)
 	if !m.Recurrence.has(m.ValueDate, day) {

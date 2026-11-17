@@ -30,7 +30,7 @@ func (e *Endpoints) prepareCenterTransfer(ctx context.Context, tx pgx.Tx, t *tra
 		return err
 	}
 	if !t.value.Equal(t.period.Start) {
-		return invalid("assets.transfer_mid_period", fmt.Sprintf("A center transfer takes effect from the first day of its posting period, %s.",
+		return problem.InvalidDetail("assets.transfer_mid_period", fmt.Sprintf("A center transfer takes effect from the first day of its posting period, %s.",
 			t.period.Start.Format(time.DateOnly)), "value_date", t.period.Start.Format(time.DateOnly))
 	}
 	if err := laterValueDate(ctx, tx, t.asset, t.period); err != nil {

@@ -207,67 +207,42 @@ func TestDatabaseFailures(t *testing.T) {
 			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
 		})
 	}
-	t.Run("list orders' page size", func(t *testing.T) {
-		err := e.inRequest(t, func(ctx context.Context) error {
+	// A page size of 0 is refused by every list.
+	lists := map[string]func(ctx context.Context) error{
+		"orders": func(ctx context.Context) error {
 			_, err := h.ListSalesOrders(ctx, gen.ListSalesOrdersParams{PageSize: gen.NewOptInt32(0)})
 			return err
-		})
-		if p := problem.From(err); p.Code != "request.invalid_page_size" {
-			t.Errorf("got %v, want request.invalid_page_size", p)
-		}
-	})
-	t.Run("list deliveries' page size", func(t *testing.T) {
-		err := e.inRequest(t, func(ctx context.Context) error {
+		},
+		"deliveries": func(ctx context.Context) error {
 			_, err := h.ListSalesDeliveries(ctx, gen.ListSalesDeliveriesParams{ID: deliveredOrder, PageSize: gen.NewOptInt32(0)})
 			return err
-		})
-		if p := problem.From(err); p.Code != "request.invalid_page_size" {
-			t.Errorf("got %v, want request.invalid_page_size", p)
-		}
-	})
-	t.Run("list return receipts' page size", func(t *testing.T) {
-		err := e.inRequest(t, func(ctx context.Context) error {
+		},
+		"return receipts": func(ctx context.Context) error {
 			_, err := h.ListReturnReceipts(ctx, gen.ListReturnReceiptsParams{ID: receivedReturn, PageSize: gen.NewOptInt32(0)})
 			return err
-		})
-		if p := problem.From(err); p.Code != "request.invalid_page_size" {
-			t.Errorf("got %v, want request.invalid_page_size", p)
-		}
-	})
-	t.Run("list credit memo requests' page size", func(t *testing.T) {
-		err := e.inRequest(t, func(ctx context.Context) error {
+		},
+		"credit memo requests": func(ctx context.Context) error {
 			_, err := h.ListCreditMemoRequests(ctx, gen.ListCreditMemoRequestsParams{PageSize: gen.NewOptInt32(0)})
 			return err
-		})
-		if p := problem.From(err); p.Code != "request.invalid_page_size" {
-			t.Errorf("got %v, want request.invalid_page_size", p)
-		}
-	})
-	t.Run("list returns orders' page size", func(t *testing.T) {
-		err := e.inRequest(t, func(ctx context.Context) error {
+		},
+		"returns orders": func(ctx context.Context) error {
 			_, err := h.ListReturnsOrders(ctx, gen.ListReturnsOrdersParams{PageSize: gen.NewOptInt32(0)})
 			return err
-		})
-		if p := problem.From(err); p.Code != "request.invalid_page_size" {
-			t.Errorf("got %v, want request.invalid_page_size", p)
-		}
-	})
-	t.Run("list billing documents' page size", func(t *testing.T) {
-		err := e.inRequest(t, func(ctx context.Context) error {
+		},
+		"billing documents": func(ctx context.Context) error {
 			_, err := h.ListBillingDocuments(ctx, gen.ListBillingDocumentsParams{PageSize: gen.NewOptInt32(0)})
 			return err
-		})
-		if p := problem.From(err); p.Code != "request.invalid_page_size" {
-			t.Errorf("got %v, want request.invalid_page_size", p)
-		}
-	})
-	t.Run("list page size", func(t *testing.T) {
-		err := e.inRequest(t, func(ctx context.Context) error {
+		},
+		"quotations": func(ctx context.Context) error {
 			_, err := h.ListQuotations(ctx, gen.ListQuotationsParams{PageSize: gen.NewOptInt32(0)})
 			return err
+		},
+	}
+	for name, list := range lists {
+		t.Run(name+" page size", func(t *testing.T) {
+			if p := problem.From(e.inRequest(t, list)); p.Code != "request.invalid_page_size" {
+				t.Errorf("got %v, want request.invalid_page_size", p)
+			}
 		})
-		if p := problem.From(err); p.Code != "request.invalid_page_size" {
-			t.Errorf("got %v, want request.invalid_page_size", p)
-		}
-	})
+	}
 }

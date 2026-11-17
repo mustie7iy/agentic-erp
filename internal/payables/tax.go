@@ -176,7 +176,7 @@ func (e *Endpoints) taxDocument(ctx context.Context, v Invoice, local string, ta
 	case err != nil:
 		return tax.Document{}, ledger.Conversion{}, err
 	case unknown >= 0:
-		return tax.Document{}, ledger.Conversion{}, invalid("payables.unknown_tax_code", fmt.Sprintf("items[%d].tax_code", unknown),
+		return tax.Document{}, ledger.Conversion{}, problem.Invalid("payables.unknown_tax_code", fmt.Sprintf("items[%d].tax_code", unknown),
 			"Tax code "+*v.Items[unknown].TaxCode+" is not an input tax code of the legal entity on the tax date "+taxDate.Format(time.DateOnly)+".")
 	}
 	conv, err := e.taxConversion(ctx, v.Currency, local, taxDate, settings.RateTypeOrAverage())

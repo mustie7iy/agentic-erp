@@ -13,7 +13,9 @@
 // overlapping scope skips what is already there. Reconciliation recomputes
 // the controls from the SAP data and from the platform independently. A
 // rehearsal loads and reconciles in a savepoint that is rolled back, so
-// only its report remains.
+// only its report remains. A run is long-running work behind an operation
+// (ADR-0012), and a connector names its credentials by reference
+// (ADR-0017).
 package integration
 
 import (
@@ -35,7 +37,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
-	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -190,10 +191,6 @@ type Endpoints struct {
 // action names the object type (integration.connector.create).
 func record(ctx context.Context, action string, id uuid.UUID, detail map[string]any, events ...outbox.Event) error {
 	return audit.Record(ctx, action, audit.ObjectTypeOf(action), id, detail, events...)
-}
-
-func invalid(code, field, message string) error {
-	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
 }
 
 func noRows(err error) bool { return errors.Is(err, pgx.ErrNoRows) }

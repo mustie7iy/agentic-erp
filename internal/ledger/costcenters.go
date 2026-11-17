@@ -54,7 +54,7 @@ type NewCostCenter struct {
 }
 
 func invalidValidity(field, message string) error {
-	return problem.Unprocessable("ledger.invalid_validity", message, problem.FieldError{Field: field, Code: "invalid", Message: message})
+	return problem.Invalid("ledger.invalid_validity", field, message)
 }
 
 func nothingToChange() error {

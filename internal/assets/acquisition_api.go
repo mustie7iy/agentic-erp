@@ -320,7 +320,7 @@ func (e *Endpoints) ListAssetAcquisitions(ctx context.Context, params gen.ListAs
 	}
 	items, next, err := apitypes.PageWith(ks, qs, func(q Acquisition) (string, uuid.UUID) {
 		if ks.Field() == "created_at" {
-			return q.CreatedAt.UTC().Format(time.RFC3339Nano), q.ID
+			return pagination.Instant(q.CreatedAt), q.ID
 		}
 		return q.PostingDate.Format(time.DateOnly), q.ID
 	}, func(page []Acquisition) (docView, error) { return e.acquisitionPage(ctx, tx, page) }, func(q Acquisition, v docView) gen.AssetAcquisition {

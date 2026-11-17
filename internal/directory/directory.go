@@ -463,7 +463,7 @@ func (p *Postgres) ListTenants(ctx context.Context, f Filter, ks *pagination.Key
 		if ks.Field() == "cell" {
 			return e.Cell, e.TenantID
 		}
-		return e.UpdatedAt.UTC().Format(time.RFC3339Nano), e.TenantID
+		return pagination.Instant(e.UpdatedAt), e.TenantID
 	})
 	return entries, next, nil
 }

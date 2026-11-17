@@ -135,7 +135,7 @@ func lockTransferred(ctx context.Context, tx pgx.Tx, in NewTransfer) (Asset, Ass
 		return a, Asset{}, err
 	}
 	if *in.ToAssetID == in.AssetID {
-		return Asset{}, Asset{}, invalid("assets.transfer_same_asset", "An asset is not transferred to itself.", "to_asset_id", "another asset")
+		return Asset{}, Asset{}, problem.InvalidDetail("assets.transfer_same_asset", "An asset is not transferred to itself.", "to_asset_id", "another asset")
 	}
 	locked, err := lockAssets(ctx, tx, in.AssetID, *in.ToAssetID)
 	if err != nil {
@@ -144,7 +144,7 @@ func lockTransferred(ctx context.Context, tx pgx.Tx, in NewTransfer) (Asset, Ass
 	a, to := locked[in.AssetID], locked[*in.ToAssetID]
 	switch {
 	case to.LegalEntityID != a.LegalEntityID:
-		return Asset{}, Asset{}, invalid("assets.transfer_other_company", fmt.Sprintf("Asset %s belongs to another company than asset %s; a transfer "+
+		return Asset{}, Asset{}, problem.InvalidDetail("assets.transfer_other_company", fmt.Sprintf("Asset %s belongs to another company than asset %s; a transfer "+
 			"between companies is not offered.", to.Number, a.Number), "to_asset_id", "an asset of the same company")
 	case a.Status == StatusPlanned:
 		return Asset{}, Asset{}, problem.Unprocessable("assets.asset_not_capitalised", fmt.Sprintf("Asset %s is planned: it holds no acquisition, so "+

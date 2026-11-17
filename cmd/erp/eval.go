@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -352,10 +353,10 @@ func evalCmd(ctx context.Context, args []string) error {
 	if _, ok := evalAgents[s.Agent]; !ok {
 		return fmt.Errorf("eval: no adapter for agent type %s", s.Agent)
 	}
-	admin := orDefault(getenv("ERP_ADMIN_URL"), "http://localhost:9090")
+	admin := cmp.Or(getenv("ERP_ADMIN_URL"), "http://localhost:9090")
 	r := &eval.Runner{Agents: evalAgents, Models: evalModels(s.Alias), Repeats: *repeats, MaxCost: money.MicroOf(limit),
-		Tenants: &eval.ControlPlane{ControlURL: orDefault(getenv("ERP_CONTROL_URL"), "http://localhost:9090"),
-			APIURL: orDefault(getenv("ERP_API_URL"), "http://localhost:8080"), Mint: evalMint(admin)}}
+		Tenants: &eval.ControlPlane{ControlURL: cmp.Or(getenv("ERP_CONTROL_URL"), "http://localhost:9090"),
+			APIURL: cmp.Or(getenv("ERP_API_URL"), "http://localhost:8080"), Mint: evalMint(admin)}}
 	rep, runErr := r.Run(ctx, s)
 	path, err := rep.Write(*out)
 	if err != nil {
@@ -366,13 +367,6 @@ func evalCmd(ctx context.Context, args []string) error {
 		return err
 	}
 	return runErr
-}
-
-func orDefault(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
 }
 
 // taxEval has the tax agent review the task's registration's draft return

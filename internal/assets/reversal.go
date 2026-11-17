@@ -103,7 +103,7 @@ func (e *Endpoints) reversible(ctx context.Context, tx pgx.Tx, asset Asset, q Ac
 			asset.Number, q.Status))
 	}
 	if on.Before(q.PostingDate) {
-		return invalid("assets.reversal_before_original", fmt.Sprintf("The reversal's posting date %s is before the acquisition's, %s.",
+		return problem.InvalidDetail("assets.reversal_before_original", fmt.Sprintf("The reversal's posting date %s is before the acquisition's, %s.",
 			on.Format(time.DateOnly), q.PostingDate.Format(time.DateOnly)), "posting_date", "on or after "+q.PostingDate.Format(time.DateOnly))
 	}
 	if err := laterMovements(ctx, tx, asset, q.Seq); err != nil {
@@ -176,7 +176,7 @@ func costStaysAfterReversal(ctx context.Context, tx pgx.Tx, asset Asset, q Acqui
 		return fmt.Errorf("assets: cost of asset %s: %w", asset.Number, err)
 	}
 	if short {
-		return invalid("assets.cost_negative", fmt.Sprintf("Reversing the acquisition would leave asset %s's cost below zero in a ledger: a reduction "+
+		return problem.InvalidDetail("assets.cost_negative", fmt.Sprintf("Reversing the acquisition would leave asset %s's cost below zero in a ledger: a reduction "+
 			"capitalised since took off cost it brought; that one is reversed first.", asset.Number), "id", "an acquisition whose cost the asset still holds")
 	}
 	return nil

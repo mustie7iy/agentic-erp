@@ -227,7 +227,7 @@ func (e *Endpoints) ListBalanceCarryForwards(ctx context.Context, params gen.Lis
 		if ks.Field() == "fiscal_year" {
 			return fmt.Sprint(r.FromYear), r.ID
 		}
-		return r.CreatedAt.Format(time.RFC3339Nano), r.ID
+		return pagination.Instant(r.CreatedAt), r.ID
 	})
 	page := gen.BalanceCarryForwardPage{}
 	if page.Items, err = e.carryForwardsToAPI(ctx, tx, runs); err != nil {

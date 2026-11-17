@@ -189,15 +189,16 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 }
 
 // TranslateMember translates one company of a running run in one
-// transaction (ADR-0059 §7): it reads the status and version of the run's
+// transaction (ADR-0059 §7). It reads the status and version of the run's
 // period in the company's leading ledger first and then its balances
 // through it (two statements of a read-committed transaction), so the
 // version recorded is never newer than the figures read and a change
-// between the two reads makes the run stale (T68g), never wrongly fresh; writes its translated rows; records the period,
-// when, and what it moved from the year's profit to the translation
-// reserve (movedInYear: a group-currency revaluation's translation part
-// and a net investment's exchange differences); and reports the run's progress. A company already translated, or
-// a run no longer running, is left alone.
+// between the two reads makes the run stale (T68g), never wrongly fresh.
+// It then writes the translated rows; records the period, when, and what
+// it moved from the year's profit to the translation reserve (movedInYear:
+// a group-currency revaluation's translation part and a net investment's
+// exchange differences); and reports the run's progress. A company
+// already translated, or a run no longer running, is left alone.
 func (e *Endpoints) TranslateMember(ctx context.Context, id, company uuid.UUID) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {

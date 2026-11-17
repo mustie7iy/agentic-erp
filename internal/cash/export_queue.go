@@ -200,7 +200,7 @@ func (e *Endpoints) Exports(ctx context.Context, q ExportsQuery) ([]Export, stri
 	if err != nil {
 		return nil, "", fmt.Errorf("cash: list exports: %w", err)
 	}
-	xs, next := pagination.Page(ks, xs, func(x Export) (string, uuid.UUID) { return x.CreatedAt.Format(time.RFC3339Nano), x.ID })
+	xs, next := pagination.Page(ks, xs, func(x Export) (string, uuid.UUID) { return pagination.Instant(x.CreatedAt), x.ID })
 	return xs, next, e.named(ctx, xs)
 }
 

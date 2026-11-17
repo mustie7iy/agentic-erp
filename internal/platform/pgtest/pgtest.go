@@ -1,5 +1,6 @@
 // Package pgtest gives platform tests a real, migrated PostgreSQL database
-// (06-engineering-process §6.6: no mocks for PostgreSQL) and tenant fixtures.
+// (06-engineering-process §6.6: no mocks for PostgreSQL; ADR-0002, with the
+// tenant isolation of ADR-0003) and tenant fixtures.
 // It is test support and is excluded from the coverage figure.
 //
 // Use it from TestMain:

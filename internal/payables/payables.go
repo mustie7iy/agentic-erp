@@ -462,8 +462,6 @@ func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]ru
 	return out, nil
 }
 
-func invalid(code, field, message string) error { return problem.Invalid(code, field, message) }
-
 // validate checks an invoice for entry: a supplier reference that is more
 // than white space, a legal entity the caller may act in, a usable
 // supplier, amounts in one currency with its minor-unit digits, items on
@@ -570,7 +568,7 @@ func (e *Endpoints) parties(ctx context.Context, legalEntity, supplier uuid.UUID
 		return tenancy.Entity{}, partner.Supplier{}, problem.ReferenceNotFound(field, "business partner", "no business partner with this id")
 	}
 	if why := sup.Usable(); why != "" {
-		return tenancy.Entity{}, partner.Supplier{}, invalid("payables.supplier_not_usable", field, refused+why+".")
+		return tenancy.Entity{}, partner.Supplier{}, problem.Invalid("payables.supplier_not_usable", field, refused+why+".")
 	}
 	return le, sup, nil
 }
@@ -589,7 +587,7 @@ func (e *Endpoints) fixedMethod(ctx context.Context, legalEntity uuid.UUID, code
 		return err
 	}
 	if !ok {
-		return invalid("payables.unknown_payment_method", "payment_method", "Payment method "+*code+" is not an active payment method of the legal entity.")
+		return problem.Invalid("payables.unknown_payment_method", "payment_method", "Payment method "+*code+" is not an active payment method of the legal entity.")
 	}
 	return nil
 }
@@ -612,7 +610,7 @@ func notNegative(gross, tax money.Minor) error {
 // currencyExponent reads the minor-unit digits of a document's currency;
 // field names it in the refusal of an unknown one.
 func currencyExponent(ctx context.Context, tx pgx.Tx, code, field string) (int, error) {
-	exp, err := currency.Exponent(ctx, tx, code, invalid("payables.unknown_currency", field, "The currency is not known."))
+	exp, err := currency.Exponent(ctx, tx, code, problem.Invalid("payables.unknown_currency", field, "The currency is not known."))
 	if err != nil {
 		return 0, fmt.Errorf("payables: currency %s: %w", code, err)
 	}
@@ -641,7 +639,7 @@ type invoiceCheck struct {
 // minor-unit digits.
 func (v *invoiceCheck) parse(a Amount, field string) (money.Minor, error) {
 	if a.Currency != v.c.currency {
-		return 0, invalid("payables.currency_mismatch", field+".currency", "Every amount of an invoice is in one currency, "+v.c.currency+".")
+		return 0, problem.Invalid("payables.currency_mismatch", field+".currency", "Every amount of an invoice is in one currency, "+v.c.currency+".")
 	}
 	return currency.ParseAmount(a.Value, v.c.currency, v.exp, field+".amount")
 }
@@ -657,7 +655,7 @@ func (v *invoiceCheck) order(id uuid.UUID, field string) (procurement.Order, err
 		return o, err
 	}
 	if !ok || o.Status != "released" || o.SupplierID != v.sup.ID || o.LegalEntityID != v.le.ID || o.Currency != v.c.currency {
-		return o, invalid("payables.invalid_purchase_order", field,
+		return o, problem.Invalid("payables.invalid_purchase_order", field,
 			"The purchase order must be a released order of this supplier and legal entity in the invoice currency.")
 	}
 	v.orders[id] = o
@@ -673,7 +671,7 @@ func (v *invoiceCheck) item(i int, it ItemInput) (Item, error) {
 	// A subsequent debit's or credit's item names its order item first:
 	// what it is decides what its quantity may be.
 	if subsequent(v.c.kind) && it.POItemNo == nil {
-		return Item{}, invalid("payables.po_item_required", field+".po_item_no", "A subsequent debit or credit revalues order items: each item names one.")
+		return Item{}, problem.Invalid("payables.po_item_required", field+".po_item_no", "A subsequent debit or credit revalues order items: each item names one.")
 	}
 	if err := v.quantity(field, it.Quantity); err != nil {
 		return Item{}, err
@@ -701,20 +699,20 @@ func (v *invoiceCheck) itemTarget(field string, it ItemInput, item *Item) error 
 	}
 	switch {
 	case po != nil && it.POItemNo == nil:
-		return invalid("payables.po_item_required", field+".po_item_no", "An item on a purchase order names the order item.")
+		return problem.Invalid("payables.po_item_required", field+".po_item_no", "An item on a purchase order names the order item.")
 	case po == nil && it.POItemNo != nil:
-		return invalid("payables.purchase_order_required", field+".purchase_order_id", "An order item needs its purchase order.")
+		return problem.Invalid("payables.purchase_order_required", field+".purchase_order_id", "An order item needs its purchase order.")
 	case po != nil:
 		return v.orderItem(field, po, it, item)
 	case it.AccountID == nil:
-		return invalid("payables.account_required", field+".account_id", "An item without a purchase order names its account.")
+		return problem.Invalid("payables.account_required", field+".account_id", "An item without a purchase order names its account.")
 	default:
 		ok, err := v.e.Accounts.IsPostable(v.ctx, v.le.ID, *it.AccountID)
 		if err != nil {
 			return err
 		}
 		if !ok {
-			return invalid("payables.account_not_postable", field+".account_id", "The account cannot be posted in this legal entity.")
+			return problem.Invalid("payables.account_not_postable", field+".account_id", "The account cannot be posted in this legal entity.")
 		}
 		return nil
 	}
@@ -725,7 +723,7 @@ func (v *invoiceCheck) itemTarget(field string, it ItemInput, item *Item) error 
 // invoice item leaves open.
 func (v *invoiceCheck) orderItem(field string, po *uuid.UUID, it ItemInput, item *Item) error {
 	if v.c.purchaseOrder != nil && *v.c.purchaseOrder != *po {
-		return invalid("payables.mixed_purchase_orders", field+".purchase_order_id", "An invoice is for one purchase order.")
+		return problem.Invalid("payables.mixed_purchase_orders", field+".purchase_order_id", "An invoice is for one purchase order.")
 	}
 	v.c.purchaseOrder = po
 	o, err := v.order(*po, field+".purchase_order_id")
@@ -739,10 +737,10 @@ func (v *invoiceCheck) orderItem(field string, po *uuid.UUID, it ItemInput, item
 		}
 	}
 	if oi == nil {
-		return invalid("payables.unknown_po_item", field+".po_item_no", fmt.Sprintf("Order %s has no item %d.", o.DocumentNumber, *it.POItemNo))
+		return problem.Invalid("payables.unknown_po_item", field+".po_item_no", fmt.Sprintf("Order %s has no item %d.", o.DocumentNumber, *it.POItemNo))
 	}
 	if oi.Unit != it.Unit {
-		return invalid("payables.unit_mismatch", field+".quantity.unit", "The order item is in "+oi.Unit+".")
+		return problem.Invalid("payables.unit_mismatch", field+".quantity.unit", "The order item is in "+oi.Unit+".")
 	}
 	item.PurchaseOrderID, item.POItemNo = po, it.POItemNo
 	if item.AccountID == nil {
@@ -771,7 +769,7 @@ func fromOrder(field string, o procurement.Order, oi procurement.OrderItem, it I
 	default:
 		return nil
 	}
-	return invalid("payables.assignment_from_order", field,
+	return problem.Invalid("payables.assignment_from_order", field,
 		fmt.Sprintf("An item on order %s takes its order item's account assignment; leave its cost and profit center out.", o.DocumentNumber))
 }
 
@@ -787,7 +785,7 @@ func (v *invoiceCheck) taxCode(field string, code *string) error {
 		return err
 	}
 	if !ok || t.Direction != config.TaxInput {
-		return invalid("payables.unknown_tax_code", field+".tax_code", "Tax code "+*code+" is not an input tax code of the legal entity on the tax date "+
+		return problem.Invalid("payables.unknown_tax_code", field+".tax_code", "Tax code "+*code+" is not an input tax code of the legal entity on the tax date "+
 			v.taxDate.Format(time.DateOnly)+".")
 	}
 	return nil
@@ -797,7 +795,7 @@ func (v *invoiceCheck) taxCode(field string, code *string) error {
 // non-deductible one or a partly recoverable one: down payments post one
 // tax line on one account (their tax is a share of the amount paid).
 func componentsUnsupported(field, code string) error {
-	return invalid("payables.tax_code_components", field, "Tax code "+code+" has components an invoice or down payment cannot post yet "+
+	return problem.Invalid("payables.tax_code_components", field, "Tax code "+code+" has components an invoice or down payment cannot post yet "+
 		"(several, non-deductible or partly recoverable; T61d).")
 }
 

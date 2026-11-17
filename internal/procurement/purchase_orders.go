@@ -138,11 +138,11 @@ func usableContract(ctx context.Context, tx pgx.Tx, id uuid.UUID, le, supplier u
 func contractUsable(c Contract, le, supplier uuid.UUID, currency string, on time.Time) error {
 	switch {
 	case c.Status != Active:
-		return invalid("procurement.invalid_contract", "contract_id", "the contract is "+c.Status)
+		return problem.Invalid("procurement.invalid_contract", "contract_id", "the contract is "+c.Status)
 	case c.LegalEntityID != le || c.SupplierID != supplier || c.Currency != currency:
-		return invalid("procurement.invalid_contract", "contract_id", "a contract of the legal entity with the order's supplier and currency")
+		return problem.Invalid("procurement.invalid_contract", "contract_id", "a contract of the legal entity with the order's supplier and currency")
 	case on.Before(c.ValidFrom) || on.After(c.ValidTo):
-		return invalid("procurement.invalid_contract", "contract_id",
+		return problem.Invalid("procurement.invalid_contract", "contract_id",
 			fmt.Sprintf("the contract is valid from %s to %s", c.ValidFrom.Format(time.DateOnly), c.ValidTo.Format(time.DateOnly)))
 	}
 	return nil
@@ -195,7 +195,7 @@ func (e *Endpoints) orderItem(ctx context.Context, h orderHeader, i int, it Item
 	if it.OverDelivery != nil {
 		pct, ok := new(big.Rat).SetString(*it.OverDelivery)
 		if !ok || pct.Sign() < 0 || pct.Cmp(big.NewRat(100, 1)) > 0 {
-			return Item{}, invalid("procurement.invalid_tolerance", field+".over_delivery_pct", "a percentage from 0 to 100")
+			return Item{}, problem.Invalid("procurement.invalid_tolerance", field+".over_delivery_pct", "a percentage from 0 to 100")
 		}
 		item.OverDelivery = *it.OverDelivery
 	}
@@ -214,7 +214,7 @@ func (e *Endpoints) orderItem(ctx context.Context, h orderHeader, i int, it Item
 			return Item{}, err
 		}
 		if !ok || t.Direction != "input" { // an order's invoices post input tax
-			return Item{}, invalid("procurement.unknown_tax_code", field+".tax_code", "an input tax code of the legal entity valid on the order date")
+			return Item{}, problem.Invalid("procurement.unknown_tax_code", field+".tax_code", "an input tax code of the legal entity valid on the order date")
 		}
 	}
 	return item, nil
@@ -227,7 +227,7 @@ func applyContractPrice(item *Item, contract *Contract, it ItemInput, field stri
 		return nil
 	}
 	if contract == nil {
-		return invalid("procurement.invalid_contract_item", field+".contract_item_no", "contract items need the order's contract_id")
+		return problem.Invalid("procurement.invalid_contract_item", field+".contract_item_no", "contract items need the order's contract_id")
 	}
 	var ci *Item
 	for j := range contract.Items {
@@ -236,7 +236,7 @@ func applyContractPrice(item *Item, contract *Contract, it ItemInput, field stri
 		}
 	}
 	if ci == nil || ci.Unit != it.Unit {
-		return invalid("procurement.invalid_contract_item", field+".contract_item_no", "an item of the contract in the same unit")
+		return problem.Invalid("procurement.invalid_contract_item", field+".contract_item_no", "an item of the contract in the same unit")
 	}
 	item.UnitPrice, item.PriceUnit = ci.UnitPrice, ci.PriceUnit
 	return nil
@@ -322,7 +322,7 @@ func (e *Endpoints) paymentTerm(ctx context.Context, code *string, supplier, le 
 		return "", err
 	}
 	if !ok {
-		return "", invalid("procurement.unknown_payment_term", "payment_term_code", "payment terms from the configuration")
+		return "", problem.Invalid("procurement.unknown_payment_term", "payment_term_code", "payment terms from the configuration")
 	}
 	return *code, nil
 }
@@ -444,7 +444,7 @@ func orderedRequisition(ctx context.Context, tx pgx.Tx, in *NewOrder, le uuid.UU
 	case req.Status != Approved:
 		return Requisition{}, statusConflict("requisition", req.Status, "ordering", Approved)
 	case req.LegalEntityID != le || req.Currency != in.Currency:
-		return Requisition{}, invalid("procurement.requisition_mismatch", "requisition_id", "a requisition of the legal entity in the order currency")
+		return Requisition{}, problem.Invalid("procurement.requisition_mismatch", "requisition_id", "a requisition of the legal entity in the order currency")
 	}
 	if in.ContractID == nil {
 		in.ContractID = req.ContractID
@@ -570,7 +570,7 @@ func changedOrderHeader(o PurchaseOrder, ch OrderChange) (orderHeaderFields, err
 		f.orderDate = *ch.OrderDate
 	}
 	if f.currency != o.Currency && ch.Items == nil {
-		return orderHeaderFields{}, invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
+		return orderHeaderFields{}, problem.Invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
 	}
 	if ch.Extensions != nil {
 		f.ext = mergepatch.Apply(f.ext, ch.Extensions)

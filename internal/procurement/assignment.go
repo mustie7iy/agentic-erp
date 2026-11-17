@@ -47,7 +47,7 @@ func itemAssignment(field string, it ItemInput) (string, *uuid.UUID, error) {
 		a = *it.AccountAssignment
 	}
 	if (a != AssignNone && a != AssignCostCenter) || (a == AssignCostCenter) != (it.CostCenterID != nil) {
-		return "", nil, invalid("procurement.invalid_account_assignment", field+".account_assignment",
+		return "", nil, problem.Invalid("procurement.invalid_account_assignment", field+".account_assignment",
 			"cost_center with the item's cost_center_id, or none without one")
 	}
 	return a, it.CostCenterID, nil

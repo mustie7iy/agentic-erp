@@ -33,7 +33,8 @@ func MarkChanged(ctx context.Context, tx pgx.Tx, schema string, tenants []uuid.U
 	if !slices.Contains(changing, schema) {
 		return nil
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO analytics.extract_due AS d (tenant_id, changed_at) SELECT t, clock_timestamp() FROM (SELECT DISTINCT unnest($1::uuid[])) u (t) ORDER BY t
+	if _, err := tx.Exec(ctx, `INSERT INTO analytics.extract_due AS d (tenant_id, changed_at)
+		SELECT t, clock_timestamp() FROM (SELECT DISTINCT unnest($1::uuid[])) u (t) ORDER BY t
 		ON CONFLICT (tenant_id) DO UPDATE SET changed_at = greatest(d.changed_at, excluded.changed_at)`, tenants); err != nil {
 		return fmt.Errorf("analytics: mark %d tenants changed: %w", len(tenants), err)
 	}
@@ -229,7 +230,8 @@ func (s *Scheduler) claim(ctx context.Context, claimed []uuid.UUID) (claim, bool
 					AND tenant_id <> ALL($2::uuid[])
 					AND tenant_id IN `+database.ActiveTenants+`
 				ORDER BY changed_at LIMIT 1 FOR UPDATE SKIP LOCKED) due
-			WHERE d.tenant_id = due.tenant_id RETURNING d.tenant_id, d.started_at, d.claimed_lsn::text`, s.every().Milliseconds(), claimed).Scan(&c.tenant, &c.started, &c.lsn)
+			WHERE d.tenant_id = due.tenant_id RETURNING d.tenant_id, d.started_at, d.claimed_lsn::text`, s.every().Milliseconds(), claimed).
+			Scan(&c.tenant, &c.started, &c.lsn)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}

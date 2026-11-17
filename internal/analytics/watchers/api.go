@@ -3,7 +3,6 @@ package watchers
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -228,7 +227,7 @@ func (e *Endpoints) ListMetricAlerts(ctx context.Context, params gen.ListMetricA
 	if err != nil {
 		return nil, fmt.Errorf("analytics: list metric alerts: %w", err)
 	}
-	items, next, err := apitypes.PageWith(ks, alerts, func(a Alert) (string, uuid.UUID) { return a.RaisedAt.UTC().Format(time.RFC3339Nano), a.ID },
+	items, next, err := apitypes.PageWith(ks, alerts, func(a Alert) (string, uuid.UUID) { return pagination.Instant(a.RaisedAt), a.ID },
 		func(page []Alert) (map[uuid.UUID]string, error) { return e.names(ctx, page) }, alertToAPI)
 	if err != nil {
 		return nil, err

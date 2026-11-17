@@ -4,9 +4,9 @@
 // tenant as associated data, and fingerprinted with a keyed HMAC-SHA256 so
 // equal values can be found across partners without decrypting them.
 //
-// Both keys derive from one secret that is the same on every replica. Key
-// rotation and per-tenant keys in a KMS come later; the sealed format starts
-// with a version byte so they can be introduced without rewriting data.
+// Its keys are ADR-0018's (per-tenant keys wrapped by a master key ring),
+// the master ADR-0019's and their rotation ADR-0028's; the sealed format starts with a
+// version byte, so a new form is introduced without rewriting data.
 package fieldcrypt
 
 import (

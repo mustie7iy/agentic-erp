@@ -17,7 +17,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -349,7 +348,6 @@ func preparedEvent(r Return) map[string]any {
 }
 
 // moneyOf is an amount of the return's currency as events carry it.
-func moneyOf(v money.Minor, r Return) map[string]any {
-	m := apitypes.Money(v, r.Currency, r.Exponent)
-	return map[string]any{"amount": m.Amount, "currency": m.Currency}
+func moneyOf(v money.Minor, r Return) map[string]string {
+	return money.EventAmount(v, r.Currency, r.Exponent)
 }

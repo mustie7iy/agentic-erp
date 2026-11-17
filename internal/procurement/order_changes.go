@@ -363,17 +363,17 @@ func keptItems(current, changed []Item) error {
 		field := fmt.Sprintf("items[%d]", i)
 		if i >= len(changed) {
 			if hasReceipts(cur) {
-				return invalid("procurement.invalid_change", "items", fmt.Sprintf("item %d has receipts and stays", cur.No))
+				return problem.Invalid("procurement.invalid_change", "items", fmt.Sprintf("item %d has receipts and stays", cur.No))
 			}
 			continue
 		}
 		it := changed[i]
 		if it.AccountID != cur.AccountID || it.Unit != cur.Unit || !samePtr(it.MaterialID, cur.MaterialID) || !samePtr(it.ContractItemNo, cur.ContractItemNo) ||
 			it.assignment() != cur.assignment() || !samePtr(it.CostCenterID, cur.CostCenterID) {
-			return invalid("procurement.invalid_change", field, "an item keeps its account, assignment, unit, material and contract item")
+			return problem.Invalid("procurement.invalid_change", field, "an item keeps its account, assignment, unit, material and contract item")
 		}
 		if belowReceived(it, cur.Received) {
-			return invalid("procurement.invalid_change", field+".quantity", "at least the "+cur.Received+" received, allowing the over-delivery tolerance")
+			return problem.Invalid("procurement.invalid_change", field+".quantity", "at least the "+cur.Received+" received, allowing the over-delivery tolerance")
 		}
 	}
 	return nil

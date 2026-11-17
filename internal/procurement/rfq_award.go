@@ -45,11 +45,11 @@ type Award struct {
 func (c Comparison) winner(quotation uuid.UUID, zone *time.Location) (Compared, error) {
 	i := slices.IndexFunc(c.Rows, func(row Compared) bool { return row.Quotation != nil && row.Quotation.ID == quotation })
 	if i < 0 {
-		return Compared{}, invalid("procurement.quotation_not_of_rfq", "quotation_id", "RFQ "+c.RFQ.DocumentNumber+" has no quotation with this id")
+		return Compared{}, problem.Invalid("procurement.quotation_not_of_rfq", "quotation_id", "RFQ "+c.RFQ.DocumentNumber+" has no quotation with this id")
 	}
 	row := c.Rows[i]
 	if len(row.Unquoted) > 0 {
-		return Compared{}, invalid("procurement.quotation_incomplete", "quotation_id",
+		return Compared{}, problem.Invalid("procurement.quotation_incomplete", "quotation_id",
 			fmt.Sprintf("the quotation gives no price for the RFQ's items %v; an award goes to a quotation that prices every item", row.Unquoted))
 	}
 	if row.Expired {

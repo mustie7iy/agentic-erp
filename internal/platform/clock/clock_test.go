@@ -84,3 +84,18 @@ func TestAddMonths(t *testing.T) {
 		})
 	}
 }
+
+// TestLaterEarlier: each picks its time whichever order they are given in.
+func TestLaterEarlier(t *testing.T) {
+	a, b := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	for name, args := range map[string][2]time.Time{"in order": {a, b}, "reversed": {b, a}} {
+		t.Run(name, func(t *testing.T) {
+			if got := Later(args[0], args[1]); !got.Equal(b) {
+				t.Errorf("Later: got %v, want %v", got, b)
+			}
+			if got := Earlier(args[0], args[1]); !got.Equal(a) {
+				t.Errorf("Earlier: got %v, want %v", got, a)
+			}
+		})
+	}
+}

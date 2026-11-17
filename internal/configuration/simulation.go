@@ -98,15 +98,10 @@ func (w *SimulationWorker) begin(ctx context.Context, s database.Scope) (pgx.Tx,
 
 // tenants returns the tenants with queued simulations.
 func (w *SimulationWorker) tenants(ctx context.Context) ([]uuid.UUID, error) {
-	tx, err := w.begin(ctx, database.Scope{Role: w.WorkerRole, ReadOnly: true})
+	tenants, err := database.Tenants(ctx, w.Pool, w.Begin, w.WorkerRole,
+		`SELECT DISTINCT tenant_id FROM platform.operation WHERE kind = $1 AND status = 'queued' AND tenant_id IN `+database.ActiveTenants, SimulateKind)
 	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM platform.operation WHERE kind = $1 AND status = 'queued' AND tenant_id IN `+database.ActiveTenants, SimulateKind)
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
-	if err != nil {
-		return tenants, fmt.Errorf("configuration: list the tenants with queued simulations: %w", err)
+		return nil, fmt.Errorf("configuration: list the tenants with queued simulations: %w", err)
 	}
 	return tenants, nil
 }
@@ -119,7 +114,8 @@ func (w *SimulationWorker) tenants(ctx context.Context) ([]uuid.UUID, error) {
 // is the operation itself.
 func QueuedSimulations(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 	rows, _ := tx.Query(ctx, `SELECT o.kind, o.tenant_id, o.id, o.id, '00000000-0000-0000-0000-000000000000'::uuid, cr.number,
-			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind AND x.request->>'change_request_id' = o.request->>'change_request_id' AND x.id <= o.id)
+			(SELECT count(*) FROM platform.operation x WHERE x.tenant_id = o.tenant_id AND x.kind = o.kind
+				AND x.request->>'change_request_id' = o.request->>'change_request_id' AND x.id <= o.id)
 			FROM platform.operation o
 			JOIN config.change_request cr ON cr.tenant_id = o.tenant_id AND cr.id = (o.request->>'change_request_id')::uuid
 			WHERE o.kind = $1 AND o.status = 'queued' AND o.workflow_id IS NULL AND o.tenant_id IN `+database.ActiveTenants+`
@@ -289,7 +285,8 @@ func assessed(ctx context.Context, tx pgx.Tx, c ChangeRequest) (*config.Config, 
 // regression suite are the evidence a tier needs (config.RequiredEvidence);
 // both use the base version's latest suite, the simulation its window. A
 // problem fails the operation and returns no detail: the job is done.
-func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, c ChangeRequest, fail func(*problem.Problem) error) (bool, map[string]any, error) {
+func (w *SimulationWorker) evidence(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, c ChangeRequest,
+	fail func(*problem.Problem) error) (bool, map[string]any, error) {
 	base, proposed, err := assessed(ctx, tx, c)
 	if err != nil {
 		// A base or proposal this replica cannot read whole fails the
@@ -430,34 +427,14 @@ func route(ctx context.Context, deps Dependencies, c ChangeRequest, tier config.
 
 // RunOnce runs every queued simulation and returns how many it ran. A
 // tenant whose job fails is left for the next round; the others go on.
-func (w *SimulationWorker) RunOnce(ctx context.Context) (int, error) {
-	tenants, err := w.tenants(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("simulation worker: %w", err)
-	}
-	n := 0
-	var errs []error
-	for _, t := range tenants {
-		for {
-			did, err := w.one(ctx, t)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("simulation worker: tenant %s: %w", t, err))
-				break
-			}
-			if !did {
-				break
-			}
-			n++
-		}
-	}
-	return n, errors.Join(errs...)
+func (w *SimulationWorker) RunOnce(ctx context.Context) (int, error) { return w.queue().RunOnce(ctx) }
+
+func (w *SimulationWorker) queue() worker.Queue {
+	return worker.Queue{Name: "simulation worker", Tenants: w.tenants, One: w.one}
 }
 
 // Run simulates until ctx ends; errors are logged and retried after the
 // interval.
 func (w *SimulationWorker) Run(ctx context.Context) {
-	worker.Loop(ctx, w.Interval, time.Second, func(ctx context.Context) (bool, error) {
-		_, err := w.RunOnce(ctx)
-		return false, err
-	}, w.Log, "simulation failed")
+	worker.Loop(ctx, w.Interval, time.Second, w.queue().Round, w.Log, "simulation failed")
 }

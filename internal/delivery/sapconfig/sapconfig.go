@@ -2,7 +2,9 @@
 // §3.5) from a client's SAP customizing tables (mapped as in §3.17), so
 // years of setup are migrated instead of re-keyed. The draft is a proposal
 // for a change request: anything without an SAP equivalent gets a documented
-// default and a note for the reviewers. Roles and users are not part of the
+// default and a note for the reviewers. What it maps follows the ADRs of
+// the settings it fills (country packs ADR-0048, house banks ADR-0038,
+// centers ADR-0050). Roles and users are not part of the
 // document (the identity context owns them); the notes list the SAP roles to
 // provision there.
 package sapconfig

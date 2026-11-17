@@ -396,7 +396,7 @@ func (e *Endpoints) ListMatchResults(ctx context.Context, params gen.ListMatchRe
 		return nil, fmt.Errorf("payables: list match results of invoice %s: %w", params.ID, err)
 	}
 	items, next := apitypes.PageOf(ks, matches, func(m Match) (string, uuid.UUID) {
-		return m.EvaluatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), m.ID
+		return pagination.Instant(m.EvaluatedAt), m.ID
 	}, matchToAPI)
 	return &gen.MatchResultPage{Items: items, NextPageToken: next}, nil
 }

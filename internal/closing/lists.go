@@ -75,7 +75,7 @@ func listCloses[A any](ctx context.Context, e *Endpoints, k *closeKind, op strin
 	}
 	return apitypes.PageWith(ks, cs, func(c closeRow) (string, uuid.UUID) {
 		if ks.Field() == "created_at" {
-			return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID
+			return pagination.Instant(c.CreatedAt), c.ID
 		}
 		return c.PeriodEnd.Format(time.DateOnly), c.ID
 	}, func(page []closeRow) (view, error) {

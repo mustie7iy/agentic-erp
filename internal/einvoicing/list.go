@@ -97,7 +97,7 @@ func (e *Endpoints) ListEInvoices(ctx context.Context, params gen.ListEInvoicesP
 	if err != nil {
 		return nil, fmt.Errorf("einvoicing: list e-invoices: %w", err)
 	}
-	docs, next := pagination.Page(ks, docs, func(d EInvoice) (string, uuid.UUID) { return d.ReceivedAt.UTC().Format(time.RFC3339Nano), d.ID })
+	docs, next := pagination.Page(ks, docs, func(d EInvoice) (string, uuid.UUID) { return pagination.Instant(d.ReceivedAt), d.ID })
 	n, err := e.names(ctx, docs)
 	if err != nil {
 		return nil, err

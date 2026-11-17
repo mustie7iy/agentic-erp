@@ -401,3 +401,41 @@ func TestBeginActive(t *testing.T) {
 		}
 	})
 }
+
+// TestTenants: a worker's read across tenants runs read-only as the role
+// it names and returns the tenants it selects; a failed begin and a failed
+// query are returned.
+func TestTenants(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	ten := pgtest.NewTenant(t)
+	query := `SELECT id FROM tenancy.tenant WHERE id = $1 AND current_user = 'erp_worker' AND current_setting('transaction_read_only') = 'on'`
+	t.Run("listed", func(t *testing.T) {
+		got, err := database.Tenants(ctx, pool, nil, "erp_worker", query, ten.ID)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if len(got) != 1 || got[0] != ten.ID {
+			t.Errorf("got %v, want [%s]", got, ten.ID)
+		}
+	})
+	t.Run("failed begin", func(t *testing.T) {
+		down := errors.New("database down")
+		_, err := database.Tenants(ctx, pool, func(context.Context, database.Scope) (pgx.Tx, error) { return nil, down }, "erp_worker", query, ten.ID)
+		if !errors.Is(err, down) {
+			t.Errorf("got %v, want %v", err, down)
+		}
+	})
+	t.Run("failed query", func(t *testing.T) {
+		failing := func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil
+		}
+		if _, err := database.Tenants(ctx, pool, failing, "erp_worker", query, ten.ID); !errors.Is(err, pgtest.ErrInjected) {
+			t.Errorf("got %v, want the injected failure", err)
+		}
+	})
+}

@@ -160,7 +160,7 @@ func (e *Endpoints) ListParkedJournalEntries(ctx context.Context, params gen.Lis
 		return nil, fmt.Errorf("ledger: list parked entries: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, entries, func(pe ParkedEntry) (string, uuid.UUID) {
-		return pe.CreatedAt.UTC().Format(time.RFC3339Nano), pe.ID
+		return pagination.Instant(pe.CreatedAt), pe.ID
 	}, parkedToAPI)
 	var partners []*gen.OptTradingPartner // each named once for the page
 	for i := range items {

@@ -177,7 +177,7 @@ func (e *Endpoints) createGRIRClearing(ctx context.Context, order uuid.UUID, in 
 		return GRIRClearing{}, statusConflict("purchase order", o.Status, "a GR/IR clearing", Closed)
 	}
 	if in.Reason = strings.TrimSpace(in.Reason); in.Reason == "" {
-		return GRIRClearing{}, invalid("procurement.reason_required", "reason", "why the positions are cleared")
+		return GRIRClearing{}, problem.Invalid("procurement.reason_required", "reason", "why the positions are cleared")
 	}
 	c, err := e.proposeClearing(ctx, o, in)
 	if err != nil {
@@ -224,7 +224,7 @@ func (e *Endpoints) proposeClearing(ctx context.Context, o PurchaseOrder, in GRI
 	for _, no := range nos {
 		pos, ok := open[no]
 		if !ok {
-			return GRIRClearing{}, invalid("procurement.invalid_item_no", "po_item_nos", fmt.Sprintf("item %d has no open GR/IR position", no))
+			return GRIRClearing{}, problem.Invalid("procurement.invalid_item_no", "po_item_nos", fmt.Sprintf("item %d has no open GR/IR position", no))
 		}
 		c.Items = append(c.Items, GRIRClearingItem{POItemNo: no, Quantity: pos.Quantity, Unit: pos.Unit, Amount: pos.Balance})
 	}
@@ -232,7 +232,7 @@ func (e *Endpoints) proposeClearing(ctx context.Context, o PurchaseOrder, in GRI
 	case len(c.Items) == 0:
 		return GRIRClearing{}, nothing
 	case !ok:
-		return GRIRClearing{}, invalid("procurement.amount_too_large", "po_item_nos", "the positions' balances and their total must be in the range of an amount")
+		return GRIRClearing{}, problem.Invalid("procurement.amount_too_large", "po_item_nos", "the positions' balances and their total must be in the range of an amount")
 	case g.PriceDifference == nil:
 		return GRIRClearing{}, problem.Unprocessable("ledger.no_price_difference_account", "The legal entity has no price_difference account in its account determination.")
 	}
@@ -377,7 +377,7 @@ func clearedEvent(c GRIRClearing, entry ledger.Entry) map[string]any {
 	items := make([]map[string]any, len(c.Items))
 	for i, it := range c.Items {
 		items[i] = map[string]any{"po_item_no": it.POItemNo, "quantity": it.Quantity, "unit": it.Unit,
-			"amount": map[string]any{"amount": it.Amount.Plain(c.Exponent), "currency": c.Currency}}
+			"amount": money.EventAmount(it.Amount, c.Currency, c.Exponent)}
 	}
 	return map[string]any{"gr_ir_clearing_id": c.ID, "purchase_order_id": c.PurchaseOrderID, "document_number": c.OrderNumber,
 		"legal_entity_id": c.LegalEntityID, "posting_date": c.PostingDate.Format(time.DateOnly), "journal_entry_id": entry.ID,

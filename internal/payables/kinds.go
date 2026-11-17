@@ -46,13 +46,13 @@ func signed(v Invoice, amount money.Minor) money.Minor {
 func (v *invoiceCheck) kind() error {
 	v.c.kind = cmp.Or(v.in.Kind, KindInvoice)
 	if !kinds[v.c.kind] {
-		return invalid("payables.unknown_kind", "kind", "The kind is invoice, credit_memo, subsequent_debit or subsequent_credit.")
+		return problem.Invalid("payables.unknown_kind", "kind", "The kind is invoice, credit_memo, subsequent_debit or subsequent_credit.")
 	}
 	if v.in.ReferenceInvoiceID == nil {
 		return nil
 	}
 	if v.c.kind == KindInvoice {
-		return invalid("payables.reference_not_allowed", "reference_invoice_id", "An invoice corrects none; a credit memo or subsequent debit/credit names the invoice it corrects.")
+		return problem.Invalid("payables.reference_not_allowed", "reference_invoice_id", "An invoice corrects none; a credit memo or subsequent debit/credit names the invoice it corrects.")
 	}
 	return v.reference(*v.in.ReferenceInvoiceID)
 }
@@ -69,7 +69,7 @@ func (v *invoiceCheck) reference(id uuid.UUID) error {
 	case ref.Kind == KindInvoice && ref.Status == Posted && ref.SupplierID == v.sup.ID && ref.LegalEntityID == v.le.ID && ref.Currency == v.c.currency:
 		return nil
 	}
-	return invalid("payables.invalid_reference_invoice", "reference_invoice_id",
+	return problem.Invalid("payables.invalid_reference_invoice", "reference_invoice_id",
 		"The reference is a posted invoice of this supplier and legal entity in the document's currency.")
 }
 
@@ -78,13 +78,13 @@ func (v *invoiceCheck) reference(id uuid.UUID) error {
 func (v *invoiceCheck) quantity(field, quantity string) error {
 	if !subsequent(v.c.kind) {
 		if money.PositiveQuantity(quantity) != nil {
-			return invalid("payables.invalid_quantity", field+".quantity.value", fmt.Sprintf("A quantity is a positive plain decimal of at most %d integer digits and %d decimals.",
+			return problem.Invalid("payables.invalid_quantity", field+".quantity.value", fmt.Sprintf("A quantity is a positive plain decimal of at most %d integer digits and %d decimals.",
 				money.QuantityIntDigits, money.QuantityDecimals))
 		}
 		return nil
 	}
 	if q, err := money.ParsePlain(quantity); err != nil || q.Sign() != 0 {
-		return invalid("payables.quantity_not_zero", field+".quantity.value", "A subsequent debit or credit moves no quantity: its items' quantity is 0.")
+		return problem.Invalid("payables.quantity_not_zero", field+".quantity.value", "A subsequent debit or credit moves no quantity: its items' quantity is 0.")
 	}
 	return nil
 }

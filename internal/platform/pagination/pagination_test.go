@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -182,5 +183,14 @@ func TestInMemory(t *testing.T) {
 				t.Errorf("got %s, want %s", g, c2.want)
 			}
 		})
+	}
+}
+
+// TestInstant: a time's cursor text is RFC 3339 in UTC, to the
+// microsecond PostgreSQL keeps, whatever zone the time was read in.
+func TestInstant(t *testing.T) {
+	at := time.Date(2026, 11, 16, 9, 30, 0, 123456000, time.FixedZone("UTC+4", 4*3600))
+	if got, want := Instant(at), "2026-11-16T05:30:00.123456Z"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

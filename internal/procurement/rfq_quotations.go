@@ -116,10 +116,10 @@ func quotedPrices(r RFQ, in []PriceInput) ([]QuotedPrice, error) {
 	for i, p := range in {
 		field := fmt.Sprintf("items[%d]", i)
 		if !slices.ContainsFunc(r.Items, func(it Item) bool { return it.No == p.RFQItemNo }) {
-			return nil, invalid("procurement.unknown_rfq_item", field+".rfq_item_no", fmt.Sprintf("RFQ %s has no item %d", r.DocumentNumber, p.RFQItemNo))
+			return nil, problem.Invalid("procurement.unknown_rfq_item", field+".rfq_item_no", fmt.Sprintf("RFQ %s has no item %d", r.DocumentNumber, p.RFQItemNo))
 		}
 		if seen[p.RFQItemNo] {
-			return nil, invalid("procurement.quotation_item_repeated", field+".rfq_item_no", "each RFQ item is priced once per quotation")
+			return nil, problem.Invalid("procurement.quotation_item_repeated", field+".rfq_item_no", "each RFQ item is priced once per quotation")
 		}
 		seen[p.RFQItemNo] = true
 		price, err := amount(p.Price, p.Currency, r.Currency, r.Exponent, field+".unit_price", true)
@@ -150,7 +150,7 @@ func (e *Endpoints) recordQuotation(ctx context.Context, rfq uuid.UUID, in NewQu
 		return RFQ{}, Quotation{}, statusConflict("RFQ", r.Status, "recording a quotation", RFQPublished)
 	}
 	if !slices.Contains(r.supplierIDs(), in.SupplierID) {
-		return RFQ{}, Quotation{}, invalid("procurement.supplier_not_invited", "supplier_id", "RFQ "+r.DocumentNumber+" does not invite this supplier")
+		return RFQ{}, Quotation{}, problem.Invalid("procurement.supplier_not_invited", "supplier_id", "RFQ "+r.DocumentNumber+" does not invite this supplier")
 	}
 	if err := problem.RequireText("supplier_reference", in.Reference); err != nil {
 		return RFQ{}, Quotation{}, err

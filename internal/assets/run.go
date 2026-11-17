@@ -103,7 +103,7 @@ func (e *Endpoints) runTarget(ctx context.Context, le uuid.UUID, ledgerID *uuid.
 		return Company{}, LedgerRef{}, Period{}, err
 	}
 	if !ok {
-		return Company{}, LedgerRef{}, Period{}, invalid("ledger.ledger_not_kept", fmt.Sprintf("Company %s does not keep this ledger.", co.Code), "ledger_id",
+		return Company{}, LedgerRef{}, Period{}, problem.InvalidDetail("ledger.ledger_not_kept", fmt.Sprintf("Company %s does not keep this ledger.", co.Code), "ledger_id",
 			"a ledger the company keeps")
 	}
 	p, err := e.periodOf(ctx, co.ID, int16(year), int16(period))
@@ -272,7 +272,7 @@ func (e *Endpoints) ListDepreciationRuns(ctx context.Context, params gen.ListDep
 	if err != nil {
 		return nil, fmt.Errorf("assets: list depreciation runs: %w", err)
 	}
-	items, next, err := apitypes.PageWith(ks, rs, func(r Run) (string, uuid.UUID) { return r.CreatedAt.UTC().Format(time.RFC3339Nano), r.ID },
+	items, next, err := apitypes.PageWith(ks, rs, func(r Run) (string, uuid.UUID) { return pagination.Instant(r.CreatedAt), r.ID },
 		func(page []Run) (docView, error) { return e.runPage(ctx, tx, page) }, func(r Run, v docView) gen.DepreciationRun { return v.runAPI(r) })
 	if err != nil {
 		return nil, err

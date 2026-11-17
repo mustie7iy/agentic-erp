@@ -164,7 +164,7 @@ func (e *Endpoints) ListApprovalRequests(ctx context.Context, params gen.ListApp
 	// The page and its token first: a request left out below must not
 	// pull the next page's first one in, nor move the token.
 	page, next := pagination.Page(ks, requests, func(r Request) (string, uuid.UUID) {
-		return r.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), r.ID
+		return pagination.Instant(r.CreatedAt), r.ID
 	})
 	if in.on {
 		if page, err = e.unbarred(ctx, p.ID, page); err != nil {

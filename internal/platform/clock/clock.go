@@ -2,7 +2,8 @@
 // services hold a Now field, nil in production, that tests set to a fixed or
 // advancing time instead of sleeping (the fake clock of
 // 06-engineering-process §6.6; CLAUDE.md, tests). It replaces the
-// `if x.Now != nil` fallback each of them used to repeat.
+// `if x.Now != nil` fallback each of them used to repeat. The workers it
+// serves are ADR-0012's.
 package clock
 
 import "time"
@@ -35,4 +36,21 @@ func AddMonths(d time.Time, n int) time.Time {
 	first := time.Date(d.Year(), d.Month()+time.Month(n), 1, 0, 0, 0, 0, time.UTC)
 	last := first.AddDate(0, 1, -1).Day()
 	return first.AddDate(0, 0, min(d.Day(), last)-1)
+}
+
+// Later is the later of two times; Earlier the earlier. Where both are
+// the same instant, either is returned.
+func Later(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+// Earlier is the earlier of two times (Later).
+func Earlier(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
 }

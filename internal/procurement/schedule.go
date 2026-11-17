@@ -36,7 +36,7 @@ func contractKind(kind string) (string, error) {
 	case KindSchedulingAgreement:
 		return kind, nil
 	}
-	return "", invalid("procurement.invalid_kind", "kind", "contract or scheduling_agreement")
+	return "", problem.Invalid("procurement.invalid_kind", "kind", "contract or scheduling_agreement")
 }
 
 // ScheduleLine is a row of procurement.schedule_line. Its quantity is a
@@ -113,17 +113,17 @@ type NewScheduleLine struct {
 // agreement's validity and a value in the range of an amount.
 func (in NewScheduleLine) check(c Contract) error {
 	if !slices.ContainsFunc(c.Items, func(it Item) bool { return it.No == in.ItemNo && it.Unit == in.Unit }) {
-		return invalid("procurement.invalid_contract_item", "contract_item_no", "an item of scheduling agreement "+c.DocumentNumber+" in the same unit")
+		return problem.Invalid("procurement.invalid_contract_item", "contract_item_no", "an item of scheduling agreement "+c.DocumentNumber+" in the same unit")
 	}
 	if err := quantity(in.Quantity, "quantity"); err != nil {
 		return err
 	}
 	if in.DeliveryDate.Before(c.ValidFrom) || in.DeliveryDate.After(c.ValidTo) {
-		return invalid("procurement.schedule_line_outside_validity", "delivery_date", fmt.Sprintf("scheduling agreement %s is valid from %s to %s",
+		return problem.Invalid("procurement.schedule_line_outside_validity", "delivery_date", fmt.Sprintf("scheduling agreement %s is valid from %s to %s",
 			c.DocumentNumber, c.ValidFrom.Format(time.DateOnly), c.ValidTo.Format(time.DateOnly)))
 	}
 	if _, err := itemsTotal([]Item{c.scheduled(ScheduleLine{ItemNo: in.ItemNo, Quantity: in.Quantity})}); err != nil {
-		return invalid("procurement.amount_too_large", "quantity.value", "the line's value, quantity × unit price ÷ price unit, must be in the range of an amount")
+		return problem.Invalid("procurement.amount_too_large", "quantity.value", "the line's value, quantity × unit price ÷ price unit, must be in the range of an amount")
 	}
 	return nil
 }

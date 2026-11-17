@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -134,6 +135,12 @@ func (k *Keyset) SQL(query string, args []any) (string, []any) {
 	args = append(args, k.size+1)
 	return query + fmt.Sprintf(" ORDER BY %s %s, id %s LIMIT $%d", col, dir, dir, len(args)), append([]any{PlanPerCall}, args...)
 }
+
+// Instant is a timestamptz sort value as a cursor holds it: RFC 3339 in
+// UTC with the fraction PostgreSQL keeps (microseconds), which the
+// cursor's cast parses back to the same instant. Every listing sorted by a
+// time keys its rows with it, so a cursor's text has one form.
+func Instant(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
 // Page trims rows to the page and returns the token of the next page, or ""
 // on the last one. key returns a row's sort value as text in the form the

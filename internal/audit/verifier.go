@@ -61,13 +61,7 @@ type Verification struct {
 
 // tenants lists the tenants with a chain, as the worker role.
 func (v *Verifier) tenants(ctx context.Context) ([]uuid.UUID, error) {
-	tx, err := v.begin(ctx, database.Scope{Role: v.WorkerRole, ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT tenant_id FROM audit.chain_head ORDER BY tenant_id`)
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := database.Tenants(ctx, v.Pool, v.Begin, v.WorkerRole, `SELECT tenant_id FROM audit.chain_head ORDER BY tenant_id`)
 	if err != nil {
 		return tenants, fmt.Errorf("audit: list tenants with a chain: %w", err)
 	}

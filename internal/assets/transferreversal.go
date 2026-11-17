@@ -95,7 +95,7 @@ func transferReversible(assets map[uuid.UUID]Asset, q Transfer, on time.Time) er
 			asset.Number, q.Status))
 	}
 	if on.Before(q.PostingDate) {
-		return invalid("assets.reversal_before_original", fmt.Sprintf("The reversal's posting date %s is before the transfer's, %s.",
+		return problem.InvalidDetail("assets.reversal_before_original", fmt.Sprintf("The reversal's posting date %s is before the transfer's, %s.",
 			on.Format(time.DateOnly), q.PostingDate.Format(time.DateOnly)), "posting_date", "on or after "+q.PostingDate.Format(time.DateOnly))
 	}
 	later := asset.LastSeq != q.Seq

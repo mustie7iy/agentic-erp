@@ -137,7 +137,7 @@ type requestCheck struct {
 // order of the supplier, and an input tax code valid on the due date.
 func (e *Endpoints) validateRequest(ctx context.Context, tx pgx.Tx, in DownPaymentInput) (requestCheck, error) {
 	if in.Reference != nil && strings.TrimSpace(*in.Reference) == "" {
-		return requestCheck{}, invalid("payables.invalid_reference", "reference", "A reference is not blank; leave it out instead.")
+		return requestCheck{}, problem.Invalid("payables.invalid_reference", "reference", "A reference is not blank; leave it out instead.")
 	}
 	le, sup, err := e.invoiceParties(ctx, Input{LegalEntityID: in.LegalEntityID, SupplierID: in.SupplierID})
 	if err != nil {
@@ -180,7 +180,7 @@ func (e *Endpoints) requestTax(ctx context.Context, in DownPaymentInput, amount 
 		return 0, err
 	}
 	if !ok || code.Direction != "input" {
-		return 0, invalid("payables.unknown_tax_code", "tax_code", "Tax code "+*in.TaxCode+" is not an input tax code of the legal entity on the due date.")
+		return 0, problem.Invalid("payables.unknown_tax_code", "tax_code", "Tax code "+*in.TaxCode+" is not an input tax code of the legal entity on the due date.")
 	}
 	single, ok := code.Single()
 	if !ok {

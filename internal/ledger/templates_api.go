@@ -127,7 +127,7 @@ func (e *Endpoints) ListEntryTemplates(ctx context.Context, params gen.ListEntry
 		return nil, fmt.Errorf("ledger: list entry templates: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, templates, func(t EntryTemplate) (string, uuid.UUID) {
-		return t.CreatedAt.UTC().Format(time.RFC3339Nano), t.ID
+		return pagination.Instant(t.CreatedAt), t.ID
 	}, templateToAPI)
 	var partners []*gen.OptTradingPartner // each named once for the page
 	for i := range items {

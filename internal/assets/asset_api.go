@@ -323,7 +323,7 @@ func (e *Endpoints) ListAssets(ctx context.Context, params gen.ListAssetsParams)
 	}
 	items, next, err := apitypes.PageWith(ks, as, func(a Asset) (string, uuid.UUID) {
 		if ks.Field() == "created_at" {
-			return a.CreatedAt.UTC().Format(time.RFC3339Nano), a.ID
+			return pagination.Instant(a.CreatedAt), a.ID
 		}
 		return a.Number, a.ID
 	}, func(page []Asset) (view, error) { return e.pageView(ctx, tx, page) }, func(a Asset, v view) gen.Asset { return v.toAPI(a) })

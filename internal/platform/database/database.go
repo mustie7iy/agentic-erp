@@ -253,3 +253,23 @@ func (p *Pool) InTx(ctx context.Context, s Scope, fn func(context.Context, pgx.T
 	}
 	return nil
 }
+
+// Tenants runs a background worker's read across tenants, query, in a
+// read-only transaction as role (the worker role, which reads every
+// tenant's queue and nothing else) and returns the tenant ids it selects.
+// query selects one uuid column and normally ends its condition with
+// `AND tenant_id IN ` + ActiveTenants; the caller names what it listed
+// when it wraps the error.
+func Tenants(ctx context.Context, pool *Pool, begin BeginFunc, role, query string, args ...any) ([]uuid.UUID, error) {
+	tx, err := BeginOr(ctx, pool, begin, Scope{Role: role, ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	rows, _ := tx.Query(ctx, query, args...)
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("database: read the tenants: %w", err)
+	}
+	return tenants, nil
+}

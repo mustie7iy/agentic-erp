@@ -116,7 +116,7 @@ func costStaysPositive(ctx context.Context, tx pgx.Tx, a acquiring) error {
 		return fmt.Errorf("assets: cost of asset %s: %w", a.asset.Number, err)
 	}
 	if short {
-		return invalid("assets.cost_negative", fmt.Sprintf("A reduction of %s minor units would leave asset %s's cost below zero in a ledger.",
+		return problem.InvalidDetail("assets.cost_negative", fmt.Sprintf("A reduction of %s minor units would leave asset %s's cost below zero in a ledger.",
 			a.amount.lc.String(), a.asset.Number), "amount", "at most the asset's cost")
 	}
 	return nil

@@ -444,7 +444,7 @@ func (e *Endpoints) UnblockBusinessPartner(ctx context.Context, req *gen.ReasonI
 // CreatePartnerChange implements POST /v1/partner-changes.
 func (e *Endpoints) CreatePartnerChange(ctx context.Context, req *gen.PartnerChangeCreate, _ gen.CreatePartnerChangeParams) (gen.CreatePartnerChangeRes, error) {
 	if req.Kind != KindUpdate {
-		return nil, invalid("partner.unsupported_kind", "kind", "only update; other kinds have their own operations")
+		return nil, problem.Invalid("partner.unsupported_kind", "kind", "only update; other kinds have their own operations")
 	}
 	pl := req.Payload
 	ch := Changes{Name: apitypes.Ptr[string](pl.Name), LegalName: apitypes.OptNilString(pl.LegalName), Language: apitypes.OptNilString(pl.Language), Roles: pl.Roles,
@@ -504,7 +504,7 @@ func (e *Endpoints) ListPartnerChanges(ctx context.Context, params gen.ListPartn
 	if err := maskChanges(ctx, tx, cs); err != nil {
 		return nil, err
 	}
-	items, next := apitypes.PageOf(ks, cs, func(c Change) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID }, changeToAPI)
+	items, next := apitypes.PageOf(ks, cs, func(c Change) (string, uuid.UUID) { return pagination.Instant(c.CreatedAt), c.ID }, changeToAPI)
 	return &gen.PartnerChangePage{Items: items, NextPageToken: next}, nil
 }
 

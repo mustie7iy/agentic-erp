@@ -143,7 +143,7 @@ func (e *Endpoints) ListAssetTransfers(ctx context.Context, params gen.ListAsset
 	}
 	items, next, err := apitypes.PageWith(ks, qs, func(q Transfer) (string, uuid.UUID) {
 		if ks.Field() == "created_at" {
-			return q.CreatedAt.UTC().Format(time.RFC3339Nano), q.ID
+			return pagination.Instant(q.CreatedAt), q.ID
 		}
 		return q.PostingDate.Format(time.DateOnly), q.ID
 	}, func(page []Transfer) (transferView, error) {
