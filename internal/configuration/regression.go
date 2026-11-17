@@ -108,7 +108,12 @@ func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegres
 	if in.WindowDays <= 0 {
 		in.WindowDays = 90
 	}
-	number, err := activeVersion(ctx, tx)
+	// The active version is read, not locked: the capture reads every
+	// company's invoices of the window, and holding the version row that
+	// long would hold up an activation (and everything that locks it) for
+	// as long. A suite records the version it was captured under, which a
+	// concurrent activation does not change.
+	number, err := readActiveVersion(ctx, tx, false)
 	if err != nil {
 		return RegressionSuite{}, err
 	}
@@ -123,6 +128,11 @@ func CaptureRegressionSuite(ctx context.Context, deps Dependencies, in NewRegres
 	if len(cases) == 0 && !in.AllowEmpty {
 		return RegressionSuite{}, problem.Unprocessable("config.no_cases", fmt.Sprintf(
 			"No supplier invoices on purchase orders in the last %d days to capture; capture with allow_empty to record that there is nothing to replay.", in.WindowDays))
+	}
+	// Numbering alone is serialized: two captures would otherwise count the
+	// same suites and take the same number (regression_suite's unique key).
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('config.regression_suite.' || platform.require_tenant()::text, 0))`); err != nil {
+		return RegressionSuite{}, fmt.Errorf("configuration: lock regression suite numbering: %w", err)
 	}
 	var n int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM config.regression_suite`).Scan(&n); err != nil {

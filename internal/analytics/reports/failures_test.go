@@ -525,3 +525,42 @@ func TestSchedulerPorts(t *testing.T) {
 		})
 	}
 }
+
+// replicaMeanwhile is a store whose first write lets another replica make
+// its round first, as one that ran while this one stored its results.
+type replicaMeanwhile struct {
+	blobstore.Dir
+	other func()
+	done  *bool
+}
+
+func (r replicaMeanwhile) Put(ctx context.Context, key string, body []byte, opts blobstore.PutOptions) error {
+	if !*r.done {
+		*r.done = true
+		r.other()
+	}
+	return r.Dir.Put(ctx, key, body, opts)
+}
+
+// TestSchedulerRunKeptMeanwhile: a replica that keeps the day's run while
+// this one stores its results (no transaction is open then) leaves this
+// one nothing to keep: one run of the day, kept by the other.
+func TestSchedulerRunKeptMeanwhile(t *testing.T) {
+	e := withObjects(t)
+	id := e.scheduled(t)
+	other := *e.s
+	s := *e.s
+	rep := *s.Reports
+	rep.Objects = replicaMeanwhile{Dir: blobstore.Dir{Root: e.root}, done: new(bool), other: func() {
+		if _, err := other.RunOnce(context.Background()); err != nil {
+			t.Errorf("the other replica's round: %v", err)
+		}
+	}}
+	s.Reports = &rep
+	if _, err := s.RunOnce(context.Background()); err != nil {
+		t.Fatalf("round: %v", err)
+	}
+	if runs := e.runs(t, id); len(runs) != 1 {
+		t.Errorf("runs: got %d, want 1, the other replica's", len(runs))
+	}
+}
