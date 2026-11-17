@@ -94,9 +94,43 @@ func (OpenItems) Receivable(ctx context.Context, legalEntity uuid.UUID, customer
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, l.posting_date,
+	rows, _ := tx.Query(ctx, receivableSelect+` WHERE l.legal_entity_id = $1 AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR l.partner_id = ANY($2))
+			AND `+receivableOpen+`
+		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, legalEntity, customers)
+	items, err := pgx.CollectRows(rows, scanReceivable)
+	if err != nil {
+		return nil, fmt.Errorf("ledger: open customer items of %s: %w", legalEntity, err)
+	}
+	return items, nil
+}
+
+// ReceivableItem returns the legal entity's open customer item at the
+// journal line, as Receivable returns it, by its key; ok is false when the
+// line is no open customer item of the legal entity in the leading ledger.
+func (OpenItems) ReceivableItem(ctx context.Context, legalEntity uuid.UUID, ref ItemRef) (it ReceivableItem, ok bool, err error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return ReceivableItem{}, false, err
+	}
+	rows, _ := tx.Query(ctx, receivableSelect+` WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2 AND l.journal_entry_id = $3 AND l.line_no = $4
+			AND `+receivableOpen, legalEntity, ref.FiscalYear, ref.EntryID, ref.LineNo)
+	items, err := pgx.CollectRows(rows, scanReceivable)
+	if err != nil {
+		return ReceivableItem{}, false, fmt.Errorf("ledger: open customer item %d/%s/%d of %s: %w", ref.FiscalYear, ref.EntryID, ref.LineNo, legalEntity, err)
+	}
+	if len(items) == 0 {
+		return ReceivableItem{}, false, nil
+	}
+	return items[0], true, nil
+}
+
+// receivableSelect reads customer items of the leading ledger with their
+// entries' and currencies' columns (scanReceivable); receivableOpen keeps
+// the open ones: neither cleared nor of a reversed entry or a reversal.
+const (
+	receivableSelect = `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, l.posting_date,
 			e.currency_tc, ctc.exponent, l.amount_tc, e.currency_lc, clc.exponent, l.amount_lc, l.special_gl, e.document_number, e.reference,
-			e.source_context, e.source_document_id, `+termsColumns+`
+			e.source_context, e.source_document_id, ` + termsColumns + `
 		FROM ledger.journal_line l
 		LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
 			AND t.line_no = l.line_no
@@ -104,23 +138,18 @@ func (OpenItems) Receivable(ctx context.Context, legalEntity uuid.UUID, customer
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'customer'
 		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
 		JOIN ref.currency ctc ON ctc.code = e.currency_tc
-		JOIN ref.currency clc ON clc.code = e.currency_lc
-		WHERE l.legal_entity_id = $1 AND (coalesce(cardinality($2::uuid[]), 0) = 0 OR l.partner_id = ANY($2))
-			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
+		JOIN ref.currency clc ON clc.code = e.currency_lc`
+	receivableOpen = `NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
 				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
-			AND NOT `+reversedLine+`
-		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, legalEntity, customers)
-	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ReceivableItem, error) {
-		var it ReceivableItem
-		var t storedTerms
-		err := errs.Wrapf(r.Scan(append([]any{&it.FiscalYear, &it.EntryID, &it.LineNo, &it.AccountID, &it.PartnerID, &it.DocumentDate, &it.PostingDate,
-			&it.Currency, &it.Exponent, &it.Amount, &it.LocalCurrency, &it.LocalExponent, &it.AmountLC, &it.SpecialGL, &it.Number, &it.Reference,
-			&it.SourceContext, &it.SourceDocumentID}, t.fields()...)...), "scan receivable item")
-		it.Terms = t.terms()
-		return it, err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("ledger: open customer items of %s: %w", legalEntity, err)
-	}
-	return items, nil
+			AND NOT ` + reversedLine
+)
+
+func scanReceivable(r pgx.CollectableRow) (ReceivableItem, error) {
+	var it ReceivableItem
+	var t storedTerms
+	err := errs.Wrapf(r.Scan(append([]any{&it.FiscalYear, &it.EntryID, &it.LineNo, &it.AccountID, &it.PartnerID, &it.DocumentDate, &it.PostingDate,
+		&it.Currency, &it.Exponent, &it.Amount, &it.LocalCurrency, &it.LocalExponent, &it.AmountLC, &it.SpecialGL, &it.Number, &it.Reference,
+		&it.SourceContext, &it.SourceDocumentID}, t.fields()...)...), "scan receivable item")
+	it.Terms = t.terms()
+	return it, err
 }

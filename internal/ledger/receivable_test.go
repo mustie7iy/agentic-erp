@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -161,6 +162,46 @@ func TestReceivableItems(t *testing.T) {
 	}
 	apitest.EveryFailure(t, e.ten, e.ten.Human, "receivable items", func(ctx context.Context) error {
 		_, err := ledger.OpenItems{}.Receivable(ctx, e.de, nil)
+		return err
+	})
+	receivableItem(t, e, first, ledger.ItemRef{FiscalYear: 2026, EntryID: paid.ID, LineNo: 1})
+}
+
+// receivableItem: one open customer item is read by its key as the list
+// reads it; a cleared item, another company's and a revenue line are not.
+func receivableItem(t *testing.T, e env, open ledger.ReceivableItem, cleared ledger.ItemRef) {
+	t.Helper()
+	revenue := ledger.ItemRef{FiscalYear: 2026, EntryID: open.EntryID, LineNo: 2}
+	for name, c := range map[string]struct {
+		company uuid.UUID
+		ref     ledger.ItemRef
+		want    bool
+	}{
+		"open": {e.de, open.ItemRef, true}, "cleared": {e.de, cleared, false}, "another company's": {e.us, open.ItemRef, false},
+		"not a customer line": {e.de, revenue, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got ledger.ReceivableItem
+			var ok bool
+			if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+				got, ok, err = ledger.OpenItems{}.ReceivableItem(ctx, c.company, c.ref)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if ok != c.want {
+				t.Fatalf("found: got %v, want %v", ok, c.want)
+			}
+			if ok && !reflect.DeepEqual(got, open) {
+				t.Errorf("item: got %+v, want %+v as the list reads it", got, open)
+			}
+		})
+	}
+	if _, _, err := (ledger.OpenItems{}).ReceivableItem(context.Background(), e.de, open.ItemRef); err == nil {
+		t.Error("one item outside a unit of work: got nil error, want an error")
+	}
+	apitest.EveryFailure(t, e.ten, e.ten.Human, "receivable item", func(ctx context.Context) error {
+		_, _, err := ledger.OpenItems{}.ReceivableItem(ctx, e.de, open.ItemRef)
 		return err
 	})
 }

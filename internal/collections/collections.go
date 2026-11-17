@@ -75,10 +75,11 @@ type LegalEntities interface {
 
 // OpenItems reads a company's open customer items, of the customers named
 // or of every customer (ledger context, T75b): every currency, debit
-// positive, in the order of customer and item. Company access is the
-// caller's to check.
+// positive, in the order of customer and item, or one item by its key (a
+// dispute case's). Company access is the caller's to check.
 type OpenItems interface {
 	Receivable(ctx context.Context, legalEntity uuid.UUID, customers []uuid.UUID) ([]ledger.ReceivableItem, error)
+	ReceivableItem(ctx context.Context, legalEntity uuid.UUID, ref ledger.ItemRef) (ledger.ReceivableItem, bool, error)
 }
 
 // Partners names business partners by number and name (partner context).
