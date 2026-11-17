@@ -320,7 +320,9 @@ func (st *Store) claimRenewal(ctx context.Context, id string) (Session, *time.Ti
 func (st *Store) renewClaimed(ctx context.Context, s Session, claim time.Time, renew func(context.Context, Secrets) (Secrets, error)) (Session, error) {
 	ctx = context.WithoutCancel(ctx)
 	sec, err := renew(ctx, s.Secrets)
-	if err == nil {
+	if err != nil {
+		err = fmt.Errorf("session: renew: %w", err) // the provider's: the store's own are wrapped by inTx
+	} else {
 		err = st.writeRenewed(ctx, s, claim, sec)
 	}
 	switch {
@@ -330,7 +332,7 @@ func (st *Store) renewClaimed(ctx context.Context, s Session, claim time.Time, r
 		if rerr := st.release(ctx, s.ID, claim); rerr != nil {
 			return Session{}, errors.Join(err, rerr)
 		}
-		return Session{}, fmt.Errorf("session: renew: %w", err)
+		return Session{}, err
 	}
 	s.Secrets, s.Version = sec, s.Version+1
 	return s, nil

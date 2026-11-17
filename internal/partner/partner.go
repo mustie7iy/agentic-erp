@@ -8,7 +8,7 @@
 // each request's outcome to Approvals, which applies, rejects or cancels
 // the change. Blocking needs no approval and applies at once. Partner
 // numbers and ids follow ADR-0004; personal data is blocked and blanked as
-// ADR-0079 §12 sets out.
+// ADR-0079 §11 and §12 set out.
 package partner
 
 import (
