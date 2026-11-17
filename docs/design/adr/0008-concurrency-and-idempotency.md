@@ -60,4 +60,6 @@ assignment or a permission grant runs after the tenant's
 segregation-of-duties lock (`identity.lockGrants`), as the SoD check did;
 and blocking a principal locks the principal and the actor in id order and
 refuses an actor blocked meanwhile (403 `identity.principal_blocked`), so
-two administrators blocking each other leave one active.
+two administrators blocking each other leave one active; an actor blocking
+itself takes its row `FOR UPDATE` at once (refused 409), since two such
+requests sharing the row and then upgrading would deadlock.
