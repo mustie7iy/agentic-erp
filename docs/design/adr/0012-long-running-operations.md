@@ -175,3 +175,14 @@ writes before it (payment files, statements, e-invoices, captured
 documents) are content-keyed and written before the row that refers to
 them, so a rolled-back request leaves an unreferenced object a retry finds
 (`ErrExists`), never a row without its object.
+
+**The dispatcher holds no row lock across a call to the engine
+(review:batch77, 2026-11-17).** A round reads what to start (queued
+operations, unwatched approval requests, due statement and e-invoice
+fetches) in one read-only transaction, closed before the engine is
+called, and records each started workflow on its operation or approval
+request in a transaction of its own. The round used to record them in
+the reading transaction, so each recorded row stayed locked while the
+engine was called for every later job, and a person deciding an approval
+request waited on it. A start whose record fails is started again by the
+next round under the same id, which the engine answers as known.

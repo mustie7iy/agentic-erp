@@ -337,10 +337,14 @@ type fakeEngine struct {
 	mu      sync.Mutex
 	started []workflow.Start
 	known   map[string]bool
-	fail    string // start ids containing this fail
+	fail    string               // start ids containing this fail
+	before  func(workflow.Start) // called as each start arrives, as a slow engine's call would be
 }
 
 func (f *fakeEngine) Start(_ context.Context, s workflow.Start) (bool, error) {
+	if f.before != nil {
+		f.before(s)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != "" && strings.Contains(s.ID, f.fail) {
@@ -379,6 +383,9 @@ func TestDispatcher(t *testing.T) {
 		t.FailNow()
 	}
 	if !t.Run("a resumed release is the next attempt", s.resumedRelease) {
+		t.FailNow()
+	}
+	if !t.Run("no row lock is held across a call to the engine", s.noLockAcrossTheEngine) {
 		t.FailNow()
 	}
 	if !t.Run("database failures are reported", s.databaseFailures) {
@@ -547,6 +554,35 @@ func (s *dispatchScenario) lastRelease(t *testing.T) (workflow.Start, workflows.
 	return last, in
 }
 
+// noLockAcrossTheEngine: while the engine is starting a round's second
+// workflow, the first one's operation, already recorded, is not locked by
+// the dispatcher: each start is recorded and committed on its own.
+func (s *dispatchScenario) noLockAcrossTheEngine(t *testing.T) {
+	e, d, ctx := s.e.in(t), s.d, context.Background()
+	first, _ := e.propose(t, "2026-04-21")
+	e.propose(t, "2026-04-22")
+	calls := 0
+	var lockErr error
+	s.engine.before = func(workflow.Start) {
+		if calls++; calls == 2 {
+			lockErr = pgx.BeginFunc(ctx, pgtest.Admin(t), func(tx pgx.Tx) error {
+				_, err := tx.Exec(ctx, `SELECT 1 FROM platform.operation WHERE id = $1 FOR UPDATE NOWAIT`, uuid.MustParse(id(first)))
+				return err
+			})
+		}
+	}
+	defer func() { s.engine.before = nil }()
+	if n, err := d.RunOnce(ctx); err != nil || n != 2 {
+		t.Fatalf("round: got %d %v, want 2 started", n, err)
+	}
+	if calls != 2 {
+		t.Fatalf("engine calls: got %d, want 2", calls)
+	}
+	if lockErr != nil {
+		t.Errorf("got %v locking the first operation while the second workflow started, want it free", lockErr)
+	}
+}
+
 // databaseFailures: a failing statement, begin or commit of a round is
 // reported. The dispatcher's Begin is left unset for the next step.
 func (s *dispatchScenario) databaseFailures(t *testing.T) {
@@ -576,6 +612,7 @@ func (s *dispatchScenario) databaseFailures(t *testing.T) {
 	d.Begin = func(context.Context, database.Scope) (pgx.Tx, error) { return nil, errors.New("database down") }
 	_, err := d.RunOnce(ctx)
 	pgtest.WantErr(t, err, "database down")
+	e.propose(t, "2026-04-23") // a start to record
 	d.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 		tx, err := pool.Begin(ctx, scope)
 		if err != nil {
