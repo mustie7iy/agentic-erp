@@ -1093,6 +1093,13 @@
       "src": "review:T73g2 · po:2026-11-01",
       "pilot": "po:2026-11-01 · review:T73g2",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "A resumed release (:release of a run whose release failed or was cancelled with payments posted) checks again only the payments not posted and drops each whose supplier can no longer be paid as proposed, its items back to open and the supplier excluded with the reason (bank_account_changed new), a down payment's by its request; before, it refused the whole run, which stayed releasing for good (R4 B1 of the batch 76 review).",
+      "r": "internal/payments StartRelease, dropUnpaidSuppliers, supplierReasons, dropPayment, dropped (down payments) · migrations 000348-000349 · api/openapi.yaml exclusion reason_code · api/asyncapi.yaml PaymentExcludedV1 · ADR-0038 as built · TestResumedReleaseDropsUnpayableSuppliers · db TestExclusionReasons",
+      "src": "po:2026-11-16 · review:batch76",
+      "c": []
      }
     ]
    },

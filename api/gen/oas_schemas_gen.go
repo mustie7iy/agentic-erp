@@ -74138,7 +74138,11 @@ type PaymentExclusion struct {
 	SupplierName string `json:"supplier_name"`
 	// Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1. A release also excludes, with `item_reversed` or
-	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
+	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid; a
+	// release resumed after its operation failed or was cancelled with payments posted excludes, for the
+	// reasons a proposal would and with `bank_account_changed` when the bank account in force on the run
+	// date is not the one the payment was proposed to, a supplier whose payment not yet posted it dropped
+	// because the supplier can no longer be paid as proposed (a down payment's by its request).
 	// `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run
 	// date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4),
 	// naming the code and both rates (`tax_code`, `request_tax_rate_percent`,

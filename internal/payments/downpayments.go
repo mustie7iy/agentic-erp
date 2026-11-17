@@ -45,7 +45,7 @@ func (e *Endpoints) dueRequests(ctx context.Context, tx pgx.Tx, r Run) ([]DownPa
 func heldRequests(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) ([]uuid.UUID, error) {
 	rows, _ := tx.Query(ctx, `SELECT p.down_payment_request_id FROM payments.payment p
 		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
-		WHERE r.legal_entity_id = $1 AND p.kind = 'down_payment' AND `+liveRun, legalEntity)
+		WHERE r.legal_entity_id = $1 AND p.kind = 'down_payment' AND `+liveRun+` AND NOT `+dropped, legalEntity)
 	held, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return nil, fmt.Errorf("payments: read the down payment requests live runs of %s pay: %w", legalEntity, err)

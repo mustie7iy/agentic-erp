@@ -30,7 +30,11 @@ const (
 	NoBankAccount     = "no_bank_account"
 	BankChangePending = "bank_change_pending"
 	BankChangeHold    = "bank_change_hold"
-	DebitBalance      = "debit_balance"
+	// BankAccountChanged: the supplier's bank account in force on the run
+	// date is not the one its payment was proposed to (a resumed release
+	// drops the payment, dropUnpaidSuppliers).
+	BankAccountChanged = "bank_account_changed"
+	DebitBalance       = "debit_balance"
 	// A release drops a payment whose item was reversed, or is no longer
 	// open, since the proposal (dropPayment).
 	ItemReversed = "item_reversed"
@@ -229,10 +233,12 @@ func (e *Endpoints) nameRefusal(ctx context.Context, r Run, err error) error {
 
 // proposalSupplier is how a proposal's problem names a supplier: by number
 // and name, as supplierNamed does, with its id. The partner context
-// failing stays an error, so the job is retried. A supplier it does not
-// hold (journal lines name their partner without a foreign key) is named
-// by its id, and the run still fails: left an error, the job would be
-// retried first in its tenant's queue forever (build).
+// failing is an error, so the job is retried: the failure may pass. A
+// supplier the partner context does not hold (journal lines name their
+// partner without a foreign key) never comes back, so it is named by its
+// id rather than reported as an error, and the run fails with the problem
+// as it would have: an error there would retry the job, first in its
+// tenant's queue, forever (build).
 func (e *Endpoints) proposalSupplier(ctx context.Context, supplier uuid.UUID) (string, error) {
 	named, err := e.Payees.Names(ctx, []uuid.UUID{supplier})
 	if err != nil {

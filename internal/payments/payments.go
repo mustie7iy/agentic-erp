@@ -394,12 +394,17 @@ const (
 // never marks the other's payment. It relies on one items payment per
 // supplier and run for the items that fix no method and one per fixed
 // method, which the unique indexes payment_items_once_unfixed and
-// payment_items_once_per_method hold (000254, 000255). A down payment's payment
-// is never dropped: the release drops payments whose items are no longer
-// open, and it has none; it is paid even when the supplier's items are
-// excluded for a debit balance (payRequests). A request left out has its
-// exclusion in payments.request_exclusion, which leaves the items paid.
-const dropped = `(p.kind = 'items' AND CASE WHEN p.method_fixed
+// payment_items_once_per_method hold (000254, 000255). A down payment's
+// payment is paid even when the supplier's items are excluded for a debit
+// balance (payRequests); a request left out by the proposal has its
+// exclusion in payments.request_exclusion and no payment, which leaves
+// the items paid. A resumed release drops a down payment's payment whose
+// supplier can no longer be paid (dropUnpaidSuppliers) with an exclusion
+// of its request there, as the proposal would have left it out.
+const dropped = `(CASE WHEN p.kind = 'down_payment'
+		THEN EXISTS (SELECT FROM payments.request_exclusion x WHERE x.tenant_id = p.tenant_id
+			AND x.payment_run_id = p.payment_run_id AND x.down_payment_request_id = p.down_payment_request_id)
+		WHEN p.method_fixed
 		THEN EXISTS (SELECT FROM payments.method_exclusion x WHERE x.tenant_id = p.tenant_id
 			AND x.payment_run_id = p.payment_run_id AND x.supplier_id = p.supplier_id AND x.payment_method = p.payment_method)
 		ELSE EXISTS (SELECT FROM payments.payment_exclusion x WHERE x.tenant_id = p.tenant_id
@@ -650,7 +655,7 @@ func (Reservations) RequestRunOf(ctx context.Context, legalEntity, request uuid.
 	var number string
 	err = tx.QueryRow(ctx, `SELECT r.document_number FROM payments.payment p
 		JOIN payments.payment_run r ON r.tenant_id = p.tenant_id AND r.id = p.payment_run_id
-		WHERE p.kind = 'down_payment' AND p.down_payment_request_id = $1 AND `+liveRun+` LIMIT 1`, request).Scan(&number)
+		WHERE p.kind = 'down_payment' AND p.down_payment_request_id = $1 AND `+liveRun+` AND NOT `+dropped+` LIMIT 1`, request).Scan(&number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
