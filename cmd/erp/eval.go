@@ -88,7 +88,7 @@ func analyticsEval(ctx context.Context, env eval.Env) error {
 		reference = append(reference, r)
 	}
 	s := analytics.NewSession(m, facts, analytics.Principal{ID: "eval"})
-	ans, err := analyticsExchange(ctx, analytics.NewAgent(env.LLM.Client, env.LLM.Model), s, append(earlier, t["question"]))
+	ans, err := analyticsExchange(ctx, analytics.NewAgent(env.LLM, apitools.Days{}), s, append(earlier, t["question"]))
 	if err != nil {
 		return fmt.Errorf("analytics: %w", err)
 	}

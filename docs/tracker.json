@@ -7588,6 +7588,13 @@
      },
      {
       "s": "D",
+      "t": "The analytics agent's tools run each call whole: the runner executes a turn's tool calls concurrently, and two queries in one turn wrote the session's results at once (erp ask, the analytics evaluation); the agent runs on llm.Runner (R6 B1 of the batch 77 review)",
+      "r": "internal/analytics Agent.tools (exclusive), llm.Runner Params and RunTools · TestAgentToolsOfOneTurnRunOneAtATime (-race) · ADR-0072 as built (hardening 3)",
+      "src": "review:batch77",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "Every agent's writes are held to its run's object: the reconciliation agent proposes only for its statement, line and session; the accounts payable exceptions agent is an agent of the recommending pattern, its recommendation held to the run's invoice; the configuration agent changes only the change requests its session created, never a person's; the test agent records one recommendation, on its change request, and captures at most one suite",
       "r": "internal/reconagent ErrOtherLine · internal/agent on recommend.Agent · delivery/configagent ErrNotCreated · delivery/testagent ErrOtherChange, ErrSecondCapture · TestReviewHeldToTheLine · TestReviewHeldToTheInvoice · TestHandleOwnChangesOnly · TestReviewHeldToTheChange · ADR-0072 as built (hardening 2)",
       "src": "review:batch76",

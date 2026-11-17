@@ -5,14 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/anthropics/anthropic-sdk-go"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -92,26 +92,16 @@ func TestModelDefaultErrorIsDeterministic(t *testing.T) {
 
 // --- agent ---------------------------------------------------------------------
 
-func TestNewAgentAndToolText(t *testing.T) {
-	a := NewAgent(anthropic.NewClient(), Alias)
-	if a.Model != Alias || a.Today == nil {
-		t.Errorf("agent: got model %s, clock %v, want %s and a clock", a.Model, a.Today != nil, Alias)
-	}
-	r, err := toolText("plain")
-	if err != nil {
-		t.Fatalf("string result: %v", err)
-	}
-	if r.OfText.Text != "plain" {
-		t.Errorf("string result: got %q, want plain", r.OfText.Text)
-	}
-	if _, err := toolText(math.Inf(1)); err == nil {
-		t.Fatal("unmarshalable value must error")
+func TestNewAgent(t *testing.T) {
+	r := &llm.Runner{Model: Alias}
+	if a := NewAgent(r, apitools.Days{}); a.LLM != r {
+		t.Errorf("agent: got runner %v, want %v", a.LLM, r)
 	}
 }
 
 func llmAgent(srv *llmtest.Server) *Agent {
 	r := srv.Runner()
-	return &Agent{Client: r.Client, Model: r.Model}
+	return &Agent{LLM: r}
 }
 
 func TestAgentToolSurface(t *testing.T) {
@@ -159,7 +149,7 @@ func TestAskPaths(t *testing.T) {
 		llmtest.Final("Done."),
 	)
 	a := llmAgent(ok)
-	a.Today = func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) }
+	a.Days.Now = func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) }
 	ans, err := a.Ask(context.Background(), s, "What was revenue in 2026?")
 	if err != nil {
 		t.Fatalf("answer: %v", err)
@@ -768,4 +758,36 @@ func TestRenderRefusesAnInvalidSpec(t *testing.T) {
 			t.Errorf("got %d files written, want none", len(entries))
 		}
 	})
+}
+
+// TestAgentToolsOfOneTurnRunOneAtATime: the runner executes one turn's
+// tool calls concurrently; two queries and a dashboard in one turn keep
+// both results and build on them, which -race checks never overlap
+// (review:batch77: unguarded, two queries wrote the session's results at
+// once).
+func TestAgentToolsOfOneTurnRunOneAtATime(t *testing.T) {
+	s := session(t, us)
+	query := func(by string) llmtest.Step {
+		return llmtest.Tool("run_query", map[string]any{"measures": []string{"revenue"}, "by": []string{by}})
+	}
+	model := llmtest.New(t,
+		llmtest.Together(query("fiscal_year"), query("fiscal_month"), llmtest.Tool("list_metrics", map[string]any{}),
+			llmtest.ToolFn("build_dashboard", func(body string) any {
+				return map[string]any{"spec": Spec{Title: "Revenue", Tables: []Table{{Title: "t", QueryID: qidRe.FindString(body)}}}}
+			})),
+		llmtest.ToolFn("build_dashboard", func(body string) any {
+			return map[string]any{"spec": Spec{Title: "Revenue", Tables: []Table{{Title: "t", QueryID: qidRe.FindString(body)}}}}
+		}),
+		llmtest.Final("Done."),
+	)
+	ans, err := llmAgent(model).Ask(context.Background(), s, "Revenue by year and month?")
+	if err != nil {
+		t.Fatalf("answer: %v", err)
+	}
+	if len(s.Results) != 2 {
+		t.Errorf("results: got %d, want both queries'", len(s.Results))
+	}
+	if ans.Report == nil {
+		t.Error("report: got none, want the dashboard")
+	}
 }

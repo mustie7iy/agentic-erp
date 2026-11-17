@@ -222,7 +222,7 @@ func defaultAgent(c *apitools.Client) *analytics.Agent {
 	if getenv("ERP_AGENT_MODEL") == "" {
 		r.Model = analytics.Alias
 	}
-	return analytics.NewAgent(r.Client, r.Model)
+	return analytics.NewAgent(r, apitools.Days{API: c})
 }
 
 // askCmd answers a plain-language question with an on-demand dashboard.

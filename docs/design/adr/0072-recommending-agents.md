@@ -1395,6 +1395,42 @@ A later slice adds its row here and its section under "As built".
   adjustment entries are a write the pattern does not hold); moving its
   recommendation half onto the pattern is left to the backlog.
 
+### Hardening 3 (review:batch77): one runner, one day, one bound
+
+- **The analytics agent's tools.** Its three tools (`list_metrics`,
+  `run_query`, `build_dashboard`) share the session's results and the
+  dashboard built, and the runner executes one turn's calls concurrently:
+  two queries in one turn wrote the results at once. Each call now runs
+  whole under the answer's mutex, as `apitools.Tool.Exclusive` does for
+  API tools (`TestAgentToolsOfOneTurnRunOneAtATime`, `-race`). The agent
+  runs on `llm.Runner` (`Params`, `RunTools`, `Result`, `Text`) rather than
+  its own copy of the request; `llm.RunTools` is the runner of an agent
+  whose tools answer in-process with no API session, and `llm.Error`, used
+  by nothing, is gone.
+- **An observed write the session did not record.** `apitools.Tool.Invoke`
+  calls the tool's observer with every answer the API gave before it
+  records the call, so a write the API took closes the run's guards (one
+  recommendation per object) even when the record fails and the call
+  returns `ErrNotRecorded`.
+- **The model's numbers.** A tool's input is decoded with its numbers as
+  their text (`apitools.DecodeInput`, used by `Execute` and `erp mcp`), so
+  an integer past 2^53 reaches the API unchanged; `apitools.Body` is the
+  one reading of an input's body object the agents' guards share, and
+  `recommend.Iterations` the one place an agent's default bound on model
+  requests is applied (the migration agent's 15 now a `MaxIterations` it
+  can be given). The cash forecast agent's guards refuse a proposal that
+  leaves out its company or period, which the API would refuse too.
+- **The day a run is on** (coordinator 2026-11-17, ERP practice). One
+  port, `apitools.Days`: a run of one company is dated in the company's
+  time zone, as the API judges every date of the company
+  (`getLegalEntityToday`, over `config.DocumentDay`), any other run in
+  UTC. The credit agent's "today" and the collections agent's default key
+  date are the company's; the analytics agent's is the asked company's
+  when the question is asked of one company (`-companies` naming one),
+  else UTC's; the access agent's stays UTC's (product owner 2026-11-16).
+  At 23:30 in Toronto the credit agent's run is on that day, no longer on
+  UTC's tomorrow.
+
 ## Defaults taken (for the product owner's digest)
 
 1. The shared run is a package, `internal/recommend`, not a copy per

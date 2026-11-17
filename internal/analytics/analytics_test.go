@@ -22,6 +22,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -553,9 +555,8 @@ func TestAgentAskBuildsValidatedDashboard(t *testing.T) {
 	srv := httptest.NewServer(fake)
 	defer srv.Close()
 	a := &Agent{
-		Client: anthropic.NewClient(option.WithBaseURL(srv.URL), option.WithAPIKey("test"), option.WithMaxRetries(0)),
-		Model:  Alias,
-		Today:  func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) },
+		LLM:  &llm.Runner{Client: anthropic.NewClient(option.WithBaseURL(srv.URL), option.WithAPIKey("test"), option.WithMaxRetries(0)), Model: Alias},
+		Days: apitools.Days{Now: func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) }},
 	}
 	ans, err := a.Ask(context.Background(), s, "monthly sales vs last year this time")
 	if err != nil {
@@ -576,7 +577,7 @@ func TestAgentAskBuildsValidatedDashboard(t *testing.T) {
 	if ans.Summary == "" {
 		t.Error("summary: got none, want one")
 	}
-	if !strings.Contains(fake.bodies[0], "Today is 8 October 2026") {
+	if !strings.Contains(fake.bodies[0], "Today is 2026-10-08") {
 		t.Errorf("first request: got %s, want today's date in it", fake.bodies[0])
 	}
 	// No provider fallback: the gateway routes every call to the one model
