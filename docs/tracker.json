@@ -1093,6 +1093,13 @@
       "src": "review:T73g2 · po:2026-11-01",
       "pilot": "po:2026-11-01 · review:T73g2",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "A resumed release (:release of a run whose release failed or was cancelled with payments posted) checks again only the payments not posted and drops each whose supplier can no longer be paid as proposed, its items back to open and the supplier excluded with the reason (bank_account_changed new), a down payment's by its request; before, it refused the whole run, which stayed releasing for good (R4 B1 of the batch 76 review).",
+      "r": "internal/payments StartRelease, dropUnpaidSuppliers, supplierReasons, dropPayment, dropped (down payments) · migrations 000348-000349 · api/openapi.yaml exclusion reason_code · api/asyncapi.yaml PaymentExcludedV1 · ADR-0038 as built · TestResumedReleaseDropsUnpayableSuppliers · db TestExclusionReasons",
+      "src": "po:2026-11-16 · review:batch76",
+      "c": []
      }
     ]
    },
@@ -7058,6 +7065,13 @@
           "r": "internal/offboarding/offboarding_test.go runningWorkerExportsATenantOffboardedMeanwhile",
           "src": "review:batch46",
           "c": []
+         },
+         {
+          "s": "D",
+          "t": "An export reads each table in its primary key's order: a resumed export keeps the parts an earlier round stored, so rows read in another order (a plan changed between the rounds) were exported twice or never, and the erasure that follows lost them for good (R2 B1 of the batch 76 review).",
+          "r": "internal/offboarding exportTable, tenantTable.order (primary key from pg_index; the row's text without one) · TestResumedExportReadsInKeyOrder · TestExportOrder · ADR-0021",
+          "src": "review:batch76",
+          "c": []
          }
         ]
        },
@@ -7152,6 +7166,13 @@
       "t": "A holder of a deactivated role neither receives nor decides an approval step: identity.Directory.HoldsRole and RolesHeld ignore the role's status, so approvals route a step to the holder of a deactivated role and let that holder decide it, while authz grants that role nothing (pre-existing security finding on T95c's review)",
       "r": "identity.Directory.HoldsRole, RolesHeld (active roles alone) · app.reportGrantees · TestInactiveStepRole · TestDirectoryInactiveRole · ADR-0010 As built 2026-11-16",
       "src": "review:T95c",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Cancelling an operation tells the workflow engine only once the cancellation has committed (reqctx.OnCommit): a request that failed after the engine call left the operation running with its workflow cancelled (R2 B2 of the batch 76 review).",
+      "r": "internal/operations CancelOperation · reqctx.OnCommit · ADR-0012 · TestCancelOperation",
+      "src": "review:batch76",
       "c": []
      }
     ]
@@ -7542,6 +7563,20 @@
       "t": "ADR on agents and LLM use: permitted actions, approval points, budgets, audit, data sent to models",
       "r": "ADR-0036 · T42",
       "src": "baseline",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Agent tools whose guards or observers share a run's state run each call whole: the runner executes a turn's tool calls concurrently, and the cash forecast, close, reconciliation, configuration, test and migration agents counted, listed and checked without a lock (the pattern's and the tax agent's tools already held one); a session whose tools cannot be built is ended, failed, not left running, and tools are found by name, never by position",
+      "r": "apitools.Session.Tools · Tool.Exclusive in cashagent, closeagent, reconagent, delivery/configagent, testagent, migrationagent · supportagent, enablementagent help · TestExplainTogether, TestAccrualsTogether, TestReviewHeldToTheLine, TestHandleOwnChangesOnly, TestReviewHeldToTheChange, TestAssessStartsOnlyItsRehearsals (-race) · TestSessionTools · ADR-0072 as built (hardening 2)",
+      "src": "review:batch76",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Every agent's writes are held to its run's object: the reconciliation agent proposes only for its statement, line and session; the accounts payable exceptions agent is an agent of the recommending pattern, its recommendation held to the run's invoice; the configuration agent changes only the change requests its session created, never a person's; the test agent records one recommendation, on its change request, and captures at most one suite",
+      "r": "internal/reconagent ErrOtherLine · internal/agent on recommend.Agent · delivery/configagent ErrNotCreated · delivery/testagent ErrOtherChange, ErrSecondCapture · TestReviewHeldToTheLine · TestReviewHeldToTheInvoice · TestHandleOwnChangesOnly · TestReviewHeldToTheChange · ADR-0072 as built (hardening 2)",
+      "src": "review:batch76",
       "c": []
      }
     ]
@@ -10301,6 +10336,13 @@
       "r": "internal/delivery/migrationagent · apitools",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "An agent creates and starts only rehearsals: the migration agent's guard held only the creation, so it could start a run that would stay loaded; it now starts only a rehearsal its session created, and the API refuses an agent a run that is not a rehearsal, created or started, whoever created it (403 identity.agent_not_allowed)",
+      "r": "delivery/migrationagent run.start · internal/integration runs.go rehearsalOnly (CreateRun, StartRun) · api/openapi.yaml createMigrationRun, startMigrationRun · TestAgentRehearsesOnly · TestAssessStartsOnlyItsRehearsals · ADR-0072 as built (hardening 2) · ADR-0010",
+      "src": "review:batch76",
+      "c": []
      }
     ]
    },
@@ -11399,6 +11441,48 @@
         "t": "PlanBatch (plan_category_id, legal_entity_id), SupplierCompany (legal_entity_id, reconciliation_account_id) and BusinessPartner's ids still give ids without a name or code beside them (pre-existing; found by the hnames sweep).",
         "r": "api/openapi.yaml PlanBatch, BusinessPartner, SupplierCompany · ADR-0050 names beside ids · hnames sweep (review:batch26)",
         "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The tax agent's recommendation half still hand-writes what recommend.Agent now provides (a recommendation held to the run's object); the accounts payable exceptions agent was moved onto it in batch 77 (R6 of the batch 76 review).",
+        "r": "internal/taxagent · internal/recommend Agent · ADR-0072 as built (hardening 2)",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "API naming nits on the agents' read models: AiUsagePrincipal has no name beside its id, AiUsage has no token totals, and a Recommendation's agent_id and object_id carry no reference (R6 of the batch 76 review).",
+        "r": "api/openapi.yaml AiUsage, AiUsagePrincipal, Recommendation · getAiUsage (agents.model_call) · ADR-0050 names beside ids · T42f",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The gateway's redaction screen leaves a document block's title and context and a search_result block's title and source unredacted, though they reach the model like the text beside them (found in the batch 77 integration, reading the fail-closed change).",
+        "r": "internal/agents screen.go · ADR-0036 · ADR-0039 · internal/platform/redact",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "taxfiling prepare reads the registration FOR UPDATE where FOR NO KEY UPDATE is enough: the return it inserts references the registration, and FOR UPDATE also blocks another writer's foreign key share (R4 of the batch 76 review).",
+        "r": "internal/taxfiling prepare.go (tax.registration read) · REVIEW.md locks · BRIEF-RULES 17b",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The assets and consolidation runs repeat the same run scaffolding (lockRun, liveRun, Fail*Run, Unfinished*Runs), as do leases and revenue (basisOfRun, ordering, MaxRunContracts, recordRun): one shared runs helper (R1 of the batch 76 review, duplication).",
+        "r": "internal/assets runs.go · internal/consolidation runs.go · internal/leases · internal/revenue · CLAUDE.md helpers",
+        "src": "review:batch76",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A tenant's connector credentials resolve only under its own vault namespace, vault:<mount>/tenants/<tenant_id>/…: env:, file: and any other path, another tenant's included, are refused when written (422 integration.invalid_secret_ref) and on use (integration.secret_unavailable); SAP OData is read through the egress client (https, public addresses, 32 MiB a page) and SFTP channels dial public addresses only, the walkthrough's stand-ins apart",
+        "r": "R5 B1 (batch 76 review) · product owner 2026-11-16 · ADR-0017 as built · ADR-0041 as built · internal/platform/secrets tenant.go TenantRef, ResolveTenant · internal/integration tenantSecret, checkSecretRef (connectors.go, runs.go, einvoice.go, channels.go) · internal/sap odata.go NewClient, Getter · internal/platform/egress DialControl, LoopbackDialForTests · internal/platform/sftpclient Endpoint.Control · ERP_WALKTHROUGH_SFTP · TestTenantRef, TestResolveTenant, TestConnectorsAndRunRules, TestBankChannels, TestEInvoiceProviders, TestODataEgress, TestDialControl, TestWalkthroughSFTP · walkthrough step 35 (a file: reference refused; credentials in the vault stand-in)",
+        "src": "review:batch76 · po:2026-11-16",
         "c": []
        },
        {

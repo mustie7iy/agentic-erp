@@ -242,7 +242,7 @@ func (e *Endpoints) postingDates(ctx context.Context, doc *config.Config, co Com
 // retirement or transfer is not backdated (decided by default 13).
 func valuedInPeriod(document string, value, posting time.Time, per Period) error {
 	if value.Before(per.Start) || value.After(posting) {
-		return invalid("assets.value_date_outside_period", fmt.Sprintf("A %s is valued in its posting period, %s to its posting date %s; "+
+		return problem.InvalidDetail("assets.value_date_outside_period", fmt.Sprintf("A %s is valued in its posting period, %s to its posting date %s; "+
 			"it is not backdated.", document, per.Start.Format(time.DateOnly), posting.Format(time.DateOnly)), "value_date",
 			"a date from "+per.Start.Format(time.DateOnly)+" to "+posting.Format(time.DateOnly))
 	}
@@ -253,7 +253,7 @@ func valuedInPeriod(document string, value, posting time.Time, per Period) error
 // capitalisation date (422 assets.value_date_before_capitalisation).
 func notBeforeCapitalisation(a Asset, value time.Time) error {
 	if on := a.CapitalisedOn; on != nil && value.Before(*on) { // an active asset has its date (§5)
-		return invalid("assets.value_date_before_capitalisation", fmt.Sprintf("Asset %s was capitalised on %s; nothing leaves it before.",
+		return problem.InvalidDetail("assets.value_date_before_capitalisation", fmt.Sprintf("Asset %s was capitalised on %s; nothing leaves it before.",
 			a.Number, on.Format(time.DateOnly)), "value_date", "on or after "+on.Format(time.DateOnly))
 	}
 	return nil
@@ -336,7 +336,7 @@ func (e *Endpoints) catchUps(ctx context.Context, tx pgx.Tx, a Asset, co Company
 func termsInEvery(a Asset, kept []LedgerRef, field string) error {
 	for _, l := range kept {
 		if _, ok := termsIn(a, l.ID); !ok {
-			return invalid("assets.ledger_terms_missing", fmt.Sprintf("Asset %s has no depreciation terms in ledger %s, which its company keeps; "+
+			return problem.InvalidDetail("assets.ledger_terms_missing", fmt.Sprintf("Asset %s has no depreciation terms in ledger %s, which its company keeps; "+
 				"give them (PATCH /v1/assets/{id}) before it is retired or transferred.", a.Number, l.Code), field, "an asset with terms in every ledger")
 		}
 	}
@@ -370,11 +370,11 @@ func (l *retiredLedger) take(percent *int64, cost *money.Minor, number string) e
 		num, den = *percent, hundredPercent
 	}
 	if base == 0 && num != den {
-		return invalid("assets.share_of_zero_cost", fmt.Sprintf("Asset %s has no cost left in ledger %s; only a full share takes what is "+
+		return problem.InvalidDetail("assets.share_of_zero_cost", fmt.Sprintf("Asset %s has no cost left in ledger %s; only a full share takes what is "+
 			"left of it.", number, l.ledger.Code), "share", "all of it (no share, or 100 percent)")
 	}
 	if num > den {
-		return invalid("assets.share_exceeds", fmt.Sprintf("Asset %s's cost in ledger %s is %d minor units; a share takes at most that.",
+		return problem.InvalidDetail("assets.share_exceeds", fmt.Sprintf("Asset %s's cost in ledger %s is %d minor units; a share takes at most that.",
 			number, l.ledger.Code, int64(base)), "share.cost", "at most the asset's cost")
 	}
 	l.share = big.NewRat(num, den)

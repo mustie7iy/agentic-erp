@@ -1,6 +1,8 @@
 // Package db holds the physical data model: versioned PostgreSQL migrations
-// (docs/design/03-data-model.md). Files are named NNNNNN_name.up.sql and
-// NNNNNN_name.down.sql and are applied in order.
+// (docs/design/03-data-model.md) on PostgreSQL (ADR-0002), every table
+// keyed by tenant_id first and under row-level security (ADR-0003). Files
+// are named NNNNNN_name.up.sql and NNNNNN_name.down.sql and are applied in
+// order.
 package db
 
 import (

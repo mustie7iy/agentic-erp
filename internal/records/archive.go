@@ -250,7 +250,7 @@ func (e *Endpoints) Runs(ctx context.Context, q RunsQuery) ([]Run, string, error
 	if err != nil {
 		return nil, "", fmt.Errorf("records: list archiving runs: %w", err)
 	}
-	rs, next := pagination.Page(ks, rs, func(r Run) (string, uuid.UUID) { return r.CreatedAt.Format(time.RFC3339Nano), r.ID })
+	rs, next := pagination.Page(ks, rs, func(r Run) (string, uuid.UUID) { return pagination.Instant(r.CreatedAt), r.ID })
 	return rs, next, e.named(ctx, tx, rs)
 }
 

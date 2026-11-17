@@ -110,52 +110,26 @@ func actor(tenant uuid.UUID) reqctx.Principal {
 // tenants returns the tenants with files due: to send, or claimed with
 // the claim lapsed.
 func (w *Transmitter) tenants(ctx context.Context) ([]uuid.UUID, error) {
-	tx, err := w.begin(ctx, database.Scope{Role: w.WorkerRole, ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM payments.bank_file
+	tenants, err := database.Tenants(ctx, w.Pool, w.Begin, w.WorkerRole, `SELECT DISTINCT tenant_id FROM payments.bank_file
 		WHERE status IN ('to_send', 'sending') AND next_attempt_at <= $1 AND tenant_id IN `+database.ActiveTenants, clock.Now(w.Now))
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return nil, fmt.Errorf("payments: list the tenants with bank files to send: %w", err)
 	}
 	return tenants, nil
 }
 
+func (w *Transmitter) queue() worker.Queue {
+	return worker.Queue{Name: "bank file transmitter", Tenants: w.tenants, One: w.one}
+}
+
 // RunOnce sends every due file and returns how many it handled. A tenant
 // whose file fails is left for the next round; the others go on.
-func (w *Transmitter) RunOnce(ctx context.Context) (int, error) {
-	tenants, err := w.tenants(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("bank file transmitter: %w", err)
-	}
-	n := 0
-	var errs []error
-	for _, t := range tenants {
-		for ctx.Err() == nil { // a stopping worker claims nothing more
-			did, err := w.one(ctx, t)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("bank file transmitter: tenant %s: %w", t, err))
-				break
-			}
-			if !did {
-				break
-			}
-			n++
-		}
-	}
-	return n, errors.Join(errs...)
-}
+func (w *Transmitter) RunOnce(ctx context.Context) (int, error) { return w.queue().RunOnce(ctx) }
 
 // Run sends files until ctx ends; errors are logged and retried after the
 // interval.
 func (w *Transmitter) Run(ctx context.Context) {
-	worker.Loop(ctx, w.Interval, 5*time.Second, func(ctx context.Context) (bool, error) {
-		_, err := w.RunOnce(ctx)
-		return false, err
-	}, w.Log, "bank file transmission failed")
+	worker.Loop(ctx, w.Interval, 5*time.Second, w.queue().Round, w.Log, "bank file transmission failed")
 }
 
 // one handles the tenant's next due file and reports whether there was
@@ -219,8 +193,8 @@ func (w *Transmitter) claim(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (*
 	return c, true, err
 }
 
-// withdraw returns a file whose transmission was cancelled while it waited
-// for a claim to created: nothing was sent.
+// withdraw puts back to created a file whose transmission was cancelled
+// while it waited for a claim: nothing was sent.
 func withdraw(ctx context.Context, tx pgx.Tx, f BankFile, q queued) error {
 	if _, err := tx.Exec(ctx, `UPDATE payments.bank_file SET status = 'created', attempts = 0, next_attempt_at = NULL, transmit_operation_id = NULL,
 		transmit_requested_by = NULL, version = version + 1 WHERE id = $1`, f.ID); err != nil {

@@ -142,7 +142,7 @@ func (s *Service) record(ctx context.Context, tx pgx.Tx, op Operator, tenant uui
 		}
 	}
 	c.entry.Outcome = "succeeded"
-	c.entry.Detail["operator"], c.entry.Detail["operator_issuer"] = op.Subject, op.Issuer
+	c.entry.Detail["operator"], c.entry.Detail["operator_issuer"] = op.ID, op.Issuer
 	return audit.Write(ctx, tx, reqctx.Principal{ID: op.ID, Kind: reqctx.KindSystem, TenantID: tenant}, trace, s.now(), c.entry)
 }
 
@@ -418,7 +418,7 @@ func (s *Service) ListPrincipals(ctx context.Context, tenant uuid.UUID, binding 
 			return err
 		}
 		ps, next = pagination.Page(ks, ps, func(p identity.TenantPrincipal) (string, uuid.UUID) {
-			return p.CreatedAt.UTC().Format(time.RFC3339Nano), p.ID
+			return pagination.Instant(p.CreatedAt), p.ID
 		})
 		out = make([]TenantPrincipal, len(ps))
 		for i, p := range ps {

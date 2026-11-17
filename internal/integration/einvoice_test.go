@@ -13,7 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
-	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
+	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 )
 
 // einvoiceSettings are valid einvoice_provider settings, the stand-in's.
@@ -45,7 +45,7 @@ func TestEInvoiceSettings(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
 				_, err := h.CreateConnector(ctx, &gen.ConnectorCreate{Kind: integration.EInvoiceProvider, Name: name, Settings: decoded(t, c.settings),
-					SecretRef: gen.NewOptString("env:PROVIDER_TOKEN")}, gen.CreateConnectorParams{})
+					SecretRef: gen.NewOptString(vaulttest.TenantRef(f.Tenant.ID, "provider"))}, gen.CreateConnectorParams{})
 				return err
 			})
 			if c.field == "" {
@@ -86,7 +86,7 @@ func TestStandInRefusedInProduction(t *testing.T) {
 	err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
 		create := func(h *integration.Endpoints, name string) (gen.CreateConnectorRes, error) {
 			return h.CreateConnector(ctx, &gen.ConnectorCreate{Kind: integration.EInvoiceProvider, Name: name, Settings: decoded(t, einvoiceSettings),
-				SecretRef: gen.NewOptString("env:PROVIDER_TOKEN")}, gen.CreateConnectorParams{})
+				SecretRef: gen.NewOptString(vaulttest.TenantRef(f.Tenant.ID, "provider"))}, gen.CreateConnectorParams{})
 		}
 		if _, err := create(production, "Stand-in refused"); problem.From(err).Code != "integration.adapter_not_certified" {
 			t.Errorf("create in production: got %v, want integration.adapter_not_certified", err)
@@ -122,8 +122,9 @@ func TestStandInRefusedInProduction(t *testing.T) {
 // (ADR-0061 §2, §3). Names are given by id.
 func TestEInvoiceProviders(t *testing.T) {
 	f := fixture.New(t)
-	vars := map[string]string{"PROVIDER_TOKEN": "s3cret"}
-	p := integration.EInvoiceProviders{Secrets: secrets.Local{Getenv: func(n string) string { return vars[n] }}}
+	token := vaulttest.TenantRef(f.Tenant.ID, "provider")
+	other := vaulttest.TenantRef(uuid.New(), "provider")
+	p := integration.EInvoiceProviders{Secrets: vaulttest.Refs{token: "s3cret", other: "s3cret", "env:PROVIDER_TOKEN": "s3cret"}}
 	conn := func(kind, name, settings, ref, status string) uuid.UUID {
 		id := uuid.Must(uuid.NewV7())
 		var secret *string
@@ -134,7 +135,7 @@ func TestEInvoiceProviders(t *testing.T) {
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`, f.Tenant.ID, id, kind, name, settings, secret, status, f.Tenant.Human.ID)
 		return id
 	}
-	valid := conn(integration.EInvoiceProvider, "Provider", einvoiceSettings, "env:PROVIDER_TOKEN", "active")
+	valid := conn(integration.EInvoiceProvider, "Provider", einvoiceSettings, token, "active")
 	resolve := func(p integration.EInvoiceProviders, id uuid.UUID) (c integration.EInvoiceConnector, err error) {
 		err = apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) (err error) {
 			c, err = p.Provider(ctx, id)
@@ -157,10 +158,12 @@ func TestEInvoiceProviders(t *testing.T) {
 	}{
 		"unknown":                {p, uuid.New(), "request.not_found"},
 		"not a provider":         {p, conn("sap_file", "SAP", `{"path": "x.json"}`, "", "active"), "integration.not_an_einvoice_provider"},
-		"disabled":               {p, conn(integration.EInvoiceProvider, "Off", einvoiceSettings, "env:PROVIDER_TOKEN", "disabled"), "integration.connector_disabled"},
+		"disabled":               {p, conn(integration.EInvoiceProvider, "Off", einvoiceSettings, token, "disabled"), "integration.connector_disabled"},
 		"no secret_ref":          {p, conn(integration.EInvoiceProvider, "No token", einvoiceSettings, "", "active"), "integration.secret_required"},
-		"invalid settings":       {p, conn(integration.EInvoiceProvider, "Old", `{"adapter": "standin"}`, "env:PROVIDER_TOKEN", "active"), "integration.invalid_settings"},
-		"secret missing":         {p, conn(integration.EInvoiceProvider, "Missing", einvoiceSettings, "env:MISSING", "active"), "integration.secret_unavailable"},
+		"invalid settings":       {p, conn(integration.EInvoiceProvider, "Old", `{"adapter": "standin"}`, token, "active"), "integration.invalid_settings"},
+		"secret missing":         {p, conn(integration.EInvoiceProvider, "Missing", einvoiceSettings, vaulttest.TenantRef(f.Tenant.ID, "missing"), "active"), "integration.secret_unavailable"},
+		"an env: reference":      {p, conn(integration.EInvoiceProvider, "Env", einvoiceSettings, "env:PROVIDER_TOKEN", "active"), "integration.secret_unavailable"},
+		"another tenant's":       {p, conn(integration.EInvoiceProvider, "Other", einvoiceSettings, other, "active"), "integration.secret_unavailable"},
 		"stand-in in production": {integration.EInvoiceProviders{Secrets: p.Secrets, RefuseStandIn: true}, valid, "integration.adapter_not_certified"},
 	} {
 		t.Run(name, func(t *testing.T) {

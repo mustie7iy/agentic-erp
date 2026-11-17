@@ -143,7 +143,18 @@ type conflict struct {
 // is limited to one principal, the holders of one role, or one rule (the
 // zero uuid means no limit), which covers every grant that can create a
 // conflict.
+//
+// The check takes the tenant's segregation-of-duties lock first, after the
+// caller's insert: two grants that conflict only together (two roles
+// assigned to one principal, a permission added to a role while it is
+// assigned, a rule created meanwhile) would each pass a check that cannot
+// see the other's uncommitted row. Under the lock the second waits for the
+// first to commit, and its check, a statement of its own at READ
+// COMMITTED, then sees the first's row and refuses the conflict.
 func sodConflict(ctx context.Context, tx pgx.Tx, principal, role, rule uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('identity.sod:' || platform.require_tenant()::text, 0))`); err != nil {
+		return fmt.Errorf("identity: lock segregation of duties: %w", err)
+	}
 	var c conflict
 	err := tx.QueryRow(ctx, `WITH held AS (
 			SELECT pr.principal_id, rp.permission_code,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -74,5 +75,53 @@ func TestAssess(t *testing.T) {
 	person := &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Human.Subject, nil)}
 	if _, err := (&migrationagent.Agent{LLM: model.Runner(), API: person}).Assess(context.Background(), "c", nil, 2026, "documents"); err == nil {
 		t.Fatal("a person ran the agent")
+	}
+}
+
+// TestAssessStartsOnlyItsRehearsals: the agent starts only a rehearsal its
+// session created: a person's run, which would stay loaded, is refused
+// before the API, and creations the model sends in one turn, which the
+// runner executes concurrently, each run whole (run with -race,
+// review:batch76). An operation the contract does not have ends the
+// session rather than leave it running.
+func TestAssessStartsOnlyItsRehearsals(t *testing.T) {
+	f := fixture.New(t, "integration.connector.read", "integration.connector.manage", "integration.migration.read", "integration.migration.run",
+		"platform.operation.read", "agents.session.record", "agents.session.read")
+	f.Tenant.AllCompanies(t, f.Tenant.Agent)
+	srv := httptest.NewServer(f.API.Handler)
+	defer srv.Close()
+	conn, _ := f.Must(201, "POST", "/v1/connectors", `{"kind": "sap_file", "name": "SAP", "settings": {"path": "x.json"}}`, "")
+	body := func(rehearsal bool) map[string]any {
+		return map[string]any{"connector_id": conn["id"], "mode": "documents", "is_rehearsal": rehearsal,
+			"scope": map[string]any{"legal_entity_ids": []string{f.DE.String()}, "fiscal_year": 2026}}
+	}
+	persons, _ := json.Marshal(body(false))
+	theirs, _ := f.Must(201, "POST", "/v1/migration-runs", string(persons), "")
+	api := &apitools.Client{BaseURL: srv.URL, Token: f.API.Issuer.Token(t, f.Tenant.ID, f.Tenant.Agent.Subject, nil)}
+	model := llmtest.New(t,
+		llmtest.Together(llmtest.Tool("createMigrationRun", map[string]any{"body": body(true)}),
+			llmtest.Tool("createMigrationRun", map[string]any{"body": body(true)})),
+		llmtest.Tool("startMigrationRun", map[string]any{"id": theirs["id"], "if_match": `"1"`}),
+		llmtest.Final("Not started."))
+	if _, err := (&migrationagent.Agent{LLM: model.Runner(), API: api}).Assess(context.Background(), conn["id"].(string), []string{f.DE.String()}, 2026, "documents"); err != nil {
+		t.Fatalf("assess: %v", err)
+	}
+	if !strings.Contains(model.Requests[2], "starts only the rehearsals it created") {
+		t.Errorf("the start of a person's run: got %s, want it refused", llmtest.LastToolResult(model.Requests[2]))
+	}
+	run, _ := f.Must(200, "GET", "/v1/migration-runs/"+theirs["id"].(string), "", "")
+	if run["status"] != "queued" {
+		t.Errorf("the person's run: got %v, want queued", run["status"])
+	}
+	tools := migrationagent.Tools
+	migrationagent.Tools = append(slices.Clone(tools), "noSuchOperation")
+	t.Cleanup(func() { migrationagent.Tools = tools })
+	if _, err := (&migrationagent.Agent{LLM: llmtest.New(t).Runner(), API: api}).Assess(context.Background(), "c", nil, 2026, "documents"); err == nil ||
+		!strings.Contains(err.Error(), "noSuchOperation") {
+		t.Errorf("an operation not in the contract: got %v, want it named", err)
+	}
+	sessions, _ := f.Must(200, "GET", "/v1/agent-sessions?status=running", "", "")
+	if items := sessions["items"].([]any); len(items) != 0 {
+		t.Errorf("sessions running: got %v, want none", items)
 	}
 }

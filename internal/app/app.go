@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -70,6 +71,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/records"
 	"github.com/mustie7iy/agentic-erp/internal/revenue"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
+	"github.com/mustie7iy/agentic-erp/internal/sap"
 	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/packs"
@@ -224,10 +226,19 @@ type Config struct {
 	// Providers is the client e-invoicing providers are called through
 	// (einvoicing.NewClient, ADR-0061 §3); nil: a fetch is refused, 503.
 	Providers *egress.Client
+	// SAP is the client sap_odata connectors' systems are read through
+	// (sap.NewClient, ADR-0041 As built, product owner 2026-11-16); nil:
+	// a run from one is refused, 503.
+	SAP *egress.Client
 	// WebhookReceiver is the walkthrough's webhook receiver, the one
 	// loopback address a subscription may name (ERP_WALKTHROUGH_RECEIVER,
 	// refused outside development, ADR-0041 As built); zero: none.
 	WebhookReceiver netip.AddrPort
+	// SFTPControl judges every address bank and treasury channels dial
+	// (egress.DialControl: public addresses, and the walkthrough's SFTP
+	// stand-in, ERP_WALKTHROUGH_SFTP, refused outside development); nil:
+	// public addresses only.
+	SFTPControl func(network, address string, c syscall.RawConn) error
 }
 
 // certifications bounds agents' autonomy by their type's certification
@@ -415,7 +426,7 @@ func Payments(cfg Config) *payments.Endpoints {
 		Postings: postings(),
 		Payees:   partner.Payees{Keys: cfg.FieldKeys}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Actors: identity.Actors{}, Roles: identity.Directory{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects,
-		Retention: cfg.Retention, Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets)},
+		Retention: cfg.Retention, Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets), Control: cfg.SFTPControl},
 		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Approvals: opener(), Sessions: agents.Sessions{}, Now: cfg.Now}
 }
 
@@ -448,7 +459,7 @@ func Integration(cfg Config) *integration.Endpoints {
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Orders: procurementEndpoints(cfg), OrderLocks: procurement.Orders{}, OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Invoiced: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{}, Centers: ledger.CenterMigration{}, Actuals: ledger.AssignmentBalances{},
-		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, Receiver: cfg.WebhookReceiver, ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS,
+		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, Receiver: cfg.WebhookReceiver, ExtractDir: cfg.ExtractDir, SAP: sapClient(cfg.SAP), Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS,
 		Now: cfg.Now} // the clock a migration run's day is read from (the company's date, review:batch63)
 }
 
@@ -660,6 +671,15 @@ func calendar() ledger.Calendar { return ledger.Calendar{LegalEntities: tenancy.
 func controllingPostings() ledger.Postings {
 	return ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
 		CostObjects: controlling.CostObjects{}}
+}
+
+// sapClient is the configured OData client as integration takes it: a
+// nil client stays a nil interface, which integration refuses.
+func sapClient(c *egress.Client) sap.Getter {
+	if c == nil {
+		return nil
+	}
+	return c
 }
 
 // resolver is the configured secret resolver, or the replica's own

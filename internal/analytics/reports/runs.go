@@ -115,16 +115,56 @@ func (s *Scheduler) scheduled(ctx context.Context) ([]scheduled, error) {
 }
 
 // runReport makes the report's run when one is due, as its owner, and
-// reports whether it kept one.
+// reports whether it kept one. Its queries run in one transaction, its
+// results are stored with none open (an object store's write may take a
+// while, and a transaction held across it would hold a connection and the
+// report's lock as long), and the run is kept in a second, which finds
+// the day still due before it keeps it: a run another replica kept
+// meanwhile leaves this one's object unreferenced, never two runs of a
+// day.
 func (s *Scheduler) runReport(ctx context.Context, sc scheduled) (bool, error) {
+	var run *keptRun
+	var body []byte
+	if err := s.asOwner(ctx, sc, func(ctx context.Context, tx pgx.Tx, owner reqctx.Principal) (err error) {
+		run, body, err = s.due(ctx, tx, owner, sc)
+		return err
+	}); err != nil || run == nil {
+		return false, err
+	}
+	if body != nil {
+		if err := s.Reports.Objects.Put(ctx, run.ObjectKey, body, blobstore.PutOptions{ContentType: "application/json"}); err != nil {
+			return false, fmt.Errorf("analytics: keep run %s of report %s: %w", run.ID, run.Report.ID, err)
+		}
+	}
 	ran := false
+	err := s.asOwner(ctx, sc, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal) error {
+		// The report may have been removed or unscheduled while its results
+		// were stored, or the day kept by another replica: then nothing is kept.
+		r, err := report(ctx, tx, owner(p.ID), sc.report, false)
+		if err != nil || r.Schedule == nil || !r.Schedule.On(run.Date) {
+			return err
+		}
+		done, err := kept(ctx, tx, run.Report.ID, run.Date)
+		if err != nil || done {
+			return err
+		}
+		ran = true
+		return keep(ctx, tx, p, *run)
+	})
+	return ran && err == nil, err
+}
+
+// asOwner runs fn in a transaction of the report's tenant as its owner,
+// holding the report's run lock; a report another replica holds is
+// skipped.
+func (s *Scheduler) asOwner(ctx context.Context, sc scheduled, fn func(ctx context.Context, tx pgx.Tx, owner reqctx.Principal) error) error {
 	var (
 		tx    pgx.Tx
 		owner reqctx.Principal
 	)
 	job := uow.Job{Begin: s.Begin, Name: "analytics: run report " + sc.report.String(), Scope: database.Scope{Role: s.AppRole, TenantID: sc.tenant},
 		Now: s.Reports.Now}
-	err := job.As(ctx, func(ctx context.Context, t pgx.Tx) (reqctx.Principal, bool, error) {
+	return job.As(ctx, func(ctx context.Context, t pgx.Tx) (reqctx.Principal, bool, error) {
 		var mine bool
 		if err := t.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended('analytics.report_run:' || $1::text, 0))`, sc.report).Scan(&mine); err != nil {
 			return reqctx.Principal{}, false, fmt.Errorf("analytics: lock the runs of report %s: %w", sc.report, err)
@@ -138,40 +178,47 @@ func (s *Scheduler) runReport(ctx context.Context, sc scheduled) (bool, error) {
 		}
 		tx, owner = t, p
 		return p, true, nil
-	}, func(ctx context.Context) (err error) {
-		ran, err = s.due(ctx, tx, owner, sc)
-		return err
+	}, func(ctx context.Context) error {
+		return fn(ctx, tx, owner)
 	})
-	return ran, err
 }
 
-// due keeps the report's run for the company's date today when one is
-// due and none is kept, as its owner p (in ctx, with tx).
-func (s *Scheduler) due(ctx context.Context, tx pgx.Tx, p reqctx.Principal, sc scheduled) (bool, error) {
+// due makes the report's run for the company's date today when one is due
+// and none is kept, as its owner p (in ctx, with tx): the run to keep and,
+// for a success, the results to store at its object key; nil when none is
+// due.
+func (s *Scheduler) due(ctx context.Context, tx pgx.Tx, p reqctx.Principal, sc scheduled) (*keptRun, []byte, error) {
 	r, err := report(ctx, tx, owner(p.ID), sc.report, false)
 	// Removed or unscheduled since it was found: a removed report has no
 	// schedule (report_removed_unscheduled).
 	if err != nil || r.Schedule == nil {
-		return false, err
+		return nil, nil, err
 	}
 	// A company the configuration no longer has dates the run in UTC, as
 	// a company without a time zone does (config.Config.CompanyDay).
 	day, _, err := s.Reports.companyDay(ctx, r.Schedule.Company)
 	if err != nil {
-		return false, fmt.Errorf("analytics: run report %s: %w", r.ID, err)
+		return nil, nil, fmt.Errorf("analytics: run report %s: %w", r.ID, err)
 	}
-	var kept bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM analytics.report_run WHERE report_id = $1 AND run_date = $2)`, r.ID, day.Date).Scan(&kept); err != nil {
-		return false, fmt.Errorf("analytics: runs of report %s: %w", r.ID, err)
-	}
-	if kept || !r.Schedule.On(day.Date) {
-		return false, nil
+	done, err := kept(ctx, tx, r.ID, day.Date)
+	if err != nil || done || !r.Schedule.On(day.Date) {
+		return nil, nil, err
 	}
 	run := keptRun{ID: uuid.Must(uuid.NewV7()), Report: r, Date: day.Date, RunAs: p.ID}
-	if err := s.execute(ctx, tx, p, &run); err != nil {
-		return false, err
+	body, err := s.execute(ctx, tx, p, &run)
+	if err != nil {
+		return nil, nil, err
 	}
-	return true, keep(ctx, tx, p, run)
+	return &run, body, nil
+}
+
+// kept reports whether the report has a run of the day.
+func kept(ctx context.Context, tx pgx.Tx, report uuid.UUID, day time.Time) (bool, error) {
+	var done bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM analytics.report_run WHERE report_id = $1 AND run_date = $2)`, report, day).Scan(&done); err != nil {
+		return false, fmt.Errorf("analytics: runs of report %s: %w", report, err)
+	}
+	return done, nil
 }
 
 // keptRun is a run as it is kept.
@@ -192,27 +239,27 @@ type keptRun struct {
 	FailureCode, FailureDetail string
 }
 
-// execute runs the report's queries as its owner and writes its results
-// to object storage, or records the problem that failed it: the owner no
-// longer active, or a refusal of a query (below 500). Any other error is
-// returned, leaving the day due.
-func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run *keptRun) error {
+// execute runs the report's queries as its owner and returns its results
+// to store at the run's object key, or records the problem that failed it
+// (no results): the owner no longer active, or a refusal of a query (below
+// 500). Any other error is returned, leaving the day due.
+func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run *keptRun) ([]byte, error) {
 	if err := s.mayRun(ctx, tx, p); err != nil {
-		return failed(run, err)
+		return nil, failed(run, err)
 	}
 	// The companies the queries cover, read in the same transaction as
 	// they run (endpoint's principal reads the owner's access too).
 	companies, err := s.Reports.companies(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sess, out, results, err := s.Reports.rerun(reqctx.WithActing(ctx, p), run.Report.Spec, run.Report.Queries)
 	if err != nil {
-		return failed(run, err)
+		return nil, failed(run, err)
 	}
 	permissions, err := s.Reports.permissions(ctx, run.Report.Queries)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	res := Results{Report: run.Report, Spec: out.Spec, DataThrough: sess.DataThrough()}
 	for _, qid := range sortedIDs(results) {
@@ -222,11 +269,8 @@ func (s *Scheduler) execute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	body, _ := api.MarshalJSON() // the generated type always encodes
 	sum := sha256.Sum256(body)
 	key := blobstore.Key(p.TenantID, blobstore.KindReportRuns, run.ID.String()+".json")
-	if err := s.Reports.Objects.Put(ctx, key, body, blobstore.PutOptions{ContentType: "application/json"}); err != nil {
-		return fmt.Errorf("analytics: keep run %s of report %s: %w", run.ID, run.Report.ID, err)
-	}
 	run.ObjectKey, run.SHA256, run.DataThrough, run.Companies, run.Permissions = key, sum[:], res.DataThrough, companies, permissions
-	return nil
+	return body, nil
 }
 
 // mayRun authorizes the run as the owner's own runReport is authorized

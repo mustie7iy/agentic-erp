@@ -147,7 +147,7 @@ func offered(t string) bool {
 // tenant learns at once of an endpoint that could never be reached.
 func (e *Endpoints) checkURL(ctx context.Context, raw string) error {
 	if err := egress.CheckURL(ctx, e.Resolver, raw, e.Receiver); err != nil {
-		return invalid("integration.invalid_webhook_url", "url",
+		return problem.Invalid("integration.invalid_webhook_url", "url",
 			"An https URL without credentials or fragment, whose host resolves (now) to public addresses only; a host that failed to resolve may be retried.")
 	}
 	return nil

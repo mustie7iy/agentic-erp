@@ -32,7 +32,7 @@ func Cash(cfg Config) *cash.Endpoints {
 		Payments: cashPayments{position: payments.CashPosition{Accounts: ledger.Accounts{}, Owed: ledger.OpenItems{}, Payees: partner.Payees{},
 			Unposted: invoices, Requests: downPayments{}, Orders: invoices}},
 		Ledger: cashLedger{}, Sessions: agents.Sessions{}, Partners: cashPartners{},
-		Treasury: cashTreasury{integration.TreasuryChannels{Secrets: resolver(cfg.Secrets)}},
+		Treasury: cashTreasury{integration.TreasuryChannels{Secrets: resolver(cfg.Secrets), Control: cfg.SFTPControl}},
 		Pages:    cfg.Pages, Now: cfg.Now, Consistent: consistent(cfg)}
 }
 

@@ -235,6 +235,15 @@ func TestRouting(t *testing.T) {
 		t.Error("X-Forwarded-Host: got empty, want the client's host")
 	}
 	check("proto", out["proto"], "http")
+	// The scheme's name is case-insensitive (RFC 9110 §11.1), as the cell reads it: a request the cell would take is routed.
+	lower, _ := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/v1/x", nil)
+	lower.Header.Set("Authorization", "bearer "+is.Token(t, a, "ada", nil))
+	if resp, err := http.DefaultClient.Do(lower); err != nil {
+		t.Fatal(err)
+	} else {
+		_ = resp.Body.Close() // only the status is read
+		check("lower-case bearer", resp.StatusCode, 200)
+	}
 	if host, _ := out["host"].(string); !strings.Contains(host, "127.0.0.1") {
 		t.Errorf("host: got %q, want the cell's 127.0.0.1 address", host)
 	}

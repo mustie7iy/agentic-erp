@@ -164,7 +164,7 @@ func (e *Endpoints) sheetTarget(ctx context.Context, params gen.GetAssetHistoryS
 		return sheetTarget{}, err
 	}
 	if !ok {
-		return sheetTarget{}, invalid("ledger.ledger_not_kept", fmt.Sprintf("Company %s does not keep this ledger.", co.Code), "ledger_id",
+		return sheetTarget{}, problem.InvalidDetail("ledger.ledger_not_kept", fmt.Sprintf("Company %s does not keep this ledger.", co.Code), "ledger_id",
 			"a ledger the company keeps")
 	}
 	periods, err := e.Ledger.Periods(ctx, co.ID, int16(params.FiscalYear))

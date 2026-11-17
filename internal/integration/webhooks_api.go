@@ -93,7 +93,7 @@ func (e *Endpoints) ListWebhookSubscriptions(ctx context.Context, params gen.Lis
 		return nil, fmt.Errorf("integration: list webhook subscriptions: %w", err)
 	}
 	items, next := apitypes.PageOf(ks, ss, func(s Subscription) (string, uuid.UUID) {
-		return s.CreatedAt.UTC().Format(time.RFC3339Nano), s.ID
+		return pagination.Instant(s.CreatedAt), s.ID
 	}, subscriptionToAPI)
 	return &gen.WebhookSubscriptionPage{Items: items, NextPageToken: next}, nil
 }
@@ -201,7 +201,7 @@ func (e *Endpoints) ListWebhookDeliveries(ctx context.Context, params gen.ListWe
 		return nil, fmt.Errorf("integration: list webhook deliveries of %s: %w", params.ID, err)
 	}
 	items, next := apitypes.PageOf(ks, ds, func(d Delivery) (string, uuid.UUID) {
-		return d.CreatedAt.UTC().Format(time.RFC3339Nano), d.ID
+		return pagination.Instant(d.CreatedAt), d.ID
 	}, deliveryToAPI)
 	return &gen.WebhookDeliveryPage{Items: items, NextPageToken: next}, nil
 }

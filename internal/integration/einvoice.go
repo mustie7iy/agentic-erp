@@ -50,7 +50,7 @@ type EInvoiceSettings struct {
 func einvoiceSettings(settings map[string]any) (EInvoiceSettings, error) {
 	for k := range settings {
 		if !slices.Contains(einvoiceKeys, k) {
-			return EInvoiceSettings{}, invalid("integration.invalid_settings", "settings."+k, "Not an einvoice_provider setting; credentials go in secret_ref.")
+			return EInvoiceSettings{}, problem.Invalid("integration.invalid_settings", "settings."+k, "Not an einvoice_provider setting; credentials go in secret_ref.")
 		}
 	}
 	var s EInvoiceSettings
@@ -59,15 +59,15 @@ func einvoiceSettings(settings map[string]any) (EInvoiceSettings, error) {
 	s.Format, _ = settings["format"].(string)    // as adapter
 	switch {
 	case s.Adapter != StandInAdapter:
-		return EInvoiceSettings{}, invalid("integration.invalid_settings", "settings.adapter", "The provider's adapter: standin, the stand-in, until a provider is chosen.")
+		return EInvoiceSettings{}, problem.Invalid("integration.invalid_settings", "settings.adapter", "The provider's adapter: standin, the stand-in, until a provider is chosen.")
 	case !httpsBase(s.BaseURL):
-		return EInvoiceSettings{}, invalid("integration.invalid_settings", "settings.base_url", "The provider's base URL: https, without credentials, query or fragment.")
+		return EInvoiceSettings{}, problem.Invalid("integration.invalid_settings", "settings.base_url", "The provider's base URL: https, without credentials, query or fragment.")
 	case s.Format != PINTAE:
-		return EInvoiceSettings{}, invalid("integration.invalid_settings", "settings.format", "The documents' format: pint_ae, the only one.")
+		return EInvoiceSettings{}, problem.Invalid("integration.invalid_settings", "settings.format", "The documents' format: pint_ae, the only one.")
 	}
 	participants, ok := einvoiceParticipants(settings["participants"])
 	if !ok {
-		return EInvoiceSettings{}, invalid("integration.invalid_settings", "settings.participants",
+		return EInvoiceSettings{}, problem.Invalid("integration.invalid_settings", "settings.participants",
 			"Each company's participant identifier at the provider, by company code: at least one, each identifier once, 1-100 letters, digits or :._-.")
 	}
 	s.Participants = participants
@@ -144,7 +144,7 @@ type EInvoiceConnector struct {
 // credentials are resolved on each use, so a rotated secret takes effect
 // without a restart.
 func (p EInvoiceProviders) Provider(ctx context.Context, id uuid.UUID) (EInvoiceConnector, error) {
-	tx, _, err := reqctx.Request(ctx)
+	tx, principal, err := reqctx.Request(ctx)
 	if err != nil {
 		return EInvoiceConnector{}, err
 	}
@@ -169,7 +169,7 @@ func (p EInvoiceProviders) Provider(ctx context.Context, id uuid.UUID) (EInvoice
 	if p.RefuseStandIn && s.Adapter == StandInAdapter {
 		return EInvoiceConnector{}, standInRefused()
 	}
-	secret, err := p.Secrets.Resolve(ctx, *c.SecretRef)
+	secret, err := tenantSecret(ctx, p.Secrets, principal.TenantID, *c.SecretRef)
 	if err != nil {
 		return EInvoiceConnector{}, problem.Unprocessable("integration.secret_unavailable",
 			"The e-invoicing provider's credentials ("+*c.SecretRef+") cannot be resolved.").WithCause(err)

@@ -3154,7 +3154,14 @@ the database or by a row lock:
   total, audits `payments.payment_run.drop_payment` and publishes
   `payment_excluded`, and goes on; the bank file and `payment_count` cover
   the payments left. A dropped payment is one whose supplier has an
-  exclusion in the run, and every later release step skips it. A release
+  exclusion in the run, and every later release step skips it. A resumed
+  release (`:release` of a run left `releasing` with payments posted)
+  likewise drops each payment not posted whose supplier can no longer be
+  paid as proposed, with the proposal's exclusion reasons or
+  `bank_account_changed` (000348–000349), and does not check the posted
+  ones again (product owner 2026-11-16, ADR-0038 as built); a down
+  payment's payment is dropped by a `request_exclusion` of its request,
+  which is then free for a later run. A release
   that drops every payment fails with `payments.nothing_to_pay`, which
   returns the run (nothing posted) to `proposed`, to be rejected. Without
   this a releasing run with a posted payment and one that can never post

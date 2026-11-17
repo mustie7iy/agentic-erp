@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
@@ -275,11 +276,11 @@ func (a *Agent) run(ctx context.Context, c periodClose, t task) (Result, error) 
 		return Result{}, err
 	}
 	res := Result{Session: s.ID}
-	tools, err := apitools.Tools(a.API, s, t.tools...)
+	tools, err := s.Tools(ctx, t.tools...)
 	if err != nil {
-		// The session is ended rather than left running: nothing was asked.
-		return res, errors.Join(err, s.End(ctx, "failed", anthropic.BetaUsage{}))
+		return res, err
 	}
+	var mu sync.Mutex
 	for _, tool := range tools {
 		if tool.Name() == t.propose {
 			tool.Guard(func(in map[string]any) error {
@@ -290,6 +291,10 @@ func (a *Agent) run(ctx context.Context, c periodClose, t task) (Result, error) 
 				return err
 			})
 			tool.Observe(res.record)
+			// The runner executes one turn's tool calls concurrently: the
+			// guard's count and the observer's list are the run's, so each
+			// call runs whole under the run's lock.
+			tool.Exclusive(&mu)
 		}
 	}
 	prompt := fmt.Sprintf("Period close %s: company %s (legal entity %s), fiscal year %d, period %d, ending %s.\n%sYour session id is %s.",

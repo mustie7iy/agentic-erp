@@ -162,3 +162,16 @@ histories replay. The one-activity workflows (`ProposePaymentRun`,
 `MigrateRun`, `SimulateChange`) have no failure step of this shape: their
 activity records its own failures and its exhausted retries leave the
 Operation for the operator, as before.
+
+**Cancelling tells the engine after the commit (2026-11-16, batch 76
+review).** `POST /v1/operations/{id}:cancel` asks the workflow engine to
+cancel the workflow only once the request's transaction has committed
+(`reqctx.OnCommit`). Asked before, a request that then failed (its audit
+entry, its commit) left the Operation running with its workflow cancelled.
+An engine that does not take the cancellation is still logged, the
+Operation's row being the truth. A sweep of the request handlers found no
+other irreversible effect sent before the commit: the object stores'
+writes before it (payment files, statements, e-invoices, captured
+documents) are content-keyed and written before the row that refers to
+them, so a rolled-back request leaves an unreferenced object a retry finds
+(`ErrExists`), never a row without its object.

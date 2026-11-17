@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 )
 
@@ -104,9 +105,16 @@ func (e *Endpoints) CancelOperation(ctx context.Context, params gen.CancelOperat
 		return nil, err
 	}
 	if e.Workflows != nil && o.WorkflowID != nil {
-		if err := e.Workflows.Cancel(ctx, *o.WorkflowID); err != nil && e.Log != nil {
-			e.Log.WarnContext(ctx, "operation cancelled in the database; the workflow engine did not take the cancellation", "operation", o.ID, "workflow", *o.WorkflowID, "error", err)
-		}
+		// The engine is told once the cancellation has committed: a request
+		// that fails after this point must not leave the operation running
+		// with its workflow cancelled (ADR-0012).
+		id, workflowID := o.ID, *o.WorkflowID
+		reqctx.OnCommit(ctx, func() {
+			after := context.WithoutCancel(ctx)
+			if err := e.Workflows.Cancel(after, workflowID); err != nil && e.Log != nil {
+				e.Log.WarnContext(after, "operation cancelled in the database; the workflow engine did not take the cancellation", "operation", id, "workflow", workflowID, "error", err)
+			}
+		})
 	}
 	if err := audit.Add(ctx, audit.Entry{Action: "platform.operation.cancel", ObjectType: "platform.operation", ObjectID: o.ID,
 		Outcome: "succeeded", Detail: map[string]any{"kind": o.Kind, "from_status": o.Status}}); err != nil {

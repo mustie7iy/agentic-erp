@@ -1985,7 +1985,8 @@ func (UnimplementedHandler) CreateMetricWatcher(ctx context.Context, req *Metric
 
 // CreateMigrationRun implements createMigrationRun operation.
 //
-// Creates a migration run in status `queued`.
+// Creates a migration run in status `queued`. An agent creates only rehearsals (`is_rehearsal` true):
+// another is refused with 403 `identity.agent_not_allowed`.
 //
 // POST /v1/migration-runs
 func (UnimplementedHandler) CreateMigrationRun(ctx context.Context, req *MigrationRunCreate, params CreateMigrationRunParams) (r CreateMigrationRunRes, _ error) {
@@ -9065,7 +9066,8 @@ func (UnimplementedHandler) StartDepreciationRun(ctx context.Context, req *Depre
 // StartMigrationRun implements startMigrationRun operation.
 //
 // Extracts, transforms and loads the scope; the run becomes `loaded`, or `failed`. Requires status
-// `queued`.
+// `queued`. An agent starts only a rehearsal: a run that is not one is refused with 403
+// `identity.agent_not_allowed`, whoever created it.
 //
 // POST /v1/migration-runs/{id}:start
 func (UnimplementedHandler) StartMigrationRun(ctx context.Context, params StartMigrationRunParams) (r StartMigrationRunRes, _ error) {

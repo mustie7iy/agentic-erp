@@ -7,6 +7,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -68,7 +69,7 @@ func load(ctx context.Context, getenv func(string) string) (settings, error) {
 	if s.cache == "" {
 		s.cache = filepath.Join(os.TempDir(), "erp-analytics")
 	}
-	if err := s.level.UnmarshalText([]byte(defaulted(getenv("ERP_LOG_LEVEL"), "info"))); err != nil {
+	if err := s.level.UnmarshalText([]byte(cmp.Or(getenv("ERP_LOG_LEVEL"), "info"))); err != nil {
 		return s, fmt.Errorf("ERP_LOG_LEVEL: %w", err)
 	}
 	var err error
@@ -123,16 +124,9 @@ func objects(getenv func(string) string, t *tlsconf.Store) (blobstore.Store, err
 		// read analytics/ alone, exchanged at the STS endpoint the cell
 		// names (its VPC endpoint), as erp-server's are; unset, the defaults.
 		creds := awscreds.Default(awscreds.Static{}, getenv, getenv("ERP_AWS_STS_ENDPOINT"), getenv("ERP_AWS_IMDS_ENDPOINT"), client)
-		return blobstore.S3{Endpoint: endpoint, Bucket: bucket, Region: defaulted(getenv("ERP_OBJECT_S3_REGION"), "us-east-1"), Credentials: creds, Client: client}, nil
+		return blobstore.S3{Endpoint: endpoint, Bucket: bucket, Region: cmp.Or(getenv("ERP_OBJECT_S3_REGION"), "us-east-1"), Credentials: creds, Client: client}, nil
 	}
 	return nil, errors.New("ERP_OBJECT_DIR or ERP_OBJECT_S3_ENDPOINT with ERP_OBJECT_S3_BUCKET: the store to read")
-}
-
-func defaulted(v, d string) string {
-	if v == "" {
-		return d
-	}
-	return v
 }
 
 // cli runs the reader and returns the exit code: 2 for bad configuration,

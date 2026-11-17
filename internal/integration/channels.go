@@ -3,12 +3,14 @@ package integration
 import (
 	"context"
 	"fmt"
+	"syscall"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
@@ -21,6 +23,11 @@ import (
 // other. Only bank_sftp is a channel until EBICS is certified (T44d).
 type BankChannels struct {
 	Secrets secrets.Resolver // resolves a channel's private key
+	// Control judges every address a channel dials: egress.DialControl's,
+	// with the walkthrough's SFTP stand-in where ERP_WALKTHROUGH_SFTP names
+	// one (development only); nil: egress.RefusePrivate, public addresses
+	// only.
+	Control func(network, address string, c syscall.RawConn) error
 }
 
 // ChannelByName finds the bank channel of that name: a connector of a kind
@@ -47,7 +54,7 @@ func (BankChannels) ChannelByName(ctx context.Context, name string) (uuid.UUID, 
 // or settings do not resolve is refused, and nothing is sent. The key is
 // resolved on each use, so a rotated secret takes effect without a restart.
 func (b BankChannels) Endpoint(ctx context.Context, id uuid.UUID) (sftpclient.Endpoint, error) {
-	return resolve(ctx, b.Secrets, id, sftpChannel{kind: BankSFTP, noun: "bank channel", use: "transmit",
+	return resolve(ctx, b.Secrets, b.Control, id, sftpChannel{kind: BankSFTP, noun: "bank channel", use: "transmit",
 		endpoint: sftpEndpoint}) // a connector stored before T44a checked its settings is refused here
 }
 
@@ -59,9 +66,11 @@ type sftpChannel struct {
 }
 
 // resolve reads the connector as an SFTP channel of the kind, failing
-// closed as BankChannels.Endpoint says, its private key resolved now.
-func resolve(ctx context.Context, keys secrets.Resolver, id uuid.UUID, k sftpChannel) (sftpclient.Endpoint, error) {
-	tx, _, err := reqctx.Request(ctx)
+// closed as BankChannels.Endpoint says, its private key resolved now. The
+// server is the tenant's, so it is dialled to public addresses only, the
+// stand-in apart (product owner 2026-11-16, ADR-0041 As built).
+func resolve(ctx context.Context, keys secrets.Resolver, control func(string, string, syscall.RawConn) error, id uuid.UUID, k sftpChannel) (sftpclient.Endpoint, error) {
+	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return sftpclient.Endpoint{}, err
 	}
@@ -82,7 +91,10 @@ func resolve(ctx context.Context, keys secrets.Resolver, id uuid.UUID, k sftpCha
 	if err != nil {
 		return sftpclient.Endpoint{}, err
 	}
-	if ep.Signer, err = signer(ctx, keys, k.noun, *c.SecretRef); err != nil {
+	if ep.Control = control; control == nil {
+		ep.Control = egress.RefusePrivate
+	}
+	if ep.Signer, err = signer(ctx, keys, p.TenantID, k.noun, *c.SecretRef); err != nil {
 		return sftpclient.Endpoint{}, err
 	}
 	return ep, nil
@@ -98,8 +110,8 @@ func notChannel(k sftpChannel, c Connector) error {
 }
 
 // signer resolves the channel's private key.
-func signer(ctx context.Context, keys secrets.Resolver, noun, ref string) (ssh.Signer, error) {
-	key, err := keys.Resolve(ctx, ref)
+func signer(ctx context.Context, keys Secrets, tenant uuid.UUID, noun, ref string) (ssh.Signer, error) {
+	key, err := tenantSecret(ctx, keys, tenant, ref)
 	if err != nil {
 		return nil, problem.Unprocessable("integration.secret_unavailable", "The "+noun+"'s private key ("+ref+") cannot be resolved.").WithCause(err)
 	}
@@ -114,7 +126,8 @@ func signer(ctx context.Context, keys secrets.Resolver, noun, ref string) (ssh.S
 // exports its companies' snapshots to (ADR-0051 §14, T53h), published to
 // it as BankChannels are to payments: through ports the application wires.
 type TreasuryChannels struct {
-	Secrets secrets.Resolver // resolves a channel's private key
+	Secrets secrets.Resolver                                       // resolves a channel's private key
+	Control func(network, address string, c syscall.RawConn) error // as BankChannels.Control
 }
 
 // TreasuryChannel is a treasury_export connector as the export reads it.
@@ -181,7 +194,7 @@ func treasuryChannel(c Connector) TreasuryChannel {
 // Endpoint resolves a treasury channel into the SFTP endpoint its files
 // are uploaded to, failing closed as BankChannels.Endpoint does.
 func (t TreasuryChannels) Endpoint(ctx context.Context, id uuid.UUID) (sftpclient.Endpoint, error) {
-	return resolve(ctx, t.Secrets, id, sftpChannel{kind: TreasuryExport, noun: "treasury channel", use: "export",
+	return resolve(ctx, t.Secrets, t.Control, id, sftpChannel{kind: TreasuryExport, noun: "treasury channel", use: "export",
 		endpoint: func(settings map[string]any) (sftpclient.Endpoint, error) {
 			t, err := treasurySettings(settings)
 			return t.Endpoint, err

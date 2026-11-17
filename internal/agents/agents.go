@@ -3,7 +3,9 @@
 // here, also through the API, the sessions they work in, every tool call
 // they make and the recommendations they leave for people. Agents
 // recommend; people decide: only a person records what was done with a
-// recommendation.
+// recommendation. The sessions, their autonomy levels, the model gateway
+// and its budgets are ADR-0036; the evaluations that certify an agent are
+// ADR-0039; the one pattern of the recommending agents is ADR-0072.
 package agents
 
 import (
@@ -420,8 +422,6 @@ func (e *Endpoints) GetAgentSession(ctx context.Context, params gen.GetAgentSess
 
 var sessionSort = pagination.Sort{Default: "started_at", DefaultDesc: true, Fields: []pagination.Field{{Name: "started_at", Column: "s.started_at", Type: "timestamptz"}}}
 
-func instant(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.999999Z07:00") }
-
 // ListAgentSessions implements GET /v1/agent-sessions.
 func (e *Endpoints) ListAgentSessions(ctx context.Context, params gen.ListAgentSessionsParams) (gen.ListAgentSessionsRes, error) {
 	tx, _, err := reqctx.Request(ctx)
@@ -440,7 +440,7 @@ func (e *Endpoints) ListAgentSessions(ctx context.Context, params gen.ListAgentS
 	if err != nil {
 		return nil, fmt.Errorf("agents: list sessions: %w", err)
 	}
-	items, next := apitypes.PageOf(ks, sessions, func(s Session) (string, uuid.UUID) { return instant(s.StartedAt), s.ID }, sessionToAPI)
+	items, next := apitypes.PageOf(ks, sessions, func(s Session) (string, uuid.UUID) { return pagination.Instant(s.StartedAt), s.ID }, sessionToAPI)
 	return &gen.AgentSessionPage{Items: items, NextPageToken: next}, nil
 }
 
@@ -559,7 +559,7 @@ func (e *Endpoints) ListRecommendations(ctx context.Context, params gen.ListReco
 	if err != nil {
 		return nil, fmt.Errorf("agents: list recommendations: %w", err)
 	}
-	items, next := apitypes.PageOf(ks, recs, func(r Recommendation) (string, uuid.UUID) { return instant(r.CreatedAt), r.ID }, recommendationToAPI)
+	items, next := apitypes.PageOf(ks, recs, func(r Recommendation) (string, uuid.UUID) { return pagination.Instant(r.CreatedAt), r.ID }, recommendationToAPI)
 	return &gen.RecommendationPage{Items: items, NextPageToken: next}, nil
 }
 

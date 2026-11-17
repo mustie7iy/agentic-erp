@@ -155,7 +155,7 @@ func (e *Endpoints) ListChangeRequests(ctx context.Context, params gen.ListChang
 	if crs, err = e.disclosedAll(ctx, crs); err != nil {
 		return nil, err
 	}
-	items, next := apitypes.PageOf(ks, crs, func(c ChangeRequest) (string, uuid.UUID) { return c.CreatedAt.UTC().Format(time.RFC3339Nano), c.ID }, crToAPI)
+	items, next := apitypes.PageOf(ks, crs, func(c ChangeRequest) (string, uuid.UUID) { return pagination.Instant(c.CreatedAt), c.ID }, crToAPI)
 	return &gen.ChangeRequestPage{Items: items, NextPageToken: next}, nil
 }
 

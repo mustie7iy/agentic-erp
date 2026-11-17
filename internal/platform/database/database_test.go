@@ -189,7 +189,10 @@ func TestOpenAndBeginErrors(t *testing.T) {
 	if _, err := bad.Begin(ctx, database.Scope{}); err == nil {
 		t.Fatal("negative timeout accepted")
 	}
-	tx, _ := pool.Begin(ctx, database.Scope{})
+	tx, err := pool.Begin(ctx, database.Scope{})
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
 	tx.Rollback(ctx)
 	if err := database.SetActor(ctx, tx, uuid.New()); err == nil {
 		t.Fatal("closed transaction accepted")
@@ -219,6 +222,67 @@ func TestBeginOr(t *testing.T) {
 		}
 		if readOnly != "on" {
 			t.Errorf("transaction_read_only: got %q, want on (the scope reaches the pool)", readOnly)
+		}
+	})
+}
+
+// TestRescope: a transaction moved to another scope works in its tenant and
+// role from then on; a statement that fails is reported.
+func TestRescope(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ten := pgtest.NewTenant(t)
+	ctx := context.Background()
+	t.Run("moved", func(t *testing.T) {
+		tx, err := pool.Begin(ctx, database.Scope{Role: "erp_worker"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if err := database.Rescope(ctx, tx, database.Scope{Role: "erp_app", TenantID: ten.ID}); err != nil {
+			t.Fatalf("rescope: %v", err)
+		}
+		var role, tenant string
+		if err := tx.QueryRow(ctx, "SELECT current_user, current_setting('app.tenant_id')").Scan(&role, &tenant); err != nil {
+			t.Fatal(err)
+		}
+		if role != "erp_app" {
+			t.Errorf("current_user: got %q, want erp_app", role)
+		}
+		if tenant != ten.ID.String() {
+			t.Errorf("app.tenant_id: got %q, want %q", tenant, ten.ID)
+		}
+	})
+	t.Run("refused", func(t *testing.T) {
+		for name, s := range map[string]database.Scope{
+			"no role":   {TenantID: ten.ID},
+			"read-only": {Role: "erp_app", TenantID: ten.ID, ReadOnly: true},
+			"isolation": {Role: "erp_app", TenantID: ten.ID, Isolation: pgx.Serializable},
+		} {
+			t.Run(name, func(t *testing.T) {
+				tx, err := pool.Begin(ctx, database.Scope{Role: "erp_worker"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer tx.Rollback(ctx)
+				if err := database.Rescope(ctx, tx, s); err == nil {
+					t.Errorf("rescope to %+v: got nil, want it refused", s)
+				}
+			})
+		}
+	})
+	t.Run("failing", func(t *testing.T) {
+		for name, at := range map[string]int{"tenant": 1, "role": 2} {
+			t.Run(name, func(t *testing.T) {
+				tx, err := pool.Begin(ctx, database.Scope{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer tx.Rollback(ctx)
+				err = database.Rescope(ctx, &pgtest.FailingTx{Tx: tx, FailAt: at}, database.Scope{Role: "erp_app", TenantID: ten.ID})
+				if !errors.Is(err, pgtest.ErrInjected) {
+					t.Errorf("got %v, want %v", err, pgtest.ErrInjected)
+				}
+			})
 		}
 	})
 }
@@ -398,6 +462,44 @@ func TestBeginActive(t *testing.T) {
 		}
 		if err := begins(t, failing, app); !errors.Is(err, pgtest.ErrInjected) {
 			t.Errorf("failed status read: got %v, want the injected failure", err)
+		}
+	})
+}
+
+// TestTenants: a worker's read across tenants runs read-only as the role
+// it names and returns the tenants it selects; a failed begin and a failed
+// query are returned.
+func TestTenants(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	ten := pgtest.NewTenant(t)
+	query := `SELECT id FROM tenancy.tenant WHERE id = $1 AND current_user = 'erp_worker' AND current_setting('transaction_read_only') = 'on'`
+	t.Run("listed", func(t *testing.T) {
+		got, err := database.Tenants(ctx, pool, nil, "erp_worker", query, ten.ID)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		if len(got) != 1 || got[0] != ten.ID {
+			t.Errorf("got %v, want [%s]", got, ten.ID)
+		}
+	})
+	t.Run("failed begin", func(t *testing.T) {
+		down := errors.New("database down")
+		_, err := database.Tenants(ctx, pool, func(context.Context, database.Scope) (pgx.Tx, error) { return nil, down }, "erp_worker", query, ten.ID)
+		if !errors.Is(err, down) {
+			t.Errorf("got %v, want %v", err, down)
+		}
+	})
+	t.Run("failed query", func(t *testing.T) {
+		failing := func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil
+		}
+		if _, err := database.Tenants(ctx, pool, failing, "erp_worker", query, ten.ID); !errors.Is(err, pgtest.ErrInjected) {
+			t.Errorf("got %v, want the injected failure", err)
 		}
 	})
 }

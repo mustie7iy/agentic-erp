@@ -588,7 +588,10 @@ func writeMatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s Statement,
 		"legal_entity_id": s.LegalEntityID, "kind": m.kind, "rule": m.rule, "status": m.status, "candidates": len(m.candidates)}
 	detail := map[string]any{"bank_statement_id": s.ID, "line_no": lineNo, "kind": m.kind, "rule": m.rule, "status": m.status, "reason": m.reason,
 		"targets": m.candidates}
-	name := map[bool]string{true: "bank_statement_line_excluded", false: "bank_statement_line_matched"}[m.status == MatchExcluded]
+	name := "bank_statement_line_matched"
+	if m.status == MatchExcluded {
+		name = "bank_statement_line_excluded"
+	}
 	if m.kind == MatchAgent {
 		name, payload["session_id"], payload["proposal"], detail["session_id"], detail["proposal"] =
 			"bank_statement_line_proposed", m.session, m.proposal, m.session, m.proposal

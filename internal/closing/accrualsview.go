@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -87,7 +86,7 @@ func (e *Endpoints) ListAccrualProposals(ctx context.Context, params gen.ListAcc
 	if err != nil {
 		return nil, fmt.Errorf("closing: list accrual proposals: %w", err)
 	}
-	items, next, err := apitypes.PageWith(ks, as, func(a accrual) (string, uuid.UUID) { return a.CreatedAt.UTC().Format(time.RFC3339Nano), a.ID },
+	items, next, err := apitypes.PageWith(ks, as, func(a accrual) (string, uuid.UUID) { return pagination.Instant(a.CreatedAt), a.ID },
 		func(page []accrual) (accrualView, error) { return e.accrualView(ctx, tx, page, statuses) },
 		func(a accrual, v accrualView) gen.AccrualProposal { return v.toAPI(a) })
 	if err != nil {

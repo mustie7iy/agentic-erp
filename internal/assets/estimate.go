@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -144,13 +145,13 @@ func (e *Endpoints) estimateChanges(ctx context.Context, a Asset, estimated []Te
 // estimate_change_prospective).
 func prospective(number string, t Terms, per Period, field string) error {
 	if per.FiscalYear < *t.BookedYear || per.FiscalYear == *t.BookedYear && per.Number <= *t.BookedPeriod {
-		return invalid("assets.change_not_prospective", fmt.Sprintf("Asset %s's depreciation is booked through %d/%02d in this ledger; a change in "+
+		return problem.InvalidDetail("assets.change_not_prospective", fmt.Sprintf("Asset %s's depreciation is booked through %d/%02d in this ledger; a change in "+
 			"estimate applies from a later period, so the depreciation booked stays.", number, *t.BookedYear, *t.BookedPeriod), field,
 			fmt.Sprintf("a period after %d/%02d", *t.BookedYear, *t.BookedPeriod))
 	}
 	if n := len(t.Changes); n > 0 && per.Start.Before(t.Changes[n-1].From) {
 		latest := t.Changes[n-1]
-		return invalid("assets.change_not_prospective", fmt.Sprintf("Asset %s's latest change in estimate in this ledger applies from %d/%02d; a "+
+		return problem.InvalidDetail("assets.change_not_prospective", fmt.Sprintf("Asset %s's latest change in estimate in this ledger applies from %d/%02d; a "+
 			"later change applies from that period or after it.", number, latest.FiscalYear, latest.Period), field,
 			fmt.Sprintf("%d/%02d or later", latest.FiscalYear, latest.Period))
 	}
@@ -232,12 +233,12 @@ func stopsProspectively(number string, t Terms, per Period, field string) error 
 	by, bp := *t.BookedYear, *t.BookedPeriod
 	booked := func(year, period int16) bool { return year < by || year == by && period <= bp }
 	if booked(per.FiscalYear, per.Number) {
-		return invalid("assets.change_not_prospective", fmt.Sprintf("Asset %s's depreciation is booked through %d/%02d in this ledger; it is "+
+		return problem.InvalidDetail("assets.change_not_prospective", fmt.Sprintf("Asset %s's depreciation is booked through %d/%02d in this ledger; it is "+
 			"classified as held for sale from a later period, so the depreciation booked stays.", number, by, bp), field,
 			fmt.Sprintf("a period after %d/%02d", by, bp))
 	}
 	if h := t.HeldForSale; h != nil && booked(h.FiscalYear, h.Period) {
-		return invalid("assets.change_not_prospective", fmt.Sprintf("Asset %s is held for sale from %d/%02d in this ledger, a period its "+
+		return problem.InvalidDetail("assets.change_not_prospective", fmt.Sprintf("Asset %s is held for sale from %d/%02d in this ledger, a period its "+
 			"depreciation is booked through; the classification stays.", number, h.FiscalYear, h.Period), field, "no change")
 	}
 	return nil

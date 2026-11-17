@@ -38,8 +38,8 @@ func TestAIKillSwitchThroughTheControlPlane(t *testing.T) {
 	if got["suspended_reason"] != reason {
 		t.Errorf("reason: got %v, want %s", got["suspended_reason"], reason)
 	}
-	if _, op := auditAction(t, ten.ID, "agents.ai_policy.suspend"); op != "ops|alice" {
-		t.Errorf("audit: got operator %q, want ops|alice", op)
+	if _, op := auditAction(t, ten.ID, "agents.ai_policy.suspend"); op != p.opID("ops|alice") {
+		t.Errorf("audit: got operator %q, want alice's id", op)
 	}
 	if d := fmt.Sprint(auditDetail(t, ten.ID, "agents.ai_policy.suspend")); strings.Contains(d, reason) {
 		t.Errorf("audit detail carries the reason: %s", d)
@@ -102,5 +102,18 @@ func TestAIKillSwitchDatabaseFailures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			everyFailure(t, s, name, fn)
 		})
+	}
+}
+
+// TestOperatorNamedByEmail: an operator whose token's subject is an email
+// address acts, audited by the id derived from it: the audit trail refuses
+// an email address in a detail (ADR-0026), so it never carries the subject.
+func TestOperatorNamedByEmail(t *testing.T) {
+	p := newPlane(t)
+	ten := pgtest.NewTenant(t)
+	policy := tenants + "/" + ten.ID.String() + "/ai-policy"
+	p.must(200, "alice@example.com", "POST", policy+":suspend", `{"reason": "Unpaid invoices"}`, "If-Match", "*")
+	if _, op := auditAction(t, ten.ID, "agents.ai_policy.suspend"); op != p.opID("alice@example.com") {
+		t.Errorf("audit: got operator %q, want the id %s", op, p.opID("alice@example.com"))
 	}
 }

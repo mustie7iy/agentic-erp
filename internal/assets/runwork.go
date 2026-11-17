@@ -302,6 +302,8 @@ func writeBatch(ctx context.Context, tx pgx.Tx, p reqctx.Principal, w batchWork,
 	for i, c := range w.assets {
 		ids[i] = c.asset
 		if c.difference != 0 {
+			// amount is one side of the batch's entry, which the ledger
+			// posted only with its total in range (money.Sum), so it is too.
 			amount, moved, movements = amount+c.difference, append(moved, c.asset), append(movements, uuid.Must(uuid.NewV7()))
 			accumulated, accumulatedGC = append(accumulated, -c.difference), append(accumulatedGC, -c.differenceGC)
 		}
@@ -483,6 +485,10 @@ func postedTotals(batches []Batch) (money.Minor, int32, int32) {
 	var posted, skipped int32
 	for _, b := range batches {
 		if b.Status == batchPosted { // its totals are set with the status (depreciation_batch_posted)
+			// Bounded: each batch's amount is one posted entry's side, and
+			// the posted batches' sum is what finishing the run stores in
+			// its bigint amount, which the database refuses out of range
+			// (sum() is numeric there); a running run's is a part of it.
 			amount, posted, skipped = amount+*b.Amount, posted+*b.Posted, skipped+*b.Skipped
 		}
 	}

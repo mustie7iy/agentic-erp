@@ -1,14 +1,14 @@
 // Package partner is the business partner context (03-data-model §3.6):
 // suppliers and customers on the SAP business partner model, with company
-// data per role and legal entity, effective-dated addresses and bank accounts, and
-// encrypted tax identifiers. Master data changes are governed (SAP MDG):
-// creating a partner, changing its data or bank details and unblocking it
-// open a partner change that is applied only when its approval request is
-// approved. Blocking needs no approval and applies at once.
-//
-// T3 scope: approval requests arrive with the workflow context (T4), which
-// calls ApplyChange, RejectChange and CancelChange; until then changes stay
-// pending.
+// data per role and legal entity, effective-dated addresses and bank
+// accounts, and encrypted tax identifiers (ADR-0018). Master data changes
+// are governed (SAP MDG): creating a partner, changing its data or bank
+// details and unblocking it open a partner change that is applied only
+// when its approval request is approved: the approvals context reports
+// each request's outcome to Approvals, which applies, rejects or cancels
+// the change. Blocking needs no approval and applies at once. Partner
+// numbers and ids follow ADR-0004; personal data is blocked and blanked as
+// ADR-0079 §11 and §12 set out.
 package partner
 
 import (

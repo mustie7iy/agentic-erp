@@ -86,7 +86,7 @@ func retirementReversible(asset Asset, q Retirement, on time.Time) error {
 			asset.Number, q.Status))
 	}
 	if on.Before(q.PostingDate) {
-		return invalid("assets.reversal_before_original", fmt.Sprintf("The reversal's posting date %s is before the retirement's, %s.",
+		return problem.InvalidDetail("assets.reversal_before_original", fmt.Sprintf("The reversal's posting date %s is before the retirement's, %s.",
 			on.Format(time.DateOnly), q.PostingDate.Format(time.DateOnly)), "posting_date", "on or after "+q.PostingDate.Format(time.DateOnly))
 	}
 	if asset.LastSeq != q.Seq {

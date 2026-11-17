@@ -181,10 +181,9 @@ func (a Agent) Run(ctx context.Context, model *llm.Runner, client *apitools.Clie
 		return Result{}, err
 	}
 	res := Result{Session: s.ID}
-	tools, err := apitools.Tools(client, s, a.operations()...)
+	tools, err := s.Tools(ctx, a.operations()...)
 	if err != nil {
-		// The session is ended rather than left running: nothing was asked.
-		return res, errors.Join(err, s.End(ctx, "failed", anthropic.BetaUsage{}))
+		return res, err
 	}
 	if a.Contract {
 		tools = append(tools, apitools.Contract(s))

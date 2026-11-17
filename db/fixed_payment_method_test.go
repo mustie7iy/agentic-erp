@@ -136,7 +136,7 @@ func TestFixedPaymentMethod(t *testing.T) {
 		// method_not_allowed is admitted by the check (000253) though no
 		// run writes it: the supplier's methods no longer restrict a fixed
 		// one (ADR-0038 As built, an item's fixed payment method).
-		for _, reason := range []string{"method_not_active", "method_not_allowed", "fixed_method_in_bank_run", "item_reversed", "supplier_blocked"} {
+		for _, reason := range []string{"method_not_active", "method_not_allowed", "fixed_method_in_bank_run", "item_reversed", "supplier_blocked", "bank_account_changed"} {
 			cases = append(cases, attempt{"the reason " + reason, exclude(id(), "S", reason), ""})
 		}
 		check(t, cases)

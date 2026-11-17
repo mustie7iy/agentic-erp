@@ -120,14 +120,17 @@ func (e *Endpoints) CreateRun(ctx context.Context, in NewRun) (Run, Connector, e
 		return Run{}, Connector{}, err
 	}
 	if in.Mode != "documents" && in.Mode != "balances" {
-		return Run{}, Connector{}, invalid("integration.unknown_mode", "mode", "documents or balances")
+		return Run{}, Connector{}, problem.Invalid("integration.unknown_mode", "mode", "documents or balances")
+	}
+	if err := rehearsalOnly(p, in.IsRehearsal); err != nil {
+		return Run{}, Connector{}, err
 	}
 	c, err := getConnector(ctx, tx, in.ConnectorID, false)
 	if err != nil {
 		return Run{}, Connector{}, problem.Reference(err, "connector_id", "connector", "no connector with this id")
 	}
 	if c.Kind != SAPFile && c.Kind != SAPOData {
-		return Run{}, Connector{}, invalid("integration.not_a_source", "connector_id", "Migration runs read from an sap_file or sap_odata connector.")
+		return Run{}, Connector{}, problem.Invalid("integration.not_a_source", "connector_id", "Migration runs read from an sap_file or sap_odata connector.")
 	}
 	if _, err := e.entities(ctx, in.Scope); err != nil {
 		return Run{}, Connector{}, err
@@ -157,7 +160,7 @@ func (e *Endpoints) entities(ctx context.Context, s Scope) (map[string]tenancy.E
 			return nil, err
 		}
 		if le.Status != "active" {
-			return nil, invalid("integration.legal_entity_not_active", field, "The legal entity is "+le.Status+".")
+			return nil, problem.Invalid("integration.legal_entity_not_active", field, "The legal entity is "+le.Status+".")
 		}
 		out[le.Code] = le
 	}
@@ -178,7 +181,7 @@ func system(c Connector) string {
 // source is the SAP reader a connector describes. Its settings were
 // checked when they were saved and are checked again here: stored settings
 // may predate a rule, and a run must answer 422, not panic, on them.
-func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error) {
+func (e *Endpoints) source(ctx context.Context, tenant uuid.UUID, c Connector) (sap.Source, error) {
 	if err := checkSettings(c.Kind, c.Settings); err != nil {
 		return nil, err
 	}
@@ -189,8 +192,8 @@ func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error)
 		path, _ := c.Settings["path"].(string) // checkSettings held it to a local path
 		return sap.FileSource{Path: filepath.Join(e.ExtractDir, path)}, nil
 	}
-	baseURL, _ := c.Settings["base_url"].(string) // checkSettings held it to an http(s) URL
-	o := &sap.ODataSource{BaseURL: baseURL, HTTP: e.HTTP}
+	baseURL, _ := c.Settings["base_url"].(string) // checkSettings held it to an https URL
+	o := &sap.ODataSource{BaseURL: baseURL, HTTP: e.SAP}
 	if v, ok := c.Settings["client"].(string); ok {
 		o.Client = v
 	}
@@ -199,12 +202,15 @@ func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error)
 		o.PageSize = int(v)
 	}
 	if c.SecretRef != nil {
-		credentials, err := e.Secrets.Resolve(ctx, *c.SecretRef)
+		credentials, err := tenantSecret(ctx, e.Secrets, tenant, *c.SecretRef)
 		user, password, found := strings.Cut(credentials, ":")
 		if err != nil || !found {
 			return nil, problem.Unprocessable("integration.secret_unavailable", "The connector's credentials ("+*c.SecretRef+") cannot be resolved as user:password.").WithCause(err)
 		}
 		o.User, o.Password = user, password
+	}
+	if e.SAP == nil {
+		return nil, problem.Unavailable("SAP systems cannot be read on this server: it has no egress client for them.", 0)
 	}
 	return o, nil
 }
@@ -212,7 +218,7 @@ func (e *Endpoints) source(ctx context.Context, c Connector) (sap.Source, error)
 // prepare reads what the platform holds for the run's scope and extracts
 // the scope from the connector. An extraction that fails is 503: the run
 // stays queued (or loaded) for another attempt.
-func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap.Extract, Connector, error) {
+func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, r Run) (target, *sap.Extract, Connector, error) {
 	c, err := getConnector(ctx, tx, r.ConnectorID, false)
 	if err != nil {
 		return target{}, nil, c, err
@@ -250,7 +256,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	if t.exponents, err = currency.Load(ctx, tx); err != nil {
 		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
 	}
-	ext, err := e.extract(ctx, c, scope, &t)
+	ext, err := e.extract(ctx, tenant, c, scope, &t)
 	if err != nil {
 		return t, nil, c, err
 	}
@@ -290,8 +296,8 @@ func (t *target) configure(doc *config.Config, now time.Time) error {
 // extract reads the scope from the connector's source and gives the
 // target the form of the extract's amounts with the decimals its TCURX
 // gives (amounts.go).
-func (e *Endpoints) extract(ctx context.Context, c Connector, scope sap.Scope, t *target) (*sap.Extract, error) {
-	src, err := e.source(ctx, c)
+func (e *Endpoints) extract(ctx context.Context, tenant uuid.UUID, c Connector, scope sap.Scope, t *target) (*sap.Extract, error) {
+	src, err := e.source(ctx, tenant, c)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +369,17 @@ func finish(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run, op operat
 // migration workflow's; without one it completes within the request.
 func (e *Endpoints) StartRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (operations.Operation, error) {
 	return e.runStep(ctx, id, ifMatch, step{from: Queued, refusal: "Only a queued migration run can be started",
-		kind: "integration.migrate", action: "integration.migration_run.start", work: e.load})
+		kind: "integration.migrate", action: "integration.migration_run.start", work: e.load, rehearsalsForAgents: true})
+}
+
+// rehearsalOnly refuses an agent a migration run that is not a rehearsal:
+// an agent rehearses, rolled back after its report, and only a person or
+// an integration loads a scope for good (ADR-0010, review:batch76).
+func rehearsalOnly(p reqctx.Principal, isRehearsal bool) error {
+	if p.Kind == reqctx.KindAgent && !isRehearsal {
+		return problem.Forbidden("identity.agent_not_allowed", "An agent creates and starts only rehearsals; a person loads a migration run.")
+	}
+	return nil
 }
 
 // QueuedRuns lists, across tenants and in the order they were queued, the
@@ -389,10 +405,12 @@ func QueuedRuns(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 // step is one move of a migration run: the status it starts from, the
 // refusal when the run is elsewhere (runStep appends "; this one is
 // <status>."), the operation kind and audit action, and the work done
-// within the request when there is no workflow engine.
+// within the request when there is no workflow engine. rehearsalsForAgents
+// refuses an agent the step of a run that is not a rehearsal.
 type step struct {
 	from, refusal, kind, action string
 	work                        func(context.Context, pgx.Tx, reqctx.Principal, Run, operations.Operation, target, *sap.Extract, Connector) (operations.Operation, error)
+	rehearsalsForAgents         bool
 }
 
 // runStep moves the run on: with a workflow engine its work is handed to
@@ -406,6 +424,11 @@ func (e *Endpoints) runStep(ctx context.Context, id uuid.UUID, ifMatch func(int3
 	if err != nil {
 		return operations.Operation{}, err
 	}
+	if st.rehearsalsForAgents {
+		if err := rehearsalOnly(p, r.IsRehearsal); err != nil {
+			return operations.Operation{}, err
+		}
+	}
 	if err := ifMatch(r.Version); err != nil {
 		return operations.Operation{}, err
 	}
@@ -418,7 +441,7 @@ func (e *Endpoints) runStep(ctx context.Context, id uuid.UUID, ifMatch func(int3
 		}
 		return e.hand(ctx, tx, p, r, st.kind, st.action)
 	}
-	t, ext, c, err := e.prepare(ctx, tx, r)
+	t, ext, c, err := e.prepare(ctx, tx, p.TenantID, r)
 	if err != nil {
 		return operations.Operation{}, err
 	}
@@ -436,7 +459,7 @@ func (e *Endpoints) prepareAs(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	if err := e.Requesters.MayAct(ctx, tx, p.ID); err != nil {
 		return target{}, nil, Connector{}, fmt.Errorf("integration: the requester of migration run %s: %w", r.ID, err)
 	}
-	return e.prepare(ctx, tx, r)
+	return e.prepare(ctx, tx, p.TenantID, r)
 }
 
 // activeConnector is the run's connector, active.
@@ -703,7 +726,7 @@ func (e *Endpoints) ListMigrationRuns(ctx context.Context, params gen.ListMigrat
 		return nil, fmt.Errorf("integration: list migration runs: %w", err)
 	}
 	items, next, err := apitypes.PageWith(ks, runs, func(r Run) (string, uuid.UUID) {
-		return r.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999Z07:00"), r.ID
+		return pagination.Instant(r.CreatedAt), r.ID
 	}, connectorsOf(ctx, tx), runToAPI)
 	if err != nil {
 		return nil, fmt.Errorf("integration: list migration runs: %w", err)

@@ -421,6 +421,6 @@ func (e *Endpoints) ListCenterChanges(ctx context.Context, params gen.ListCenter
 	if err != nil {
 		return nil, fmt.Errorf("ledger: list center changes: %w", err)
 	}
-	items, next := apitypes.PageOf(ks, cs, func(c CenterChange) (string, uuid.UUID) { return c.CreatedAt.Format(time.RFC3339Nano), c.ID }, changeToAPI)
+	items, next := apitypes.PageOf(ks, cs, func(c CenterChange) (string, uuid.UUID) { return pagination.Instant(c.CreatedAt), c.ID }, changeToAPI)
 	return &gen.CenterChangePage{Items: items, NextPageToken: next}, nil
 }

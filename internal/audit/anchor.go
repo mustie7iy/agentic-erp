@@ -62,14 +62,8 @@ func (a *Anchorer) now() time.Time {
 
 // pending lists the tenants whose chain head is past their last anchor.
 func (a *Anchorer) pending(ctx context.Context) ([]uuid.UUID, error) {
-	tx, err := a.begin(ctx, database.Scope{Role: a.WorkerRole, ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT h.tenant_id FROM audit.chain_head h
+	tenants, err := database.Tenants(ctx, a.Pool, a.Begin, a.WorkerRole, `SELECT h.tenant_id FROM audit.chain_head h
 		WHERE h.seq > coalesce((SELECT max(x.seq) FROM audit.anchor x WHERE x.tenant_id = h.tenant_id), 0) ORDER BY h.tenant_id`)
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return tenants, fmt.Errorf("list tenants to anchor: %w", err)
 	}

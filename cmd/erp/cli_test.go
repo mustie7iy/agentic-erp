@@ -24,6 +24,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/delivery/sapconfig"
 	"github.com/mustie7iy/agentic-erp/internal/llm/llmtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
@@ -200,7 +201,14 @@ func TestLocalPreparationErrors(t *testing.T) {
 	fails(t, "unknown config command", "config", "bogus")
 	fails(t, "flag provided", "config", "generate", "-x")
 	fails(t, "invalid -source", "config", "generate", "-source", "extract.json")
-	fails(t, "127.0.0.1", "config", "generate", "-source", "odata:http://127.0.0.1:1")
+	fails(t, "not an https URL", "config", "generate", "-source", "odata:http://127.0.0.1:1")
+	fails(t, "not a public unicast address", "config", "generate", "-source", "odata:https://127.0.0.1:1")
+	t.Run("no OData client", func(t *testing.T) {
+		prev := newSAPClient
+		newSAPClient = func() (*egress.Client, error) { return nil, errors.New("no client") }
+		t.Cleanup(func() { newSAPClient = prev })
+		fails(t, "no client", "config", "generate", "-source", "odata:https://sap.example.com")
+	})
 	fails(t, "not a directory", "config", "generate", "-source", "file:extract.json", "-out", "file/draft.yaml")
 	fails(t, "invalid -time-zone", "config", "generate", "-source", "file:extract.json", "-time-zone", "1000")
 	fails(t, "invalid -amount-format", "config", "generate", "-source", "file:extract.json", "-amount-format", "shifted")
@@ -287,6 +295,13 @@ func TestMigrateErrors(t *testing.T) {
 	if code, got := cli(t, "migrate", "-connector", "c", "-legal-entities", "le"); code != 0 || !strings.Contains(got, "reconciled") {
 		t.Fatalf("waiting for the operation: %d %s", code, got)
 	}
+	// A context that ends while the operation is still queued ends the wait.
+	fakeAPI(t, migration(routes{"POST " + runPath + ":start": {ok(`{"id": "op1", "status": "queued"}`)}}))
+	pollInterval = time.Hour
+	stopped, stop := context.WithTimeout(context.Background(), 2*time.Second) // ends during the hour's wait, after the calls before it
+	defer stop()
+	pgtest.CheckErr(t, migrate(stopped, []string{"-connector", "c", "-legal-entities", "le"}), "deadline exceeded")
+	pollInterval = time.Millisecond
 	fakeAPI(t, migration(routes{"GET " + runPath: {ok(`{}`), failed}}))
 	_, got := cli(t, "migrate")
 	for _, want := range []string{"FAIL", "difference 1000 211000", "1 SAP documents are not on the platform"} {

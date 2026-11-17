@@ -149,17 +149,9 @@ func (e *Endpoints) eligible(ctx context.Context, doc *config.Config, codes map[
 		if clock.DayIn(now, blockDay.Zone).Before(ends) {
 			return s, false, nil
 		}
-		s.Years, s.Ends = max(s.Years, int16(years)), later(s.Ends, ends) // #nosec G115 -- years are 0 to 99 (config validation)
+		s.Years, s.Ends = max(s.Years, int16(years)), clock.Later(s.Ends, ends) // #nosec G115 -- years are 0 to 99 (config validation)
 	}
 	return s, len(b.Companies) > 0, nil
-}
-
-// later is the later of two days.
-func later(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
 }
 
 // companyCode is the legal entity's company code, read once.

@@ -62,8 +62,8 @@ func TestIdentityProvidersThroughTheControlPlane(t *testing.T) {
 		if h.Get("ETag") != `"1"` || h.Get("Location") != providers+"/"+id {
 			t.Errorf("headers: got ETag %s, Location %s, want \"1\", %s/%s", h.Get("ETag"), h.Get("Location"), providers, id)
 		}
-		if kind, op := auditAction(t, ten.ID, "identity.identity_provider.register"); kind != reqctx.KindSystem || op != "ops|alice" {
-			t.Errorf("audit: got %s by %s, want system by ops|alice", kind, op)
+		if kind, op := auditAction(t, ten.ID, "identity.identity_provider.register"); kind != reqctx.KindSystem || op != p.opID("ops|alice") {
+			t.Errorf("audit: got %s by %s, want system by alice's id", kind, op)
 		}
 		events := apitest.Published(t, ten, outbox.Event{Context: "identity", Name: "identity_provider_registered"})
 		if len(events) != 1 || events[0]["issuer"] != iss {
@@ -97,8 +97,8 @@ func TestIdentityProvidersThroughTheControlPlane(t *testing.T) {
 		if got["tenant_claim"] != nil || len(got["amr_values"].([]any)) != 0 {
 			t.Errorf("patch with nulls: got %v, want no tenant claim, no amr values", got)
 		}
-		if _, op := auditAction(t, ten.ID, "identity.identity_provider.update"); op != "ops|alice" {
-			t.Errorf("audit: got operator %q, want ops|alice", op)
+		if _, op := auditAction(t, ten.ID, "identity.identity_provider.update"); op != p.opID("ops|alice") {
+			t.Errorf("audit: got operator %q, want alice's id", op)
 		}
 		got, _ = p.in(t).must(200, "ops|alice", "PATCH", providers+"/"+id, `{"certificate_bound_tokens": true}`, "If-Match", `"3"`, "Content-Type", mergePatch)
 		if got["certificate_bound_tokens"] != true {
@@ -150,8 +150,8 @@ func TestAuthPolicyThroughTheControlPlane(t *testing.T) {
 	if len(events) != 1 || events[0]["mfa_required"] != true {
 		t.Errorf("events: got %v, want one requiring multi-factor", events)
 	}
-	if _, op := auditAction(t, ten.ID, "identity.auth_policy.update"); op != "ops|alice" {
-		t.Errorf("audit: got operator %q, want ops|alice", op)
+	if _, op := auditAction(t, ten.ID, "identity.auth_policy.update"); op != p.opID("ops|alice") {
+		t.Errorf("audit: got operator %q, want alice's id", op)
 	}
 	body, _ := providerBody("plain")
 	p.problem(422, "identity.mfa_unprovable", "ops|alice", "POST", tenants+"/"+ten.ID.String()+"/identity-providers",
@@ -661,8 +661,8 @@ func TestBindingUnboundPrincipals(t *testing.T) {
 	if len(events) != 1 || events[0]["previous_issuer"] != "erp-dev" || events[0]["external_issuer"] != iss {
 		t.Errorf("events: got %v, want one from erp-dev to %s", events, iss)
 	}
-	if _, op := auditAction(t, ten.ID, "identity.principal.bind"); op != "ops|alice" {
-		t.Errorf("audit: got operator %q, want ops|alice", op)
+	if _, op := auditAction(t, ten.ID, "identity.principal.bind"); op != p.opID("ops|alice") {
+		t.Errorf("audit: got operator %q, want alice's id", op)
 	}
 	after, _ := p.must(200, "ops|alice", "GET", base+"/principals", "")
 	if items, _ := after["items"].([]any); len(items) != 2 {

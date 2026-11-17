@@ -337,7 +337,7 @@ func (b *bucketSums) add(s *sums, f datedFlow) {
 		l, ok := b.sum[k]
 		if !ok {
 			end := b.bs[at].End
-			l = &snapshotLine{date: maxDay(b.bs[at].Start, b.first), end: &end, currency: f.currency, source: f.source, certainty: f.certainty, item: sh.Item}
+			l = &snapshotLine{date: clock.Later(b.bs[at].Start, b.first), end: &end, currency: f.currency, source: f.source, certainty: f.certainty, item: sh.Item}
 			if f.bank != nil {
 				l.bank = &bank
 			}
@@ -357,14 +357,6 @@ func (b *bucketSums) lines(next int) []snapshotLine {
 		out[i].flowNo = next + i
 	}
 	return out
-}
-
-// maxDay is the later day.
-func maxDay(a, b time.Time) time.Time {
-	if a.After(b) {
-		return a
-	}
-	return b
 }
 
 // store writes the snapshot and its lines, audits it, publishes

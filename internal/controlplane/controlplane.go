@@ -1,5 +1,5 @@
 // Package controlplane is the operators' API for tenants (T11, 04-api-design
-// §4.15): list and read the cell's tenants, provision one, suspend, resume
+// §4.15, ADR-0015, operator roles ADR-0027): list and read the cell's tenants, provision one, suspend, resume
 // and offboard. It is served on the admin listener, not the public API, and
 // its callers are platform operators, not principals of any tenant: they
 // authenticate with tokens from the operator issuers (ERP_OPERATOR_ISSUERS)
@@ -100,7 +100,9 @@ type Created struct {
 }
 
 // Operator is who calls the control plane: the subject of an operator
-// token, with a stable id for the audit trail.
+// token, with a stable id for the audit trail. Audit details name the
+// operator by that id and its issuer, never by the subject, which may be
+// an email address the audit trail refuses as personal data (ADR-0026).
 type Operator struct {
 	ID      uuid.UUID
 	Issuer  string
@@ -257,7 +259,7 @@ func (s *Service) List(ctx context.Context, status string, page pagination.Reque
 		if ks.Field() == "name" {
 			return t.Name, t.ID
 		}
-		return t.CreatedAt.UTC().Format(time.RFC3339Nano), t.ID
+		return pagination.Instant(t.CreatedAt), t.ID
 	})
 	return tenants, next, nil
 }
@@ -302,7 +304,7 @@ func (s *Service) Fingerprint(ctx context.Context, id uuid.UUID) (Tenant, offboa
 // retry of an earlier request answers the tenant that request created
 // (replayed = true) instead of creating a second one.
 func (s *Service) Create(ctx context.Context, op Operator, req provisioning.Request) (Created, bool, error) {
-	req.Operator = op.Subject
+	req.Operator = op.ID.String()
 	if k := req.Idempotency; k != nil {
 		k.ActorID = op.ID
 		res, found, err := s.replay(ctx, k)
@@ -416,7 +418,7 @@ func (s *Service) Transition(ctx context.Context, op Operator, id uuid.UUID, ver
 	}
 	actor := reqctx.Principal{ID: op.ID, Kind: reqctx.KindSystem, TenantID: id}
 	if err := audit.Write(ctx, tx, actor, trace, s.now(), audit.Entry{Action: "tenancy.tenant." + verb, ObjectType: "tenancy.tenant", ObjectID: id, Outcome: "succeeded",
-		Detail: map[string]any{"previous_status": previous, "status": t.Status, "operator": op.Subject, "issuer": op.Issuer}}); err != nil {
+		Detail: map[string]any{"previous_status": previous, "status": t.Status, "operator": op.ID, "issuer": op.Issuer}}); err != nil {
 		return Tenant{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -464,7 +466,7 @@ func (s *Service) RotateKey(ctx context.Context, op Operator, id uuid.UUID, ifMa
 	}
 	actor := reqctx.Principal{ID: op.ID, Kind: reqctx.KindSystem, TenantID: id}
 	if err := audit.Write(ctx, tx, actor, reqctx.TraceID(ctx), s.now(), audit.Entry{Action: "tenancy.tenant.rotate_key", ObjectType: "tenancy.tenant", ObjectID: id, Outcome: "succeeded",
-		Detail: map[string]any{"key_id": rot.KeyID, "previous_key_id": rot.Previous, "master_key_id": rot.Master, "resealed": rot.Resealed, "operator": op.Subject, "issuer": op.Issuer}}); err != nil {
+		Detail: map[string]any{"key_id": rot.KeyID, "previous_key_id": rot.Previous, "master_key_id": rot.Master, "resealed": rot.Resealed, "operator": op.ID, "issuer": op.Issuer}}); err != nil {
 		return Tenant{}, fieldcrypt.Rotation{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -498,7 +500,7 @@ func (s *Service) Erase(ctx context.Context, op Operator, id uuid.UUID, ifMatch 
 	case r.ErasedAt != nil:
 		return Tenant{}, offboarding.Erasure{}, problem.Conflict("tenancy.invalid_transition", "The tenant has already been erased.")
 	}
-	er, err := s.Offboarding.Erase(ctx, id, op.ID, map[string]any{"operator": op.Subject, "issuer": op.Issuer})
+	er, err := s.Offboarding.Erase(ctx, id, op.ID, map[string]any{"operator": op.ID, "issuer": op.Issuer})
 	if err != nil {
 		return Tenant{}, offboarding.Erasure{}, err
 	}

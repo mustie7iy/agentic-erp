@@ -352,8 +352,8 @@ type target struct {
 
 // route verifies the token and resolves the tenant's cell.
 func (rt *Router) route(r *http.Request) (target, error) {
-	raw, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || raw == "" {
+	raw, ok := authn.Bearer(r.Header.Get("Authorization")) // as the cell reads it
+	if !ok {
 		return target{}, problem.Unauthorized("A bearer token is required.")
 	}
 	claims, err := rt.Verifier.Verify(r.Context(), raw)

@@ -583,7 +583,7 @@ func moneyOf(r Request) any {
 	if r.Amount == nil {
 		return nil
 	}
-	return map[string]any{"amount": r.Amount.Plain(r.Exponent), "currency": *r.Currency}
+	return money.EventAmount(*r.Amount, *r.Currency, r.Exponent)
 }
 
 // complete ends a pending request with the outcome and publishes

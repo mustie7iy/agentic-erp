@@ -30,6 +30,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
@@ -158,11 +159,7 @@ func (a *Agent) Score(ctx context.Context, company, customer string) (recommend.
 
 // today is the run's date, in UTC.
 func (a *Agent) today() string {
-	now := time.Now
-	if a.Now != nil {
-		now = a.Now
-	}
-	return now().UTC().Format(time.DateOnly)
+	return clock.Now(a.Now).UTC().Format(time.DateOnly)
 }
 
 // Reads are the operations the agent reads with (ADR-0072, T105a).

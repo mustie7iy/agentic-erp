@@ -92,8 +92,10 @@ type ExpenseReport struct {
 }
 
 // Totals are the report's gross amount, the tax its lines hold and its
-// net amount. A stored report's lines add up within range: entering it
-// checked their sum (sumLines).
+// net amount. The plain additions cannot overflow: entering the report
+// checked its lines' amounts add up within range (sumLines, money.Sum),
+// and each line's tax is less than its amount (expense_report_line_tax,
+// 000329), so the tax adds up below the gross amount.
 func (r ExpenseReport) Totals() (gross, tax, net money.Minor) {
 	for _, l := range r.Lines {
 		gross += l.Amount
@@ -271,7 +273,7 @@ func (x expenseEntry) report() ExpenseReport {
 func (x expenseEntry) line(v *invoiceCheck, i int, in ExpenseLineInput) (ExpenseLine, string, error) {
 	field := fmt.Sprintf("lines[%d]", i)
 	if in.ExpenseDate.After(x.day) {
-		return ExpenseLine{}, "", invalid("payables.expense_date_in_future", field+".expense_date",
+		return ExpenseLine{}, "", problem.Invalid("payables.expense_date_in_future", field+".expense_date",
 			"An expense is dated on or before the company's date today, "+x.day.Format(time.DateOnly)+".")
 	}
 	if in.Description != nil {
@@ -285,7 +287,7 @@ func (x expenseEntry) line(v *invoiceCheck, i int, in ExpenseLineInput) (Expense
 		t, ok = x.co.ExpenseType(in.ExpenseType)
 	}
 	if !ok {
-		return ExpenseLine{}, "", invalid("payables.unknown_expense_type", field+".expense_type",
+		return ExpenseLine{}, "", problem.Invalid("payables.unknown_expense_type", field+".expense_type",
 			"Expense type "+in.ExpenseType+" is not configured for company "+x.le.Code+" (companies[].expense_types).")
 	}
 	amount, err := v.parse(in.Amount, field+".amount")
@@ -321,7 +323,7 @@ func (e *Endpoints) expenseAccounts(ctx context.Context, le uuid.UUID, numbers [
 			}
 		}
 		if !ok {
-			return invalid("payables.account_not_postable", fmt.Sprintf("lines[%d].expense_type", i),
+			return problem.Invalid("payables.account_not_postable", fmt.Sprintf("lines[%d].expense_type", i),
 				"Account "+numbers[i]+" of expense type "+lines[i].ExpenseType+" cannot be posted in this legal entity.")
 		}
 		lines[i].AccountID = id

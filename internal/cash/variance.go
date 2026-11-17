@@ -162,7 +162,7 @@ func (e *Endpoints) readVariance(ctx context.Context, q VarianceQuery) (variance
 	}
 	taken := from.AddDate(0, 0, -q.Lag)
 	docEnd := taken.AddDate(0, 0, documentLevelDays)
-	ar, err := e.readActuals(ctx, q.LegalEntity, taken, maxDay(to, docEnd))
+	ar, err := e.readActuals(ctx, q.LegalEntity, taken, clock.Later(to, docEnd))
 	if err != nil {
 		return varianceRead{}, err
 	}

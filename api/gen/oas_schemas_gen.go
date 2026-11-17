@@ -27059,7 +27059,11 @@ type Connector struct {
 	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
 	// answers 422 `integration.adapter_not_certified`.
 	Settings ConnectorSettings `json:"settings"`
-	// Vault path of the credentials.
+	// A reference to the credentials in the vault, under the tenant's own namespace:
+	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
+	// reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the
+	// server resolves it, and those name the server's own secrets. Path segments and the field are
+	// letters, digits, `.`, `_` and `-`.
 	SecretRef OptString `json:"secret_ref"`
 	// Status; changed only by `:enable` and `:disable`. Open enumeration: clients must accept and preserve
 	// values not listed here; values may be added within /v1.
@@ -27208,7 +27212,11 @@ type ConnectorCreate struct {
 	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
 	// answers 422 `integration.adapter_not_certified`.
 	Settings ConnectorCreateSettings `json:"settings"`
-	// Vault path of the credentials.
+	// A reference to the credentials in the vault, under the tenant's own namespace:
+	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
+	// reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the
+	// server resolves it, and those name the server's own secrets. Path segments and the field are
+	// letters, digits, `.`, `_` and `-`.
 	SecretRef OptString `json:"secret_ref"`
 }
 
@@ -27438,7 +27446,11 @@ type ConnectorUpdate struct {
 	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
 	// answers 422 `integration.adapter_not_certified`.
 	Settings OptConnectorUpdateSettings `json:"settings"`
-	// Vault path of the credentials. Send null to clear.
+	// A reference to the credentials in the vault, under the tenant's own namespace:
+	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
+	// reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the
+	// server resolves it, and those name the server's own secrets. Path segments and the field are
+	// letters, digits, `.`, `_` and `-`. Send null to clear.
 	SecretRef OptNilString `json:"secret_ref"`
 }
 
@@ -74138,7 +74150,11 @@ type PaymentExclusion struct {
 	SupplierName string `json:"supplier_name"`
 	// Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1. A release also excludes, with `item_reversed` or
-	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid.
+	// `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid; a
+	// release resumed after its operation failed or was cancelled with payments posted excludes, for the
+	// reasons a proposal would and with `bank_account_changed` when the bank account in force on the run
+	// date is not the one the payment was proposed to, a supplier whose payment not yet posted it dropped
+	// because the supplier can no longer be paid as proposed (a down payment's by its request).
 	// `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run
 	// date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4),
 	// naming the code and both rates (`tax_code`, `request_tax_rate_percent`,

@@ -20,7 +20,7 @@ table's size; a retried export finds the parts already stored.
 rewriting details would break the chain the trail exists to keep, and
 anchors would disagree. Minimization happens at write time instead: the
 convention, checked in review, is that details carry identifiers, statuses,
-amounts and operator subjects, not the names, addresses or bank details
+amounts and operator ids (as built 2026-11-16, below), not the names, addresses or bank details
 those identifiers point to. The erased tenant's trail therefore says what
 happened to which object, not what the object contained; the export holds
 the content, under its retention.
@@ -40,3 +40,12 @@ the content, under its retention.
 - The review checklist gains an item: no personal data in audit details.
 - `ChunkRows` is a worker field rather than a setting until a deployment
   needs to tune it.
+
+## As built (2026-11-16, batch 76 review)
+
+Audit details name an operator of the control plane by its id
+(`controlplane.OperatorFrom`: a name-based uuid of its token's issuer and
+subject) and its issuer, never by the subject. A subject may be an email
+address, which the write-time check refuses (`audit.Personal`), so an
+operator named by one could not act at all; the id names the same operator
+in every tenant's trail and is the audit entry's actor besides.

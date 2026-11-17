@@ -27,7 +27,7 @@ func init() {
 	// Each constraint by its name, not in a loop: TestProblemCodes reads the
 	// names to place each constraint's problem on the operations writing it.
 	itemInvalid := func() *problem.Problem {
-		return invalid("cash.liquidity_item_invalid", "The liquidity item is not active, or not for the amount's direction.", "liquidity_item",
+		return problem.InvalidDetail("cash.liquidity_item_invalid", "The liquidity item is not active, or not for the amount's direction.", "liquidity_item",
 			"an active liquidity item of the amount's direction")
 	}
 	problem.RegisterConstraint("memo_record_item_active", itemInvalid)

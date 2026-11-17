@@ -6913,9 +6913,11 @@ components:
         payment_id: {$ref: '#/components/schemas/Uuid'}
         supplier_id: {$ref: '#/components/schemas/Uuid'}
         supplier_number: {type: string, description: "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it. The supplier's name is not given: the event is offered to webhooks (ADR-0038, as built). Added within v1 (review:batch28); consumers ignore it if absent."}
-        reason_code: {type: string, description: 'Open enum; item_reversed or item_not_open in v1.'}
+        reason_code: {type: string, description: 'Open enum; item_reversed or item_not_open, and, when a resumed release drops a payment not yet posted whose supplier can no longer be paid, the exclusion reasons of a proposal (supplier_blocked, payment_blocked, no_bank_account, bank_change_pending, bank_change_hold) or bank_account_changed, in v1.'}
         amount: {$ref: '#/components/schemas/Money'}
         released_item_count: {type: integer, minimum: 0, description: Payment items deactivated (open items free for another run).}
+        down_payment_request_id: {type: string, format: uuid, description: "The down payment request whose payment was dropped, free for another run; present only for a down payment's payment (a resumed release, ADR-0038 as built 2026-11-16). Added within v1; consumers ignore it if absent."}
+        down_payment_request_number: {type: string, description: "The request's document number; present exactly when `down_payment_request_id` is. Added within v1."}
         status: {type: string, description: 'Open enum; releasing in v1.'}
     BankFileTransmittedV1:
       type: object

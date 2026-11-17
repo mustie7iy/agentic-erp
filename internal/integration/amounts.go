@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
@@ -33,7 +34,7 @@ func amountsInternal(c Connector) bool {
 // checkAmountFormat validates a sap_file connector's amount_format.
 func checkAmountFormat(settings map[string]any) error {
 	if f, ok := settings["amount_format"]; ok && f != AmountInternal && f != AmountExternal {
-		return invalid("integration.invalid_settings", "settings.amount_format",
+		return problem.Invalid("integration.invalid_settings", "settings.amount_format",
 			"The form the extract's amounts are in: internal (SAP's stored form, shifted by TCURX, the default) or external.")
 	}
 	return nil

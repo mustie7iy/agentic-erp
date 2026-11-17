@@ -32,6 +32,7 @@
 #   WALKTHROUGH_NATS_ADDR    the event bus's listener (127.0.0.1:18222)
 #   WALKTHROUGH_HOOK_ADDR    the webhook subscriber's listener (127.0.0.1:18443)
 #   WALKTHROUGH_PROVIDER_ADDR   the e-invoicing provider's stand-in's listener (127.0.0.1:18444)
+#   WALKTHROUGH_VAULT_ADDR   the vault stand-in's listener (127.0.0.1:18200)
 #   WALKTHROUGH_DIR       work directory (default: a temporary one, removed after)
 #   WALKTHROUGH_BIN       directory with erp and erp-server already built (default: build them)
 #   WALKTHROUGH_KEEP=1    keep the server running at the end, to look around with erp call
@@ -65,6 +66,7 @@ SFTP_ADDR="${WALKTHROUGH_SFTP_ADDR:-127.0.0.1:18022}"
 NATS_ADDR="${WALKTHROUGH_NATS_ADDR:-127.0.0.1:18222}"
 HOOK_ADDR="${WALKTHROUGH_HOOK_ADDR:-127.0.0.1:18443}"
 PROVIDER_ADDR="${WALKTHROUGH_PROVIDER_ADDR:-127.0.0.1:18444}"
+VAULT_ADDR="${WALKTHROUGH_VAULT_ADDR:-127.0.0.1:18200}"
 PAUSE="${WALKTHROUGH_PAUSE:-0}"
 # shellcheck source=walkthrough/dates.sh
 . "$ROOT/scripts/walkthrough/dates.sh"
@@ -106,6 +108,7 @@ SFTP_PID=''
 NATS_PID=''
 HOOK_PID=''
 PROVIDER_PID=''
+VAULT_PID=''
 
 cleanup() {
   if [ -n "$MODEL_PID" ]; then
@@ -121,7 +124,7 @@ cleanup() {
     wait "$SERVER_PID" 2>/dev/null || true # its exit status after a kill says nothing about the walkthrough
   fi
   # The bus and the stand-ins stop after the server, which uses them.
-  for pid in "$HOOK_PID" "$PROVIDER_PID" "$NATS_PID"; do
+  for pid in "$HOOK_PID" "$PROVIDER_PID" "$VAULT_PID" "$NATS_PID"; do
     if [ -n "$pid" ]; then
       kill "$pid" 2>/dev/null || true # as the model stand-in
       wait "$pid" 2>/dev/null || true # as the model stand-in
@@ -476,6 +479,7 @@ start() {
   bus_stub
   hook_stub
   provider_stub
+  vault_stub
   unset ERP_PACKS_DIR # the released packs alone
   ERP_PAGE_TOKEN_KEY=$(head -c 32 /dev/urandom | base64)
   ERP_FIELD_KEY=$(head -c 32 /dev/urandom | base64)
@@ -565,6 +569,32 @@ provider_stub() {
   PROVIDER_PID=$!
   wait_file "$WORK/provider/provider.pem" "$PROVIDER_PID" "the e-invoicing provider's stand-in" "$WORK/provider.log" "is $PROVIDER_ADDR free? set WALKTHROUGH_PROVIDER_ADDR"
   export ERP_WALKTHROUGH_PROVIDER="$PROVIDER_ADDR" ERP_WALKTHROUGH_PROVIDER_CA="$WORK/provider/provider.pem"
+}
+
+# vault_stub starts the vault's stand-in (ADR-0017) on this machine and
+# names it to erp-server (ERP_VAULT_ADDR, ERP_VAULT_TOKEN): a tenant names
+# its connectors' credentials only under vault:secret/tenants/<its id>/
+# (product owner 2026-11-16), which vault_put writes. It also names the
+# SFTP stand-in of step 35 as the one loopback address channels may dial
+# (ERP_WALKTHROUGH_SFTP, development only): a tenant's SFTP server is
+# otherwise dialled on public addresses alone.
+vault_stub() {
+  stub vaultstub internal/platform/secrets/vaulttest/vaultstub
+  rm -rf "$WORK/vault" "$WORK/vault.url"
+  mkdir -p "$WORK/vault"
+  head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$WORK/vault.token"
+  "$STUB" -addr "$VAULT_ADDR" -token "$WORK/vault.token" -dir "$WORK/vault" -ready "$WORK/vault.url" >"$WORK/vault.log" 2>&1 &
+  VAULT_PID=$!
+  wait_file "$WORK/vault.url" "$VAULT_PID" "the vault's stand-in" "$WORK/vault.log" "is $VAULT_ADDR free? set WALKTHROUGH_VAULT_ADDR"
+  export ERP_VAULT_ADDR="http://$VAULT_ADDR" ERP_VAULT_TOKEN="file:$WORK/vault.token" ERP_WALKTHROUGH_SFTP="$SFTP_ADDR"
+}
+
+# vault_put NAME FILE keeps the content of FILE as the field value of the
+# tenant's secret NAME and sets SECRET_REF to its reference.
+vault_put() {
+  mkdir -p "$WORK/vault/secret/tenants/$TENANT/$1"
+  cp "$2" "$WORK/vault/secret/tenants/$TENANT/$1/value"
+  SECRET_REF="vault:secret/tenants/$TENANT/$1#value"
 }
 
 # model_stub starts the stand-in for the model provider (step 18's capture,
@@ -5095,10 +5125,11 @@ step_einvoice() {
   say "The UAE company $AE receives its suppliers' e-invoices through an accredited provider (ADR-0049, ADR-0061). No"
   say "provider is chosen yet (ADR-0061 Q1), so Ada connects the provider's stand-in on this machine: an einvoice_provider"
   say "connector, its company's participant identifier at the provider (illustrative; its scheme is to confirm), the"
-  say "format PINT AE, and the credentials named by secret_ref. Production refuses the stand-in"
+  say "format PINT AE, and the credentials named by secret_ref in Maple's vault namespace. Production refuses the stand-in"
   say "(integration.adapter_not_certified); the ERP polls the provider and opens no endpoint for it to call."
+  vault_put provider "$WORK/provider/token"
   api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter), \(.settings.format), participants \(.settings.participants | to_entries | map("\(.key) \(.value)") | join(", "))"' \
-    createConnector -body "{\"kind\": \"einvoice_provider\", \"name\": \"Maple Gulf e-invoicing\", \"secret_ref\": \"file:$WORK/provider/token\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$PROVIDER_ADDR\", \"participants\": {\"$AE\": \"walkthrough:$AE\"}, \"format\": \"pint_ae\"}}"
+    createConnector -body "{\"kind\": \"einvoice_provider\", \"name\": \"Maple Gulf e-invoicing\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$PROVIDER_ADDR\", \"participants\": {\"$AE\": \"walkthrough:$AE\"}, \"format\": \"pint_ae\"}}"
   connector=$(field .id)
   say "Gulf Office Interiors sends its next invoice as an e-invoice; the provider holds it for Maple Gulf Trading's"
   say "participant (an illustrative document: what it says is read when e-invoices are validated, T65c):"
@@ -13373,8 +13404,14 @@ step_cash_export() {
   say "Sam connects Maple's treasury system: an integration connector of kind treasury_export on the SFTP transport the"
   say "banks use (ADR-0038), the server's key pinned, signing in with a private key named by secret_ref, never a password."
   say "It takes Maple's snapshots (company 3000) in the cash export schema v1 as CSV (api/schemas/cash-export.v1.json)."
-  api 201 '"connector \(.name): \(.kind), \(.status), \(.settings.format) of \(.settings.companies | join(", ")) to \(.settings.directory)"' \
-    createConnector -body "{\"kind\": \"treasury_export\", \"name\": \"Maple treasury\", \"secret_ref\": \"file:$WORK/sftp/client\", \"settings\": {\"host\": \"$host\", \"port\": $port, \"user\": \"erp\", \"host_key\": \"$(tr -d '\n' <"$WORK/sftp/host.pub")\", \"directory\": \"/treasury\", \"format\": \"csv\", \"companies\": [\"$CC\"]}}"
+  local body
+  body="\"settings\": {\"host\": \"$host\", \"port\": $port, \"user\": \"erp\", \"host_key\": \"$(tr -d '\n' <"$WORK/sftp/host.pub")\", \"directory\": \"/treasury\", \"format\": \"csv\", \"companies\": [\"$CC\"]}"
+  say "The key is a secret the server resolves, so Maple names one only in its own vault namespace (product owner"
+  say "2026-11-16): a reference to a file on the server, which could be any of the server's own, is refused."
+  refused 422 integration.invalid_secret_ref createConnector -body "{\"kind\": \"treasury_export\", \"name\": \"Maple treasury\", \"secret_ref\": \"file:$WORK/sftp/client\", $body}"
+  vault_put treasury "$WORK/sftp/client"
+  api 201 '"connector \(.name): \(.kind), \(.status), \(.settings.format) of \(.settings.companies | join(", ")) to \(.settings.directory), key \(.secret_ref)"' \
+    createConnector -body "{\"kind\": \"treasury_export\", \"name\": \"Maple treasury\", \"secret_ref\": \"$SECRET_REF\", $body}"
   local connector
   connector=$(field .id)
   say "The treasury system also wants to hear of each snapshot as it is taken: Sam subscribes its endpoint to the"

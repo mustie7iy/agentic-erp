@@ -133,7 +133,7 @@ func TestMockInternals(t *testing.T) {
 
 func TestODataOptionsAndErrors(t *testing.T) {
 	var seen []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.URL.RawQuery)
 		// A failed write reaches the source as a broken answer, which the test asserts on.
 		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": []map[string]any{
@@ -143,7 +143,7 @@ func TestODataOptionsAndErrors(t *testing.T) {
 	defer srv.Close()
 	em := DefaultEntities[len(DefaultEntities)-1] // ACDOCA: company + year filters, static RLDNR
 	em.Fields = map[string]string{"BELNR": "AccountingDocument", "RBUKRS": "CompanyCode", "GJAHR": "FiscalYear", "XBLNR": "Extra"}
-	src := &ODataSource{BaseURL: srv.URL, Client: "100", Entities: []EntityMapping{em}}
+	src := &ODataSource{HTTP: via(t, srv), BaseURL: srv.URL, Client: "100", Entities: []EntityMapping{em}}
 	if src.Name() != "odata:"+srv.URL {
 		t.Fatal("name")
 	}
@@ -173,9 +173,9 @@ func TestODataOptionsAndErrors(t *testing.T) {
 
 	fail := func(name string, h http.HandlerFunc) {
 		t.Helper()
-		s := httptest.NewServer(h)
+		s := httptest.NewTLSServer(h)
 		defer s.Close()
-		src := &ODataSource{BaseURL: s.URL, PageSize: 10, Entities: []EntityMapping{DefaultEntities[0]}}
+		src := &ODataSource{HTTP: via(t, s), BaseURL: s.URL, PageSize: 10, Entities: []EntityMapping{DefaultEntities[0]}}
 		if _, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}}); err == nil {
 			t.Errorf("%s: expected an error", name)
 		}
@@ -189,20 +189,20 @@ func TestODataOptionsAndErrors(t *testing.T) {
 		_ = buf.Flush()
 		_ = conn.Close()
 	})
-	closed := httptest.NewServer(http.NotFoundHandler())
+	closed := httptest.NewTLSServer(http.NotFoundHandler())
 	closed.Close()
-	if _, err := (&ODataSource{BaseURL: closed.URL, Entities: []EntityMapping{DefaultEntities[0]}}).Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}}); err == nil {
+	if _, err := (&ODataSource{HTTP: via(t, closed), BaseURL: closed.URL, Entities: []EntityMapping{DefaultEntities[0]}}).Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}}); err == nil {
 		t.Fatal("transport error")
 	}
-	if _, err := (&ODataSource{BaseURL: "http://bad host", Entities: []EntityMapping{DefaultEntities[0]}}).Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}}); err == nil {
+	if _, err := (&ODataSource{HTTP: via(t, closed), BaseURL: "http://bad host", Entities: []EntityMapping{DefaultEntities[0]}}).Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}}); err == nil {
 		t.Fatal("bad URL")
 	}
 	// No explicit entities: the default catalogue is used.
-	def := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	def := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"d":{"results":[]}}`))
 	}))
 	defer def.Close()
-	if _, err := (&ODataSource{BaseURL: def.URL}).Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"}); err != nil {
+	if _, err := (&ODataSource{HTTP: via(t, def), BaseURL: def.URL}).Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"}); err != nil {
 		t.Fatalf("default entities: %v", err)
 	}
 	_ = bufio.NewReader

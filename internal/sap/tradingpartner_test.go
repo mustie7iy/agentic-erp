@@ -83,13 +83,13 @@ func TestMockTradingPartner(t *testing.T) {
 // APIs' properties), so its extract says it carries none; a mapping that
 // reads LFA1-VBUND does not say so.
 func TestODataCarriesNoTradingPartner(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A failed write reaches the source as a broken answer, which the test asserts on.
 		_, _ = w.Write([]byte(`{"d":{"results":[{"Supplier": "0000100001", "CompanyCode": "1000", "TradingPartner": "001000"}]}}`))
 	}))
 	defer srv.Close()
 	scope := Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"}
-	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "LFA1"), entity(t, "LFB1")}}
+	src := &ODataSource{HTTP: via(t, srv), BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "LFA1"), entity(t, "LFB1")}}
 	e, err := src.Extract(context.Background(), scope)
 	if err != nil {
 		t.Fatal(err)

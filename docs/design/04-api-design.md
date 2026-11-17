@@ -747,8 +747,12 @@ reversed invoice. A payment that can never post (an item reversed, or no
 longer open, since the proposal) is dropped by the release rather than
 failing it again on every resume: its supplier is excluded with
 `item_reversed` or `item_not_open`, its items are freed and
-`PaymentExcluded` is published; a release that drops every payment fails
-with `payments.nothing_to_pay` and returns the run to `proposed`. A run has
+`PaymentExcluded` is published. A resumed release likewise drops a payment
+not posted whose supplier can no longer be paid as proposed (blocked, bank
+details changed or held, or `bank_account_changed`), and leaves the posted
+ones as they are (product owner 2026-11-16). A release that drops every
+payment fails with `payments.nothing_to_pay` and returns the run to
+`proposed`. A run has
 at most one bank file.
 
 A depreciation run (`POST /v1/depreciation-runs`, 202, ADR-0057 §7) stops at

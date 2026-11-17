@@ -111,52 +111,26 @@ func exporter(tenant uuid.UUID) reqctx.Principal {
 
 // tenants returns the tenants with exports due.
 func (w *Exporter) tenants(ctx context.Context) ([]uuid.UUID, error) {
-	tx, err := w.begin(ctx, database.Scope{Role: w.WorkerRole, ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM cash.export WHERE status = 'pending' AND next_attempt_at <= $1 AND tenant_id IN `+database.ActiveTenants,
-		clock.Now(w.Now))
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	tenants, err := database.Tenants(ctx, w.Pool, w.Begin, w.WorkerRole,
+		`SELECT DISTINCT tenant_id FROM cash.export WHERE status = 'pending' AND next_attempt_at <= $1 AND tenant_id IN `+database.ActiveTenants, clock.Now(w.Now))
 	if err != nil {
 		return nil, fmt.Errorf("cash: list the tenants with exports due: %w", err)
 	}
 	return tenants, nil
 }
 
+func (w *Exporter) queue() worker.Queue {
+	return worker.Queue{Name: "cash exporter", Tenants: w.tenants, One: w.one}
+}
+
 // RunOnce sends every due export and returns how many it handled. A
 // tenant whose export fails is left for the next round; the others go on.
-func (w *Exporter) RunOnce(ctx context.Context) (int, error) {
-	tenants, err := w.tenants(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("cash exporter: %w", err)
-	}
-	n := 0
-	var errs []error
-	for _, t := range tenants {
-		for ctx.Err() == nil { // a stopping worker claims nothing more
-			did, err := w.one(ctx, t)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("cash exporter: tenant %s: %w", t, err))
-				break
-			}
-			if !did {
-				break
-			}
-			n++
-		}
-	}
-	return n, errors.Join(errs...)
-}
+func (w *Exporter) RunOnce(ctx context.Context) (int, error) { return w.queue().RunOnce(ctx) }
 
 // Run sends exports until ctx ends; errors are logged and retried after
 // the interval.
 func (w *Exporter) Run(ctx context.Context) {
-	worker.Loop(ctx, w.Interval, 5*time.Second, func(ctx context.Context) (bool, error) {
-		_, err := w.RunOnce(ctx)
-		return false, err
-	}, w.Log, "cash export failed")
+	worker.Loop(ctx, w.Interval, 5*time.Second, w.queue().Round, w.Log, "cash export failed")
 }
 
 // one handles the tenant's next due export and reports whether there was

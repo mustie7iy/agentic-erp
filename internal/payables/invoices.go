@@ -127,7 +127,7 @@ func (e *Endpoints) CreateInvoice(ctx context.Context, in Input, source string) 
 		return Invoice{}, err
 	}
 	if !Sources[source] {
-		return Invoice{}, invalid("payables.unknown_source", "source", "Invoices are entered as manual, edi or migration; documents use :capture.")
+		return Invoice{}, problem.Invalid("payables.unknown_source", "source", "Invoices are entered as manual, edi or migration; documents use :capture.")
 	}
 	return e.insert(ctx, tx, p, newInvoice{Input: in, source: source, status: Parked})
 }

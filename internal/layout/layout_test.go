@@ -83,7 +83,7 @@ var webForbidden = []string{"platform/uow", "platform/outbox", "platform/audit",
 // is no longer made fails it too, so the list stays exact.
 var allowed = map[string][]string{
 	"accessagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
-	"agent":                   {"apitools", "llm"},
+	"agent":                   {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072 As built, hardening 2): its declaration
 	"bidagent":                {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
 	"integrationagent":        {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its survey and its check
 	"controlagent":            {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, the matrix it reads before its session and its check

@@ -1,7 +1,9 @@
 // Command erp is the platform's command line, a thin client of the public
 // API (01-requirements §1.1; agents as in 04-api-design §4.13): everything
 // it reads or changes goes through erp-server with the caller's token, under
-// the same permissions, company access and audit as any other client. The
+// the same permissions, company access and audit as any other client
+// (ADR-0013; agents ADR-0036, the MCP server ADR-0081, tenants through the
+// control plane ADR-0015). The
 // only local work is preparing input (a mock SAP extract, a configuration
 // draft from SAP customizing) and running agents and analytics, which
 // themselves call the API.
@@ -26,6 +28,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -47,6 +50,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
@@ -384,7 +388,7 @@ func token(ctx context.Context, args []string) error {
 	if *subject == "" {
 		return errors.New("-subject is required")
 	}
-	tok, err := eval.DevIssuer(orDefault(getenv("ERP_ADMIN_URL"), "http://localhost:9090"), nil)(ctx, *tenant, *subject)
+	tok, err := eval.DevIssuer(cmp.Or(getenv("ERP_ADMIN_URL"), "http://localhost:9090"), nil)(ctx, *tenant, *subject)
 	if err != nil {
 		return fmt.Errorf("token: %w", err)
 	}
@@ -442,13 +446,22 @@ func configCmd(ctx context.Context, args []string) error {
 	return fmt.Errorf("unknown config command %q", args[0])
 }
 
+// newSAPClient makes the OData client; tests make it fail.
+var newSAPClient = func() (*egress.Client, error) { return sap.NewClient() }
+
 func parseSource(s string) (sap.Source, error) {
 	kind, target, ok := strings.Cut(s, ":")
 	switch {
 	case ok && kind == "file":
 		return sap.FileSource{Path: target}, nil
 	case ok && kind == "odata":
-		return &sap.ODataSource{BaseURL: target, User: getenv("SAP_USER"), Password: getenv("SAP_PASSWORD"), Client: getenv("SAP_CLIENT")}, nil
+		// The same egress client the server reads tenants' systems through (ADR-0041 as built):
+		// https to public addresses, each page bounded; a system on a private network is read from an extract file.
+		client, err := newSAPClient()
+		if err != nil {
+			return nil, fmt.Errorf("erp: %w", err)
+		}
+		return &sap.ODataSource{BaseURL: target, User: getenv("SAP_USER"), Password: getenv("SAP_PASSWORD"), Client: getenv("SAP_CLIENT"), HTTP: client}, nil
 	}
 	return nil, fmt.Errorf("invalid -source %q: want file:PATH or odata:URL", s)
 }

@@ -241,7 +241,10 @@ func TestOutsideARequest(t *testing.T) {
 	// A failed query is reported.
 	pool := pgtest.Pool(t)
 	ten := pgtest.NewTenant(t)
-	tx, _ := pool.Begin(context.Background(), database.Scope{})
+	tx, err := pool.Begin(context.Background(), database.Scope{})
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
 	tx.Rollback(context.Background())
 	ctx := reqctx.WithPrincipal(reqctx.WithTx(context.Background(), tx), reqctx.Principal{ID: ten.Human.ID, Kind: "human", TenantID: ten.ID})
 	if _, err := authz.Permissions(ctx); err == nil {

@@ -236,11 +236,11 @@ func checkRequisitionContract(ctx context.Context, tx pgx.Tx, contract *uuid.UUI
 	}
 	switch {
 	case c.Status != Active:
-		return nil, invalid("procurement.invalid_contract", "contract_id", "the contract is "+c.Status)
+		return nil, problem.Invalid("procurement.invalid_contract", "contract_id", "the contract is "+c.Status)
 	case c.LegalEntityID != le || c.Currency != currency:
-		return nil, invalid("procurement.invalid_contract", "contract_id", "a contract of the legal entity in the requisition currency")
+		return nil, problem.Invalid("procurement.invalid_contract", "contract_id", "a contract of the legal entity in the requisition currency")
 	case supplier != nil && *supplier != c.SupplierID:
-		return nil, invalid("procurement.invalid_contract", "contract_id", "a contract with the requisition's supplier")
+		return nil, problem.Invalid("procurement.invalid_contract", "contract_id", "a contract with the requisition's supplier")
 	}
 	return &c.SupplierID, nil
 }
@@ -408,7 +408,7 @@ func changedRequisitionHeader(r Requisition, ch RequisitionChange) (requisitionH
 		f.currency = *ch.Currency
 	}
 	if f.currency != r.Currency && ch.Items == nil {
-		return requisitionHeaderFields{}, invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
+		return requisitionHeaderFields{}, problem.Invalid("procurement.currency_mismatch", "items", "a new currency needs the items priced in it")
 	}
 	if ch.Extensions != nil {
 		f.ext = mergepatch.Apply(f.ext, ch.Extensions)

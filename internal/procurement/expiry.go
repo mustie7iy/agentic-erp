@@ -70,15 +70,9 @@ func (x *ContractExpirer) begin(ctx context.Context, s database.Scope) (pgx.Tx, 
 // contract ending on UTC's date may be past its validity already, and one
 // ending 366 days after it within a notice.
 func (x *ContractExpirer) due(ctx context.Context, now time.Time) ([]uuid.UUID, error) {
-	tx, err := x.begin(ctx, database.Scope{Role: x.WorkerRole, ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM procurement.contract WHERE status = 'active'
+	tenants, err := database.Tenants(ctx, x.Pool, x.Begin, x.WorkerRole, `SELECT DISTINCT tenant_id FROM procurement.contract WHERE status = 'active'
 		AND (valid_to <= $1::date OR (expiry_alerted_on IS NULL AND valid_to <= $1::date + 366)) AND tenant_id IN `+database.ActiveTenants+`
 		ORDER BY tenant_id`, clock.DayIn(now, time.UTC))
-	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return nil, fmt.Errorf("procurement: list tenants with contracts due: %w", err)
 	}

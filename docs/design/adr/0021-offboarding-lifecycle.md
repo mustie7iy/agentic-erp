@@ -77,3 +77,22 @@ are exported, imported and fingerprinted with it. Its sessions
 (`identity.session`) are not: they are ephemeral, end when the tenant moves,
 and their idle-time writes would change the fingerprint while a move is
 verified (ADR-0030). They are skipped like the outboxes.
+
+## As built (2026-11-16, batch 76 review)
+
+- **An export reads each table in its primary key's order** (the row's text
+  for a table without one, which none has today). A resumed export keeps the
+  parts an earlier round stored, so the rows behind part *n* must be the same
+  in every round: read in whatever order the plan of the day returned them, a
+  resumed export wrote some rows twice and others never, and the erasure
+  after it lost those for good.
+- **The erasure deletes the rows in the transaction that records it.** The
+  worker reads that the tenant is erasable, deletes its objects, then in one
+  transaction deletes its rows as the worker role and records the erasure as
+  the application role in the tenant's scope (`database.Rescope`), so the
+  rows it records are those deleted. Before, the rows went in a transaction
+  of their own: a round whose object deletion or record then failed left the
+  next round nothing to count, and the erasure was recorded with no rows. The
+  objects counted are those deleted and kept by the round that completes the
+  erasure: a store failing part-way may already have deleted others, and an
+  object store keeps no record of that round.

@@ -60,10 +60,6 @@ func unknownUnit() *problem.Problem {
 		problem.FieldError{Field: "items", Code: "unknown_unit", Message: "a unit of measure code from the reference data"})
 }
 
-func invalid(code, field, message string) error {
-	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
-}
-
 // referencedContract reads the contract a requisition or order names. An
 // unknown one is procurement.invalid_contract on contract_id, the code of
 // every other reason the contract cannot be used, rather than the generic
@@ -71,7 +67,7 @@ func invalid(code, field, message string) error {
 func referencedContract(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Contract, error) {
 	c, err := getContract(ctx, tx, id, false)
 	if err != nil && problem.From(err).Status == http.StatusNotFound {
-		return Contract{}, invalid("procurement.invalid_contract", "contract_id", "no contract with this id that you can access")
+		return Contract{}, problem.Invalid("procurement.invalid_contract", "contract_id", "no contract with this id that you can access")
 	}
 	return c, err
 }
@@ -108,7 +104,7 @@ func exponent(ctx context.Context, tx pgx.Tx, code, field string) (int, error) {
 // amount parses a money value in the document currency.
 func amount(value, currency, docCurrency string, exp int, field string, positive bool) (money.Minor, error) {
 	if currency != docCurrency {
-		return 0, invalid("procurement.currency_mismatch", field+".currency", "amounts are in the document currency "+docCurrency)
+		return 0, problem.Invalid("procurement.currency_mismatch", field+".currency", "amounts are in the document currency "+docCurrency)
 	}
 	m, err := money.ParseAmount(value, exp)
 	if err != nil {
@@ -116,7 +112,7 @@ func amount(value, currency, docCurrency string, exp int, field string, positive
 			problem.FieldError{Field: field + ".amount", Code: "invalid", Message: err.Error()})
 	}
 	if m < 0 || (positive && m == 0) {
-		return 0, invalid("procurement.invalid_amount", field+".amount", "the amount must be positive")
+		return 0, problem.Invalid("procurement.invalid_amount", field+".amount", "the amount must be positive")
 	}
 	return m, nil
 }
@@ -126,7 +122,7 @@ func amount(value, currency, docCurrency string, exp int, field string, positive
 // itemsTotal's Scale reads only the plain form.
 func quantity(value, field string) error {
 	if money.PositiveQuantity(value) != nil {
-		return invalid("procurement.invalid_quantity", field+".value", fmt.Sprintf("a positive plain decimal quantity of at most %d integer digits and %d decimals", money.QuantityIntDigits, money.QuantityDecimals))
+		return problem.Invalid("procurement.invalid_quantity", field+".value", fmt.Sprintf("a positive plain decimal quantity of at most %d integer digits and %d decimals", money.QuantityIntDigits, money.QuantityDecimals))
 	}
 	return nil
 }
@@ -171,7 +167,7 @@ func checkTotal(items []Item) error {
 func documentTotal(items []Item) (money.Minor, error) {
 	sum, err := itemsTotal(items)
 	if err != nil {
-		return 0, invalid("procurement.amount_too_large", "items", "extended amounts and their total must be in the range of an amount")
+		return 0, problem.Invalid("procurement.amount_too_large", "items", "extended amounts and their total must be in the range of an amount")
 	}
 	return sum, nil
 }
@@ -187,7 +183,7 @@ func (e *Endpoints) legalEntity(ctx context.Context, id uuid.UUID) (tenancy.Enti
 		return tenancy.Entity{}, err
 	}
 	if le.Status != "active" {
-		return tenancy.Entity{}, invalid("procurement.legal_entity_not_active", "legal_entity_id", "the legal entity is "+le.Status)
+		return tenancy.Entity{}, problem.Invalid("procurement.legal_entity_not_active", "legal_entity_id", "the legal entity is "+le.Status)
 	}
 	return le, nil
 }
@@ -210,7 +206,7 @@ func (e *Endpoints) supplierAt(ctx context.Context, id, le uuid.UUID, field stri
 		why = s.Usable()
 	}
 	if why != "" {
-		return partner.Supplier{}, invalid("procurement.supplier_not_usable", field, why)
+		return partner.Supplier{}, problem.Invalid("procurement.supplier_not_usable", field, why)
 	}
 	return s, nil
 }
@@ -225,7 +221,7 @@ func (e *Endpoints) orgUnit(ctx context.Context, id *uuid.UUID, le uuid.UUID, ki
 		return err
 	}
 	if !ok || u.LegalEntityID != le || u.Kind != kind || u.Status != "active" {
-		return invalid("procurement.invalid_org_unit", field, "an active "+kind+" of the legal entity")
+		return problem.Invalid("procurement.invalid_org_unit", field, "an active "+kind+" of the legal entity")
 	}
 	return nil
 }
@@ -237,7 +233,7 @@ func (e *Endpoints) account(ctx context.Context, le, id uuid.UUID, field string)
 		return err
 	}
 	if !ok {
-		return invalid("procurement.account_not_postable", field, "an active, unblocked account of the legal entity that is not a reconciliation account")
+		return problem.Invalid("procurement.account_not_postable", field, "an active, unblocked account of the legal entity that is not a reconciliation account")
 	}
 	return nil
 }
@@ -248,13 +244,9 @@ func (e *Endpoints) account(ctx context.Context, le, id uuid.UUID, field string)
 // stored zone the binary cannot load fails the call rather than dating the
 // document in UTC.
 func (e *Endpoints) today(ctx context.Context, company string) (time.Time, *time.Location, error) {
-	doc, _, err := e.Settings.Document(ctx)
+	d, err := config.DocumentDay(ctx, e.Settings, company, clock.Now(e.Now))
 	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("procurement: configuration: %w", err)
-	}
-	d, err := doc.CompanyDay(company, clock.Now(e.Now))
-	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("procurement: %w", err)
+		return time.Time{}, nil, fmt.Errorf("procurement: today in company %s: %w", company, err)
 	}
 	return d.Date, d.Zone, nil
 }
@@ -296,7 +288,7 @@ func (e *Endpoints) keyedItems(ctx context.Context, le uuid.UUID, in []ItemInput
 			return nil, err
 		}
 		if keys[it.MaterialKey] {
-			return nil, invalid("procurement.duplicate_material_key", field+".material_key", "each material key appears once per "+what)
+			return nil, problem.Invalid("procurement.duplicate_material_key", field+".material_key", "each material key appears once per "+what)
 		}
 		keys[it.MaterialKey] = true
 		item, err := rest(field, it)
@@ -315,7 +307,7 @@ func (e *Endpoints) keyedItems(ctx context.Context, le uuid.UUID, in []ItemInput
 // checkItemNo requires a given item number to be the item's position.
 func checkItemNo(given *int32, i int, field string) error {
 	if given != nil && *given != int32(i+1) {
-		return invalid("procurement.invalid_item_no", field+".item_no", fmt.Sprintf("items are numbered 1 to n in order; this is item %d", i+1))
+		return problem.Invalid("procurement.invalid_item_no", field+".item_no", fmt.Sprintf("items are numbered 1 to n in order; this is item %d", i+1))
 	}
 	return nil
 }

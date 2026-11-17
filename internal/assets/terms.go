@@ -315,5 +315,5 @@ func equalPtr[T comparable](a, b *T) bool {
 
 // validation is a 422 request.validation_failed on one field.
 func validation(field, message string) *problem.Problem {
-	return invalid("request.validation_failed", "The request is not valid: "+field+": "+message+".", field, message)
+	return problem.InvalidDetail("request.validation_failed", "The request is not valid: "+field+": "+message+".", field, message)
 }

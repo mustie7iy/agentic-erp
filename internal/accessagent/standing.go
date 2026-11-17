@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // The tenant's access as it stands, read through the API before a
@@ -88,11 +89,7 @@ type standing struct {
 // today is the run's day, UTC's: the agent is given no read of the
 // database's date.
 func (a *Agent) today() string {
-	now := time.Now
-	if a.Now != nil {
-		now = a.Now
-	}
-	return now().UTC().Format(time.DateOnly)
+	return clock.Now(a.Now).UTC().Format(time.DateOnly)
 }
 
 // standing reads the tenant's roles, every role assignment, past and to

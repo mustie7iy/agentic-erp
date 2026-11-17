@@ -232,8 +232,6 @@ var requisitionSort = pagination.Sort{Default: "created_at", DefaultDesc: true, 
 	{Name: "created_at", Column: "r.created_at", Type: "timestamptz"}, {Name: "document_number", Column: "r.document_number", Type: "text"},
 }}
 
-func timestamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
-
 // ListRequisitions implements GET /v1/requisitions.
 func (e *Endpoints) ListRequisitions(ctx context.Context, params gen.ListRequisitionsParams) (gen.ListRequisitionsRes, error) {
 	tx, _, err := reqctx.Request(ctx)
@@ -262,7 +260,7 @@ func (e *Endpoints) ListRequisitions(ctx context.Context, params gen.ListRequisi
 		if ks.Field() == "document_number" {
 			return r.DocumentNumber, r.ID
 		}
-		return timestamp(r.CreatedAt), r.ID
+		return pagination.Instant(r.CreatedAt), r.ID
 	})
 	expand, err := mayExpand(ctx, params.Expand)
 	if err != nil {
@@ -636,7 +634,7 @@ func (e *Endpoints) ListPurchaseOrderChanges(ctx context.Context, params gen.Lis
 	items, next, err := listOfOrder(ctx, e, params.ID, orderList[PurchaseOrderChange, gen.PurchaseOrderChange]{sort: changeSort,
 		scope: "listPurchaseOrderChanges", page: apitypes.Page(params.OrderBy, params.PageSize, params.PageToken),
 		query: `SELECT * FROM (` + changeSelect + ` WHERE ch.purchase_order_id = $1) ch WHERE true`, what: "changes", scan: scanChange,
-		key: func(ch PurchaseOrderChange) (string, uuid.UUID) { return timestamp(ch.CreatedAt), ch.ID }, toAPI: changeToAPI})
+		key: func(ch PurchaseOrderChange) (string, uuid.UUID) { return pagination.Instant(ch.CreatedAt), ch.ID }, toAPI: changeToAPI})
 	if err != nil {
 		return nil, err
 	}

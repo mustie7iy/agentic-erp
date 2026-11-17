@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -163,12 +164,13 @@ func capturedBefore(ctx context.Context, tx pgx.Tx, upload, company uuid.UUID) (
 
 // unreadable is the refusal of a document the model did not read: the
 // model gateway's refusals as they are (capture.Refusal), anything else
-// 422 sales.unreadable_document.
+// 422 sales.unreadable_document, its cause logged, never shown: the
+// gateway's or the model's own words are not the caller's to read.
 func unreadable(err error) error {
 	if refused := capture.Refusal(err); refused != nil {
 		return refused
 	}
-	return problem.Unprocessable("sales.unreadable_document", "The document cannot be captured: "+err.Error()+".")
+	return problem.Unprocessable("sales.unreadable_document", "The document cannot be captured: it could not be read as a sales order.").WithCause(err)
 }
 
 // capturedOrder is the order the extraction gives, in the currency it
@@ -260,15 +262,19 @@ var capturedItemField = regexp.MustCompile(`^items\[\d+\]\.(account_id|tax_code)
 // fieldsOfCapture names, in a refusal of the captured order, the capture
 // request's account_id and tax_code where the order's item fields stand
 // for them; an item's other fields name the document's item by its place.
+// The problem is copied, never changed: its maker may keep it (as
+// asPosting does).
 func fieldsOfCapture(err error) error {
 	var p *problem.Problem
 	if !errors.As(err, &p) {
 		return err
 	}
-	for i, f := range p.Errors {
+	refused := *p
+	refused.Errors = slices.Clone(p.Errors)
+	for i, f := range refused.Errors {
 		if m := capturedItemField.FindStringSubmatch(f.Field); m != nil {
-			p.Errors[i].Field = m[1]
+			refused.Errors[i].Field = m[1]
 		}
 	}
-	return err
+	return &refused
 }

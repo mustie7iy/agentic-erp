@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -22,7 +24,7 @@ func TestSourceInvalidSettings(t *testing.T) {
 		"odata without a base URL":  {Connector{Kind: SAPOData, Settings: map[string]any{}}, "settings.base_url"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := e.source(context.Background(), c.connector)
+			_, err := e.source(context.Background(), uuid.Nil, c.connector)
 			p := problem.From(err)
 			if p.Status != 422 || p.Code != "integration.invalid_settings" {
 				t.Fatalf("got %d %s (%v), want 422 integration.invalid_settings", p.Status, p.Code, err)
