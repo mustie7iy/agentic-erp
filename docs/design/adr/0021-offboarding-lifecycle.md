@@ -66,9 +66,10 @@ export's and the erasure's own entries are its last. The outbox events
   operation, `List` and `Delete` on the store port (the only deletion).
 - Audit entries keep their details after the erasure; minimizing what
   entries carry about erased objects is a separate design.
-- Large tenants export table by table in memory; streaming exports and
-  multipart uploads are for when a tenant's table exceeds a replica's
-  memory.
+- Large tenants export table by table in parts of bounded size
+  (`ChunkRows`), and an import reads them a part at a time (ADR-0029 As
+  built); multipart uploads are for when one part exceeds what a replica
+  holds.
 
 ## Amendment (2026-10-16, ADR-0031)
 

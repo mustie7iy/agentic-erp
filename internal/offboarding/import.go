@@ -136,7 +136,7 @@ func (im *Importer) importTenant(ctx context.Context, tx pgx.Tx, m manifest, ord
 	if err := checkEmpty(ctx, tx, m.TenantID, order, idents); err != nil {
 		return err
 	}
-	rows, cols, err := im.readTables(ctx, tx, order, idents, parts)
+	cols, err := tableColumns(ctx, tx, order, idents)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func (im *Importer) importTenant(ctx context.Context, tx pgx.Tx, m manifest, ord
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.importing', $1, true)`, m.TenantID.String()); err != nil {
 		return fmt.Errorf("offboarding: mark the import of %s: %w", m.TenantID, err)
 	}
-	if err := im.insertInPasses(ctx, tx, order, idents, cols, rows, out); err != nil {
+	if err := im.insertInPasses(ctx, tx, order, idents, cols, parts, out); err != nil {
 		return err
 	}
 	if im.Check != nil {
@@ -197,44 +197,37 @@ func checkEmpty(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, order []string
 	return nil
 }
 
-// readTables reads every table's insertable columns and its rows from the
-// store, each part checked against the manifest.
-func (im *Importer) readTables(ctx context.Context, tx pgx.Tx, order []string, idents map[string]string, parts map[string][]exportedTable) (map[string][]json.RawMessage, map[string][]string, error) {
-	rows := map[string][]json.RawMessage{}
-	cols := map[string][]string{}
+// tableColumns reads every table's insertable columns.
+func tableColumns(ctx context.Context, tx pgx.Tx, order []string, idents map[string]string) (map[string][]string, error) {
+	cols := make(map[string][]string, len(order))
 	for _, name := range order {
 		var err error
 		if cols[name], err = columns(ctx, tx, idents[name]); err != nil {
-			return nil, nil, fmt.Errorf("offboarding: columns of %s: %w", name, err)
-		}
-		for _, p := range parts[name] {
-			if err := im.readPart(ctx, name, p, rows); err != nil {
-				return nil, nil, err
-			}
+			return nil, fmt.Errorf("offboarding: columns of %s: %w", name, err)
 		}
 	}
-	return rows, cols, nil
+	return cols, nil
 }
 
-// readPart appends a part's rows to the table's in rows, after checking
-// the part's hash and, once read, its row count.
-func (im *Importer) readPart(ctx context.Context, name string, p exportedTable, rows map[string][]json.RawMessage) error {
+// readPart reads a part's rows, after checking the part's hash and, once
+// read, its row count.
+func (im *Importer) readPart(ctx context.Context, p exportedTable) ([]json.RawMessage, error) {
 	content, _, err := im.Store.Get(ctx, p.Key)
 	if err != nil {
-		return fmt.Errorf("offboarding: reading %s: %w", p.Key, err)
+		return nil, fmt.Errorf("offboarding: reading %s: %w", p.Key, err)
 	}
 	if sum := sha256.Sum256(content); hex.EncodeToString(sum[:]) != p.SHA256 {
-		return fmt.Errorf("offboarding: %s does not match the manifest's hash", p.Key)
+		return nil, fmt.Errorf("offboarding: %s does not match the manifest's hash", p.Key)
 	}
-	var count int64
-	for _, line := range strings.Split(strings.TrimRight(string(content), "\n"), "\n") {
-		rows[name] = append(rows[name], json.RawMessage(line)) // one JSON object per line, as the export writes them
-		count++
+	lines := strings.Split(strings.TrimRight(string(content), "\n"), "\n")
+	rows := make([]json.RawMessage, len(lines))
+	for i, line := range lines {
+		rows[i] = json.RawMessage(line) // one JSON object per line, as the export writes them
 	}
-	if count != p.Rows {
-		return fmt.Errorf("offboarding: %s holds %d rows, the manifest says %d", p.Key, count, p.Rows)
+	if int64(len(rows)) != p.Rows {
+		return nil, fmt.Errorf("offboarding: %s holds %d rows, the manifest says %d", p.Key, len(rows), p.Rows)
 	}
-	return nil
+	return rows, nil
 }
 
 // insertInPasses inserts the tables' rows. Tables whose rows still
@@ -245,13 +238,13 @@ func (im *Importer) readPart(ctx context.Context, name string, p exportedTable, 
 // check violation while those rows are not inserted yet: such a table
 // waits too, and when a pass inserts nothing, what refused each table that
 // still waits is the import's error.
-func (im *Importer) insertInPasses(ctx context.Context, tx pgx.Tx, order []string, idents map[string]string, cols map[string][]string, rows map[string][]json.RawMessage, out *Imported) error {
+func (im *Importer) insertInPasses(ctx context.Context, tx pgx.Tx, order []string, idents map[string]string, cols map[string][]string, parts map[string][]exportedTable, out *Imported) error {
 	todo := order
 	for pass := 1; len(todo) > 0; pass++ {
 		var next []string
 		var refusals []error
 		for _, name := range todo {
-			n, refused, err := im.insertTable(ctx, tx, name, idents[name], cols[name], rows[name])
+			n, refused, err := im.insertTable(ctx, tx, name, idents[name], cols[name], parts[name])
 			if err != nil {
 				return err
 			}
@@ -271,30 +264,48 @@ func (im *Importer) insertInPasses(ctx context.Context, tx pgx.Tx, order []strin
 	return nil
 }
 
-// insertTable inserts a table's rows under a savepoint. When the database
-// refuses them for a foreign key or a check, which rows inserted later
-// may satisfy, the savepoint is rolled back and refused is what refused
-// them: the table waits for the next pass.
-func (im *Importer) insertTable(ctx context.Context, tx pgx.Tx, name, ident string, cols []string, rows []json.RawMessage) (n int64, refused, err error) {
+// insertTable inserts a table's rows under a savepoint, a part at a time:
+// a part is read from the store, checked and inserted before the next is
+// read, so the import holds one part of one table in memory, as the export
+// does (ChunkRows); a table that waits for a later pass is read again
+// then. When the database refuses the rows for a foreign key or a check,
+// which rows inserted later may satisfy, the savepoint is rolled back and
+// refused is what refused them: the table waits for the next pass.
+func (im *Importer) insertTable(ctx context.Context, tx pgx.Tx, name, ident string, cols []string, parts []exportedTable) (n int64, refused, err error) {
 	sp, err := tx.Begin(ctx)
 	if err != nil {
 		return 0, nil, fmt.Errorf("offboarding: open savepoint for %s: %w", name, err)
 	}
-	n, err = im.insert(ctx, sp, ident, cols, rows)
-	var pg *pgconn.PgError
-	if errors.As(err, &pg) && (pg.Code == "23503" || pg.Code == "23514") { // foreign_key_violation, check_violation
-		if err := sp.Rollback(ctx); err != nil {
-			return 0, nil, fmt.Errorf("offboarding: roll back savepoint for %s: %w", name, err)
+	for _, p := range parts {
+		rows, err := im.readPart(ctx, p)
+		if err != nil {
+			return 0, nil, err
 		}
-		return 0, fmt.Errorf("inserting into %s: %w", name, err), nil
-	}
-	if err != nil {
-		return 0, nil, fmt.Errorf("offboarding: inserting into %s: %w", name, err)
+		k, err := im.insert(ctx, sp, ident, cols, rows)
+		if err != nil {
+			refused, err := refusedTable(ctx, sp, name, err)
+			return 0, refused, err
+		}
+		n += k
 	}
 	if err := sp.Commit(ctx); err != nil {
 		return 0, nil, fmt.Errorf("offboarding: release savepoint for %s: %w", name, err)
 	}
 	return n, nil, nil
+}
+
+// refusedTable answers an insert's error: a foreign key or a check
+// violation rolls the table's savepoint back and refuses the table for
+// this pass; anything else fails the import.
+func refusedTable(ctx context.Context, sp pgx.Tx, name string, err error) (refused, failed error) {
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) && (pg.Code == "23503" || pg.Code == "23514") { // foreign_key_violation, check_violation
+		if err := sp.Rollback(ctx); err != nil {
+			return nil, fmt.Errorf("offboarding: roll back savepoint for %s: %w", name, err)
+		}
+		return fmt.Errorf("inserting into %s: %w", name, err), nil
+	}
+	return nil, fmt.Errorf("offboarding: inserting into %s: %w", name, err)
 }
 
 // checkChainHead compares the imported audit chain head with the one the
