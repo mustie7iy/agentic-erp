@@ -7160,6 +7160,13 @@
       "r": "identity.Directory.HoldsRole, RolesHeld (active roles alone) · app.reportGrantees · TestInactiveStepRole · TestDirectoryInactiveRole · ADR-0010 As built 2026-11-16",
       "src": "review:T95c",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "Cancelling an operation tells the workflow engine only once the cancellation has committed (reqctx.OnCommit): a request that failed after the engine call left the operation running with its workflow cancelled (R2 B2 of the batch 76 review).",
+      "r": "internal/operations CancelOperation · reqctx.OnCommit · ADR-0012 · TestCancelOperation",
+      "src": "review:batch76",
+      "c": []
      }
     ]
    },

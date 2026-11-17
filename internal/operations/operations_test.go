@@ -264,6 +264,22 @@ func TestCancelOperation(t *testing.T) {
 	if !strings.Contains(logs.String(), "did not take the cancellation") {
 		t.Fatalf("logs: got %s, want the refused cancellation logged", logs.String())
 	}
+	// A request that fails after the cancellation leaves the workflow alone:
+	// the engine is told only once the cancellation has committed.
+	engine.cancelled = nil
+	ox := start(t, ten, "payments.propose")
+	pgtest.Exec(t, `UPDATE platform.operation SET workflow_id = 'wf-rolled-back', version = version + 1 WHERE id = $1`, ox.ID)
+	e := &operations.Endpoints{Workflows: engine}
+	if err := inRequest(t, ten, ten.Agent, false, func(ctx context.Context) error { // no audit buffer: the request fails after the update
+		ctx, _ = reqctx.WithCommit(ctx) // the unit of work runs it only after a commit, which this request never reaches
+		_, err := e.CancelOperation(ctx, gen.CancelOperationParams{ID: ox.ID, IfMatch: "*"})
+		return err
+	}); err == nil {
+		t.Fatal("cancel without an audit buffer: got nil error, want the failure reported")
+	}
+	if len(engine.cancelled) != 0 {
+		t.Fatalf("engine cancellations after a rolled-back request: got %v, want none", engine.cancelled)
+	}
 	// A retry with the same key returns the same answer and changes nothing.
 	replay := api.Do(apitest.Req{Method: "POST", Path: path, Tenant: ten.ID, As: ten.Agent, Key: key, IfMatch: `"1"`})
 	if replay.Code != 200 {
