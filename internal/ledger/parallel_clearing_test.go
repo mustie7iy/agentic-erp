@@ -82,6 +82,7 @@ func TestParallelClearing(t *testing.T) {
 	t.Run("narrowed to the items' ledgers", func(t *testing.T) { clearNarrowed(t, p) })
 	t.Run("settlement", func(t *testing.T) { settleEveryLedger(t, p) })
 	t.Run("reversal", func(t *testing.T) { reverseClearsCopies(t, p) })
+	t.Run("reset", func(t *testing.T) { resetEveryLedger(t, p) })
 	t.Run("migrated clearing", func(t *testing.T) { migratedEveryLedger(t, p) })
 	t.Run("journal list by ledger", func(t *testing.T) { listByLedger(t, p) })
 }
@@ -181,6 +182,51 @@ func reverseClearsCopies(t *testing.T, p parallelEnv) {
 	rev, _ := p.in(t).Must(200, "POST", "/v1/journal-entries/"+d.invoice["id"].(string)+":reverse", "", tag)
 	invoice, reversal := p.copyOf(t, d.invoice["id"]), p.copyOf(t, rev["id"])
 	wantCleared(t, map[string]string{invoice: "2", reversal: "2"}, map[string]string{invoice: "the invoice's copy", reversal: "the reversal's copy"})
+}
+
+// resetEveryLedger: a reset clearing (T75i) opens its lines again in
+// every ledger, its copies' too, and its entry is reversed in each.
+func resetEveryLedger(t *testing.T, p parallelEnv) {
+	t.Helper()
+	d := p.docs(t, "BP00000089")
+	c, _ := p.in(t).Must(201, "POST", "/v1/clearings", clearing(p.de, "2026-03-31", ref{d.invoice, 2}, ref{d.payment, 1}), "")
+	entry := uuid.MustParse(c["clearing_entry_id"].(string))
+	reset := func(source string) error {
+		return apitest.Committed(t, p.ten, p.ten.Human, func(ctx context.Context) error {
+			_, err := postings().ResetClearing(ctx, ledger.ClearingReset{Entry: ledger.ItemRef{FiscalYear: 2026, EntryID: entry}, SourceContext: source})
+			return err
+		})
+	}
+	if got := problem.From(reset("receivables")); got.Code != "ledger.entry_owned_elsewhere" {
+		t.Errorf("by another context: got %v, want 409 ledger.entry_owned_elsewhere", got)
+	}
+	if err := reset("ledger"); err != nil {
+		t.Fatal(err)
+	}
+	if got := problem.From(reset("ledger")); got.Code != "ledger.clearing_already_reset" {
+		t.Errorf("a second reset: got %v, want 409 ledger.clearing_already_reset", got)
+	}
+	invoice, payment := p.copyOf(t, d.invoice["id"]), p.copyOf(t, d.payment["id"])
+	wantCleared(t, map[string]string{d.invoice["id"].(string): "", d.payment["id"].(string): "", invoice: "", payment: ""},
+		map[string]string{d.invoice["id"].(string): "the invoice", d.payment["id"].(string): "the payment", invoice: "the invoice's copy", payment: "the payment's copy"})
+	var reversed int
+	if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM ledger.reversal WHERE original_entry_id IN ($1, $2)`,
+		entry, p.copyOf(t, entry)).Scan(&reversed); err != nil {
+		t.Fatal(err)
+	}
+	if reversed != 2 {
+		t.Errorf("reversals of the clearing entry and its copy: got %d, want 2", reversed)
+	}
+	shown, _ := p.in(t).Must(200, "GET", "/v1/clearings/"+c["id"].(string), "", "")
+	if shown["reset_at"] == nil {
+		t.Errorf("the reset clearing's reset_at: got none, want when it was reset")
+	}
+	if got, want := shown["reset_by"], p.ten.Human.ID.String(); got != want {
+		t.Errorf("the reset clearing's reset_by: got %v, want %s", got, want)
+	}
+	if got := len(apitest.List(t, shown, "items")); got != 2 {
+		t.Errorf("the reset clearing's lines: got %d, want the two it had cleared", got)
+	}
 }
 
 func migratedEveryLedger(t *testing.T, p parallelEnv) {

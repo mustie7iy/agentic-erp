@@ -24,11 +24,11 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-// perms are what the tests' person holds: dunning, the worklist, dispute
-// cases, and clearing a customer's item in the ledger as an incoming
+// perms are what the tests' person holds: dunning, the worklist and its
+// promises to pay, dispute cases, and clearing a customer's item in the ledger as an incoming
 // payment does.
 var perms = []string{"collections.dunning.read", "collections.dunning.run", "collections.dunning.block", "collections.worklist.read", "collections.dispute.read",
-	"collections.dispute.write", "ledger.clearing.post"}
+	"collections.dispute.write", "collections.worklist.write", "ledger.clearing.post"}
 
 // keyDate is the key date of the tests' runs.
 const keyDate = "2026-06-30"

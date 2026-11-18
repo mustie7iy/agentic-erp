@@ -80,7 +80,7 @@ func rateToAPI(r Rate) gen.ExchangeRate {
 
 func clearingToAPI(c Clearing) gen.Clearing {
 	out := gen.Clearing{ID: c.ID, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, LegalEntityID: c.LegalEntityID, ClearingDate: c.ClearingDate,
-		ClearingEntryID: c.EntryID, Items: make([]gen.ClearingItemRef, len(c.Items))}
+		ClearingEntryID: c.EntryID, Items: make([]gen.ClearingItemRef, len(c.Items)), ResetAt: apitypes.OptDateTime(c.ResetAt), ResetBy: apitypes.OptUUID(c.ResetBy)}
 	for i, it := range c.Items {
 		out.Items[i] = gen.ClearingItemRef{FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo}
 	}

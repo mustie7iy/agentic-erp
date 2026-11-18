@@ -56,12 +56,12 @@ func contractAPI(c Contract, refs references) gen.RevenueContract {
 		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), LegalEntityID: c.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name,
 		CustomerID: c.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name, SalesOrderID: c.SalesOrderID,
 		SalesOrderNumber: c.SalesOrderNumber, Currency: c.Currency, TransactionPrice: apitypes.Money(c.TransactionPrice, c.Currency, c.Exponent),
-		Status: c.Status, Obligations: make([]gen.PerformanceObligation, len(c.Obligations))}
+		Status: c.Status, Changes: c.Changes, EndedAt: apitypes.OptDateTime(c.EndedAt), Obligations: make([]gen.PerformanceObligation, len(c.Obligations))}
 	for i, o := range c.Obligations {
 		out.Obligations[i] = gen.PerformanceObligation{ObligationNo: o.No, OrderItemNo: o.OrderItemNo, ItemKey: apitypes.OptString(o.ItemKey),
 			Description: o.Description, NetAmount: apitypes.Money(o.Net, c.Currency, c.Exponent), Timing: o.Timing,
 			ServiceFrom: apitypes.OptDate(o.ServiceFrom), ServiceTo: apitypes.OptDate(o.ServiceTo), SatisfiedOn: apitypes.OptDate(o.SatisfiedOn),
-			StandaloneSellingPrice: apitypes.Money(o.StandalonePrice, c.Currency, c.Exponent)}
+			StandaloneSellingPrice: apitypes.Money(o.StandalonePrice, c.Currency, c.Exponent), EndedAt: apitypes.OptDateTime(o.EndedAt)}
 		if o.Allocated != nil {
 			out.Obligations[i].AllocatedAmount = gen.NewOptMoney(apitypes.Money(*o.Allocated, c.Currency, c.Exponent))
 		}

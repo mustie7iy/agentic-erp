@@ -109,8 +109,9 @@ func proposal(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Notice, error) {
 // cleared since the run proposed it, and one dunned more often than when
 // the run proposed it was dunned by another confirmed run since. Either
 // makes the proposal stale, as does an item that a dunning block holds
-// for the run's key date: placed since the run, since it would have left
-// the item out (T76e). The times an item was dunned are compared,
+// for the run's key date, or a promise to pay by a date on or after it:
+// placed or recorded since the run, since it would have left the item out
+// (T76e, T76f). The times an item was dunned are compared,
 // not its level: a confirmation leaves the level of an item at the
 // highest level, or short of the next level's days, as it was.
 func (e *Endpoints) fresh(ctx context.Context, tx pgx.Tx, run Run, notices []Notice) error {
@@ -137,30 +138,44 @@ func (e *Endpoints) fresh(ctx context.Context, tx pgx.Tx, run Run, notices []Not
 	if err != nil {
 		return err
 	}
-	itemBlocks, customerBlocks, err := blocksInForce(ctx, tx, run.LegalEntityID, run.KeyDate)
+	// The open dispute cases are read with the rest and not compared: a case opened since does not make a proposal stale (T86b).
+	h, err := holdsOf(ctx, tx, run.LegalEntityID, run.KeyDate)
 	if err != nil {
 		return err
 	}
-	var cleared, moved, blocked int
+	c := staleness(notices, isOpen, levels, h)
+	if c.cleared+c.moved+c.blocked+c.promised == 0 {
+		return nil
+	}
+	return problem.Conflict("collections.proposal_stale", fmt.Sprintf("The proposal is stale: of its %d items, %d cleared, %d dunned by another run, "+
+		"%d blocked from dunning and %d promised to be paid since it was started. Start a new run.", len(refs), c.cleared, c.moved, c.blocked, c.promised))
+}
+
+// stale counts a proposal's items by why they make it stale: cleared,
+// dunned by another run since, blocked or promised since.
+type stale struct{ cleared, moved, blocked, promised int }
+
+// staleness compares the proposal's items, in that order of why, with
+// which are open, what is recorded of them and what holds them now.
+func staleness(notices []Notice, isOpen map[ledger.ItemRef]bool, levels map[ledger.ItemRef]dunned, h holds) stale {
+	var c stale
 	for _, n := range notices {
-		_, customerBlocked := customerBlocks[n.CustomerID]
 		for _, it := range n.Items {
-			_, itemBlocked := itemBlocks[it.ItemRef]
+			_, held := h.blockOf(ledger.ReceivableItem{ItemRef: it.ItemRef, PartnerID: n.CustomerID})
+			_, promised := h.promises[it.ItemRef]
 			switch {
 			case !isOpen[it.ItemRef]:
-				cleared++
+				c.cleared++
 			case levels[it.ItemRef].Times != it.PreviousDunnings:
-				moved++
-			case customerBlocked || itemBlocked:
-				blocked++
+				c.moved++
+			case held:
+				c.blocked++
+			case promised:
+				c.promised++
 			}
 		}
 	}
-	if cleared+moved+blocked == 0 {
-		return nil
-	}
-	return problem.Conflict("collections.proposal_stale", fmt.Sprintf("The proposal is stale: of its %d items, %d cleared, %d dunned by another run "+
-		"and %d blocked from dunning since it was started. Start a new run.", len(refs), cleared, moved, blocked))
+	return c
 }
 
 // issued are the events of a confirmed run's notices, DunningNoticeIssued

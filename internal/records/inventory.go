@@ -63,6 +63,8 @@ func principal(column string) map[string]string { return map[string]string{Subje
 var Inventory = []Entry{
 	{"audit", "audit_event", "client_address", CategoryNetworkAddress, "The network address a request came from, kept with the audit record of each change it made (ADR-0011).", principal("actor_id")},
 	{"closing", "year_sign_off", "signed_by_name", CategoryName, "The name of the person who signed a year close off, kept with the sign-off as signed.", principal("signed_by")},
+	{"collections", "customer_contact", "contact_name", CategoryName, "Whom at a customer a collector spoke to, kept with the contact (T76g).", partner("customer_id")},
+	{"collections", "customer_contact", "note", CategoryFreeText, "A collector's note of a contact with a customer, which may name the people spoken to.", partner("customer_id")},
 	{"identity", "principal", "display_name", CategoryName, "A person's or agent's name, shown wherever they acted.", principal("id")},
 	{"identity", "principal", "email", CategoryContact, "A person's e-mail address, for notifications.", principal("id")},
 	{"identity", "principal", "external_subject", CategoryIdentifier, "A person's identity at the tenant's identity provider, by which they sign in.", principal("id")},
@@ -101,7 +103,6 @@ var SchemasWithout = map[string]string{
 	"analytics":     "governed metrics and the extract's state: no person's data",
 	"assets":        "fixed assets and their postings",
 	"cash":          "the liquidity forecast, its snapshots and exports: amounts by liquidity item, no partner's name",
-	"collections":   "dunning runs and notices: partners by id",
 	"config":        "the configuration document and its change requests",
 	"consolidation": "group reporting runs: companies and accounts",
 	"controlling":   "cost centers, internal orders and allocations",

@@ -131,7 +131,7 @@ func (Postings) ClearedTogether(ctx context.Context, items []ItemRef) (bool, err
 	if err != nil {
 		return false, err
 	}
-	years, entries, nos := columns(items)
+	years, entries, nos := ItemColumns(items)
 	var together bool
 	err = tx.QueryRow(ctx, `SELECT count(DISTINCT ci.clearing_id) = 1 AND count(ci.clearing_id) = count(*)
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(y, je, n)

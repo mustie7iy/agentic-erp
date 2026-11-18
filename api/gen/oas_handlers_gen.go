@@ -2570,11 +2570,14 @@ func (s *Server) handleActivateOrgUnitRequest(args [1]string, argsEscaped bool, 
 // transaction price exactly; a minor unit left by the rounding goes to the obligations with the
 // largest remainders, the earlier one first, so the same contract always allocates the same way. With
 // the prices a contract starts with, the order items' net values, each share is its order item's
-// value. Activating fixes the obligations and their amounts: a later change or a second activation is
-// refused (409 `revenue.invalid_status`). The system does the arithmetic only: the obligations, their
-// timing and their stand-alone selling prices are the person's judgement as they stand. Nothing is
-// posted. Audited, and published as RevenueContractChanged. A retry with the same `Idempotency-Key`
-// answers the active contract. Human-only (`x-agent: false`).
+// value. Activating fixes the obligations and their amounts: a later change by a person or a second
+// activation is refused (409 `revenue.invalid_status`); the contract still follows a change of its
+// sales order, which allocates its new transaction price the same way (T81e). A contract that has
+// ended, its sales order cancelled, is not activated (409 `revenue.contract_ended`). The system does
+// the arithmetic only: the obligations, their timing and their stand-alone selling prices are the
+// person's judgement as they stand. Nothing is posted. Audited, and published as
+// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the active contract.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/revenue-contracts/{id}:activate
 func (s *Server) handleActivateRevenueContractRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -7299,7 +7302,12 @@ func (s *Server) handleCancelParkedJournalEntryRequest(args [1]string, argsEscap
 //
 // Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
 // for its release approval is cancelled too, and its request withdrawn; so is an open order change of
-// a released order.
+// a released order. An order an RFQ's award created (`rfqs/{id}:award` with `award_to`
+// `purchase_order`) moves that RFQ from `awarded` to `order_cancelled`, published as RfqChanged
+// (`order_cancelled`); the RFQ still names the order (T82h). An order from a requisition moves it back
+// to `approved`, to be sourced or ordered anew, published as RequisitionReopened (`cause`
+// `purchase_order_cancelled`). Locks: the order, then its RFQ, then its requisition, in one
+// transaction.
 //
 // POST /v1/purchase-orders/{id}:cancel
 func (s *Server) handleCancelPurchaseOrderRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -8104,19 +8112,236 @@ func (s *Server) handleCancelRevaluationRunRequest(args [1]string, argsEscaped b
 	}
 }
 
+// handleCancelRfqRequest handles cancelRfq operation.
+//
+// Cancels a `draft` or `published` RFQ that is no longer needed, with a reason, at the version the
+// caller read (`If-Match`), once (T82g, ADR-0069 As built): the RFQ is read under a row lock and
+// becomes `cancelled`, keeping the reason as `closing_reason`; an RFQ awarded, cancelled or closed is
+// refused (409 `procurement.invalid_status`), and of two requests one cancels it and the other meets
+// another version (412). Its recorded quotations all become `not_awarded`; none is recorded or awarded
+// after. A requisition the RFQ was created from leaves sourcing in the same transaction: it is
+// `approved` again, available to a new RFQ, an order or its cancellation, and is published as
+// RequisitionReopened (`cause` `rfq_cancelled`). A retry with the same `Idempotency-Key` answers the
+// cancelled RFQ. Audited, and published as RfqChanged (`cancelled`, with the reason).
+//
+// POST /v1/rfqs/{id}:cancel
+func (s *Server) handleCancelRfqRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelRfq"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/rfqs/{id}:cancel"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CancelRfqOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CancelRfqOperation,
+			ID:   "cancelRfq",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CancelRfqOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCancelRfqParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCancelRfqRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CancelRfqRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CancelRfqOperation,
+			OperationSummary: "Cancel a request for quotation",
+			OperationID:      "cancelRfq",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *RfqClosing
+			Params   = CancelRfqParams
+			Response = CancelRfqRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCancelRfqParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CancelRfq(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CancelRfq(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCancelRfqResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCancelSalesOrderRequest handles cancelSalesOrder operation.
 //
 // Cancels a `draft` or `confirmed` sales order of which nothing is delivered (ADR-0067, As built
 // T78d), at the version the caller read (`If-Match`), with a reason: the order is read under a row
 // lock and moves to `cancelled` once, naming the reason, who cancelled it and when. An order already
 // cancelled is refused (409 `sales.invalid_status`), as is one with a quantity delivered (409
-// `sales.order_delivered`) and a confirmed one with a revenue contract (409
-// `sales.revenue_contract_exists`), whose obligations hold the order's values: since only what is
-// delivered is billed, nothing of a cancelled order is billed. A cancelled order takes no change,
-// delivery or billing document, and leaves the customer's open orders (`getCreditExposure`). The
-// quotation it came from stays ordered. Nothing is posted. Audited, and published as
-// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the cancelled order. Human-only
-// (`x-agent: false`).
+// `sales.order_delivered`): since only what is delivered is billed, nothing of a cancelled order is
+// billed. A confirmed order's revenue contract ends by itself, shortly after (ADR-0068, As built
+// T81e). A cancelled order takes no change, delivery or billing document, and leaves the customer's
+// open orders (`getCreditExposure`). The quotation it came from stays ordered. Nothing is posted.
+// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
+// cancelled order. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:cancel
 func (s *Server) handleCancelSalesOrderRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -8987,12 +9212,13 @@ func (s *Server) handleCaptureSupplierInvoiceRequest(args [0]string, argsEscaped
 // quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
 // `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
 // (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
-// (`cancelBillingDocument`). A confirmed order with a revenue contract (`createRevenueContract`, or
-// made when the order is confirmed) keeps its items' quantities and prices (409
-// `sales.revenue_contract_exists`): the contract holds their values, and follows no change of them;
-// its requested delivery date still changes. `requested_delivery_date` is on or after the order's date
-// (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
-// refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
+// (`cancelBillingDocument`). A confirmed order's revenue contract (`getRevenueContract`) follows the
+// change by itself, shortly after it (ADR-0068, As built T81e). `requested_delivery_date` is on or
+// after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. From T78e a
+// change also adds items (`new_items`), removes items with nothing delivered (`removed_items`) and
+// changes the payment term while nothing of the order is billed (`payment_term_code`); a removed item
+// is not changed again (422 `sales.order_item_removed`). A request that changes nothing is refused
+// (422 `sales.nothing_changed`). The order's net value is the sum of its items' that stand again. A
 // change that raises a confirmed order's net value checks the customer's credit for the increase, as a
 // confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
 // blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
@@ -10688,6 +10914,225 @@ func (s *Server) handleClosePurchaseOrderRequest(args [1]string, argsEscaped boo
 	}
 }
 
+// handleCloseRfqRequest handles closeRfq operation.
+//
+// Closes a `published` RFQ without an award, with a reason, when its quotations do not lead to one, at
+// the version the caller read (`If-Match`), once (T82g, ADR-0069 As built): the RFQ is read under a
+// row lock and becomes `closed`, keeping the reason as `closing_reason`; a draft is cancelled, not
+// closed, and an RFQ awarded, cancelled or closed is refused (409 `procurement.invalid_status`), and
+// of two requests one closes it and the other meets another version (412). Its recorded quotations all
+// become `not_awarded`; none is recorded or awarded after. A requisition the RFQ was created from
+// leaves sourcing in the same transaction: it is `approved` again, available to a new RFQ, an order or
+// its cancellation, and is published as RequisitionReopened (`cause` `rfq_closed`). A retry with the
+// same `Idempotency-Key` answers the closed RFQ. Audited, and published as RfqChanged (`closed`, with
+// the reason).
+//
+// POST /v1/rfqs/{id}:close
+func (s *Server) handleCloseRfqRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("closeRfq"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/rfqs/{id}:close"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CloseRfqOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CloseRfqOperation,
+			ID:   "closeRfq",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CloseRfqOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCloseRfqParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCloseRfqRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CloseRfqRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CloseRfqOperation,
+			OperationSummary: "Close a request for quotation without an award",
+			OperationID:      "closeRfq",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *RfqClosing
+			Params   = CloseRfqParams
+			Response = CloseRfqRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCloseRfqParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CloseRfq(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CloseRfq(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCloseRfqResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCloseRiskRequest handles closeRisk operation.
 //
 // Closes an open risk for good (status `closed`), once (409 `grc.risk_closed` for a closed one), at
@@ -11359,14 +11804,15 @@ func (s *Server) handleCompleteYearCloseTaskRequest(args [2]string, argsEscaped 
 // the run was started, or was dunned since by another confirmed run of the company (its recorded level
 // is no longer the run's `previous_level`), the proposal is stale and refused (409
 // `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the
-// item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a
-// stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays
-// `proposed`. A dispute case opened on an item after the run was started does not make the proposal
-// stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not
-// `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and
-// publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without
-// notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company
-// the caller may not act in is not found (404). Human-only (`x-agent: false`).
+// item or its customer, placed since and holding for the run's key date, blocks (T76e), and one with
+// an item a customer promised since, by a date on or after the run's key date, to pay (T76f). Nothing
+// of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run
+// stays `proposed`. A dispute case opened on an item after the run was started does not make the
+// proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that
+// is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records
+// and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run
+// without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a
+// company the caller may not act in is not found (404). Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs/{id}:confirm
 func (s *Server) handleConfirmDunningRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -17697,6 +18143,222 @@ func (s *Server) handleCreateCreditMemoRequestRequest(args [0]string, argsEscape
 	}
 }
 
+// handleCreateCustomerContactRequest handles createCustomerContact operation.
+//
+// Records a collector's contact with a customer of a company (ADR-0065 As built, T76g): when it was
+// (`contacted_at`, not after now: 422 `collections.invalid_contact_time`), whom at the customer the
+// collector spoke to (`contact_name`, optional), its `outcome` (an open enumeration: 422
+// `collections.unknown_outcome` for a value the server does not know) and a `note`, and optionally a
+// `resubmission_date`, after the company's today in its time zone and at most 2100-12-31 (422
+// `collections.invalid_resubmission_date`). The company is one the caller may act in (422
+// `request.reference_not_found` naming `legal_entity_id`), the customer a business partner of the
+// tenant (422 `request.reference_not_found` naming `customer_id`). Texts of white space alone are
+// refused (422 `request.validation_failed`). A customer's last contact is its latest by
+// `contacted_at`: while that contact's resubmission date is after a worklist's key date, the customer
+// is not on that worklist (`getCollectionWorklist`), so it reappears on its resubmission date; a later
+// contact without a resubmission date brings it back at once. A contact is a record of what happened:
+// it is not changed; a correction is a later contact. Recording one posts nothing and sends nothing.
+// Audited. A retry with the same `Idempotency-Key` answers the contact recorded. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/customer-contacts
+func (s *Server) handleCreateCustomerContactRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCustomerContact"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/customer-contacts"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateCustomerContactOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateCustomerContactOperation,
+			ID:   "createCustomerContact",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateCustomerContactOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateCustomerContactParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateCustomerContactRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateCustomerContactRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateCustomerContactOperation,
+			OperationSummary: "Record a contact with a customer",
+			OperationID:      "createCustomerContact",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *CustomerContactCreate
+			Params   = CreateCustomerContactParams
+			Response = CreateCustomerContactRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateCustomerContactParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateCustomerContact(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateCustomerContact(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateCustomerContactResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateCustomerInvoiceRequest handles createCustomerInvoice operation.
 //
 // Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -18590,24 +19252,27 @@ func (s *Server) handleCreateDunningBlockRequest(args [0]string, argsEscaped boo
 // new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its
 // own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the
 // run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items`
-// (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs
-// recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one
-// dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
-// highest level stays there. A notice's level is the highest among its items. The company's dunning
-// procedure applies as the configuration has it when the run is started, and the run keeps it (T76d):
-// an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose
-// notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the
-// run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its
-// level's `charge`, and each item at a level that charges `interest` is charged interest at
-// `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue`
-// ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it
-// asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date
-// after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
-// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
-// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
-// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
-// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
-// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
+// (T76e). An item a customer promised to pay (`createPromiseToPay`) by a date on or after the key date
+// is in no notice either, unless blocked: the run lists it in `promised_items` with its promise,
+// outside its totals, and not in `disputed_items` (T76f). An item rises one level per confirmed run at
+// most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one
+// never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the
+// second level's days, and one at the highest level stays there. A notice's level is the highest among
+// its items. The company's dunning procedure applies as the configuration has it when the run is
+// started, and the run keeps it (T76d): an item overdue by no more than
+// `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be
+// below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in
+// `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`,
+// and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a
+// year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away
+// from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges
+// and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused
+// (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused
+// (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed
+// ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet)
+// and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A
+// key date at which nothing is overdue gives a run without notices. A retry with the same
+// `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (s *Server) handleCreateDunningRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -20093,27 +20758,30 @@ func (s *Server) handleCreateHierarchyRequest(args [0]string, argsEscaped bool, 
 
 // handleCreateIncomingPaymentRequest handles createIncomingPayment operation.
 //
-// Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f). The payment is a
-// receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits
-// as an open item on the house bank's incoming payments clearing account (ADR-0047);
-// `listUnappliedReceipts` lists them. The items are open items of the customer on customer
-// reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the
-// receipt's currency. An item paid in part names its `residual`: what stays open of it, more than zero
-// and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming
-// `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's
-// currency (422 `receivables.currency_mismatch`), with a reason (422
-// `receivables.unknown_residual_reason`) and, if wanted, a free text that is not white space alone
-// (422 `request.validation_failed`). Together the items, net of their residuals, equal the receipt,
-// but for a payment difference within the company's payment tolerance
-// (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's
-// currency and a percent of the items applied, the lower binding; none configured, none allowed);
-// anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No
-// cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`,
-// offsets the receipt and every item at the amounts they were booked at and clears them all; each
-// residual is a new open item of the customer, a debit line of that entry on the item's account at the
-// item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item
-// did; a difference is a line on the company's `payment_difference_expense` account (an underpayment)
-// or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
+// Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f), and with
+// `other_customer_ids` to other customers' items as well (T75h: one receipt for several customers,
+// each customer's items cleared by the one entry and its part shown in `customers`, a part out of
+// range refused with 422 `receivables.amount_too_large`; a residual item stays its item's customer's,
+// what is left on account the payer's). The payment is a receipt: the journal entry a bank statement
+// line matched as incoming posted, whose credit line waits as an open item on the house bank's
+// incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are
+// open items of the customer on customer reconciliation accounts of the company
+// (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency. An item paid in part
+// names its `residual`: what stays open of it, more than zero and less than the item, which is an
+// amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more
+// than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422
+// `receivables.currency_mismatch`), with a reason (422 `receivables.unknown_residual_reason`) and, if
+// wanted, a free text that is not white space alone (422 `request.validation_failed`). Together the
+// items, net of their residuals, equal the receipt, but for a payment difference within the company's
+// payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in
+// the company's currency and a percent of the items applied, the lower binding; none configured, none
+// allowed); anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the
+// difference. No cash discount is granted. One clearing entry, document type `DZ`, `source_context`
+// `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them
+// all; each residual is a new open item of the customer, a debit line of that entry on the item's
+// account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due
+// when the item did; a difference is a line on the company's `payment_difference_expense` account (an
+// underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
 // `ledger.no_payment_difference_account` without it); what that leaves in local or group currency,
 // receipt and items having been booked at different rates, is a realized exchange difference on the
 // company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date
@@ -20138,7 +20806,7 @@ func (s *Server) handleCreateHierarchyRequest(args [0]string, argsEscaped bool, 
 // (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its
 // place in the request as the field `items[i]`. Nothing is posted when the application is refused. A
 // retry with the same `Idempotency-Key` answers the payment applied; another request for the same
-// receipt is refused. An application is not undone in the first version. Human-only
+// receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only
 // (`x-agent: false`).
 //
 // POST /v1/incoming-payments
@@ -23740,6 +24408,227 @@ func (s *Server) handleCreateProfitCenterRequest(args [0]string, argsEscaped boo
 	}
 
 	if err := encodeCreateProfitCenterResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleCreatePromiseToPayRequest handles createPromiseToPay operation.
+//
+// Records a customer's promise to pay (ADR-0065 As built, T76f): the customer (`customer_id`) promises
+// the company to pay `promised_amount` by `promised_date` for some of its open items, each named by
+// its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names
+// it). The company is one the caller may act in (422 `request.reference_not_found` naming
+// `legal_entity_id`); the customer a business partner of the tenant (422 `request.reference_not_found`
+// naming `customer_id`); each item an open item on a customer reconciliation account of the company in
+// the leading ledger that this customer owes (422 `collections.item_not_open` naming
+// `items[n].journal_entry_id`), named once (422 `request.validation_failed`). `promised_amount` is in
+// the company's currency (422 `collections.currency_mismatch` naming `promised_amount.currency`),
+// above zero and at most what the items amount to in it as booked (422
+// `collections.invalid_promised_amount` naming `promised_amount.amount`). `promised_date` is from the
+// company's today, in its time zone, to 2100-12-31 (422 `collections.invalid_promised_date` naming
+// `promised_date`). An item in another promise whose date is today or later is refused (409
+// `collections.promise_exists`): an item is promised once at a time. The promise reads `open` until it
+// is kept or broken: `kept` once its items no longer open add up to the promised amount, `broken` once
+// the company's today is past `promised_date` and it is not kept. A dunning run at a key date up to
+// `promised_date` leaves the promised items still open out of its notices and names them in
+// `promised_items`; a run proposed before the promise is refused as stale when it is confirmed
+// (`confirmDunningRun`). Recording a promise posts nothing and changes nothing on the items. Audited.
+// A retry with the same `Idempotency-Key` answers the promise recorded. Human-only (`x-agent: false`).
+//
+// POST /v1/promises-to-pay
+func (s *Server) handleCreatePromiseToPayRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createPromiseToPay"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/promises-to-pay"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreatePromiseToPayOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreatePromiseToPayOperation,
+			ID:   "createPromiseToPay",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreatePromiseToPayOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreatePromiseToPayParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreatePromiseToPayRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreatePromiseToPayRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreatePromiseToPayOperation,
+			OperationSummary: "Record a customer's promise to pay",
+			OperationID:      "createPromiseToPay",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *PromiseToPayCreate
+			Params   = CreatePromiseToPayParams
+			Response = CreatePromiseToPayRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreatePromiseToPayParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreatePromiseToPay(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreatePromiseToPay(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreatePromiseToPayResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -28665,10 +29554,10 @@ func (s *Server) handleCreateSupplierInvoiceRequest(args [0]string, argsEscaped 
 // handleCreateSupplierQuotationRequest handles createSupplierQuotation operation.
 //
 // Records the quotation an invited supplier gave for a `published` RFQ (409
-// `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069
-// §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in
-// the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ
-// item's unit of measure. The supplier must be one the RFQ invites (422
+// `procurement.invalid_status` for a draft or an awarded, cancelled or closed one), read under the
+// RFQ's row lock (ADR-0069 §7): the supplier's reference, the date the quotation is valid until, and
+// a price per RFQ item, in the RFQ's currency (422 `procurement.currency_mismatch`), positive, per
+// `price_unit` of the RFQ item's unit of measure. The supplier must be one the RFQ invites (422
 // `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409
 // `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers
 // what it answered. Each item names an item of the RFQ by `rfq_item_no` (422
@@ -41618,23 +42507,31 @@ func (s *Server) handleGetCloseCalendarRequest(args [0]string, argsEscaped bool,
 // amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's
 // currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`;
 // T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
-// An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is
-// past its net due date, which is that of the payment terms it was posted with or, for an item posted
-// without payment terms (a manual or migrated entry's), its document date; an item due on the key date
-// is not overdue, so an item without terms is overdue from the day after its document date, and credit
-// items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The
-// worklist is computed at the read from one database state (a repeatable-read snapshot) and stores
-// nothing: the items are the ones open now on the company's customer reconciliation accounts in the
-// leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in
-// the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`,
-// `disputed_amount` and `open_dispute_cases` at the top are the totals of every customer listed, not
-// of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key
-// date. Each page is computed anew and continues after the last customer's overdue amount and id: a
-// customer whose overdue amount fell between two pages can be listed again with its new amount, and
-// one whose amount rose is not read again, so a consumer that pages while items are posted or cleared
-// keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one
-// too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`).
-// A legal entity the caller cannot act in is 404.
+// Each customer also shows its promises to pay as they stand on the key date (T76f): what its open
+// promises promise (`promised_amount`), how many they are, the earliest promised date among them, and
+// how many of its promises are broken, and its last contact (when, its outcome and its resubmission
+// date; T76g); a customer whose last contact's resubmission date is after the key date is not listed
+// until then, and is counted in `resubmission_count` and `resubmission_overdue_amount` instead. A
+// promise is open on the key date when its `promised_date` is on or after it and it is not kept (its
+// items no longer open add up to less than the promised amount), broken when its date is before it and
+// it is not kept. An item is overdue as a dunning run counts it: the customer owes it (a debit) and
+// the key date is past its net due date, which is that of the payment terms it was posted with or, for
+// an item posted without payment terms (a manual or migrated entry's), its document date; an item due
+// on the key date is not overdue, so an item without terms is overdue from the day after its document
+// date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed,
+// whatever it owes. The worklist is computed at the read from one database state (a repeatable-read
+// snapshot) and stores nothing: the items are the ones open now on the company's customer
+// reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts
+// what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`,
+// `open_amount`, `overdue_amount`, `disputed_amount`, `open_dispute_cases` and `promised_amount` at
+// the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's
+// order; a page token is bound to the company and key date. Each page is computed anew and continues
+// after the last customer's overdue amount and id: a customer whose overdue amount fell between two
+// pages can be listed again with its new amount, and one whose amount rose is not read again, so a
+// consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist
+// needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused
+// (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is
+// 404.
 //
 // GET /v1/collection-worklist
 func (s *Server) handleGetCollectionWorklistRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -44578,6 +45475,196 @@ func (s *Server) handleGetCurrentPrincipalRequest(args [0]string, argsEscaped bo
 	}
 
 	if err := encodeGetCurrentPrincipalResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetCustomerContactRequest handles getCustomerContact operation.
+//
+// One contact with a customer (ADR-0065 As built, T76g) with its company's code and name, its
+// customer's number and name, when it was, whom the collector spoke to, its outcome, its note, its
+// resubmission date and who recorded it. One of a company the caller may not act in is not found
+// (404), as one that does not exist.
+//
+// GET /v1/customer-contacts/{id}
+func (s *Server) handleGetCustomerContactRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCustomerContact"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/customer-contacts/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetCustomerContactOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetCustomerContactOperation,
+			ID:   "getCustomerContact",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetCustomerContactOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetCustomerContactParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetCustomerContactRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetCustomerContactOperation,
+			OperationSummary: "Get a contact with a customer",
+			OperationID:      "getCustomerContact",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetCustomerContactParams
+			Response = GetCustomerContactRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetCustomerContactParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetCustomerContact(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetCustomerContact(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetCustomerContactResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -55352,6 +56439,196 @@ func (s *Server) handleGetProfitabilityReportRequest(args [0]string, argsEscaped
 	}
 
 	if err := encodeGetProfitabilityReportResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetPromiseToPayRequest handles getPromiseToPay operation.
+//
+// One promise to pay (ADR-0065 As built, T76f) with its company's code and name, its customer's number
+// and name, the promised amount and date, its items (each with whether it is still open), what of them
+// is paid (`paid_amount`) and its status on the company's today (`status_date`), and who recorded it.
+// One of a company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/promises-to-pay/{id}
+func (s *Server) handleGetPromiseToPayRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPromiseToPay"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/promises-to-pay/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetPromiseToPayOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetPromiseToPayOperation,
+			ID:   "getPromiseToPay",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetPromiseToPayOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetPromiseToPayParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetPromiseToPayRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetPromiseToPayOperation,
+			OperationSummary: "Get a promise to pay",
+			OperationID:      "getPromiseToPay",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetPromiseToPayParams
+			Response = GetPromiseToPayRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetPromiseToPayParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetPromiseToPay(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetPromiseToPay(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetPromiseToPayResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -74536,6 +75813,213 @@ func (s *Server) handleListCreditMemoRequestsRequest(args [0]string, argsEscaped
 	}
 }
 
+// handleListCustomerContactsRequest handles listCustomerContacts operation.
+//
+// The contacts with customers of the companies the caller may act in (ADR-0065 As built, T76g), each
+// as `getCustomerContact` gives it: with its company's code and name, its customer's number and name,
+// when it was, whom the collector spoke to, its outcome, its note, its resubmission date and who
+// recorded it. Filtered by company and customer. Sortable by: `contacted_at` (default, the latest
+// first).
+//
+// GET /v1/customer-contacts
+func (s *Server) handleListCustomerContactsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCustomerContacts"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/customer-contacts"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListCustomerContactsOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListCustomerContactsOperation,
+			ID:   "listCustomerContacts",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListCustomerContactsOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListCustomerContactsParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListCustomerContactsRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListCustomerContactsOperation,
+			OperationSummary: "List contacts with customers",
+			OperationID:      "listCustomerContacts",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "customer_id",
+					In:   "query",
+				}: params.CustomerID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListCustomerContactsParams
+			Response = ListCustomerContactsRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListCustomerContactsParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListCustomerContacts(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListCustomerContacts(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListCustomerContactsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListCustomerInvoicesRequest handles listCustomerInvoices operation.
 //
 // The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
@@ -87886,6 +89370,212 @@ func (s *Server) handleListProfitCentersRequest(args [0]string, argsEscaped bool
 	}
 
 	if err := encodeListProfitCentersResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListPromisesToPayRequest handles listPromisesToPay operation.
+//
+// The promises to pay of the companies the caller may act in (ADR-0065 As built, T76f), each as
+// `getPromiseToPay` gives it: with its company's code and name, its customer's number and name, the
+// promised amount and date, its items and its status on the company's today. Filtered by company and
+// customer. Sortable by: `created_at` (default, the latest first).
+//
+// GET /v1/promises-to-pay
+func (s *Server) handleListPromisesToPayRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPromisesToPay"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/promises-to-pay"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListPromisesToPayOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListPromisesToPayOperation,
+			ID:   "listPromisesToPay",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListPromisesToPayOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListPromisesToPayParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListPromisesToPayRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListPromisesToPayOperation,
+			OperationSummary: "List promises to pay",
+			OperationID:      "listPromisesToPay",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "customer_id",
+					In:   "query",
+				}: params.CustomerID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListPromisesToPayParams
+			Response = ListPromisesToPayRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListPromisesToPayParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListPromisesToPay(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListPromisesToPay(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListPromisesToPayResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -103597,11 +105287,12 @@ func (s *Server) handleProposeVarianceCommentRequest(args [0]string, argsEscaped
 // Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
 // lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
 // after which quotations are recorded against it and nothing changes it until it is awarded
-// (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be
-// one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming
-// `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its
-// company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished,
-// which names the suppliers invited by id and number.
+// (`:award`), cancelled (`:cancel`) or closed without an award (`:close`). The RFQ is checked again as
+// it was when created: every supplier invited must still be one an order could be placed with (422
+// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
+// date not before the legal entity's date today in its company's time zone (422
+// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
+// invited by id and number.
 //
 // POST /v1/rfqs/{id}:publish
 func (s *Server) handlePublishRfqRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -110790,6 +112481,457 @@ func (s *Server) handleRequestBankAccountEndRequest(args [2]string, argsEscaped 
 	}
 
 	if err := encodeRequestBankAccountEndResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleResetIncomingPaymentRequest handles resetIncomingPayment operation.
+//
+// Undoes an incoming payment's application of its receipt (T75i; SAP FBRA, reset cleared items and
+// reverse): its clearing is reset, so the receipt waits on the house bank's incoming payments clearing
+// account again (`listUnappliedReceipts`) and every item it was applied to is an open item again as it
+// stood, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so
+// that period must still be open (409 `ledger.period_not_open`, and nothing changes): the residual
+// items and the credit on account it left, and the payment difference it wrote off, are taken back
+// with it. Every application of its credit on account must be undone first (409
+// `receivables.applications_in_force`), and nothing it left may have been cleared since, by another
+// payment or a manual clearing (409 `ledger.clearing_lines_cleared`). A payment is reset once (409
+// `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it
+// meanwhile). The receipt and the items may then be applied again. `If-Match` is the payment's
+// version, which the reset moves; the answer is the payment, `status` `reset`, with its `reset`.
+// Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. One of a company the
+// caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as
+// the first answered it. Human-only (`x-agent: false`).
+//
+// POST /v1/incoming-payments/{id}:reset
+func (s *Server) handleResetIncomingPaymentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("resetIncomingPayment"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/incoming-payments/{id}:reset"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ResetIncomingPaymentOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ResetIncomingPaymentOperation,
+			ID:   "resetIncomingPayment",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ResetIncomingPaymentOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeResetIncomingPaymentParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeResetIncomingPaymentRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response ResetIncomingPaymentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ResetIncomingPaymentOperation,
+			OperationSummary: "Undo an incoming payment applied to the wrong items",
+			OperationID:      "resetIncomingPayment",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *IncomingPaymentReset
+			Params   = ResetIncomingPaymentParams
+			Response = ResetIncomingPaymentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackResetIncomingPaymentParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ResetIncomingPayment(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ResetIncomingPayment(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeResetIncomingPaymentResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleResetIncomingPaymentApplicationRequest handles resetIncomingPaymentApplication operation.
+//
+// Undoes an application of an incoming payment's credit on account (T75i; T75g's
+// `applyIncomingPaymentOnAccount`): its clearing is reset, so the credit it consumed is open on the
+// customer's account again as it stood and every item it was applied to is an open item again, and its
+// clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must
+// still be open (409 `ledger.period_not_open`, and nothing changes): the credit and the residual items
+// it left are taken back with it. Only the payment's latest application still in force is undone (409
+// `receivables.application_not_latest`: undo the later ones first), once (409
+// `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it
+// meanwhile), and nothing it left may have been cleared since (409 `ledger.clearing_lines_cleared`).
+// `If-Match` is the payment's version, which the reset moves; the answer is the payment, the
+// application with its `reset` and `on_account` showing the credit open again. Audited, and published
+// as IncomingPaymentReset and the ledger's ClearingReset. A number that is none of the payment's
+// applications, or a payment of a company the caller may not act in, is not found. A retry with the
+// same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`).
+//
+// POST /v1/incoming-payments/{id}/applications/{application_no}:reset
+func (s *Server) handleResetIncomingPaymentApplicationRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("resetIncomingPaymentApplication"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/incoming-payments/{id}/applications/{application_no}:reset"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ResetIncomingPaymentApplicationOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ResetIncomingPaymentApplicationOperation,
+			ID:   "resetIncomingPaymentApplication",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ResetIncomingPaymentApplicationOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeResetIncomingPaymentApplicationParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeResetIncomingPaymentApplicationRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response ResetIncomingPaymentApplicationRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ResetIncomingPaymentApplicationOperation,
+			OperationSummary: "Undo an application of an incoming payment's credit on account",
+			OperationID:      "resetIncomingPaymentApplication",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "application_no",
+					In:   "path",
+				}: params.ApplicationNo,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *IncomingPaymentReset
+			Params   = ResetIncomingPaymentApplicationParams
+			Response = ResetIncomingPaymentApplicationRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackResetIncomingPaymentApplicationParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ResetIncomingPaymentApplication(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ResetIncomingPaymentApplication(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeResetIncomingPaymentApplicationResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -124119,10 +126261,11 @@ func (s *Server) handleUpdateRequisitionRequest(args [1]string, argsEscaped bool
 // `revenue.satisfied_on_not_allowed`: send it as null when setting the timing to `over_time`); a
 // stand-alone selling price is in the contract's currency (422 `revenue.currency_mismatch`) and more
 // than zero (422 `revenue.price_not_positive`). The contract is read under a row lock; one that is
-// `active` is fixed and refused (409 `revenue.invalid_status`). Nothing is allocated before the
-// contract is activated. The contract's `version` moves. Audited, and published as
-// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as the first
-// answered it. Human-only (`x-agent: false`).
+// `active` is fixed and refused (409 `revenue.invalid_status`), as is one that has ended, its sales
+// order cancelled (409 `revenue.contract_ended`, T81e). Nothing is allocated before the contract is
+// activated. The contract's `version` moves. Audited, and published as RevenueContractChanged. A retry
+// with the same `Idempotency-Key` answers the contract as the first answered it. Human-only
+// (`x-agent: false`).
 //
 // PATCH /v1/revenue-contracts/{id}
 func (s *Server) handleUpdateRevenueContractRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

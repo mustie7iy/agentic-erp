@@ -183,7 +183,7 @@ func accountLines(ctx context.Context, tx pgx.Tx, le, account uuid.UUID, entries
 		return nil, problem.Unprocessable("ledger.not_open_item_managed",
 			"The bank's clearing account is not open-item managed in the legal entity (chart_of_accounts[].open_items); a statement line clears its lines only there.")
 	}
-	years, ids, _ := columns(entries)
+	years, ids, _ := ItemColumns(entries)
 	rows, _ := tx.Query(ctx, `SELECT x.y, x.je, l.line_no FROM unnest($1::smallint[], $2::uuid[]) WITH ORDINALITY AS x(y, je, ord)
 		LEFT JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.account_id = $3 AND l.legal_entity_id = $4
 		ORDER BY x.ord, l.line_no`, years, ids, account, le)

@@ -12,7 +12,11 @@
 // accepted or rejected; closing posts nothing (ADR-0065 As built, T86a).
 // A run charges its notices and their items as the company's dunning
 // procedure says (T76d), and leaves out the items a dunning block of the
-// item or its customer holds back (T76e).
+// item or its customer holds back (T76e) and those a customer promised to
+// pay by a date on or after its key date (T76f); a promise's status is
+// judged on read and shown in the worklist. A collector's contacts with
+// a customer are recorded with a resubmission date, which keeps the
+// customer off the worklist until then (T76g).
 //
 // The context is a leaf (ADR-0065 §1): it reads the ledger's customer
 // open items, the partner context's names, the identity context's people,
@@ -79,10 +83,12 @@ type LegalEntities interface {
 // OpenItems reads a company's open customer items, of the customers named
 // or of every customer (ledger context, T75b): every currency, debit
 // positive, in the order of customer and item, or one item by its key (a
-// dispute case's). Company access is the caller's to check.
+// dispute case's); and which of some lines are no longer open (Closed: a
+// promise to pay's items, T76f). Company access is the caller's to check.
 type OpenItems interface {
 	Receivable(ctx context.Context, legalEntity uuid.UUID, customers []uuid.UUID) ([]ledger.ReceivableItem, error)
 	ReceivableItem(ctx context.Context, legalEntity uuid.UUID, ref ledger.ItemRef) (ledger.ReceivableItem, bool, error)
+	Closed(ctx context.Context, refs []ledger.ItemRef) (map[ledger.ItemRef]bool, error)
 }
 
 // Partners names business partners by number and name (partner context).
@@ -137,6 +143,10 @@ type Run struct {
 	// Blocked are the items the run left out for a dunning block of the
 	// item or its customer (T76e), by customer and item, as Disputed.
 	Blocked []BlockedItem
+	// Promised are the items the run left out for a promise to pay whose
+	// date is on or after its key date (T76f), by customer and item, as
+	// Disputed.
+	Promised []PromisedItem
 	// The company's dunning procedure as the run applied it (T76d): its
 	// grace days, minimum amount and annual interest rate (a decimal of
 	// three places; nil: none), and what the run charges: its notices'
@@ -162,6 +172,9 @@ func (r Run) DisputedLC() money.Minor { return heldLC(heldAmounts(r.Disputed, Di
 
 // BlockedLC is what the run's blocked items add up to in its currency.
 func (r Run) BlockedLC() money.Minor { return heldLC(heldAmounts(r.Blocked, BlockedItem.held)) }
+
+// PromisedLC is what the run's promised items add up to in its currency.
+func (r Run) PromisedLC() money.Minor { return heldLC(heldAmounts(r.Promised, PromisedItem.held)) }
 
 // heldLC adds up the amounts of items a run held back, which sums
 // checked for range when the run was proposed.
@@ -228,6 +241,16 @@ type BlockedItem struct {
 
 func (b BlockedItem) held() HeldItem { return b.HeldItem }
 
+// PromisedItem is an item a run left out for a customer's promise to pay
+// it by PromisedDate, named (T76f).
+type PromisedItem struct {
+	PromiseID    uuid.UUID `json:"promise_to_pay_id"`
+	PromisedDate time.Time `json:"promised_date"`
+	HeldItem
+}
+
+func (p PromisedItem) held() HeldItem { return p.HeldItem }
+
 // Item is a row of collections.dunning_notice_item: a customer's open
 // item overdue on its run's key date, as the run read it. Amount is minor
 // units of Currency, the item's, whose digits are Exponent; AmountLC of
@@ -286,13 +309,15 @@ func (r Run) Total() money.Minor {
 	return sum
 }
 
-// runSelect reads a run with its disputed and blocked items, each given
-// its currency's digits.
+// runSelect reads a run with its disputed, blocked and promised items,
+// each given its currency's digits.
 const runSelect = `SELECT r.id, r.legal_entity_id, r.key_date, r.status, r.currency, c.exponent, r.notice_count, r.item_count, r.overdue_amount,
 		(SELECT coalesce(jsonb_agg(d || jsonb_build_object('exponent', x.exponent) ORDER BY n), '[]')
 		 FROM jsonb_array_elements(r.disputed_items) WITH ORDINALITY AS e(d, n) JOIN ref.currency x ON x.code = d->>'currency'),
 		(SELECT coalesce(jsonb_agg(d || jsonb_build_object('exponent', x.exponent) ORDER BY n), '[]')
 		 FROM jsonb_array_elements(r.blocked_items) WITH ORDINALITY AS e(d, n) JOIN ref.currency x ON x.code = d->>'currency'),
+		(SELECT coalesce(jsonb_agg(d || jsonb_build_object('exponent', x.exponent) ORDER BY n), '[]')
+		 FROM jsonb_array_elements(r.promised_items) WITH ORDINALITY AS e(d, n) JOIN ref.currency x ON x.code = d->>'currency'),
 		r.grace_days, r.minimum_amount, r.interest_rate_percent::text, r.charge_amount, r.interest_amount, r.below_minimum_count,
 		r.below_minimum_amount, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
 	FROM collections.dunning_run r JOIN ref.currency c ON c.code = r.currency`
@@ -300,7 +325,7 @@ const runSelect = `SELECT r.id, r.legal_entity_id, r.key_date, r.status, r.curre
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.LegalEntityID, &r.KeyDate, &r.Status, &r.Currency, &r.Exponent, &r.NoticeCount, &r.ItemCount, &r.OverdueAmount,
-		&r.Disputed, &r.Blocked, &r.GraceDays, &r.MinimumAmount, &r.InterestRate, &r.ChargeAmount, &r.InterestAmount, &r.BelowMinimumCount,
+		&r.Disputed, &r.Blocked, &r.Promised, &r.GraceDays, &r.MinimumAmount, &r.InterestRate, &r.ChargeAmount, &r.InterestAmount, &r.BelowMinimumCount,
 		&r.BelowMinimumAmount, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
 	return r, errs.Wrapf(err, "scan dunning run")
 }
@@ -358,10 +383,7 @@ type dunned struct {
 // recorded reads what the confirmed runs recorded of the items, by item;
 // an item never dunned is absent.
 func recorded(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledger.ItemRef]dunned, error) {
-	years, entries, lines := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
-	for i, r := range refs {
-		years[i], entries[i], lines[i] = r.FiscalYear, r.EntryID, r.LineNo
-	}
+	years, entries, lines := ledger.ItemColumns(refs)
 	// Read into a map, so the rows' order does not matter.
 	rows, _ := tx.Query(ctx, `SELECT d.fiscal_year, d.journal_entry_id, d.line_no, max(d.level), max(d.dunning_date), count(*)
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(fy, je, ln)

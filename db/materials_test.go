@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestMaterialPermissions (S1a, migration 000363; ADR-0082 §4): the
+// TestMaterialPermissions (S1a, migration 000373; ADR-0082 §4): the
 // permissions of materials are seeded and are no approval permissions.
 func TestMaterialPermissions(t *testing.T) {
 	need(t)
@@ -26,11 +26,11 @@ func TestMaterialPermissions(t *testing.T) {
 	}
 	var approval bool
 	if err := testDB.QueryRow(context.Background(), `SELECT is_approval FROM ref.permission WHERE code = 'materials.change.approve'`).Scan(&approval); err != nil || !approval {
-		t.Errorf("materials.change.approve: got approval %v (%v), want an approval permission (S1b, 000364)", approval, err)
+		t.Errorf("materials.change.approve: got approval %v (%v), want an approval permission (S1b, 000374)", approval, err)
 	}
 }
 
-// TestMaterialRules (S1a, migration 000363; ADR-0082 §4-§6): a material
+// TestMaterialRules (S1a, migration 000373; ADR-0082 §4-§6): a material
 // has a number once in the tenant, a description of 1 to 200 characters
 // that is not blank, a known base unit, type and status and a group of 1
 // to 9 capitals, digits, - or _; its number, company, base unit and type
@@ -165,7 +165,7 @@ func TestMaterialRules(t *testing.T) {
 	}
 }
 
-// TestMaterialTriggersAsOwner (S1a, migration 000363): past the grants, as
+// TestMaterialTriggersAsOwner (S1a, migration 000373): past the grants, as
 // the owner, a material's number, company, base unit and type stay fixed
 // and the base unit takes no conversion.
 func TestMaterialTriggersAsOwner(t *testing.T) {
@@ -193,7 +193,7 @@ func TestMaterialTriggersAsOwner(t *testing.T) {
 	}
 }
 
-// TestMaterialChangeRules (S1b, migrations 000364 and 000365; ADR-0082
+// TestMaterialChangeRules (S1b, migrations 000374 and 000375; ADR-0082
 // §9): a change is numbered MC and eight digits once in the tenant, of a
 // material that exists, of a known kind and status, its payload an object
 // and its duplicates an array, its reason at most 500 characters; applied
@@ -279,7 +279,7 @@ func TestMaterialChangeRules(t *testing.T) {
 	}
 }
 
-// TestNormalizedText (S1b, migration 000364): platform.normalized_text,
+// TestNormalizedText (S1b, migration 000374): platform.normalized_text,
 // by which materials' descriptions are matched, is partner.normalized_name's
 // rule.
 func TestNormalizedText(t *testing.T) {

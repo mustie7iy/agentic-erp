@@ -44,31 +44,42 @@ type PaymentApplication struct {
 }
 
 // credit is the payment's credit on account now: the line the last
-// application left, else the payment's own, and what it stands at; ok is
-// false when nothing was left on account.
+// application in force left, else the payment's own while it is in force
+// (an application undone, T75i, opens the credit it consumed again), and
+// what it stands at; ok is false when nothing is left on account.
 func (v IncomingPayment) credit() (ref ledger.ItemRef, amount money.Minor, ok bool) {
-	if n := len(v.Applications); n > 0 {
-		last := v.Applications[n-1]
-		if last.OnAccountLine == nil {
+	for i := len(v.Applications) - 1; i >= 0; i-- {
+		a := v.Applications[i]
+		if v.resetOf(a.No) != nil {
+			continue
+		}
+		if a.OnAccountLine == nil {
 			return ledger.ItemRef{}, 0, false
 		}
-		return ledger.ItemRef{FiscalYear: last.EntryYear, EntryID: last.EntryID, LineNo: *last.OnAccountLine}, last.OnAccount, true
+		return ledger.ItemRef{FiscalYear: a.EntryYear, EntryID: a.EntryID, LineNo: *a.OnAccountLine}, a.OnAccount, true
 	}
-	if v.OnAccountLine == nil {
+	if v.OnAccountLine == nil || v.resetOf(0) != nil {
 		return ledger.ItemRef{}, 0, false
 	}
 	return ledger.ItemRef{FiscalYear: v.EntryYear, EntryID: v.EntryID, LineNo: *v.OnAccountLine}, v.OnAccount, true
 }
 
 // version is the payment's version: 1 when it was applied, and one more
-// for each application of its credit on account; updated is when and by
-// whom it last changed.
+// for each application of its credit on account and each undoing (T75i);
+// updated is when and by whom it last changed.
 func (v IncomingPayment) version() (version int32, at time.Time, by uuid.UUID) {
-	if n := len(v.Applications); n > 0 {
-		last := v.Applications[n-1]
-		return int32(n + 1), last.CreatedAt, last.CreatedBy
+	at, by = v.CreatedAt, v.CreatedBy
+	for _, a := range v.Applications {
+		if a.CreatedAt.After(at) {
+			at, by = a.CreatedAt, a.CreatedBy
+		}
 	}
-	return 1, v.CreatedAt, v.CreatedBy
+	for _, r := range v.Resets {
+		if r.CreatedAt.After(at) {
+			at, by = r.CreatedAt, r.CreatedBy
+		}
+	}
+	return int32(1 + len(v.Applications) + len(v.Resets)), at, by
 }
 
 // CreditInput applies a payment's credit on account, as a client sends

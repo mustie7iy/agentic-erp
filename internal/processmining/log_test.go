@@ -169,6 +169,24 @@ func TestEventLogOrder(t *testing.T) {
 	}
 }
 
+// TestEventLogSourcing: a requisition sourced by an RFQ and reopened when
+// the RFQ ended shows both steps between its approval and its order
+// (T103c, review:batch78).
+func TestEventLogSourcing(t *testing.T) {
+	e := fixture.New(t, "processmining.log.read")
+	flows(t, e, e.DE, 1, 1, "2026-03-02", 3, 1_000_000)
+	pgtest.Exec(t, `INSERT INTO audit.audit_event (tenant_id, occurred_at, seq, actor_id, actor_kind, action, object_type, object_id, outcome, hash)
+		SELECT $1, timestamptz '2026-03-01 09:02Z' + a.s * interval '10 seconds', 1000050 + a.s, $2, 'human', a.action, 'procurement.requisition',
+			md5('r1')::uuid, 'success', sha256(a.action::bytea)
+		FROM (VALUES (1, 'procurement.requisition.in_sourcing'), (2, 'procurement.requisition.reopened')) a(s, action)`, e.Tenant.ID, e.Tenant.Human.ID)
+	got := read(t, e.Client, "legal_entity_id="+e.DE.String()+"&from=2026-03-01&to=2026-03-31")
+	first := apitest.List(t, got, "cases")[0].(map[string]any)
+	if s, want := activitiesOf(t, first), "Create requisition person PR1, Approve requisition person PR1, Source requisition person PR1, "+
+		"Reopen requisition person PR1, Create purchase order agent PO1"; !strings.HasPrefix(s, want) {
+		t.Errorf("the case: got %s, want it to start %s", s, want)
+	}
+}
+
 // TestEventLogPagesAndCSV: the log is paged by case, a token naming the
 // next page; as CSV a page is a row per event under a header row, the
 // token in the Next-Page-Token header.

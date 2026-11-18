@@ -5,8 +5,13 @@ import (
 	"math"
 	"slices"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/sales"
 )
 
 // TestAllocate: the transaction price is shared in proportion to the
@@ -77,6 +82,60 @@ func TestAllocateAddsUp(t *testing.T) {
 			}
 			if again := allocate(price, prices); !slices.Equal(again, shares) {
 				t.Errorf("allocated again: got %v, want the same shares %v", again, shares)
+			}
+		})
+	}
+}
+
+// TestFollowLeavesAnEndedObligation: a follow leaves an obligation that
+// has ended as it is, weighing nothing in the allocation, and names only
+// what it changed (T81e).
+func TestFollowLeavesAnEndedObligation(t *testing.T) {
+	ended, none := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), money.Minor(0)
+	share := money.Minor(10000)
+	k := Contract{Status: Active, TransactionPrice: 10000, Obligations: []Obligation{
+		{No: 1, OrderItemNo: 1, Net: 5000, StandalonePrice: 5000, Allocated: &none, EndedAt: &ended},
+		{No: 2, OrderItemNo: 2, Net: 10000, StandalonePrice: 10000, Allocated: &share},
+	}}
+	o := sales.Order{Status: sales.Confirmed, Items: []sales.OrderItem{{Item: sales.Item{ItemNo: 1, Net: 6000}}, {Item: sales.Item{ItemNo: 2, Net: 12000}}}}
+	f, changed := followOf(k, o)
+	if !changed {
+		t.Fatal("the follow: got no change, want one")
+	}
+	if f.price != 12000 {
+		t.Errorf("the transaction price: got %d, want 12000", f.price)
+	}
+	if got := f.obligations[0]; got.Net != 5000 {
+		t.Errorf("the ended obligation's order value: got %d, want 5000, as it was", got.Net)
+	}
+	if got := *f.obligations[0].Allocated; got != 0 {
+		t.Errorf("the ended obligation's share: got %d, want 0", got)
+	}
+	if got := f.obligations[0].EndedAt; got != &ended {
+		t.Errorf("the ended obligation's end: got %v, want %v", got, ended)
+	}
+	if *f.obligations[1].Allocated != 12000 {
+		t.Errorf("the obligation that stands: got %d allocated, want the whole 12000", *f.obligations[1].Allocated)
+	}
+	if len(f.changes) != 1 {
+		t.Fatalf("the changes: got %+v, want obligation 2's alone", f.changes)
+	}
+	if f.changes[0].No != 2 {
+		t.Errorf("the change's obligation: got %d, want 2", f.changes[0].No)
+	}
+}
+
+// TestFollowConstraintProblems: the database's rules of an ended
+// contract and an ended obligation answer as the handlers do (T81e).
+func TestFollowConstraintProblems(t *testing.T) {
+	for name, code := range map[string]string{"contract_ended": "revenue.contract_ended", "performance_obligation_ended": "revenue.obligation_ended"} {
+		t.Run(name, func(t *testing.T) {
+			p := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: name})
+			if p.Code != code {
+				t.Errorf("code: got %s, want %s", p.Code, code)
+			}
+			if p.Status != 409 {
+				t.Errorf("status: got %d, want 409", p.Status)
 			}
 		})
 	}

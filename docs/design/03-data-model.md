@@ -1051,7 +1051,16 @@ Rules enforced in the database:
   ledger's `notBeforeItems`, in every path that posts a clearing entry).
   The database does not enforce it: a migrated clearing keeps the source
   system's date and a reversal its own (ADR-0006 As built).
-- A line is cleared at most once (`clearing_item` unique on the line).
+- A line is cleared at most once at a time (`clearing_item` unique on the
+  line). T75i (migration 000364): a clearing is reset once
+  (`ledger.clearing_reset`, insert-only), and its record moves its
+  `clearing_item` rows into `ledger.clearing_reset_item` (insert-only,
+  written by the trigger `clearing_reset_moves_items` as the owner, never
+  by the application); the trigger `clearing_item_reset_only` allows a
+  delete only of a reset clearing (or with the erasure of the tenant), so
+  the lines are open again and may be cleared again; a clearing item is
+  never updated. The clearing entry is reversed with the reset
+  (`ledger.Postings.ResetClearing`).
 - Open items are lines on reconciliation accounts without a clearing item.
 - A reversal clears the original's open items against the matching lines of
   the reversal, in the same transaction, with the reversal as the clearing
@@ -1782,7 +1791,8 @@ erDiagram
     uuid legal_entity_id
     char currency
     date due_date
-    text status "draft | published | awarded"
+    text status "draft | published | awarded | cancelled | closed | order_cancelled"
+    text closing_reason "why it was cancelled or closed without an award (T82g)"
     uuid contract_id FK "the contract an award created"
     uuid purchase_order_id FK "the purchase order an award created (T82f)"
     text award_reason "why the quotation won, when it was not ranked first"
@@ -2071,6 +2081,19 @@ A quotation is written as `recorded` and its outcome, `awarded` or
 one quotation of an RFQ is awarded (`supplier_quotation_one_awarded`). The
 application may update a quotation's status, version and `updated_by`
 and nothing else of it. Permission `procurement.rfq.award`.
+
+An RFQ ends without an award (migration 000369, T82g, ADR-0069 As
+built): a draft or published one is `cancelled`, a published one
+`closed`, each with `closing_reason` (`rfq_closing_reason_check`: exactly
+on those statuses, not blank, at most 500 characters), and only once each
+of its quotations is `not_awarded` (`rfq_lifecycle`); it stays so with
+its reason. Only a `draft` or `published` RFQ is its requisition's open
+RFQ, so a requisition whose RFQ ended is sourced again by a new one.
+When the purchase order an award created is cancelled (migration 000371,
+T82h), the RFQ moves from `awarded` to `order_cancelled`, only once that
+order is cancelled (`rfq_lifecycle`), keeping `purchase_order_id` and its
+award reason (`rfq_awarded_to_one_document` and `rfq_award_reason_check`
+widened to it), and stays so.
 
 A contract has a kind (migration 000301, T83a, ADR-0070 §1): `contract`,
 the default, or `scheduling_agreement`, given when it is created and kept
@@ -4604,15 +4627,18 @@ erDiagram
   header's, which the context writes in one transaction.
 - `receivables.incoming_payment` (T75c): an incoming payment applied.
   The number is unique per company (`incoming_payment_number_once`); the
-  amount is above zero (`incoming_payment_amount_positive`); a receipt is
-  applied once (`incoming_payment_receipt_once`) and a clearing entry is
-  one application's (`incoming_payment_entry_once`). Insert-only
-  (`platform.forbid_mutation`, no update or delete grant): an application
-  is not undone in the first version.
+  amount is above zero (`incoming_payment_amount_positive`); a clearing
+  entry is one application's (`incoming_payment_entry_once`). Insert-only
+  (`platform.forbid_mutation`, no update or delete grant). A receipt was
+  applied once (`incoming_payment_receipt_once`) until migration 000364
+  (T75i), which drops the unique for an index: a payment undone leaves its
+  receipt to be applied again, and the ledger holds it to one application
+  at a time (`ledger.clearing_item`).
 - `receivables.incoming_payment_item`: the open items it was applied to,
   each with the amount it stood at in the payment's currency, never zero
   (`incoming_payment_item_amount_not_zero`), a credit of the customer's
-  negative; an open item is applied once (`incoming_payment_item_once`).
+  negative; an open item was applied once (`incoming_payment_item_once`)
+  until 000364, an index since (applied again once its payment is undone).
   Insert-only. The items, less their residuals, add up to the payment's
   amount and `difference`, which the ledger holds the application to
   (`ledger.Postings.ApplyReceipt`). T75f (migration 000350): an item paid
@@ -4630,19 +4656,36 @@ erDiagram
   the customer's account, its line in the clearing entry and the account,
   all set or none (`incoming_payment_on_account`); an item's
   `application_no` (default 0, `incoming_payment_item_application_no_check`)
-  names the application that applied it.
+  names the application that applied it. T75h (migration 000363): an
+  item's `customer_id` is the customer whose item it is, the payment's or
+  another customer the same receipt paid (indexed with the payment for
+  `GET /v1/incoming-payments?customer_id=`); NULL on rows written before
+  it, read as the payment's customer. The down migration is refused while
+  an item names another customer than its payment's.
 - `receivables.incoming_payment_application` (T75g): an application of a
   payment's credit on account, numbered from 1 per payment, with the
-  credit line it consumed, once (`incoming_payment_application_credit_once`),
+  credit line it consumed (once, `incoming_payment_application_credit_once`,
+  until 000364; consumed again once the application is undone),
   what that stood at, above zero
   (`incoming_payment_application_amount_positive`), the difference written
   off, what it left on account with its line or zero without
   (`incoming_payment_application_on_account`) and its clearing entry, one
   application's (`incoming_payment_application_entry_once`). Insert-only.
   The down migration is refused while anything was left on account.
+- `receivables.incoming_payment_reset` (T75i, migration 000364): an
+  undoing of a payment's own application (`application_no` NULL) or of an
+  application of its credit, of an existing payment
+  (`incoming_payment_reset_payment_fkey`) and application
+  (`incoming_payment_reset_application_fkey`), once each
+  (`incoming_payment_reset_once`, NULLS NOT DISTINCT), with a reason of 1
+  to 200 characters (`incoming_payment_reset_reason_length`) and the
+  reversal of the clearing entry, one undoing's (the key, tenant and
+  reversal). Insert-only. The down migration
+  is refused while a clearing or a payment was reset.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
-  `IncomingPaymentApplied`, `IncomingPaymentOnAccountApplied`).
+  `IncomingPaymentApplied`, `IncomingPaymentOnAccountApplied`,
+  `IncomingPaymentReset`).
 - Permissions `receivables.invoice.read`, `.write` and `.post`, and
   `receivables.payment.apply`.
 - In the ledger, `ledger.open_item_terms` keeps the terms of a customer
@@ -4849,6 +4892,50 @@ erDiagram
   `dunning_run.blocked_items` lists the items a run left out for a block,
   a JSON list (`dunning_run_blocked_items_check`), empty by default,
   written with the run and not changed.
+- `collections.promise_to_pay` (T76f, migration 000365): a customer's
+  promise to pay a company, by its number
+  (`promise_to_pay_customer_number_check`), an amount above zero
+  (`promise_to_pay_amount_positive`) in the company's currency, a known
+  one (`promise_to_pay_currency_fkey`), by a date up to 2100-12-31
+  (`promise_to_pay_date_check`); version from 1
+  (`promise_to_pay_version_check`); insert-only
+  (`promise_to_pay_insert_only`, for every role). Its status is not
+  stored: it is judged on read from its items and the company's today. A
+  run and the worklist read a company's promises by date
+  (`promise_to_pay_by_date`), the worklist a page's customers' broken
+  ones (`promise_to_pay_by_customer`), the list the tenant's by creation
+  (`promise_to_pay_by_created_at`).
+- `collections.promise_to_pay_item` (T76f): an open item of the ledger a
+  promise is for, by its journal line, once per promise (the primary
+  key; `promise_to_pay_item_line_no_check`), of a promise that exists
+  (`promise_to_pay_item_tenant_id_promise_to_pay_id_fkey`), with its
+  document number (`promise_to_pay_item_document_number_check`), what
+  the customer owed on it above zero in its currency
+  (`promise_to_pay_item_amount_positive`, a known one,
+  `promise_to_pay_item_currency_fkey`) and not negative in the company's
+  (`promise_to_pay_item_amount_lc_check`); insert-only
+  (`promise_to_pay_item_insert_only`). A new promise is checked against
+  an item's promises (`promise_to_pay_item_by_item`).
+  `dunning_run.promised_items` lists the items a run left out for a
+  promise, a JSON list (`dunning_run_promised_items_check`), empty by
+  default, written with the run and not changed.
+- `collections.customer_contact` (T76g, migration 000366): a
+  collector's contact with a customer, by its number
+  (`customer_contact_customer_number_check`), at `contacted_at`, with an
+  outcome of `reached`, `not_reached` or `left_message`
+  (`customer_contact_outcome_check`), whom at the customer and a note,
+  each more than white space and at most 200 and 2,000 characters or
+  absent (`customer_contact_contact_name_check`,
+  `customer_contact_note_check`), and a resubmission date up to
+  2100-12-31 or none (`customer_contact_resubmission_date_check`);
+  version from 1 (`customer_contact_version_check`); insert-only
+  (`customer_contact_insert_only`, for every role). The worklist reads a
+  customer's last contact, its latest by `contacted_at`
+  (`customer_contact_latest`), and the customers with a contact
+  resubmitted after its key date (`customer_contact_resubmission`); the
+  list reads the tenant's contacts by `contacted_at`
+  (`customer_contact_by_contacted_at`). `contact_name` and `note` are in
+  the personal data inventory.
 - `collections.dispute_case` (T86a, migration 000324): an open item of
   the ledger, named by its journal line (`dispute_case_line_no_check`),
   with its customer's number and its document number
@@ -5207,7 +5294,12 @@ erDiagram
   cancelled once, while no item has anything delivered. A cancelled
   order changes no more. The application may also update
   `requested_delivery_date`, `net_amount`, `changes` and the
-  cancellation's three columns.
+  cancellation's three columns. T78e (migration 000368) lets it update
+  `payment_term_code` too: only with `changes` moved to a kept change
+  (`sales_order_payment_term_kept`) and while no billing document of the
+  order stands that is not cancelled (`sales_order_payment_term_billed`),
+  for the tables' owner too; `net_amount` is the sum of the items that
+  are not removed.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
@@ -5223,7 +5315,19 @@ erDiagram
   trigger `sales_order_item_change`, on an update that sets one of them,
   refuses an item with anything billed and an item of a cancelled order,
   for the tables' owner too; a quantity stays at least what is delivered
-  (`sales_order_item_quantities`).
+  (`sales_order_item_quantities`). T78e (migration 000368) adds
+  `removed_in_change`, the change that removed the item: set only in the
+  transaction that keeps the order's next change, which it names
+  (`sales_order_item_removed_kept`), on an item with nothing delivered
+  (`sales_order_item_removed_undelivered`, which also refuses a later
+  delivery), after which the item changes no more
+  (`sales_order_item_removed_fixed`); and an insert rule
+  (`sales_order_item_added`): an item is written with its order before
+  any change is kept, else only with the order's next change kept
+  (`sales_order_item_added_kept`), numbered after the order's highest
+  (`sales_order_item_added_after`), never to a cancelled order. A removed
+  item stays, out of the order's value, its credit exposure and the
+  sales lines.
 - `sales.sales_order_change` (T78d, migration 000355): a change of an
   order, numbered from 1 within it (`sales_order_change_no_positive`,
   `sales_order_change_once`), with the order's version after it
@@ -5232,9 +5336,12 @@ erDiagram
   net value before and after (above zero), its requested delivery date
   and credit block before and after, and `items`, a JSON array of the
   items changed, each with its quantity, unit price, price unit and net
-  value before and after (`sales_order_change_items_check`). Insert-only
-  (`platform.forbid_mutation`); the list reads an order's changes by
-  number.
+  value before and after (`sales_order_change_items_check`); from T78e
+  each with its `change` (`changed`, `added`, `removed`; absent in a
+  change kept before, which is `changed`), and the payment term before
+  and after, both or neither (`sales_order_change_payment_term`).
+  Insert-only (`platform.forbid_mutation`); the list reads an order's
+  changes by number.
 - `sales.delivery` (T78c, migration 000292): a confirmation that
   quantities of an order's items were delivered on `delivery_date`,
   numbered within its order (`delivery_no_positive`, `delivery_no_once`).
@@ -5471,19 +5578,33 @@ T81d (migrations 000311 and 000312) adds the recognition run with its
 postings, which posts through the ledger's port with `source_context`
 `revenue` (the journal's source contexts gain it), and the account
 determination keys `contract_asset` and `contract_liability` (§3.7).
+T81e (migration 000367) has a contract follow its sales order's changes
+and cancellation (§3.29, T78d), each follow kept as a numbered change.
 
 ```mermaid
 erDiagram
   contract ||--|{ performance_obligation : "has"
+  contract ||--o{ contract_change : "followed"
   contract { uuid id PK
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner"
     uuid sales_order_id "sales, one contract per order"
     text sales_order_number "when created"
     char currency "the company's local currency"
-    bigint transaction_price "the order's net value, without tax"
+    bigint transaction_price "the order's net value, without tax; 0 once ended"
     text status "draft, active"
+    int changes "follows kept"
+    timestamptz ended_at "its order cancelled"
     int version }
+  contract_change { uuid id PK
+    uuid contract_id FK
+    int change_no "the contract's next"
+    text cause "sales_order_changed, sales_order_cancelled"
+    int sales_order_version
+    int sales_order_changes
+    bigint transaction_price_before
+    bigint transaction_price_after
+    jsonb obligations "each changed: order value and share before and after, ended" }
   performance_obligation { int obligation_no PK
     uuid contract_id FK
     int order_item_no "sales: one obligation per order item"
@@ -5495,7 +5616,8 @@ erDiagram
     date service_to "not before service_from"
     date satisfied_on "point_in_time alone: a person's day, else the deliveries"
     bigint standalone_selling_price "above 0"
-    bigint allocated_amount "set at activation; the shares are the transaction price" }
+    bigint allocated_amount "set at activation, again by a follow; the shares are the transaction price"
+    timestamptz ended_at "its order cancelled; nothing allocated" }
   recognition_run ||--o{ recognition_posting : "posted"
   contract ||--o{ recognition_posting : "per run"
   recognition_posting ||--|{ recognition_posting_obligation : "has"
@@ -5530,17 +5652,23 @@ erDiagram
   (`contract_one_per_sales_order`: the consumer's insert and a person's
   request leave an existing one as it is); the status is `draft` or
   `active` (`contract_status_check`); `transaction_price` is
-  above zero (`contract_transaction_price_positive`), minor units of
+  above zero, or zero for a contract that has ended
+  (`contract_transaction_price_positive`), minor units of
   `currency`; it keeps its order's number
   (`contract_sales_order_number_check`), which the list reads the
   tenant's contracts by (`contract_by_order_number`,
-  `contract_by_customer`). A contract changes only while it is a draft
-  (`contract_fixed_once_active`: its version moves with each change of
-  its obligations, and activating it is its last change), and becomes
-  active only when every obligation holds its allocated amount and the
-  amounts add up to the transaction price
-  (`contract_allocated_in_full`). The application may set its status,
-  version and `updated_by` alone, and deletes nothing.
+  `contract_by_customer`). A person changes a contract only while it is
+  a draft (`contract_fixed_once_active`: its version moves with each
+  change of its obligations, and activating it is the person's last
+  change); a follow of its order (T81e) changes a draft or an active one,
+  its `changes` moving by one to a change kept in
+  `revenue.contract_change` and its status kept, and alone moves its
+  transaction price and sets `ended_at` (`contract_follow_kept`); an
+  ended contract changes no more (`contract_ended`). An active contract
+  holds, after every change, an allocated amount on every obligation
+  that adds up to the transaction price (`contract_allocated_in_full`).
+  The application may set its status, version, `updated_by`, transaction
+  price, `changes` and `ended_at` alone, and deletes nothing.
 - `revenue.performance_obligation`: numbered from 1 within its contract,
   one per order item (`performance_obligation_one_per_order_item`), with
   the item's key and description
@@ -5559,13 +5687,27 @@ erDiagram
   item's delivery confirmations say when; `allocated_amount` is not
   negative (`performance_obligation_allocated_check`); the application
   leaves it absent until it activates the contract (the database holds
-  the activation to the amounts, not a draft to their absence). An obligation is written and changed only
-  while its contract is a draft
+  the activation to the amounts, not a draft to their absence). A person
+  writes and changes an obligation only while its contract is a draft
   (`performance_obligation_fixed_once_active`, which locks the
-  contract's row, so a change and the activation wait for one another).
-  The application may set its timing, service period, the day it is
-  satisfied on, stand-alone selling price and allocated amount alone,
-  and deletes nothing.
+  contract's row, so a change, a follow and the activation wait for one
+  another); a follow (T81e) changes its order value, allocated amount and
+  end in the transaction that keeps the contract's next change, never
+  what a person judged (`performance_obligation_judgement_kept`), and
+  alone moves the order value or sets `ended_at`
+  (`contract_follow_kept`); an ended obligation has nothing allocated
+  (`performance_obligation_ended_unallocated`) and changes no more
+  (`contract_ended`). The application may set its timing, service
+  period, the day it is satisfied on, stand-alone selling price,
+  allocated amount, order value and `ended_at` alone, and deletes
+  nothing.
+- `revenue.contract_change` (T81e): a follow of the contract's sales
+  order, numbered from 1 within its contract
+  (`contract_change_once`), its cause (`contract_change_cause_check`),
+  the order's version and change count it followed, the transaction
+  price before and after, and each obligation it changed with its order
+  value and allocated amount before and after and whether it ended.
+  Written once and never changed.
 - `revenue.recognition_run` (T81d): one per company and fiscal period
   (`recognition_run_once`), each for a later period than the company's
   last (`recognition_run_in_order`, a trigger that holds the company's
@@ -5991,7 +6133,7 @@ ADR-0082, S1a. The material master: it reads tenancy's companies and org
 units, the configuration's number ranges and company dates and the
 ledger's fiscal calendar through its ports and keeps no foreign key out of
 its schema but `ref`'s (02 §2.1). Plants and storage locations are
-tenancy's org units (§3.3). S1a (migration 000363) builds the schema with
+tenancy's org units (§3.3). S1a (migration 000373) builds the schema with
 its outbox and inbox, the material, its plants, storage locations and
 alternative units. Nothing is deleted: a plant, storage location or unit
 taken off a material is marked removed and given back by clearing the
@@ -6068,7 +6210,7 @@ erDiagram
   1,000,000 (`unit_conversion_numerator_check`,
   `unit_conversion_denominator_check`). The application updates the
   factors and the removal mark (`unit_conversion_removed_check`) alone.
-- `materials.material_change` (S1b, migrations 000364 and 000365): a
+- `materials.material_change` (S1b, migrations 000374 and 000375): a
   governed change of a material (`material_change_material_fkey`),
   numbered `MC` and eight digits (`material_change_number_check`) once in
   the tenant (`material_change_number_once`), of kind `create`, `update`,
@@ -6083,8 +6225,8 @@ erDiagram
   (`material_change_one_pending`). A material's changes are read by
   `material_change_by_material`, the tenant's by `material_change_by_created`.
   The application writes changes and their status; it deletes none.
-  `materials.material.status` gains `pending` (000364, validated by
-  000365), and `material_normalized_description` serves the duplicate
+  `materials.material.status` gains `pending` (000374, validated by
+  000375), and `material_normalized_description` serves the duplicate
   check by `platform.normalized_text(description)`.
 - `materials.outbox`, `materials.inbox`: the context's events
   (`MaterialChanged`, `MaterialChangeChanged`).

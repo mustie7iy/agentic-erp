@@ -30,6 +30,8 @@ func TestDatabaseFailures(t *testing.T) {
 	e.Must(200, "POST", changing(order.String()), changeBody("", itemChange("1 2 EA", "")), `"1"`)
 	shipped, _ := e.confirmed(t, e.item(line{quantity: "3"}), e.item(line{quantity: "2", unit: "KG"}))
 	deliveredOrder := uuid.MustParse(shipped)
+	twoItems, _ := e.confirmed(t, e.item(line{quantity: "3"}), e.item(line{quantity: "2", unit: "KG"}))
+	reshaped := uuid.MustParse(twoItems)
 	e.Must(201, "POST", deliveries(shipped), `{"delivery_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}`, "")
 	// An order with a billing document for its first delivery and a second delivery still to bill, one item with a tax code.
 	toBill, today := e.deliveredOrder(t, []string{e.item(line{quantity: "3", code: "A1"}), e.item(line{quantity: "2", account: e.other})}, "1 1 EA")
@@ -134,6 +136,13 @@ func TestDatabaseFailures(t *testing.T) {
 		"change an order, its increase checked for credit": func(ctx context.Context) error {
 			_, err := h.ChangeSalesOrder(ctx, &gen.SalesOrderChangeRequest{Reason: gen.NewOptString("More"), Items: []gen.SalesOrderItemChange{
 				{ItemNo: 2, Quantity: gen.NewOptQuantity(gen.Quantity{Value: "3", Unit: "KG"})}}}, gen.ChangeSalesOrderParams{ID: deliveredOrder, IfMatch: `"3"`})
+			return err
+		},
+		"add and remove an order's items and change its payment term": func(ctx context.Context) error {
+			_, err := h.ChangeSalesOrder(ctx, &gen.SalesOrderChangeRequest{PaymentTermCode: gen.NewOptString("NT14"), RemovedItems: []int32{2},
+				NewItems: []gen.SalesItemCreate{{Description: "Freight", Quantity: gen.Quantity{Value: "1", Unit: "EA"},
+					UnitPrice: gen.NewOptMoney(gen.Money{Amount: "5.00", Currency: "EUR"}), AccountID: e.revenue}}},
+				gen.ChangeSalesOrderParams{ID: reshaped, IfMatch: `"2"`})
 			return err
 		},
 		"cancel an order": func(ctx context.Context) error {

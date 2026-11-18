@@ -218,7 +218,7 @@ create with such a match is refused (409) unless the request confirms it.
 
 ### S1a (2026-11-17)
 
-- Migration 000363: schema `materials` with its outbox and inbox,
+- Migration 000373: schema `materials` with its outbox and inbox,
   `materials.material`, `.plant_data`, `.storage_location_data` and
   `.unit_conversion` with RLS, `tenant_id` first, the rules of 03
   §3.34 with schema tests (`db/materials_test.go`, the triggers also as
@@ -256,18 +256,18 @@ create with such a match is refused (409) unless the request confirms it.
 - tenancy's published API gains `Unit.ParentID` and `Directory.OrgUnits`
   (the org units by id in one read), so a page of materials reads its
   plants and storage locations once.
-- Walkthrough step 116, `step_material`.
+- Walkthrough step 122, `step_material`.
 
 ### S1b (2026-11-17)
 
-- Migrations 000364 and 000365: `materials.material_change` (numbered
+- Migrations 000374 and 000375: `materials.material_change` (numbered
   `MC` and eight digits by the context, kind `create`, `update`, `block`
   or `unblock`, status `pending`, `applied`, `rejected` or `cancelled`,
   applied exactly with `applied_at`, its payload an object and its
   possible duplicates an array, a reason of at most 500 characters, one
   pending per material, `material_change_one_pending`, 409
   `materials.change_pending`); the material status `pending`, widened NOT
-  VALID and validated by 000365; `platform.normalized_text`, partner's
+  VALID and validated by 000375; `platform.normalized_text`, partner's
   name rule for every context (`TestNormalizedText` holds them equal),
   with the index of the description match; the approval permission
   `materials.change.approve`.
@@ -321,5 +321,5 @@ create with such a match is refused (409) unless the request confirms it.
 - The web workspace names the object type (`object.material_change`) and
   summarises a material change on a request's page, as for every object
   type approvals decide.
-- Walkthrough step 116 extended (each create and change approved by
-  Priya) and step 117, `step_material_governance`.
+- Walkthrough step 122 extended (each create and change approved by
+  Priya) and step 123, `step_material_governance`.

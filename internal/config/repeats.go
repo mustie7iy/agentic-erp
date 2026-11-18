@@ -91,7 +91,7 @@ func NumberedPerYear(documentType string) bool { return strings.HasPrefix(docume
 // NumberedPerTenant says whether a document type's numbers are unique in
 // the tenant, across its companies as well as its fiscal years: a
 // material's, drawn from the material range of the company that creates it
-// and unique in the tenant (material_number_once, 000363; ADR-0082 §6).
+// and unique in the tenant (material_number_once, 000373; ADR-0082 §6).
 func NumberedPerTenant(documentType string) bool { return documentType == "material" }
 
 // repeatedBefore says whether a and b were both activated and already

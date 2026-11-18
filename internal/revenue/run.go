@@ -139,6 +139,7 @@ type Run struct {
 // runBasis is what a run is made on: the company, the period, and the
 // company's contract asset and contract liability accounts.
 type runBasis struct {
+	tenant    uuid.UUID // the run's tenant, the follows' (current)
 	le        tenancy.Entity
 	exp       int
 	period    ledger.FiscalPeriod
@@ -196,7 +197,7 @@ func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if !ok || !access.Allows(le.ID) {
 		return runBasis{}, problem.ReferenceNotFound("legal_entity_id", "legal entity", "no legal entity with this id that you can access")
 	}
-	b := runBasis{le: le}
+	b := runBasis{tenant: p.TenantID, le: le}
 	if b.exp, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil {
 		return runBasis{}, fmt.Errorf("revenue: currency of company %s: %w", le.Code, err)
 	}
@@ -367,7 +368,7 @@ func entryLines(p Posting, b runBasis) []ledger.PostingLine {
 }
 
 // read computes the company's active contracts at the period's last
-// day: the run with its totals, and the postings of the contracts that
+// day, each brought to its order first (current): the run with its totals, and the postings of the contracts that
 // moved, not posted yet. A day a contract's schedule has no fiscal
 // period for is refused naming the contract's order (422
 // revenue.no_fiscal_period); totals beyond an amount are refused (422
@@ -387,9 +388,9 @@ func (e *Endpoints) read(ctx context.Context, tx pgx.Tx, b runBasis) (Run, error
 	recognized, billed := make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts))
 	assets, liabilities, revenue := make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts))
 	for i, k := range contracts {
-		order, _, err := e.SalesOrders.Order(ctx, k.SalesOrderID) // a stored contract's sales order exists
+		k, order, err := e.current(ctx, tx, b.tenant, k)
 		if err != nil {
-			return Run{}, fmt.Errorf("revenue: sales order of contract %s: %w", k.ID, err)
+			return Run{}, err
 		}
 		s, err := cal.scheduleOf(ctx, k, order, b.period.End)
 		if err != nil {

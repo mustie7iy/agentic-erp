@@ -11,9 +11,10 @@ import (
 )
 
 // TestCollectionsPermissions (T76a, migration 000273; T76c, 000278; T86a,
-// 000324; T76e, 000354; ADR-0065 §7): the dunning permissions, the
-// worklist's, the dispute cases' and the dunning blocks' are seeded and
-// are no approval permissions.
+// 000324; T76e, 000354; T76f, 000365; ADR-0065 §7): the dunning
+// permissions, the worklist's (reading it and recording its work), the
+// dispute cases' and the dunning blocks' are seeded and are no approval
+// permissions.
 func TestCollectionsPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'collections.%' AND NOT is_approval ORDER BY code`)
@@ -24,7 +25,7 @@ func TestCollectionsPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.write collections.dunning.block collections.dunning.read collections.dunning.run collections.worklist.read"; got != want {
+	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.write collections.dunning.block collections.dunning.read collections.dunning.run collections.worklist.read collections.worklist.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -710,4 +711,223 @@ func TestDunningBlockReleasedForTheOwner(t *testing.T) {
 	}
 	_, err = tx.Exec(ctx, `UPDATE collections.dunning_block SET valid_to = '2099-12-31' WHERE id = $1`, b)
 	failsWith(t, err, "a released block is not changed")
+}
+
+// promiseToPay records a promise of tenant $1, id $2, by 2027-01-31.
+const promiseToPay = `INSERT INTO collections.promise_to_pay (tenant_id, id, legal_entity_id, customer_id, customer_number, currency, promised_amount,
+	promised_date, created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), 'BP1', 'EUR', 10000, '2027-01-31', $1, $1)`
+
+// promiseToPayItem is line 1 of entry $3 in promise $2 of tenant $1.
+const promiseToPayItem = `INSERT INTO collections.promise_to_pay_item (tenant_id, promise_to_pay_id, fiscal_year, journal_entry_id, line_no,
+	document_number, net_due_date, currency, amount, amount_lc) VALUES ($1, $2, 2026, $3, 1, 'DR1', '2026-12-31', 'EUR', 10000, 10000)`
+
+// TestPromiseToPayRules (T76f, migration 000365): a promise names its
+// customer by number, promises an amount above zero in a known currency
+// by a date up to 2100-12-31, at version 1 or more; an item is named by
+// its journal line, once in its promise, with its document number and an
+// amount above zero, of a promise that exists; the application changes
+// and deletes neither. A run's promised items are a list, empty by
+// default.
+func TestPromiseToPayRules(t *testing.T) {
+	need(t)
+	type scene struct{ tenant, id, entry uuid.UUID }
+	promise := func(s scene) stmt { return step(promiseToPay, s.tenant, s.id) }
+	promiseWith := func(s scene, from, to string) stmt {
+		return step(strings.Replace(promiseToPay, from, to, 1), s.tenant, s.id)
+	}
+	item := func(s scene) stmt { return step(promiseToPayItem, s.tenant, s.id, s.entry) }
+	itemWith := func(s scene, from, to string) stmt {
+		return step(strings.Replace(promiseToPayItem, from, to, 1), s.tenant, s.id, s.entry)
+	}
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"a promise with an item", func(s scene) []stmt { return []stmt{promise(s), item(s)} }, ""},
+		{"no customer number", func(s scene) []stmt { return []stmt{promiseWith(s, "'BP1'", "''")} }, "promise_to_pay_customer_number_check"},
+		{"an unknown currency", func(s scene) []stmt { return []stmt{promiseWith(s, "'EUR'", "'XXA'")} }, "promise_to_pay_currency_fkey"},
+		{"an amount of zero", func(s scene) []stmt { return []stmt{promiseWith(s, "10000, '2027", "0, '2027")} }, "promise_to_pay_amount_positive"},
+		{"a date after 2100", func(s scene) []stmt { return []stmt{promiseWith(s, "'2027-01-31'", "'2101-01-01'")} }, "promise_to_pay_date_check"},
+		{"the last date", func(s scene) []stmt { return []stmt{promiseWith(s, "'2027-01-31'", "'2100-12-31'")} }, ""},
+		{"version 0", func(s scene) []stmt {
+			return []stmt{step(strings.Replace(strings.Replace(promiseToPay, "promised_date, created_by", "promised_date, version, created_by", 1),
+				"'2027-01-31', $1", "'2027-01-31', 0, $1", 1), s.tenant, s.id)}
+		}, "promise_to_pay_version_check"},
+		{"an item of no promise", func(s scene) []stmt { return []stmt{item(s)} }, "promise_to_pay_item_tenant_id_promise_to_pay_id_fkey"},
+		{"an item twice", func(s scene) []stmt { return []stmt{promise(s), item(s), item(s)} }, "promise_to_pay_item_pkey"},
+		{"line 0", func(s scene) []stmt { return []stmt{promise(s), itemWith(s, "$3, 1,", "$3, 0,")} }, "promise_to_pay_item_line_no_check"},
+		{"no document number", func(s scene) []stmt { return []stmt{promise(s), itemWith(s, "'DR1'", "''")} },
+			"promise_to_pay_item_document_number_check"},
+		{"an item of an unknown currency", func(s scene) []stmt { return []stmt{promise(s), itemWith(s, "'EUR'", "'XXA'")} },
+			"promise_to_pay_item_currency_fkey"},
+		{"a credit item", func(s scene) []stmt { return []stmt{promise(s), itemWith(s, "'EUR', 10000", "'EUR', -1")} },
+			"promise_to_pay_item_amount_positive"},
+		{"a negative local amount", func(s scene) []stmt { return []stmt{promise(s), itemWith(s, "10000, 10000)", "10000, -1)")} },
+			"promise_to_pay_item_amount_lc_check"},
+		{"the promise changed", func(s scene) []stmt {
+			return []stmt{promise(s), step(`UPDATE collections.promise_to_pay SET promised_date = '2027-12-31' WHERE id = $1`, s.id)}
+		}, "permission denied"},
+		{"the promise deleted", func(s scene) []stmt { return []stmt{promise(s), step(`DELETE FROM collections.promise_to_pay`)} }, "permission denied"},
+		{"an item changed", func(s scene) []stmt {
+			return []stmt{promise(s), item(s), step(`UPDATE collections.promise_to_pay_item SET amount = 1`)}
+		}, "permission denied"},
+		{"an item deleted", func(s scene) []stmt {
+			return []stmt{promise(s), item(s), step(`DELETE FROM collections.promise_to_pay_item`)}
+		}, "permission denied"},
+		{"a run's promised items an object", func(s scene) []stmt {
+			return []stmt{step(`INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+				overdue_amount, promised_items, created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 0, 0, 0, '{}', $1, $1)`,
+				s.tenant, s.id)}
+		}, "dunning_run_promised_items_check"},
+		{"a run's promised items by default", func(s scene) []stmt {
+			return []stmt{step(`INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+				overdue_amount, created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 0, 0, 0, $1, $1)`, s.tenant, s.id),
+				step(`DO $$ BEGIN IF (SELECT promised_items FROM collections.dunning_run) <> '[]'::jsonb THEN RAISE 'not empty'; END IF; END $$`)}
+		}, ""},
+		{"a run's promised items changed", func(s scene) []stmt {
+			return []stmt{step(`INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+				overdue_amount, created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 0, 0, 0, $1, $1)`, s.tenant, s.id),
+				step(`UPDATE collections.dunning_run SET promised_items = '[{}]', version = version + 1`)}
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), id: id(), entry: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestPromiseToPayFixedForTheOwner (T76f, migration 000365): a promise and
+// its items are insert-only for every role, the tables' owner included:
+// the trigger, not the grant, keeps them.
+func TestPromiseToPayFixedForTheOwner(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant, p, entry := id(), id(), id()
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()), step(promiseToPay, tenant, p),
+		step(promiseToPayItem, tenant, p, entry)); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []string{"UPDATE collections.promise_to_pay SET promised_amount = 1 WHERE tenant_id = $1",
+		"DELETE FROM collections.promise_to_pay WHERE tenant_id = $1", "UPDATE collections.promise_to_pay_item SET amount = 1 WHERE tenant_id = $1",
+		"DELETE FROM collections.promise_to_pay_item WHERE tenant_id = $1"} {
+		t.Run(change, func(t *testing.T) {
+			if _, err := tx.Exec(ctx, "SAVEPOINT s"); err != nil {
+				t.Fatal(err)
+			}
+			_, err := tx.Exec(ctx, change, tenant)
+			failsWith(t, err, "insert-only")
+			if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT s"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// customerContact records a contact of tenant $1, id $2.
+const customerContact = `INSERT INTO collections.customer_contact (tenant_id, id, legal_entity_id, customer_id, customer_number, contacted_at,
+	contact_name, outcome, note, resubmission_date, created_by, updated_by)
+	VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), 'BP1', now(), 'Dana', 'reached', 'Pays Friday', '2027-01-31', $1, $1)`
+
+// TestCustomerContactRules (T76g, migration 000366): a contact names its
+// customer by number; its outcome is reached, not_reached or
+// left_message; its contact name and note are more than white space, at
+// most 200 and 2,000 characters, or absent; its resubmission date is up
+// to 2100-12-31 or absent; version from 1; the application changes and
+// deletes none.
+func TestCustomerContactRules(t *testing.T) {
+	need(t)
+	with := func(tenant, c uuid.UUID, from, to string) stmt {
+		return step(strings.Replace(customerContact, from, to, 1), tenant, c)
+	}
+	cases := []struct {
+		name     string
+		from, to string
+		then     string
+		want     string // empty: allowed
+	}{
+		{"a contact", "", "", "", ""},
+		{"no customer number", "'BP1'", "''", "", "customer_contact_customer_number_check"},
+		{"an unknown outcome", "'reached'", "'emailed'", "", "customer_contact_outcome_check"},
+		{"not reached", "'reached'", "'not_reached'", "", ""},
+		{"a message left", "'reached'", "'left_message'", "", ""},
+		{"a contact name of white space", "'Dana'", "' '", "", "customer_contact_contact_name_check"},
+		{"a contact name of 201 characters", "'Dana'", "repeat('x', 201)", "", "customer_contact_contact_name_check"},
+		{"a contact name of 200 characters", "'Dana'", "repeat('x', 200)", "", ""},
+		{"no contact name, note or resubmission", "'Dana', 'reached', 'Pays Friday', '2027-01-31'", "NULL, 'reached', NULL, NULL", "", ""},
+		{"a note of white space", "'Pays Friday'", "' '", "", "customer_contact_note_check"},
+		{"a note of 2001 characters", "'Pays Friday'", "repeat('x', 2001)", "", "customer_contact_note_check"},
+		{"a resubmission after 2100", "'2027-01-31'", "'2101-01-01'", "", "customer_contact_resubmission_date_check"},
+		{"changed", "", "", `UPDATE collections.customer_contact SET outcome = 'not_reached'`, "permission denied"},
+		{"deleted", "", "", `DELETE FROM collections.customer_contact`, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, id := id(), id()
+			stmts := []stmt{step(customerContact, tenant, id)}
+			if c.from != "" {
+				stmts = []stmt{with(tenant, id, c.from, c.to)}
+			}
+			if c.then != "" {
+				stmts = append(stmts, step(c.then))
+			}
+			err := asApp(t, tenant, func(tx pgx.Tx) error { return all(tx, stmts...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("version 0", func(t *testing.T) {
+		tenant := id()
+		sql := strings.Replace(strings.Replace(customerContact, "resubmission_date, created_by", "resubmission_date, version, created_by", 1),
+			"'2027-01-31', $1", "'2027-01-31', 0, $1", 1)
+		failsWith(t, asApp(t, tenant, func(tx pgx.Tx) error { return all(tx, step(sql, tenant, id())) }), "customer_contact_version_check")
+	})
+}
+
+// TestCustomerContactFixedForTheOwner (T76g, migration 000366): a contact
+// is insert-only for every role, the table's owner included.
+func TestCustomerContactFixedForTheOwner(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()), step(customerContact, tenant, id())); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []string{"UPDATE collections.customer_contact SET note = 'x' WHERE tenant_id = $1",
+		"DELETE FROM collections.customer_contact WHERE tenant_id = $1"} {
+		t.Run(change, func(t *testing.T) {
+			if _, err := tx.Exec(ctx, "SAVEPOINT s"); err != nil {
+				t.Fatal(err)
+			}
+			_, err := tx.Exec(ctx, change, tenant)
+			failsWith(t, err, "insert-only")
+			if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT s"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }

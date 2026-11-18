@@ -158,6 +158,20 @@ func TestPurchaseOrders(t *testing.T) {
 	if got, _ := e.Must(200, "GET", rpath, "", ""); got["status"] != "approved" {
 		t.Fatalf("requisition after cancel: %v", got)
 	}
+	// It is reopened, not approved again (T82h): its event names the order.
+	ev = events(t, e, "requisition_reopened")
+	if len(ev) != 1 {
+		t.Fatalf("requisition_reopened events: got %d, want 1", len(ev))
+	}
+	for field, want := range map[string]any{"cause": "purchase_order_cancelled", "previous_status": "ordered", "status": "approved",
+		"purchase_order_id": id(can), "purchase_order_document_number": can["document_number"], "rfq_id": nil} {
+		if ev[0][field] != want {
+			t.Errorf("requisition_reopened %s: got %v, want %v", field, ev[0][field], want)
+		}
+	}
+	if n := audits(t, e, "procurement.requisition.reopened", id(r)); n != 1 {
+		t.Errorf("the requisition's reopened audit records: got %d, want 1", n)
+	}
 	e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), fmt.Sprintf(`, "requisition_id": %q`, id(r)))
 	e.Problem(409, "procurement.invalid_status", "POST", "/v1/purchase-orders", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "currency": "EUR",
 		"order_date": "2026-03-10", "requisition_id": %q, "items": %s}`, e.DE, e.Supplier, id(r), items(item(e.office, "1", "EA", "1.00", "EUR", ""))), "")

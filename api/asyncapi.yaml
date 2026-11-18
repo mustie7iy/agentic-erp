@@ -225,6 +225,7 @@ channels:
       JournalEntryPosted: {$ref: '#/components/messages/JournalEntryPosted'}
       JournalEntryReversed: {$ref: '#/components/messages/JournalEntryReversed'}
       ItemsCleared: {$ref: '#/components/messages/ItemsCleared'}
+      ClearingReset: {$ref: '#/components/messages/ClearingReset'}
       PeriodOpened: {$ref: '#/components/messages/PeriodOpened'}
       PeriodClosed: {$ref: '#/components/messages/PeriodClosed'}
       PeriodLocked: {$ref: '#/components/messages/PeriodLocked'}
@@ -272,6 +273,7 @@ channels:
       SupplierQuotationRecorded: {$ref: '#/components/messages/SupplierQuotationRecorded'}
       RfqAwarded: {$ref: '#/components/messages/RfqAwarded'}
       RfqAwardedToOrder: {$ref: '#/components/messages/RfqAwardedToOrder'}
+      RequisitionReopened: {$ref: '#/components/messages/RequisitionReopened'}
       ScheduleLineChanged: {$ref: '#/components/messages/ScheduleLineChanged'}
       ScheduleLineCalledOff: {$ref: '#/components/messages/ScheduleLineCalledOff'}
   payables:
@@ -439,6 +441,7 @@ channels:
       CustomerInvoicePosted: {$ref: '#/components/messages/CustomerInvoicePosted'}
       IncomingPaymentApplied: {$ref: '#/components/messages/IncomingPaymentApplied'}
       IncomingPaymentOnAccountApplied: {$ref: '#/components/messages/IncomingPaymentOnAccountApplied'}
+      IncomingPaymentReset: {$ref: '#/components/messages/IncomingPaymentReset'}
   collections:
     address: 'erp.{cell}.collections.{tenant}.{event}'
     title: Dunning and collections events
@@ -621,6 +624,7 @@ operations:
       - $ref: '#/channels/ledger/messages/JournalEntryPosted'
       - $ref: '#/channels/ledger/messages/JournalEntryReversed'
       - $ref: '#/channels/ledger/messages/ItemsCleared'
+      - $ref: '#/channels/ledger/messages/ClearingReset'
       - $ref: '#/channels/ledger/messages/PeriodOpened'
       - $ref: '#/channels/ledger/messages/PeriodClosed'
       - $ref: '#/channels/ledger/messages/PeriodLocked'
@@ -666,6 +670,7 @@ operations:
       - $ref: '#/channels/procurement/messages/SupplierQuotationRecorded'
       - $ref: '#/channels/procurement/messages/RfqAwarded'
       - $ref: '#/channels/procurement/messages/RfqAwardedToOrder'
+      - $ref: '#/channels/procurement/messages/RequisitionReopened'
       - $ref: '#/channels/procurement/messages/ScheduleLineChanged'
       - $ref: '#/channels/procurement/messages/ScheduleLineCalledOff'
   publishPayablesEvents:
@@ -809,6 +814,7 @@ operations:
       - $ref: '#/channels/receivables/messages/CustomerInvoicePosted'
       - $ref: '#/channels/receivables/messages/IncomingPaymentApplied'
       - $ref: '#/channels/receivables/messages/IncomingPaymentOnAccountApplied'
+      - $ref: '#/channels/receivables/messages/IncomingPaymentReset'
   publishCollectionsEvents:
     action: send
     title: Collections publishes
@@ -1220,6 +1226,39 @@ components:
             items:
               - {fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000501, line_no: 1, account_id: 0192a000-0000-7000-8000-000000000402, partner_id: 0192a000-0000-7000-8000-000000000301, amount_tc: {amount: '-1080.00', currency: EUR}}
               - {fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000504, line_no: 1, account_id: 0192a000-0000-7000-8000-000000000402, partner_id: 0192a000-0000-7000-8000-000000000301, amount_tc: {amount: '1080.00', currency: EUR}}
+    ClearingReset:
+      name: ClearingReset
+      x-webhook: true
+      title: Clearing reset
+      summary: A clearing was reset, its lines open items again, and its clearing entry reversed.
+      description: |
+        Emitted when a clearing is reset (T75i; an incoming payment or an
+        application of its credit on account undone): the lines it had
+        cleared are open again (`items`, the clearing entry's own left out)
+        and the clearing entry is reversed, whose JournalEntryReversed and
+        ItemsCleared come first. Subject is the clearing id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.ledger.clearing_reset.v1}
+      payload: {$ref: '#/components/schemas/ClearingResetV1'}
+      examples:
+        - name: payment-undone
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000000e, source: /erp/eu-1/ledger, type: com.example.erp.ledger.clearing_reset.v1, subject: 0192a000-0000-7000-8000-000000000503, time: '2026-10-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000104}
+          payload:
+            clearing_id: 0192a000-0000-7000-8000-000000000503
+            legal_entity_id: 0192a000-0000-7000-8000-000000000201
+            clearing_entry_id: 0192a000-0000-7000-8000-000000000504
+            clearing_entry_year: 2026
+            clearing_entry_number: '1400000001'
+            reversal_entry_id: 0192a000-0000-7000-8000-000000000505
+            reversal_entry_year: 2026
+            reversal_entry_number: '1400000002'
+            reversal_posting_date: '2026-10-20'
+            items:
+              - {fiscal_year: 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000501, line_no: 1}
     PeriodOpened:
       name: PeriodOpened
       x-webhook: true
@@ -3044,6 +3083,23 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000062", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.requisition_ordered.v1", "subject": "0192a000-0000-7000-8000-000000000601", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
           payload: {"requisition_id": "0192a000-0000-7000-8000-000000000601", "document_number": "PR-10000412", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "purchase_order_id": "0192a000-0000-7000-8000-000000000602", "previous_status": "approved", "status": "ordered"}
+    RequisitionReopened:
+      name: RequisitionReopened
+      x-webhook: true
+      title: Requisition reopened
+      summary: "A requisition is approved again and can be sourced or ordered anew."
+      description: "Emitted when a requisition moves back to `approved` because the RFQ sourcing it was cancelled or closed without an award (`rfqs/{id}:cancel`, `rfqs/{id}:close`; from `in_sourcing`, T82g) or the purchase order created from it was cancelled (`purchase-orders/{id}:cancel`, from `ordered`, T82h, whoever created the order): its approval stands, and it can be sourced by a new RFQ, ordered or cancelled. The RFQ's reason is not given here; RfqChanged gives it. Subject is the requisition id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.requisition_reopened.v1}
+      payload: {$ref: '#/components/schemas/RequisitionReopenedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000799", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.requisition_reopened.v1", "subject": "0192a000-0000-7000-8000-000000000601", "time": "2026-11-20T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"requisition_id": "0192a000-0000-7000-8000-000000000601", "document_number": "PR-10000412", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "previous_status": "in_sourcing", "status": "approved", "cause": "rfq_closed", "rfq_id": "0192a000-0000-7000-8000-000000000701", "rfq_document_number": "RQ100000"}
     PurchaseOrderClosed:
       name: PurchaseOrderClosed
       x-webhook: true
@@ -3081,11 +3137,15 @@ components:
     RfqChanged:
       name: RfqChanged
       title: Request for quotation changed
-      summary: "A request for quotation was created, published or awarded."
+      summary: "A request for quotation was created, published, awarded, cancelled or closed, or its award's order cancelled."
       description: |
-        Emitted by `rfqs` (POST, `created`), its `:publish` (`published`)
-        and its `:award` (`awarded`), ADR-0069 §5: the RFQ as it stands
-        after the change. Subject is the RFQ id.
+        Emitted by `rfqs` (POST, `created`), its `:publish` (`published`),
+        its `:award` (`awarded`), its `:cancel` (`cancelled`) and its
+        `:close` (`closed`, without an award; T82g), and by
+        `purchase-orders/{id}:cancel` of the order an award created
+        (`order_cancelled`, T82h), ADR-0069 §5: the RFQ as it stands after
+        the change, with the reason given to cancel or close it and the
+        order an award created. Subject is the RFQ id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -4379,6 +4439,31 @@ components:
         - name: applied
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f04, source: /erp/eu-1/receivables, type: com.example.erp.receivables.incoming_payment_on_account_applied.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-13T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {incoming_payment_id: 0192a000-0000-7000-8000-000000000f41, document_number: IP100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, application_no: 1, posting_date: '2026-11-13', amount: {amount: '480.00', currency: CAD}, difference: {amount: '0.00', currency: CAD}, on_account_amount: {amount: '80.00', currency: CAD}, journal_entry_id: 0192a000-0000-7000-8000-000000000f34, journal_entry_year: 2026, journal_entry_number: '1400000003', item_count: 1, residual_count: 0}
+    IncomingPaymentReset:
+      name: IncomingPaymentReset
+      x-webhook: true
+      title: Incoming payment undone
+      summary: An incoming payment's application, or an application of its credit on account, was undone.
+      description: |
+        Emitted when an incoming payment's application of its receipt, or
+        an application of its credit on account, is undone (ADR-0063 §6 As
+        built, T75i): its clearing reset, the items and the receipt or the
+        credit open again, its clearing entry reversed. `application_no`
+        is 0 for the payment's own application. It names the customer by
+        id and number, never by name, and carries no reason, which is free
+        text. `GET /v1/incoming-payments/{id}` returns the payment with the
+        reset. Subject is the incoming payment id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.receivables.incoming_payment_reset.v1}
+      payload: {$ref: '#/components/schemas/IncomingPaymentResetV1'}
+      examples:
+        - name: reset
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f05, source: /erp/eu-1/receivables, type: com.example.erp.receivables.incoming_payment_reset.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-13T11:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {incoming_payment_id: 0192a000-0000-7000-8000-000000000f41, document_number: IP100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, application_no: 0, amount: {amount: '480.00', currency: CAD}, item_count: 1, clearing_entry_id: 0192a000-0000-7000-8000-000000000f34, reversal_entry_id: 0192a000-0000-7000-8000-000000000f35, reversal_entry_year: 2026, reversal_entry_number: '1400000004', reversal_posting_date: '2026-11-13'}
     QuotationChanged:
       name: QuotationChanged
       x-webhook: true
@@ -4829,6 +4914,10 @@ components:
         It carries the contract's transaction price, the order's net value
         without tax, and the number of its performance obligations, not the
         obligations, and names the customer by id and number, never by name.
+        From T81e also when the system follows a change of its sales order
+        (status kept, status_before the same; `changes` counts the follows)
+        or the order's cancellation (`ended` true, the transaction price
+        zero).
         `GET /v1/revenue-contracts/{id}` returns the contract at `version`
         or later. Subject is the contract id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -5445,6 +5534,29 @@ components:
               account_id: {$ref: '#/components/schemas/Uuid'}
               partner_id: {$ref: '#/components/schemas/NullableUuid'}
               amount_tc: {$ref: '#/components/schemas/SignedMoney'}
+    ClearingResetV1:
+      type: object
+      required: [clearing_id, legal_entity_id, clearing_entry_id, clearing_entry_year, clearing_entry_number, reversal_entry_id, reversal_entry_year, reversal_entry_number, reversal_posting_date, items]
+      properties:
+        clearing_id: {$ref: '#/components/schemas/Uuid'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        clearing_entry_id: {$ref: '#/components/schemas/Uuid', description: The clearing entry, reversed.}
+        clearing_entry_year: {$ref: '#/components/schemas/FiscalYear'}
+        clearing_entry_number: {type: string, description: "The clearing entry's document number."}
+        reversal_entry_id: {$ref: '#/components/schemas/Uuid', description: The clearing entry's reversal.}
+        reversal_entry_year: {$ref: '#/components/schemas/FiscalYear'}
+        reversal_entry_number: {type: string, description: "The reversal's document number."}
+        reversal_posting_date: {$ref: '#/components/schemas/Date', description: "The reversal's posting date, the clearing entry's."}
+        items:
+          type: array
+          description: The lines open again, the clearing entry's own left out.
+          items:
+            type: object
+            required: [fiscal_year, journal_entry_id, line_no]
+            properties:
+              fiscal_year: {$ref: '#/components/schemas/FiscalYear'}
+              journal_entry_id: {$ref: '#/components/schemas/Uuid'}
+              line_no: {type: integer, minimum: 1}
     PeriodStatusChangedV1:
       type: object
       required: [period_id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, start_date, end_date, status]
@@ -5816,10 +5928,20 @@ components:
         journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the clearing entry.'}
         journal_entry_year: {type: integer, description: "The clearing entry's fiscal year."}
         journal_entry_number: {type: string, description: "The clearing entry's document number."}
-        item_count: {type: integer, description: "How many open items of the customer the payment was applied to."}
+        item_count: {type: integer, description: "How many open items the payment was applied to, of every customer it paid."}
         residual_count: {type: integer, description: "How many of those it paid in part, leaving a residual item of the customer (T75f)."}
         difference: {$ref: '#/components/schemas/Money', description: "The payment difference written off within the company's payment tolerance: what the items, net of their residuals, exceed the receipt by; positive an underpayment, negative an overpayment, zero for none (T75f)."}
         on_account_amount: {$ref: '#/components/schemas/Money', description: "What the payment left on the customer's account as a credit (T75g); zero for none."}
+        customers:
+          type: array
+          description: "Each customer whose items the payment applied (T75h: one receipt for several customers), the payer first, by id and number, never by name, with its part: its items net of their residuals."
+          items:
+            type: object
+            required: [customer_id, customer_number, amount]
+            properties:
+              customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+              customer_number: {type: string, description: "The customer's business partner number."}
+              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals."}
     IncomingPaymentOnAccountAppliedV1:
       type: object
       required: [incoming_payment_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, application_no, posting_date, amount, difference, on_account_amount, journal_entry_id, journal_entry_year, journal_entry_number, item_count, residual_count]
@@ -5840,6 +5962,34 @@ components:
         journal_entry_number: {type: string, description: "The clearing entry's document number."}
         item_count: {type: integer, description: "How many open items of the customer it was applied to."}
         residual_count: {type: integer, description: "How many of those it paid in part, leaving a residual item."}
+    IncomingPaymentResetV1:
+      type: object
+      required: [incoming_payment_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, application_no, amount, item_count, clearing_entry_id, reversal_entry_id, reversal_entry_year, reversal_entry_number, reversal_posting_date]
+      properties:
+        incoming_payment_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.incoming_payment.id`.'}
+        document_number: {type: string, description: "The payment's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that received the payment.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The payment''s customer, the payer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        application_no: {type: integer, description: "The application undone: 0 for the payment's own application of its receipt, else the number of the application of its credit on account."}
+        amount: {$ref: '#/components/schemas/Money', description: "What the application had applied: the receipt's amount, or the credit on account as it stood."}
+        item_count: {type: integer, description: "How many open items it had been applied to, open again."}
+        clearing_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the clearing entry reversed.'}
+        reversal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of its reversal.'}
+        reversal_entry_year: {type: integer, description: "The reversal's fiscal year."}
+        reversal_entry_number: {type: string, description: "The reversal's document number."}
+        reversal_posting_date: {$ref: '#/components/schemas/Date', description: "The reversal's posting date, the clearing entry's."}
+        customers:
+          type: array
+          description: "With `application_no` 0, each customer whose items the payment had applied and are open again (T75h), the payer first, by id and number, never by name, with its part; absent for an application of the credit on account, the payer's alone."
+          items:
+            type: object
+            required: [customer_id, customer_number, amount]
+            properties:
+              customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+              customer_number: {type: string, description: "The customer's business partner number."}
+              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals."}
     QuotationChangedV1:
       type: object
       required: [quotation_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, quotation_date, valid_until, net_amount, status, status_before, version]
@@ -6191,10 +6341,12 @@ components:
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
         transaction_price: {$ref: '#/components/schemas/Money', description: "The contract's transaction price: the sales order's net value, without tax, in the company's local currency."}
-        obligation_count: {type: integer, description: "The contract's performance obligations, one per item of the sales order."}
+        obligation_count: {type: integer, description: "The contract's performance obligations, one per item of the sales order, ended ones included."}
         status: {type: string, description: "The contract's status after the change. Open enum: draft, active."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created, and `draft` again when a draft''s obligations were changed.'}
         version: {type: integer, description: "The contract's version after the change."}
+        changes: {type: integer, description: "How many changes and cancellations of its sales order the contract has followed (T81e); not among the required fields, since a field added to a published event is not required of it (ADR-0041)."}
+        ended: {type: boolean, description: "Whether the contract has ended, its sales order being cancelled (T81e): its transaction price is then zero. Not among the required fields (ADR-0041)."}
     LeaseRunPostedV1:
       type: object
       required: [lease_run_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, posting_date, contract_count, posting_count, interest_amount, depreciation_amount]
@@ -7980,6 +8132,21 @@ components:
         purchase_order_id: {"$ref": "#/components/schemas/Uuid"}
         previous_status: {"type": "string", "description": "Open enum: approved, or in_sourcing for a requisition ordered by the award of its RFQ (T82f)."}
         status: {"type": "string", "description": "Open enum; ordered in v1."}
+    RequisitionReopenedV1:
+      type: object
+      required: ["requisition_id", "document_number", "legal_entity_id", "legal_entity_code", "previous_status", "status", "cause"]
+      properties:
+        requisition_id: {"$ref": "#/components/schemas/Uuid"}
+        document_number: {"type": "string"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        previous_status: {"type": "string", "description": "Open enum: in_sourcing (its RFQ was cancelled or closed), ordered (its purchase order was cancelled)."}
+        status: {"type": "string", "description": "Open enum; approved in v1."}
+        cause: {"type": "string", "description": "What reopened the requisition. Open enum: rfq_cancelled, rfq_closed, purchase_order_cancelled."}
+        rfq_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.rfq.id`: the RFQ cancelled or closed, for those causes."}
+        rfq_document_number: {"type": "string", "description": "That RFQ's document number; present with it."}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the order cancelled, for cause purchase_order_cancelled."}
+        purchase_order_document_number: {"type": "string", "description": "That order's document number; present with it."}
     PurchaseOrderClosedV1:
       type: object
       required: ["purchase_order_id", "document_number", "legal_entity_id", "supplier_id", "previous_status", "status"]
@@ -8026,12 +8193,15 @@ components:
         legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
         currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
         due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
-        status: {"type": "string", "description": "The status after the change. Open enum: draft, published, awarded."}
-        change: {"type": "string", "description": "Open enum: created, published, awarded."}
+        status: {"type": "string", "description": "The status after the change. Open enum: draft, published, awarded, cancelled, closed, order_cancelled."}
+        change: {"type": "string", "description": "Open enum: created, published, awarded, cancelled, closed, order_cancelled."}
         item_count: {"type": "integer", "description": "The items asked for."}
         supplier_count: {"type": "integer", "description": "The suppliers invited."}
         requisition_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.requisition.id`: the requisition the RFQ was created from (T82e), which is `in_sourcing` from then on; absent for an RFQ created with its own items. Added within v1."}
         requisition_document_number: {"type": "string", "description": "That requisition's document number; absent with it. Added within v1."}
+        reason: {"type": "string", "description": "Why the RFQ was cancelled or closed (T82g), its `closing_reason`; absent for the other changes. Added within v1."}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the order an award to a purchase order created (T82f), for an RFQ `awarded` or `order_cancelled`; absent otherwise. Added within v1."}
+        purchase_order_document_number: {"type": "string", "description": "That order's document number; absent with it. Added within v1."}
     RfqPublishedV1:
       type: object
       required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "currency", "due_date", "item_count", "suppliers"]

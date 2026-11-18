@@ -49,7 +49,8 @@ func runToAPI(r Run, companies map[uuid.UUID]tenancy.Entity) gen.DunningRun {
 		BelowMinimumAmount: apitypes.Money(r.BelowMinimumAmount, r.Currency, r.Exponent), DisputedItemCount: int32(len(r.Disputed)),
 		DisputedAmount: apitypes.Money(r.DisputedLC(), r.Currency, r.Exponent), DisputedItems: make([]gen.DunningRunDisputedItem, len(r.Disputed)),
 		BlockedItemCount: int32(len(r.Blocked)), BlockedAmount: apitypes.Money(r.BlockedLC(), r.Currency, r.Exponent),
-		BlockedItems: make([]gen.DunningRunBlockedItem, len(r.Blocked))}
+		BlockedItems: make([]gen.DunningRunBlockedItem, len(r.Blocked)), PromisedItemCount: int32(len(r.Promised)),
+		PromisedAmount: apitypes.Money(r.PromisedLC(), r.Currency, r.Exponent), PromisedItems: make([]gen.DunningRunPromisedItem, len(r.Promised))}
 	for i, d := range r.Disputed {
 		out.DisputedItems[i] = gen.DunningRunDisputedItem{DisputeCaseID: d.CaseID, CustomerID: d.CustomerID, CustomerNumber: d.CustomerNumber,
 			FiscalYear: int32(d.FiscalYear), JournalEntryID: d.EntryID, LineNo: d.LineNo, DocumentNumber: d.DocumentNumber,
@@ -61,6 +62,12 @@ func runToAPI(r Run, companies map[uuid.UUID]tenancy.Entity) gen.DunningRun {
 			FiscalYear: int32(b.FiscalYear), JournalEntryID: b.EntryID, LineNo: b.LineNo, DocumentNumber: b.DocumentNumber,
 			Reference: apitypes.OptString(b.Reference), NetDueDate: b.NetDueDate, DaysOverdue: b.DaysOverdue,
 			Amount: apitypes.Money(b.Amount, b.Currency, b.Exponent), LocalAmount: apitypes.Money(b.AmountLC, r.Currency, r.Exponent)}
+	}
+	for i, p := range r.Promised {
+		out.PromisedItems[i] = gen.DunningRunPromisedItem{PromiseToPayID: p.PromiseID, PromisedDate: p.PromisedDate, CustomerID: p.CustomerID,
+			CustomerNumber: p.CustomerNumber, FiscalYear: int32(p.FiscalYear), JournalEntryID: p.EntryID, LineNo: p.LineNo, DocumentNumber: p.DocumentNumber,
+			Reference: apitypes.OptString(p.Reference), NetDueDate: p.NetDueDate, DaysOverdue: p.DaysOverdue,
+			Amount: apitypes.Money(p.Amount, p.Currency, p.Exponent), LocalAmount: apitypes.Money(p.AmountLC, r.Currency, r.Exponent)}
 	}
 	return out
 }
@@ -244,18 +251,26 @@ func (e *Endpoints) GetCollectionWorklist(ctx context.Context, params gen.GetCol
 	if err != nil {
 		return nil, err
 	}
-	if err := e.describe(ctx, tx, page); err != nil {
+	if err := e.describe(ctx, tx, w, page); err != nil {
 		return nil, err
 	}
 	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, w.Company.LocalCurrency, w.Exponent) }
 	out := &gen.CollectionWorklist{LegalEntityID: w.Company.ID, CompanyCode: w.Company.Code, CompanyName: w.Company.Name, KeyDate: w.KeyDate,
 		Currency: w.Company.LocalCurrency, CustomerCount: int32(len(w.Customers)), OpenAmount: amount(w.Open), OverdueAmount: amount(w.Overdue),
-		DisputedAmount: amount(w.Disputed), OpenDisputeCases: w.DisputedCases,
+		DisputedAmount: amount(w.Disputed), OpenDisputeCases: w.DisputedCases, PromisedAmount: amount(w.Promised),
+		ResubmissionCount: w.Resubmitted, ResubmissionOverdueAmount: amount(w.ResubmittedOverdue),
 		Items: make([]gen.CollectionWorklistCustomer, len(page))}
 	for i, c := range page {
 		out.Items[i] = gen.CollectionWorklistCustomer{CustomerID: c.CustomerID, CustomerNumber: c.Number, CustomerName: c.Name,
 			OpenAmount: amount(c.Open), OverdueAmount: amount(c.Overdue), OldestDueDate: c.OldestDue, DunningLevel: c.Level,
-			LastDunningDate: apitypes.OptDate(c.LastDunned), DisputedAmount: amount(c.Disputed), OpenDisputeCases: c.DisputedCases}
+			LastDunningDate: apitypes.OptDate(c.LastDunned), DisputedAmount: amount(c.Disputed), OpenDisputeCases: c.DisputedCases,
+			PromisedAmount: amount(c.Promised), OpenPromises: c.OpenPromises, NextPromisedDate: apitypes.OptDate(c.NextPromised),
+			BrokenPromises: c.BrokenPromises}
+		if c.LastContact != nil {
+			out.Items[i].LastContactedAt.SetTo(c.LastContact.At)
+			out.Items[i].LastContactOutcome.SetTo(c.LastContact.Outcome)
+			out.Items[i].ResubmissionDate = apitypes.OptDate(c.LastContact.Resubmission)
+		}
 	}
 	if next != "" {
 		out.NextPageToken.SetTo(next)
