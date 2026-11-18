@@ -12391,15 +12391,15 @@ step_promise_to_pay() {
   expect "the gasket's promise" "$(field '"\(.status) \(.paid_amount.amount) \([.items[] | "\(.journal_entry_id) \(.open)"] | join(" "))"')" "open 0.00 $small true"
   body="{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"promised_amount\": {\"amount\": \"600.00\", \"currency\": \"CAD\"},
     \"promised_date\": \"$pump_by\", \"items\": [$(jq -c ".[] | select(.journal_entry_id == \"$large\")" <<<"$items")]}"
-  api 201 '"promise to pay of \(.customer_number) \(.customer_name): \(.promised_amount.amount) \(.promised_amount.currency) by \(.promised_date), \(.status)"' \
-    createPromiseToPay -body "$body"
-  pump=$(field .id)
-  say "The pump is promised already, so a second promise of it is refused; a promise is at most what the items"
-  say "amount to, and a date already past is refused:"
-  refused 409 collections.promise_exists createPromiseToPay -body "$body"
+  say "A promise is at most what its items amount to, and by a date still to come:"
   refused 422 collections.invalid_promised_amount createPromiseToPay -body "${body/\"600.00\"/\"600.01\"}"
   refused 422 collections.invalid_promised_date createPromiseToPay \
     -body "${body/$pump_by/$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime - 86400 | strftime("%Y-%m-%d")')}"
+  api 201 '"promise to pay of \(.customer_number) \(.customer_name): \(.promised_amount.amount) \(.promised_amount.currency) by \(.promised_date), \(.status)"' \
+    createPromiseToPay -body "$body"
+  pump=$(field .id)
+  say "The pump is promised now, so a second promise of it is refused:"
+  refused 409 collections.promise_exists createPromiseToPay -body "$body"
   say "A run at $key, before both dates, duns neither invoice and names each with its promise, outside its totals:"
   api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.promised_item_count) promised (\(.promised_amount.amount) \(.promised_amount.currency))", (.promised_items[] | "  promised: entry \(.document_number) (\(.reference)) of \(.customer_number) by \(.promised_date), \(.local_amount.amount) \(.local_amount.currency)")' \
     createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"

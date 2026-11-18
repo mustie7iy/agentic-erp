@@ -327,7 +327,8 @@ func (h hugeItems) ReceivableItem(ctx context.Context, legalEntity uuid.UUID, re
 }
 
 // TestPromisesThroughThePort: what only a port could answer: items whose
-// amounts add up to more than an amount holds are refused.
+// amounts add up to more than an amount holds are refused; a Go caller
+// naming no item is refused as the contract would.
 func TestPromisesThroughThePort(t *testing.T) {
 	e := setup(t)
 	entries := e.story(t)
@@ -341,4 +342,14 @@ func TestPromisesThroughThePort(t *testing.T) {
 	if p := problem.From(err); p.Code != "collections.amount_too_large" {
 		t.Errorf("got %v, want collections.amount_too_large", err)
 	}
+	t.Run("a Go caller naming no item", func(t *testing.T) {
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := endpoints(t).RecordPromise(ctx, collections.PromiseInput{LegalEntityID: e.DE, CustomerID: e.north, Amount: "1.00", Currency: "EUR",
+				Date: date(t, lastHeld)})
+			return err
+		})
+		if p := problem.From(err); p.Code != "request.validation_failed" {
+			t.Errorf("got %v, want request.validation_failed", err)
+		}
+	})
 }

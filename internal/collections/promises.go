@@ -284,11 +284,19 @@ func (e *Endpoints) today(ctx context.Context, le tenancy.Entity) (config.Compan
 
 // promisedItems reads the items a promise names: each the company's open
 // item the customer owes (refused naming its journal entry otherwise),
-// named once, and in no other promise whose date is today or later. It
-// first takes the customer's lock, so the check holds until the promise
-// is written.
+// named once, and in no other promise whose date is today or later. The
+// items are read first; then the customer's lock is taken, held to the
+// end of the transaction, and only then are the other promises checked,
+// so the check holds until the promise is written. That relies on the
+// request running at READ COMMITTED (createPromiseToPay has no
+// x-snapshot): the check's statement, taken after the lock, sees a
+// promise a transaction that held the lock before committed.
 func (e *Endpoints) promisedItems(ctx context.Context, tx pgx.Tx, le tenancy.Entity, customer uuid.UUID, refs []ledger.ItemRef,
 	today time.Time) ([]ledger.ReceivableItem, error) {
+	if len(refs) == 0 || len(refs) > MaxPromiseItems { // the contract bounds them; a Go caller is held to it too
+		return nil, problem.Unprocessable("request.validation_failed", fmt.Sprintf("The request is not valid: a promise is for 1 to %d items.",
+			MaxPromiseItems), problem.FieldError{Field: "items", Code: "invalid", Message: "1 to 100 items"})
+	}
 	seen := make(map[ledger.ItemRef]bool, len(refs))
 	items := make([]ledger.ReceivableItem, len(refs))
 	for i, ref := range refs {
@@ -306,7 +314,7 @@ func (e *Endpoints) promisedItems(ctx context.Context, tx pgx.Tx, le tenancy.Ent
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('collections.promise:' || $1::text, 0))`, customer); err != nil {
 		return nil, fmt.Errorf("collections: lock the promises of customer %s: %w", customer, err)
 	}
-	years, entries, lines := refColumns(refs)
+	years, entries, lines := ledger.ItemColumns(refs)
 	var other uuid.UUID
 	err := tx.QueryRow(ctx, `SELECT p.id FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(fy, je, ln)
 		JOIN collections.promise_to_pay_item i ON i.fiscal_year = x.fy AND i.journal_entry_id = x.je AND i.line_no = x.ln
@@ -320,15 +328,6 @@ func (e *Endpoints) promisedItems(ctx context.Context, tx pgx.Tx, le tenancy.Ent
 		return nil, fmt.Errorf("collections: the promises of %d items: %w", len(refs), err)
 	}
 	return items, nil
-}
-
-// refColumns gives the journal lines as the columns of an unnest.
-func refColumns(refs []ledger.ItemRef) ([]int16, []uuid.UUID, []int32) {
-	years, entries, lines := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
-	for i, r := range refs {
-		years[i], entries[i], lines[i] = r.FiscalYear, r.EntryID, r.LineNo
-	}
-	return years, entries, lines
 }
 
 // promisedAmount reads the promised amount: in the company's currency,
@@ -367,7 +366,7 @@ func insertPromise(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.U
 		return fmt.Errorf("collections: record a promise to pay of customer %s: %w", in.CustomerID, err)
 	}
 	n := len(items)
-	years, entries, lines := refColumns(in.Items)
+	years, entries, lines := ledger.ItemColumns(in.Items)
 	numbers, references, dues := make([]string, n), make([]*string, n), make([]time.Time, n)
 	currencies, amounts, local := make([]string, n), make([]money.Minor, n), make([]money.Minor, n)
 	for i, it := range items {

@@ -383,10 +383,7 @@ type dunned struct {
 // recorded reads what the confirmed runs recorded of the items, by item;
 // an item never dunned is absent.
 func recorded(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledger.ItemRef]dunned, error) {
-	years, entries, lines := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
-	for i, r := range refs {
-		years[i], entries[i], lines[i] = r.FiscalYear, r.EntryID, r.LineNo
-	}
+	years, entries, lines := ledger.ItemColumns(refs)
 	// Read into a map, so the rows' order does not matter.
 	rows, _ := tx.Query(ctx, `SELECT d.fiscal_year, d.journal_entry_id, d.line_no, max(d.level), max(d.dunning_date), count(*)
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(fy, je, ln)
