@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -82,20 +83,12 @@ type ResetInput struct {
 	Reason        string
 }
 
-// Reset undoes the application: the ledger resets its clearing and
-// reverses its clearing entry on that entry's own posting date (409
-// ledger.period_not_open once its period is closed), and the reset is
-// written with an audit record and IncomingPaymentReset in the request's
-// transaction.
-//
-// What may be undone is read here without a lock (resettable): the
-// application is the payment's latest in force, the payment's own only
-// once none of its credit's is. The ledger reads its clearing again under
-// the entries' locks, taken once, in its one sorted call before any
-// number range: an application or a reset of the same lines that
-// committed meanwhile refuses this one there (409
-// ledger.clearing_lines_cleared, ledger.clearing_already_reset), which
-// rolls back whole.
+// Reset undoes the application through the ledger's reset of its
+// clearing, and writes the undoing with an audit record and
+// IncomingPaymentReset in the request's transaction. What may be undone
+// is read here without a lock (undoable); the ledger checks it again
+// under the entries' locks, which is what holds (ADR-0063 §6 As built,
+// T75i).
 func (e *Endpoints) Reset(ctx context.Context, in ResetInput) (IncomingPayment, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -108,7 +101,7 @@ func (e *Endpoints) Reset(ctx context.Context, in ResetInput) (IncomingPayment, 
 	if err := resetRequest(v, in); err != nil {
 		return IncomingPayment{}, err
 	}
-	undone, err := v.resettable(in.ApplicationNo)
+	undone, err := v.undoable(in.ApplicationNo)
 	if err != nil {
 		return IncomingPayment{}, err
 	}
@@ -116,7 +109,7 @@ func (e *Endpoints) Reset(ctx context.Context, in ResetInput) (IncomingPayment, 
 	if in.ApplicationNo != 0 {
 		text += fmt.Sprintf(", application %d", in.ApplicationNo)
 	}
-	rev, err := e.Postings.ResetClearing(ctx, ledger.ClearingReset{Entry: undone.entry, HeaderText: &text})
+	rev, err := e.Postings.ResetClearing(ctx, ledger.ClearingReset{Entry: undone.entry, HeaderText: &text, SourceContext: "receivables", SourceDocumentID: v.ID})
 	if err != nil {
 		return IncomingPayment{}, fmt.Errorf("receivables: reset application %d of incoming payment %s: %w", in.ApplicationNo, v.DocumentNumber, err)
 	}
@@ -127,11 +120,15 @@ func (e *Endpoints) Reset(ctx context.Context, in ResetInput) (IncomingPayment, 
 	if err != nil {
 		return IncomingPayment{}, fmt.Errorf("receivables: read incoming payment %s: %w", v.ID, err)
 	}
-	le, _, err := e.LegalEntities.Entity(ctx, v.LegalEntityID) // a stored payment's legal entity exists
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return IncomingPayment{}, fmt.Errorf("receivables: company access for incoming payment %s: %w", v.ID, err)
+	}
+	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, v.LegalEntityID, "legal_entity_id") // GetPayment found it accessible
 	if err != nil {
 		return IncomingPayment{}, fmt.Errorf("receivables: company of incoming payment %s: %w", v.ID, err)
 	}
-	return after, e.recordReset(ctx, after, le, in.ApplicationNo, undone, rev)
+	return after, e.recordReset(ctx, after, le, in, undone, rev)
 }
 
 // resetRequest checks the request against the payment as read: the
@@ -152,35 +149,38 @@ type undoing struct {
 	amount money.Minor
 }
 
-// resettable is the application with the number (0: the payment's own) if
+// undoable is the application with the number (0: the payment's own) if
 // it may be undone: one that is none of the payment's is not found (404);
 // one undone already is refused, 409 receivables.already_reset; the
 // payment's own while an application of its credit is in force, 409
 // receivables.applications_in_force; an application while a later one is,
 // 409 receivables.application_not_latest.
-func (v IncomingPayment) resettable(no int32) (undoing, error) {
-	if no > int32(len(v.Applications)) {
-		return undoing{}, problem.NotFoundOf("application of the incoming payment")
+func (v IncomingPayment) undoable(no int32) (undoing, error) {
+	found := undoing{entry: ledger.ItemRef{FiscalYear: v.EntryYear, EntryID: v.EntryID}, amount: v.Amount}
+	ok := no == 0
+	for _, a := range v.Applications {
+		if a.No == no {
+			found, ok = undoing{entry: ledger.ItemRef{FiscalYear: a.EntryYear, EntryID: a.EntryID}, amount: a.Amount}, true
+		}
 	}
-	if v.resetOf(no) != nil {
+	switch {
+	case !ok:
+		return undoing{}, problem.NotFoundOf("application of the incoming payment")
+	case v.resetOf(no) != nil:
 		return undoing{}, problem.Conflict("receivables.already_reset", "The application is undone already.")
 	}
-	for _, a := range v.Applications[no:] { // those after it, all of them for the payment's own
-		if v.resetOf(a.No) != nil {
-			continue
-		}
-		if no == 0 {
+	for _, a := range v.Applications {
+		switch {
+		case a.No <= no || v.resetOf(a.No) != nil: // not after it, or undone
+		case no == 0:
 			return undoing{}, problem.Conflict("receivables.applications_in_force",
 				fmt.Sprintf("Application %d of the payment's credit on account is in force: undo the applications, last first, before the payment.", a.No))
+		default:
+			return undoing{}, problem.Conflict("receivables.application_not_latest",
+				fmt.Sprintf("Application %d, a later one, is in force: undo the applications last first.", a.No))
 		}
-		return undoing{}, problem.Conflict("receivables.application_not_latest",
-			fmt.Sprintf("Application %d, a later one, is in force: undo the applications last first.", a.No))
 	}
-	if no == 0 {
-		return undoing{entry: ledger.ItemRef{FiscalYear: v.EntryYear, EntryID: v.EntryID}, amount: v.Amount}, nil
-	}
-	a := v.Applications[no-1] // numbered from 1 in order (incoming_payment_application)
-	return undoing{entry: ledger.ItemRef{FiscalYear: a.EntryYear, EntryID: a.EntryID}, amount: a.Amount}, nil
+	return found, nil
 }
 
 // insertReset writes the reset with the reversal of the clearing entry.
@@ -202,8 +202,9 @@ func insertReset(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUI
 // customer by id and number, never by name (product owner, 2026-11-05),
 // for the payment's own each customer whose items open again with its
 // part, and no reason, which is free text; the audit record keeps it.
-func (e *Endpoints) recordReset(ctx context.Context, v IncomingPayment, le tenancy.Entity, no int32, undone undoing, rev ledger.Entry) error {
+func (e *Endpoints) recordReset(ctx context.Context, v IncomingPayment, le tenancy.Entity, in ResetInput, undone undoing, rev ledger.Entry) error {
 	const action = "receivables.incoming_payment.reset"
+	no := in.ApplicationNo
 	items := 0
 	for _, it := range v.Items {
 		if it.ApplicationNo == no {
@@ -227,7 +228,7 @@ func (e *Endpoints) recordReset(ctx context.Context, v IncomingPayment, le tenan
 	if no == 0 { // the payment's own application: whose items open again (T75h)
 		payload["customers"] = v.partsPayload(parts, names)
 	}
-	detail := map[string]any{"document_number": v.DocumentNumber, "application_no": no, "reason": v.resetOf(no).Reason, "amount": amount, "items": items,
+	detail := map[string]any{"document_number": v.DocumentNumber, "application_no": no, "reason": in.Reason, "amount": amount, "items": items,
 		"clearing_entry_id": undone.entry.EntryID, "reversal_entry_id": rev.ID, "reversal_entry_number": rev.DocumentNumber}
 	if err := audit.Record(ctx, action, "receivables.incoming_payment", v.ID, detail,
 		outbox.Event{Context: "receivables", Name: "incoming_payment_reset", AggregateType: "receivables.incoming_payment", AggregateID: v.ID,

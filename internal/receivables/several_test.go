@@ -120,9 +120,12 @@ func TestSeveralCustomersOnAccount(t *testing.T) {
 	var partner uuid.UUID
 	pgtest.Scan(t, `SELECT partner_id FROM ledger.journal_line WHERE tenant_id = $1 AND journal_entry_id = $2 AND line_no = 3`,
 		[]any{e.Tenant.ID, got["journal_entry_id"]}, &partner)
-	if on, _ := got["on_account"].(map[string]any); on == nil || amount(t, on, "amount") != "40.00 EUR" || partner != e.customer {
-		t.Errorf("on account: got %v on the account of %s, want 40.00 EUR on the payer's", got["on_account"], partner)
+	on, _ := got["on_account"].(map[string]any)
+	if on == nil {
+		t.Fatal("on account: got nothing, want 40.00 EUR")
 	}
+	is(t, "on account", amount(t, on, "amount"), "40.00 EUR")
+	is(t, "the credit's customer", partner, e.customer)
 }
 
 // TestSeveralCustomersRefusals (T75h acceptance): an item of a customer

@@ -191,11 +191,20 @@ func resetEveryLedger(t *testing.T, p parallelEnv) {
 	d := p.docs(t, "BP00000089")
 	c, _ := p.in(t).Must(201, "POST", "/v1/clearings", clearing(p.de, "2026-03-31", ref{d.invoice, 2}, ref{d.payment, 1}), "")
 	entry := uuid.MustParse(c["clearing_entry_id"].(string))
-	if err := apitest.Committed(t, p.ten, p.ten.Human, func(ctx context.Context) error {
-		_, err := postings().ResetClearing(ctx, ledger.ClearingReset{Entry: ledger.ItemRef{FiscalYear: 2026, EntryID: entry}})
-		return err
-	}); err != nil {
+	reset := func(source string) error {
+		return apitest.Committed(t, p.ten, p.ten.Human, func(ctx context.Context) error {
+			_, err := postings().ResetClearing(ctx, ledger.ClearingReset{Entry: ledger.ItemRef{FiscalYear: 2026, EntryID: entry}, SourceContext: source})
+			return err
+		})
+	}
+	if got := problem.From(reset("receivables")); got.Code != "ledger.entry_owned_elsewhere" {
+		t.Errorf("by another context: got %v, want 409 ledger.entry_owned_elsewhere", got)
+	}
+	if err := reset("ledger"); err != nil {
 		t.Fatal(err)
+	}
+	if got := problem.From(reset("ledger")); got.Code != "ledger.clearing_already_reset" {
+		t.Errorf("a second reset: got %v, want 409 ledger.clearing_already_reset", got)
 	}
 	invoice, payment := p.copyOf(t, d.invoice["id"]), p.copyOf(t, d.payment["id"])
 	wantCleared(t, map[string]string{d.invoice["id"].(string): "", d.payment["id"].(string): "", invoice: "", payment: ""},
@@ -209,8 +218,14 @@ func resetEveryLedger(t *testing.T, p parallelEnv) {
 		t.Errorf("reversals of the clearing entry and its copy: got %d, want 2", reversed)
 	}
 	shown, _ := p.in(t).Must(200, "GET", "/v1/clearings/"+c["id"].(string), "", "")
-	if its := apitest.List(t, shown, "items"); shown["reset_at"] == nil || shown["reset_by"] != p.ten.Human.ID.String() || len(its) != 2 {
-		t.Errorf("the reset clearing: got %v, want its reset and the two lines it had cleared", shown)
+	if shown["reset_at"] == nil {
+		t.Errorf("the reset clearing's reset_at: got none, want when it was reset")
+	}
+	if got, want := shown["reset_by"], p.ten.Human.ID.String(); got != want {
+		t.Errorf("the reset clearing's reset_by: got %v, want %s", got, want)
+	}
+	if got := len(apitest.List(t, shown, "items")); got != 2 {
+		t.Errorf("the reset clearing's lines: got %d, want the two it had cleared", got)
 	}
 }
 

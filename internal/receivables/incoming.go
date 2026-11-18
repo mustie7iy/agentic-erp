@@ -193,13 +193,13 @@ func (e *Endpoints) ApplyPayment(ctx context.Context, in PaymentInput) (Incoming
 	if err != nil {
 		return IncomingPayment{}, err
 	}
-	customer := names[in.CustomerID]
+	payer := names[in.CustomerID]
 	receipt, err := e.openReceipt(ctx, tx, le, in.ReceiptEntryID)
 	if err != nil {
 		return IncomingPayment{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	app, err := e.receiptApplication(ctx, tx, le, customer, in, receipt, id)
+	app, err := e.receiptApplication(ctx, tx, le, payer, in, receipt, id)
 	if err != nil {
 		return IncomingPayment{}, err
 	}
@@ -210,7 +210,7 @@ func (e *Endpoints) ApplyPayment(ctx context.Context, in PaymentInput) (Incoming
 	app.ledger.PostingDate = date
 	applied, err := e.Postings.ApplyReceipt(ctx, app.ledger)
 	if err != nil {
-		return IncomingPayment{}, fmt.Errorf("receivables: apply receipt %s to customer %s: %w", receipt.Number, customer.Number, err)
+		return IncomingPayment{}, fmt.Errorf("receivables: apply receipt %s to customer %s: %w", receipt.Number, payer.Number, err)
 	}
 	if err := requireApplied(in, app.ledger.Residuals, applied); err != nil {
 		return IncomingPayment{}, err
@@ -230,16 +230,30 @@ func (e *Endpoints) ApplyPayment(ctx context.Context, in PaymentInput) (Incoming
 }
 
 // requireApplied refuses what the ledger posted when it is not what the
-// request asked for, which rolls the posting back: with on_account,
-// nothing left on account; an other customer none of whose items was
-// applied, and a customer's part out of range (T75h), which the ledger
-// does not check, holding only the items together to the receipt.
+// request asked for, which rolls the posting back (T75g, T75h).
 func requireApplied(in PaymentInput, residuals []ledger.Residual, applied ledger.AppliedReceipt) error {
+	if err := requireLeftOnAccount(in, applied); err != nil {
+		return err
+	}
+	if err := requireEveryCustomerPaid(in, applied); err != nil {
+		return err
+	}
+	return requirePartsInRange(in, residuals, applied)
+}
+
+// requireLeftOnAccount refuses on_account with nothing left on account.
+func requireLeftOnAccount(in PaymentInput, applied ledger.AppliedReceipt) error {
 	if in.OnAccount && applied.OnAccount == 0 {
 		return problem.Unprocessable("receivables.nothing_left_on_account",
 			"The items take the whole receipt: nothing is left to put on the customer's account.",
 			problem.FieldError{Field: "on_account", Code: "nothing_left", Message: "false, or fewer items"})
 	}
+	return nil
+}
+
+// requireEveryCustomerPaid refuses an other customer none of whose items
+// was applied.
+func requireEveryCustomerPaid(in PaymentInput, applied ledger.AppliedReceipt) error {
 	paid := map[uuid.UUID]bool{}
 	for _, c := range applied.Customers {
 		paid[c] = true
@@ -250,6 +264,13 @@ func requireApplied(in PaymentInput, residuals []ledger.Residual, applied ledger
 				"None of the items is an open item of this customer: name only the other customers whose items the receipt pays.")
 		}
 	}
+	return nil
+}
+
+// requirePartsInRange refuses a customer's part out of range, which the
+// ledger does not check, holding only all the items together to the
+// receipt.
+func requirePartsInRange(in PaymentInput, residuals []ledger.Residual, applied ledger.AppliedReceipt) error {
 	customers, amounts := slices.Clone(applied.Customers), slices.Clone(applied.Items)
 	for i, r := range residuals {
 		if r.Amount != 0 {

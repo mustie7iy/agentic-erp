@@ -33,6 +33,14 @@ func (e env) openRefs(t *testing.T, customer uuid.UUID) string {
 	return strings.Join(out, ", ")
 }
 
+// is checks one value: got is want, or one message naming what.
+func is(t *testing.T, what string, got, want any) {
+	t.Helper()
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("%s: got %v, want %v", what, got, want)
+	}
+}
+
 // lineOf is the open item's reference as openRefs shows it.
 func lineOf(t *testing.T, ref, amount string) string {
 	t.Helper()
@@ -54,43 +62,48 @@ func TestResetPayment(t *testing.T) {
 	e.Problem(412, "request.version_mismatch", "POST", "/v1/incoming-payments/"+id+":reset", because, `"7"`)
 	e.Problem(422, "request.validation_failed", "POST", "/v1/incoming-payments/"+id+":reset", `{"reason": "  "}`, tag)
 	reset, resetTag := e.Must(200, "POST", "/v1/incoming-payments/"+id+":reset", because, tag)
-	if reset["status"] != "reset" || reset["version"] != float64(2) || resetTag != `"2"` {
-		t.Errorf("status and version: got %v, %v (%s), want reset, 2", reset["status"], reset["version"], resetTag)
-	}
+	is(t, "status", reset["status"], "reset")
+	is(t, "version", reset["version"], 2)
+	is(t, "ETag", resetTag, `"2"`)
 	r, _ := reset["reset"].(map[string]any)
-	if r == nil || r["reason"] != "Applied to the wrong invoice." || r["journal_entry_number"] == "" || reset["updated_at"] != r["created_at"] {
-		t.Fatalf("reset: got %v, want the reason and the reversal, the payment updated then", reset["reset"])
+	if r == nil {
+		t.Fatalf("reset: got none, want the undoing")
 	}
+	is(t, "reset's reason", r["reason"], "Applied to the wrong invoice.")
+	is(t, "the payment's updated_at", reset["updated_at"], r["created_at"])
 	var reversed, date string
 	pgtest.Scan(t, `SELECT r.reversal_entry_id::text, e.posting_date::text FROM ledger.reversal r JOIN ledger.journal_entry e ON e.id = r.reversal_entry_id
 		WHERE r.tenant_id = $1 AND r.original_entry_id = $2`, []any{e.Tenant.ID, entry}, &reversed, &date)
-	if reversed != r["journal_entry_id"] || date != "2026-03-21" {
-		t.Errorf("the reversal: got %s on %s, want %v on the clearing entry's date 2026-03-21", reversed, date, r["journal_entry_id"])
-	}
+	is(t, "the reversal", reversed, r["journal_entry_id"])
+	is(t, "the reversal's date, the clearing entry's", date, "2026-03-21")
+	var number string
+	pgtest.Scan(t, `SELECT document_number FROM ledger.journal_entry WHERE tenant_id = $1 AND id = $2`, []any{e.Tenant.ID, reversed}, &number)
+	is(t, "the reversal's number", r["journal_entry_number"], number)
 	both := []string{lineOf(t, wrong, "100.00"), lineOf(t, right, "100.00")}
 	slices.Sort(both)
 	if open, want := e.openRefs(t, e.customer), strings.Join(both, ", "); open != want {
 		t.Errorf("the customer's open items: got %s, want both invoices", open)
 	}
-	if left, _ := e.receipts(t, ""); len(left) != 1 || left[0]["journal_entry_id"] != receipt.ID.String() {
-		t.Errorf("receipts not applied: got %v, want the receipt again", left)
+	left, _ := e.receipts(t, "")
+	is(t, "receipts not applied", len(left), 1)
+	if len(left) == 1 {
+		is(t, "the receipt not applied", left[0]["journal_entry_id"], receipt.ID)
 	}
 	var clearing string
 	pgtest.Scan(t, `SELECT clearing_id::text FROM ledger.clearing_reset r JOIN ledger.clearing c ON c.id = r.clearing_id WHERE r.tenant_id = $1 AND c.clearing_entry_id = $2`,
 		[]any{e.Tenant.ID, entry}, &clearing)
 	shown, _ := e.Must(200, "GET", "/v1/clearings/"+clearing, "", "")
-	if its := items(t, shown); shown["reset_at"] == nil || len(its) != 2 {
-		t.Errorf("the clearing: got reset at %v with %d lines, want its reset and the receipt and invoice it had cleared", shown["reset_at"], len(its))
+	if shown["reset_at"] == nil {
+		t.Error("the clearing's reset_at: got none, want when it was reset")
 	}
+	is(t, "the clearing's lines, the receipt and the invoice it had cleared", len(items(t, shown)), 2)
 	e.resetRecorded(t, id, entry, reversed)
 	read, readTag := e.Must(200, "GET", "/v1/incoming-payments/"+id, "", "")
-	if a, b := mustJSON(t, read), mustJSON(t, reset); a != b || readTag != resetTag {
-		t.Errorf("read back: got %s (%s), want %s (%s)", a, readTag, b, resetTag)
-	}
+	is(t, "read back", mustJSON(t, read), mustJSON(t, reset))
+	is(t, "read back's ETag", readTag, resetTag)
 	again, _ := e.Must(201, "POST", "/v1/incoming-payments", e.payment(e.customer, receipt.ID, "2026-03-21", right), "")
-	if open, want := e.openRefs(t, e.customer), lineOf(t, wrong, "100.00"); open != want || again["status"] != "applied" {
-		t.Errorf("applied again: got open %s, status %v; want the wrong invoice open, applied", open, again["status"])
-	}
+	is(t, "applied again: the open items", e.openRefs(t, e.customer), lineOf(t, wrong, "100.00"))
+	is(t, "applied again: its status", again["status"], "applied")
 	e.Problem(409, "receivables.already_reset", "POST", "/v1/incoming-payments/"+id+":reset", because, resetTag)
 	e.Problem(409, "receivables.receipt_already_applied", "POST", "/v1/incoming-payments", e.payment(e.customer, receipt.ID, "2026-03-21", wrong), "")
 }
@@ -111,16 +124,16 @@ func (e env) resetRecorded(t *testing.T, id, entry, reversal string) {
 	if cs, _ := payload["customers"].([]any); len(cs) != 1 || cs[0].(map[string]any)["customer_number"] != "BP70000001" {
 		t.Errorf("IncomingPaymentReset's customers: got %v, want the payer's part", payload["customers"])
 	}
-		if _, ok := payload["reason"]; ok {
+	if _, ok := payload["reason"]; ok {
 		t.Errorf("IncomingPaymentReset: got the reason %v, want none (free text)", payload["reason"])
 	}
 	var n int
 	var ledgerPayload map[string]any
 	pgtest.Scan(t, `SELECT count(*) OVER (), payload FROM ledger.outbox WHERE tenant_id = $1 AND event_type = 'com.example.erp.ledger.clearing_reset.v1'`,
 		[]any{e.Tenant.ID}, &n, &ledgerPayload)
-	if n != 1 || ledgerPayload["clearing_entry_id"] != entry || ledgerPayload["reversal_entry_id"] != reversal {
-		t.Errorf("ClearingReset: got %d, %v; want one for the clearing entry and its reversal", n, ledgerPayload)
-	}
+	is(t, "ClearingReset events", n, 1)
+	is(t, "ClearingReset's clearing entry", ledgerPayload["clearing_entry_id"], entry)
+	is(t, "ClearingReset's reversal", ledgerPayload["reversal_entry_id"], reversal)
 	if its, _ := ledgerPayload["items"].([]any); len(its) != 2 {
 		t.Errorf("ClearingReset's items: got %v, want the receipt and the invoice", ledgerPayload["items"])
 	}
@@ -180,8 +193,10 @@ func TestResetApplication(t *testing.T) {
 	got, tag = e.Must(200, "POST", base+"/applications/2:reset", because, tag)
 	on, _ := got["on_account"].(map[string]any)
 	apps, _ := got["applications"].([]any)
-	if amount(t, on, "open_amount") != "40.00 EUR" || got["version"] != float64(4) || apps[1].(map[string]any)["reset"] == nil {
-		t.Errorf("application 2 undone: got open %v, version %v, applications %v; want 40.00 open again, version 4, application 2 reset", on, got["version"], apps)
+	is(t, "application 2 undone: open on account", amount(t, on, "open_amount"), "40.00 EUR")
+	is(t, "application 2 undone: version", got["version"], 4)
+	if apps[1].(map[string]any)["reset"] == nil {
+		t.Error("application 2's reset: got none, want the undoing")
 	}
 	want := []string{fmt.Sprintf("%v 3 -40.00 EUR", apps[0].(map[string]any)["journal_entry_id"]), lineOf(t, second, "40.00")}
 	slices.Sort(want)
@@ -190,13 +205,13 @@ func TestResetApplication(t *testing.T) {
 	}
 	e.Problem(409, "receivables.already_reset", "POST", base+"/applications/2:reset", because, tag)
 	got, tag = e.Must(200, "POST", base+"/applications/1:reset", because, tag)
-	if on, _ := got["on_account"].(map[string]any); amount(t, on, "open_amount") != "100.00 EUR" || on["journal_entry_id"] != got["journal_entry_id"] {
-		t.Errorf("application 1 undone: got %v, want the payment's own credit of 100.00 open", on)
-	}
+	on, _ = got["on_account"].(map[string]any)
+	is(t, "application 1 undone: open on account", amount(t, on, "open_amount"), "100.00 EUR")
+	is(t, "application 1 undone: the credit, the payment's own", on["journal_entry_id"], got["journal_entry_id"])
 	got, _ = e.Must(201, "POST", base+"/applications", fmt.Sprintf(`{"posting_date": "2026-03-24", "items": [%s]}`, second), "")
-	if apps, _ := got["applications"].([]any); len(apps) != 3 || got["version"] != float64(6) {
-		t.Errorf("applied again: got %d applications, version %v; want 3, version 6", len(apps), got["version"])
-	}
+	apps, _ = got["applications"].([]any)
+	is(t, "applied again: applications", len(apps), 3)
+	is(t, "applied again: version", got["version"], 6)
 }
 
 // TestResetClosedPeriod (T75i acceptance): a payment whose clearing
@@ -212,9 +227,9 @@ func TestResetClosedPeriod(t *testing.T) {
 	var resets int
 	pgtest.Scan(t, `SELECT (SELECT count(*) FROM ledger.clearing_reset WHERE tenant_id = $1) + (SELECT count(*) FROM receivables.incoming_payment_reset WHERE tenant_id = $1)`,
 		[]any{e.Tenant.ID}, &resets)
-	if n := e.entries(t) - before; n != 0 || resets != 0 || e.openRefs(t, e.customer) != "" {
-		t.Errorf("after the refusal: got %d entries more, %d resets, open %q; want nothing changed", n, resets, e.openRefs(t, e.customer))
-	}
+	is(t, "journal entries more after the refusal", e.entries(t)-before, 0)
+	is(t, "resets after the refusal", resets, 0)
+	is(t, "open items after the refusal", e.openRefs(t, e.customer), "")
 }
 
 // TestResetConcurrently (T75i acceptance): two resets of one payment race;

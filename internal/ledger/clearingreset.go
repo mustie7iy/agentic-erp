@@ -30,25 +30,21 @@ func init() {
 
 // ClearingReset resets the clearing that the clearing entry Entry (its
 // LineNo unused) made, and reverses that entry on its own posting date
-// with HeaderText (nil: "Reversal of" its number).
+// with HeaderText (nil: "Reversal of" its number). SourceContext and
+// SourceDocumentID are the caller's document that posted the entry: only
+// an entry's owner undoes it (as requireOwnEntry holds :reverse to).
 type ClearingReset struct {
-	Entry      ItemRef
-	HeaderText *string
+	Entry            ItemRef
+	HeaderText       *string
+	SourceContext    string
+	SourceDocumentID uuid.UUID
 }
 
-// ResetClearing resets the clearing by the entry and reverses the entry
-// in the same transaction, in every ledger it was posted to (reverse), on
-// its own posting date: a period closed since refuses it, 409
-// ledger.period_not_open, and nothing changes. It returns the reversal;
-// ClearingReset names the lines opened again.
-//
-// The entries of the clearing's lines are read first without a lock, to
-// name them, then locked in one sorted call before anything else
-// (lockEntries), as a clearing and a reversal of any of them take theirs,
-// and read again under the locks: an application of a line the entry
-// posted (a residual item, a credit on account) that committed meanwhile
-// refuses the reset, 409 ledger.clearing_lines_cleared, and so does a
-// second reset of the clearing, 409 ledger.clearing_already_reset.
+// ResetClearing resets the clearing by the entry and reverses the entry in
+// every ledger, on its own posting date (409 ledger.period_not_open once
+// that period is closed), returning the reversal (ADR-0063 §6 As built,
+// T75i). The clearing's entries are named without a lock, locked in one
+// sorted call before anything else, and checked again under the locks.
 func (p Postings) ResetClearing(ctx context.Context, in ClearingReset) (Entry, error) {
 	tx, actor, err := reqctx.Request(ctx)
 	if err != nil {
@@ -61,19 +57,18 @@ func (p Postings) ResetClearing(ctx context.Context, in ClearingReset) (Entry, e
 	if err := lockEntries(ctx, tx, false, entries); err != nil {
 		return Entry{}, err
 	}
-	reopened, err := resettable(ctx, tx, in.Entry, clearings)
+	reopened, err := checkResettable(ctx, tx, in, clearings)
 	if err != nil {
 		return Entry{}, err
 	}
 	if err := resetClearings(ctx, tx, actor, clearings); err != nil {
 		return Entry{}, err
 	}
-	e := p.endpoints()
-	orig, err := reversibleEntry(ctx, tx, in.Entry.EntryID, func(Entry) error { return nil }, uuid.Nil) // its lock is held already
+	orig, err := checkReversible(ctx, tx, in.Entry.EntryID, func(Entry) error { return nil }, uuid.Nil)
 	if err != nil {
 		return Entry{}, err
 	}
-	rev, err := e.reverse(ctx, tx, actor, orig, nil, 0, in.HeaderText)
+	rev, err := p.endpoints().reverse(ctx, tx, actor, orig, nil, 0, in.HeaderText)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -106,18 +101,29 @@ func entryClearings(ctx context.Context, tx pgx.Tx, entry ItemRef) ([]uuid.UUID,
 	return clearings, entries, nil
 }
 
-// resettable checks, under the entries' locks, that the clearings may be
-// reset: the first is not reset already, and no line of the entry is
-// cleared by another clearing. It returns the lines the first opens
-// again, the entry's own left out, by year, entry and line.
-func resettable(ctx context.Context, tx pgx.Tx, entry ItemRef, clearings []uuid.UUID) ([]ItemRef, error) {
+// checkResettable checks, under the entries' locks, that the clearings
+// may be reset: the entry is the caller's document's, the first clearing
+// is not reset already (409 ledger.clearing_already_reset), and no line
+// of the entry is cleared by another clearing since, a residual item or a
+// credit on account applied (409 ledger.clearing_lines_cleared). It
+// returns the lines the first opens again, the entry's own left out, by
+// year, entry and line.
+func checkResettable(ctx context.Context, tx pgx.Tx, in ClearingReset, clearings []uuid.UUID) ([]ItemRef, error) {
+	entry := in.Entry
 	var reset, clearedSince bool
+	var source string
+	var document uuid.UUID
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM ledger.clearing_reset WHERE clearing_id = $1),
-			EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $2 AND journal_entry_id = $3 AND clearing_id <> ALL($4))`,
-		clearings[0], entry.FiscalYear, entry.EntryID, clearings).Scan(&reset, &clearedSince); err != nil {
+			EXISTS (SELECT FROM ledger.clearing_item WHERE fiscal_year = $2 AND journal_entry_id = $3 AND clearing_id <> ALL($4)),
+			e.source_context, coalesce(e.source_document_id, '00000000-0000-0000-0000-000000000000')
+		FROM ledger.journal_entry e WHERE e.fiscal_year = $2 AND e.id = $3`,
+		clearings[0], entry.FiscalYear, entry.EntryID, clearings).Scan(&reset, &clearedSince, &source, &document); err != nil {
 		return nil, fmt.Errorf("ledger: reset the clearing by entry %s: %w", entry.EntryID, err)
 	}
 	switch {
+	case source != in.SourceContext || document != in.SourceDocumentID: // uuid.Nil for an entry of no document
+		return nil, problem.Conflict("ledger.entry_owned_elsewhere", "The clearing entry was posted by the "+source+
+			" context for another document; only the document that posted it undoes it.")
 	case reset:
 		return nil, problem.Conflict("ledger.clearing_already_reset", "The clearing by the journal entry is reset already.")
 	case clearedSince:

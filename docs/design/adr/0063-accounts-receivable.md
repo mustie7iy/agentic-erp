@@ -1119,8 +1119,11 @@ document (from memory, not checked against a source in the lane). §6's
   last first, the payment's own after its applications', matching the
   chain each application consumes; (4) a reason is required; (5) the
   reason stays out of the event; (6) only incoming payments' clearings
-  are reset through the API; the ledger's port resets any clearing entry's
-  clearing, manual clearings and settlements being later slices.
+  are reset through the API; the ledger's port resets a clearing only for
+  the context and document that posted its entry (`ClearingReset`'s
+  source, 409 `ledger.entry_owned_elsewhere` otherwise, as `:reverse`
+  holds an entry to its owner), manual clearings and settlements being
+  later slices.
 - Tests: `TestResetPayment`, `TestResetResidualClearedSince`,
   `TestResetApplication`, `TestResetClosedPeriod`, `TestResetConcurrently`,
   `TestResetRacesAnApplication`,
