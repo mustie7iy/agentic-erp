@@ -103,111 +103,193 @@ func (v view) detail(fields []string) map[string]any {
 	return out
 }
 
-// Change changes a material at once, with the caller's version of it
-// (ADR-0008): the row is locked, the version compared, the change checked
-// as a creation is and written with an audit record naming the values
-// before and after and MaterialChanged. The number, base unit and type do
-// not change (the contract has no field for them; material_fixed).
-func (e *Endpoints) Change(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ch Change) (Material, error) {
+// Changed is what a change request did: the material after it, and the
+// change it opened, or, for a block, applied.
+type Changed struct {
+	Material Material
+	Change   MaterialChange
+}
+
+// Change requests a change of a material with the caller's version of it
+// (ADR-0008, ADR-0082 §9): the row is locked, the version compared and
+// the change checked as a creation is. A change that only blocks the
+// material is applied at once, as a business partner's block is; any
+// other opens a pending change, an unblock when it only sets the status
+// active, applied when its approval request is approved. The number, base
+// unit and type do not change (the contract has no field for them;
+// material_fixed). A pending material, its create change undecided, takes
+// no change (409 materials.invalid_status), nor one with a change pending
+// (409 materials.change_pending).
+func (e *Endpoints) Change(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ch Change, reason string) (Changed, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
-		return Material{}, err
-	}
-	access, err := authz.Companies(ctx)
-	if err != nil {
-		return Material{}, fmt.Errorf("materials: company access for material %s: %w", id, err)
+		return Changed{}, err
 	}
 	m, err := load(ctx, tx, id, true)
 	if err != nil {
-		return Material{}, err
+		return Changed{}, err
 	}
 	if err := ifMatch(m.Version); err != nil {
-		return Material{}, err
+		return Changed{}, err
+	}
+	if m.Status == Pending {
+		return Changed{}, problem.Conflict("materials.invalid_status", "Material "+m.Number+" is pending until its create change is decided.")
+	}
+	req, fields, before, to, err := e.requested(ctx, tx, m, ch)
+	if err != nil {
+		return Changed{}, err
+	}
+	detail := map[string]any{"number": m.Number, "fields": fields, "before": before.detail(fields), "after": to.detail(fields)}
+	if slices.Equal(fields, []string{"status"}) && to.Status == Blocked {
+		return e.block(ctx, tx, p, m, req, reason, detail)
+	}
+	kind := KindUpdate
+	if slices.Equal(fields, []string{"status"}) {
+		kind = KindUnblock
+	}
+	c, err := insertChange(ctx, tx, p, kind, m.ID, req, reason, nil, false)
+	if err != nil {
+		return Changed{}, err
+	}
+	detail["material_change_id"], detail["material_change_number"] = c.ID, c.Number
+	if err := recordChange(ctx, c, m, "materials.change.request", nil, detail); err != nil {
+		return Changed{}, err
+	}
+	if c, err = e.open(ctx, tx, p, c, m.Number); err != nil {
+		return Changed{}, err
+	}
+	after, err := load(ctx, tx, id, false)
+	return Changed{Material: after, Change: c}, err
+}
+
+// requested checks a change of the material as a creation is checked and
+// is what it asks for, the fields it changes, and the material before and
+// after it as the caller sees them (422 materials.unknown_status,
+// materials.nothing_to_change).
+func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Change) (Requested, []string, view, view, error) {
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return Requested{}, nil, view{}, view{}, fmt.Errorf("materials: company access for material %s: %w", m.Number, err)
 	}
 	if ch.Status != nil && *ch.Status != Active && *ch.Status != Blocked {
-		return Material{}, problem.Invalid("materials.unknown_status", "status", fmt.Sprintf("%q is not a status a change sets; it sets active or blocked.", *ch.Status))
+		return Requested{}, nil, view{}, view{}, problem.Invalid("materials.unknown_status", "status",
+			fmt.Sprintf("%q is not a status a change sets; it sets active or blocked.", *ch.Status))
 	}
 	before := viewOf(m, access)
 	to, fields := ch.apply(before)
 	if len(fields) == 0 {
-		return Material{}, problem.Unprocessable("materials.nothing_to_change", "The change would leave the material as it is.")
-	}
-	if err := e.write(ctx, tx, p, m, ch, to); err != nil {
-		return Material{}, err
-	}
-	after, err := load(ctx, tx, id, false)
-	if err != nil {
-		return Material{}, err
-	}
-	return after, e.record(ctx, after, change{action: "change", name: "changed", detail: map[string]any{"number": after.Number, "fields": fields,
-		"before": before.detail(fields), "after": to.detail(fields)}}, &m.Status)
-}
-
-// write checks the change's plants and units as a creation does and writes
-// the change: the material's texts and status, then the plants, storage
-// locations and units it no longer has marked removed and those given
-// written.
-func (e *Endpoints) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, ch Change, to view) error {
-	var plants []PlantInput
-	if ch.Plants != nil {
-		plants = *ch.Plants
+		return Requested{}, nil, view{}, view{}, problem.Unprocessable("materials.nothing_to_change", "The change would leave the material as it is.")
 	}
 	if err := problem.RequireText("description", to.Description); err != nil {
-		return err
+		return Requested{}, nil, view{}, view{}, err
 	}
+	req := Requested{Description: ch.Description, Group: ch.Group, Status: ch.Status}
 	if ch.Units != nil {
 		if err := checkUnits(ctx, tx, m.BaseUnit, *ch.Units); err != nil {
-			return err
+			return Requested{}, nil, view{}, view{}, err
 		}
-	}
-	companies, err := e.checkPlants(ctx, plants)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE materials.material SET description = $2, material_group = $3, status = $4, version = version + 1, updated_by = $5
-		WHERE id = $1`, m.ID, to.Description, to.Group, to.Status, p.ID); err != nil {
-		return fmt.Errorf("materials: change material %s: %w", m.Number, err)
+		req.Units = &[]RequestedUnit{}
+		for _, u := range *ch.Units {
+			*req.Units = append(*req.Units, RequestedUnit(u))
+		}
 	}
 	if ch.Plants != nil {
-		if err := e.replacePlants(ctx, tx, p, m, plants, companies, to); err != nil {
+		companies, err := e.checkPlants(ctx, *ch.Plants)
+		if err != nil {
+			return Requested{}, nil, view{}, view{}, err
+		}
+		req.Plants, req.Scope = requestedPlants(*ch.Plants, companies), &Scope{All: access.All, Companies: append([]uuid.UUID{}, access.IDs...)}
+	}
+	return req, fields, before, to, nil
+}
+
+// requestedPlants are the plants as a change keeps them, each with its
+// company.
+func requestedPlants(plants []PlantInput, companies map[uuid.UUID]uuid.UUID) *[]RequestedPlant {
+	out := make([]RequestedPlant, len(plants))
+	for i, p := range plants {
+		out[i] = RequestedPlant{PlantID: p.PlantID, LegalEntityID: companies[p.PlantID], StorageLocations: append([]uuid.UUID{}, p.StorageLocations...)}
+	}
+	return &out
+}
+
+// block applies a change that only blocks the material, at once, with
+// its applied change, both audited and published.
+func (e *Endpoints) block(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, req Requested, reason string,
+	detail map[string]any) (Changed, error) {
+	if err := write(ctx, tx, p, m, req); err != nil {
+		return Changed{}, err
+	}
+	c, err := insertChange(ctx, tx, p, KindBlock, m.ID, req, reason, nil, true)
+	if err != nil {
+		return Changed{}, err
+	}
+	after, err := load(ctx, tx, m.ID, false)
+	if err != nil {
+		return Changed{}, err
+	}
+	detail["material_change_id"], detail["material_change_number"] = c.ID, c.Number
+	if err := e.record(ctx, after, change{action: "block", name: "blocked", detail: detail}, &m.Status); err != nil {
+		return Changed{}, err
+	}
+	return Changed{Material: after, Change: c}, recordChange(ctx, c, after, "materials.change.apply", nil, nil)
+}
+
+// write writes what a change asks for on the material: its texts and
+// status, then its plants in the change's scope and its units, those it
+// no longer names marked removed and those it names written.
+func write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, req Requested) error {
+	description, group, status := m.Description, m.Group, m.Status
+	for _, f := range []struct{ to, from *string }{{&description, req.Description}, {&group, req.Group}, {&status, req.Status}} {
+		if f.from != nil {
+			*f.to = *f.from
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE materials.material SET description = $2, material_group = $3, status = $4, version = version + 1, updated_by = $5
+		WHERE id = $1`, m.ID, description, group, status, p.ID); err != nil {
+		return fmt.Errorf("materials: change material %s: %w", m.Number, err)
+	}
+	if req.Plants != nil {
+		if err := replacePlants(ctx, tx, p, m, *req.Plants, *req.Scope); err != nil {
 			return err
 		}
 	}
-	if ch.Units == nil {
+	if req.Units == nil {
 		return nil
 	}
+	codes := []string{} // never nil: ANY of a NULL array matches nothing, and NOT of it keeps all
+	units := make([]UnitInput, len(*req.Units))
+	for i, u := range *req.Units {
+		codes, units[i] = append(codes, u.Code), UnitInput(u)
+	}
 	if _, err := tx.Exec(ctx, `UPDATE materials.unit_conversion SET removed_at = now(), removed_by = $3
-		WHERE material_id = $1 AND removed_at IS NULL AND NOT uom_code = ANY($2)`, m.ID, slices.AppendSeq([]string{}, maps.Keys(to.Units)), p.ID); err != nil {
+		WHERE material_id = $1 AND removed_at IS NULL AND NOT uom_code = ANY($2)`, m.ID, codes, p.ID); err != nil {
 		return fmt.Errorf("materials: remove alternative units of material %s: %w", m.Number, err)
 	}
-	return writeUnits(ctx, tx, p, m.ID, *ch.Units)
+	return writeUnits(ctx, tx, p, m.ID, units)
 }
 
-// replacePlants replaces the material's plants in the companies the caller
-// may act in: the storage locations no longer given marked removed, then
-// the plants, then those given written. Plants of other companies stay.
-func (e *Endpoints) replacePlants(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, plants []PlantInput,
-	companies map[uuid.UUID]uuid.UUID, to view) error {
-	access, err := authz.Companies(ctx)
-	if err != nil {
-		return fmt.Errorf("materials: company access for the plants of material %s: %w", m.Number, err)
-	}
-	// Never nil: ANY of a NULL array matches nothing, and NOT of it keeps all.
-	kept, locations := slices.AppendSeq([]uuid.UUID{}, maps.Keys(to.Plants)), []uuid.UUID{}
-	for _, l := range to.Plants {
-		locations = append(locations, l...)
+// replacePlants replaces the material's plants in the scope's companies:
+// the storage locations no longer given marked removed, then the plants,
+// then those given written. Plants of other companies stay.
+func replacePlants(ctx context.Context, tx pgx.Tx, p reqctx.Principal, m Material, plants []RequestedPlant, scope Scope) error {
+	kept, locations, companies := []uuid.UUID{}, []uuid.UUID{}, map[uuid.UUID]uuid.UUID{} // never nil, as codes in write
+	given := make([]PlantInput, len(plants))
+	for i, pl := range plants {
+		kept, locations = append(kept, pl.PlantID), append(locations, pl.StorageLocations...)
+		companies[pl.PlantID], given[i] = pl.LegalEntityID, PlantInput{PlantID: pl.PlantID, StorageLocations: pl.StorageLocations}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE materials.storage_location_data s SET removed_at = now(), removed_by = $5
 		FROM materials.plant_data d
 		WHERE s.material_id = $1 AND s.removed_at IS NULL AND NOT s.storage_location_id = ANY($4)
 			AND d.tenant_id = s.tenant_id AND d.material_id = s.material_id AND d.plant_id = s.plant_id AND ($2 OR d.legal_entity_id = ANY($3))`,
-		m.ID, access.All, access.IDs, locations, p.ID); err != nil {
+		m.ID, scope.All, scope.Companies, locations, p.ID); err != nil {
 		return fmt.Errorf("materials: remove storage locations of material %s: %w", m.Number, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE materials.plant_data SET removed_at = now(), removed_by = $5
 		WHERE material_id = $1 AND removed_at IS NULL AND ($2 OR legal_entity_id = ANY($3)) AND NOT plant_id = ANY($4)`,
-		m.ID, access.All, access.IDs, kept, p.ID); err != nil {
+		m.ID, scope.All, scope.Companies, kept, p.ID); err != nil {
 		return fmt.Errorf("materials: remove plants of material %s: %w", m.Number, err)
 	}
-	return writePlants(ctx, tx, p, m.ID, plants, companies)
+	return writePlants(ctx, tx, p, m.ID, given, companies)
 }

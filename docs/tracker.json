@@ -5242,9 +5242,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Creating or changing a material is a material change approved through the existing approvals as a business partner's is: pending until approved, possible duplicates by description listed and refused unless confirmed, one pending change per material, blocking at once (/v1/material-changes; MaterialChangeChanged)",
-      "r": "S1b · docs/design/plan-supply-chain.md §S1b · ADR-0082",
+      "r": "S1b · docs/design/plan-supply-chain.md §S1b · ADR-0082 §9 and As built · db/migrations/000364, 000365 · materials.material_change · platform.normalized_text · POST /v1/materials (pending) · PATCH /v1/materials/{id} (pending_change_id) · GET /v1/material-changes · GET /v1/material-changes/{id} · approvals.MaterialChange (process_owner) · materials.change.approve · MaterialChangeChanged · walkthrough step_material, step_material_governance",
       "src": "po:2026-11-17",
       "c": []
      },

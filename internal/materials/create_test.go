@@ -11,13 +11,15 @@ import (
 )
 
 // TestCreate: a material is numbered from its company's material range,
-// created active with its plant, storage location and alternative unit,
-// read back with their codes and names, audited and published.
+// created pending with its plant, storage location and alternative unit
+// and its create change, read back with their codes and names, audited
+// and published; approved, it is active.
 func TestCreate(t *testing.T) {
 	e := setup(t)
-	got, tag := e.Must(201, "POST", path, e.bracket(t, nil), "")
+	got, tag := e.Must(201, "POST", path, e.bracket(t, map[string]any{"reason": "New bracket"}), "")
 	fields(t, got, map[string]any{"number": "MA2000-100000", "company_code": "2000", "description": "Machined bracket M10", "base_unit": "EA",
-		"base_unit_name": "Each", "material_type": "trading_good", "material_group": "BRACKETS", "status": "active", "version": 1})
+		"base_unit_name": "Each", "material_type": "trading_good", "material_group": "BRACKETS", "status": "pending", "version": 1,
+		"pending_change_number": "MC00000001"})
 	if tag != `"1"` {
 		t.Errorf("ETag: got %s, want \"1\"", tag)
 	}
@@ -32,24 +34,41 @@ func TestCreate(t *testing.T) {
 	if name := rows(t, got, "alternative_units")[0]["unit_name"]; name != "Box" {
 		t.Errorf("unit name: got %v, want Box", name)
 	}
-	id := got["id"].(string)
+	id, change := got["id"].(string), got["pending_change_id"].(string)
+	c, _ := e.Must(200, "GET", "/v1/material-changes/"+change, "", "")
+	fields(t, c, map[string]any{"kind": "create", "status": "pending", "material_number": "MA2000-100000", "reason": "New bracket",
+		"possible_duplicates": "[]"})
+	if c["workflow_request_id"] != e.Pending(t, change)["id"] {
+		t.Errorf("approval request: got %v, want the change's pending request", c["workflow_request_id"])
+	}
+	req := c["requested"].(map[string]any)
+	fields(t, req, map[string]any{"description": "Machined bracket M10", "base_unit": "EA", "material_type": "trading_good"})
+	if plant := rows(t, req, "plants")[0]; plant["plant_code"] != "P1" {
+		t.Errorf("requested plant: got %v, want P1", plant)
+	}
+	e.Approve(t, change)
 	read, _ := e.Must(200, "GET", path+"/"+id, "", "")
-	if plants(t, read) != "P1:S1" || read["number"] != "MA2000-100000" {
-		t.Errorf("read back: got %v, want the material created", read)
+	fields(t, read, map[string]any{"status": "active", "version": 2, "pending_change_id": nil})
+	events := e.events(t, "material_changed", id)
+	if len(events) != 2 {
+		t.Fatalf("events: got %d, want 2", len(events))
 	}
-	events := e.events(t, id)
-	if len(events) != 1 {
-		t.Fatalf("events: got %d, want 1", len(events))
-	}
-	fields(t, events[0], map[string]any{"number": "MA2000-100000", "legal_entity_code": "2000", "change": "created", "status": "active",
+	fields(t, events[0], map[string]any{"number": "MA2000-100000", "legal_entity_code": "2000", "change": "created", "status": "pending",
 		"status_before": nil, "version": 1})
+	fields(t, events[1], map[string]any{"change": "activated", "status": "active", "status_before": "pending", "version": 2})
 	ep := events[0]["plants"].([]any)[0].(map[string]any)
 	fields(t, ep, map[string]any{"plant_code": "P1", "legal_entity_code": "2000"})
+	steps := e.events(t, "material_change_changed", id)
+	if len(steps) != 2 {
+		t.Fatalf("change events: got %d, want 2", len(steps))
+	}
+	fields(t, steps[0], map[string]any{"status": "pending", "status_before": nil, "kind": "create"})
+	fields(t, steps[1], map[string]any{"status": "applied", "status_before": "pending"})
 	audits := e.audits(t, id, "materials.material.create")
 	if len(audits) != 1 {
 		t.Fatalf("audit: got %d records, want 1", len(audits))
 	}
-	fields(t, audits[0], map[string]any{"number": "MA2000-100000", "alternative_units": "[BOX 20/1]"})
+	fields(t, audits[0], map[string]any{"number": "MA2000-100000", "alternative_units": "[BOX 20/1]", "material_change_id": change})
 	second := e.create(t, map[string]any{"description": "Machined bracket M12", "plants": nil, "alternative_units": nil})
 	fields(t, second, map[string]any{"number": "MA2000-100001", "plants": "[]", "alternative_units": "[]"})
 }

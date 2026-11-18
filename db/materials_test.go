@@ -24,6 +24,10 @@ func TestMaterialPermissions(t *testing.T) {
 	if got, want := strings.Join(codes, " "), "materials.material.read materials.material.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
+	var approval bool
+	if err := testDB.QueryRow(context.Background(), `SELECT is_approval FROM ref.permission WHERE code = 'materials.change.approve'`).Scan(&approval); err != nil || !approval {
+		t.Errorf("materials.change.approve: got approval %v (%v), want an approval permission (S1b, 000364)", approval, err)
+	}
 }
 
 // TestMaterialRules (S1a, migration 000363; ADR-0082 §4-§6): a material
@@ -82,6 +86,7 @@ func TestMaterialRules(t *testing.T) {
 			return []stmt{with(s, "MA1", "Bracket", "EA", "trading_good", "ABCDEFGHIJ", "active")}
 		}, "material_group_check"},
 		{"an unknown status", func(s scene) []stmt { return []stmt{with(s, "MA1", "Bracket", "EA", "trading_good", "B", "retired")} }, "material_status_check"},
+		{"pending", func(s scene) []stmt { return []stmt{with(s, "MA1", "Bracket", "EA", "trading_good", "B", "pending")} }, ""},
 		{"created at version 0", func(s scene) []stmt {
 			return []stmt{step(`INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type,
 					material_group, status, version, created_by, updated_by) VALUES ($1, $2, 'MA1', $1, 'B', 'EA', 'service', 'B', 'active', 0, $1, $1)`,
@@ -185,5 +190,107 @@ func TestMaterialTriggersAsOwner(t *testing.T) {
 			_, err := testDB.Exec(ctx, set, material)
 			failsOn(t, err, want)
 		})
+	}
+}
+
+// TestMaterialChangeRules (S1b, migrations 000364 and 000365; ADR-0082
+// §9): a change is numbered MC and eight digits once in the tenant, of a
+// material that exists, of a known kind and status, its payload an object
+// and its duplicates an array, its reason at most 500 characters; applied
+// exactly when it has applied_at; one pending change per material; none
+// is deleted.
+func TestMaterialChangeRules(t *testing.T) {
+	need(t)
+	type scene struct{ tenant, material, change uuid.UUID }
+	const material = `INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type, material_group,
+			status, created_by, updated_by) VALUES ($1, $2, 'MA1', $1, 'Bracket', 'EA', 'trading_good', 'B', 'pending', $1, $1)`
+	const change = `INSERT INTO materials.material_change (tenant_id, id, number, kind, material_id, payload, reason, possible_duplicates, status,
+			requested_by, applied_at, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $1, $10, $1, $1)`
+	with := func(s scene, number, kind, payload, reason, dups, status string, applied any) stmt {
+		return step(change, s.tenant, s.change, number, kind, s.material, payload, reason, dups, status, applied)
+	}
+	create := func(s scene) []stmt {
+		return []stmt{step(material, s.tenant, s.material), with(s, "MC00000001", "create", "{}", "", "[]", "pending", nil)}
+	}
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"a change", create, ""},
+		{"a number not MC and eight digits", func(s scene) []stmt {
+			return []stmt{step(material, s.tenant, s.material), with(s, "MC1", "create", "{}", "", "[]", "pending", nil)}
+		}, "material_change_number_check"},
+		{"a number taken", func(s scene) []stmt {
+			return append(create(s), step(change, s.tenant, id(), "MC00000001", "update", s.material, "{}", "", "[]", "rejected", nil))
+		}, "material_change_number_once"},
+		{"an unknown kind", func(s scene) []stmt {
+			return []stmt{step(material, s.tenant, s.material), with(s, "MC00000001", "delete", "{}", "", "[]", "pending", nil)}
+		}, "material_change_kind_check"},
+		{"an unknown status", func(s scene) []stmt {
+			return []stmt{step(material, s.tenant, s.material), with(s, "MC00000001", "create", "{}", "", "[]", "approved", nil)}
+		}, "material_change_status_check"},
+		{"a payload not an object", func(s scene) []stmt {
+			return []stmt{step(material, s.tenant, s.material), with(s, "MC00000001", "create", "[]", "", "[]", "pending", nil)}
+		}, "material_change_payload_object"},
+		{"duplicates not an array", func(s scene) []stmt {
+			return []stmt{step(material, s.tenant, s.material), with(s, "MC00000001", "create", "{}", "", "{}", "pending", nil)}
+		}, "material_change_possible_duplicates_array"},
+		{"a reason of 501 characters", func(s scene) []stmt {
+			return []stmt{step(material, s.tenant, s.material), with(s, "MC00000001", "create", "{}", strings.Repeat("r", 501), "[]", "pending", nil)}
+		}, "material_change_reason_check"},
+		{"applied without applied_at", func(s scene) []stmt {
+			return []stmt{step(material, s.tenant, s.material), with(s, "MC00000001", "block", "{}", "", "[]", "applied", nil)}
+		}, "material_change_applied_check"},
+		{"pending with applied_at", func(s scene) []stmt {
+			return []stmt{step(material, s.tenant, s.material), with(s, "MC00000001", "block", "{}", "", "[]", "pending", "2026-11-17T10:00:00Z")}
+		}, "material_change_applied_check"},
+		{"a change of no material", func(s scene) []stmt {
+			return []stmt{with(s, "MC00000001", "create", "{}", "", "[]", "pending", nil)}
+		}, "material_change_material_fkey"},
+		{"two pending changes", func(s scene) []stmt {
+			return append(create(s), step(change, s.tenant, id(), "MC00000002", "update", s.material, "{}", "", "[]", "pending", nil))
+		}, "material_change_one_pending"},
+		{"a pending change and a decided one", func(s scene) []stmt {
+			return append(create(s), step(change, s.tenant, id(), "MC00000002", "update", s.material, "{}", "", "[]", "cancelled", nil))
+		}, ""},
+		{"applied", func(s scene) []stmt {
+			return append(create(s), step(`UPDATE materials.material_change SET status = 'applied', applied_at = now(), version = version + 1`))
+		}, ""},
+		{"created at version 0", func(s scene) []stmt {
+			return []stmt{step(material, s.tenant, s.material), step(`INSERT INTO materials.material_change (tenant_id, id, number, kind, material_id,
+					payload, status, requested_by, version, created_by, updated_by) VALUES ($1, $2, 'MC00000001', 'create', $3, '{}', 'pending', $1, 0, $1, $1)`,
+				s.tenant, s.change, s.material)}
+		}, "material_change_version_check"},
+		{"a change deleted", func(s scene) []stmt { return append(create(s), step(`DELETE FROM materials.material_change`)) }, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), material: id(), change: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestNormalizedText (S1b, migration 000364): platform.normalized_text,
+// by which materials' descriptions are matched, is partner.normalized_name's
+// rule.
+func TestNormalizedText(t *testing.T) {
+	need(t)
+	for _, text := range []string{"Muster Industrie GmbH", "  muster \t industrie\ngmbh  ", "Café Noir", "straße ǆ", "　x y\u0085", ""} {
+		var got, want string
+		if err := testDB.QueryRow(context.Background(), `SELECT platform.normalized_text($1), partner.normalized_name($1)`, text).Scan(&got, &want); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("%q: got %q, want %q as partner.normalized_name gives it", text, got, want)
+		}
 	}
 }

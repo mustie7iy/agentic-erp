@@ -21446,9 +21446,16 @@ func (s *Server) handleCreateLegalEntityRequest(args [0]string, argsEscaped bool
 // is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
 // `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
 // `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
-// the material type do not change afterwards. Created `active`. Audited, and published as
-// MaterialChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only
-// (`x-agent: false`).
+// the material type do not change afterwards. Created `pending` with a material change of kind
+// `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner`
+// decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn
+// it stays `pending` and is used nowhere. The change lists the existing materials with the same
+// description, white space and case aside, whatever their status, a pending one whose create change
+// was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is
+// refused (409 `materials.duplicate_description`, naming them) unless the request sets
+// `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the
+// first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same
+// `Idempotency-Key` answers the material created. Human-only (`x-agent: false`).
 //
 // POST /v1/materials
 func (s *Server) handleCreateMaterialRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -51075,6 +51082,194 @@ func (s *Server) handleGetMaterialRequest(args [1]string, argsEscaped bool, w ht
 	}
 
 	if err := encodeGetMaterialResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetMaterialChangeRequest handles getMaterialChange operation.
+//
+// One material change (ADR-0082 §9, S1b) with its material's number and description, what it asks
+// for, its possible duplicates and its approval request.
+//
+// GET /v1/material-changes/{id}
+func (s *Server) handleGetMaterialChangeRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getMaterialChange"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/material-changes/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetMaterialChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetMaterialChangeOperation,
+			ID:   "getMaterialChange",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetMaterialChangeOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetMaterialChangeParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetMaterialChangeRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetMaterialChangeOperation,
+			OperationSummary: "Get a material change",
+			OperationID:      "getMaterialChange",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetMaterialChangeParams
+			Response = GetMaterialChangeRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetMaterialChangeParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetMaterialChange(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetMaterialChange(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetMaterialChangeResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -82135,6 +82330,215 @@ func (s *Server) handleListMatchResultsRequest(args [1]string, argsEscaped bool,
 	}
 
 	if err := encodeListMatchResultsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListMaterialChangesRequest handles listMaterialChanges operation.
+//
+// Governed changes of materials (ADR-0082 §9, S1b), newest first: each with its kind, status, what it
+// asks for, its possible duplicates (a create's) and its approval request. Filtered by material, kind
+// and status. Sortable by: `created_at`.
+//
+// GET /v1/material-changes
+func (s *Server) handleListMaterialChangesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listMaterialChanges"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/material-changes"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListMaterialChangesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListMaterialChangesOperation,
+			ID:   "listMaterialChanges",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListMaterialChangesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListMaterialChangesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListMaterialChangesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListMaterialChangesOperation,
+			OperationSummary: "List material changes",
+			OperationID:      "listMaterialChanges",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "material_id",
+					In:   "query",
+				}: params.MaterialID,
+				{
+					Name: "kind",
+					In:   "query",
+				}: params.Kind,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListMaterialChangesParams
+			Response = ListMaterialChangesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListMaterialChangesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListMaterialChanges(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListMaterialChanges(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListMaterialChangesResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -121759,16 +122163,23 @@ func (s *Server) handleUpdateLegalEntityRequest(args [1]string, argsEscaped bool
 
 // handleUpdateMaterialRequest handles updateMaterial operation.
 //
-// Changes a material's description, material group, status, plants or alternative units at once, with
-// the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC
-// 7396): absent fields are unchanged. The number, the base unit and the material type do not change.
-// `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value).
-// `plants` replaces the material's plants in the companies the caller may act in, each with its
-// storage locations, and leaves those of other companies as they are; `alternative_units` replaces its
-// alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A
-// change that would leave the material as it is is refused (422 `materials.nothing_to_change`). An
-// audit record with the values before and after and MaterialChanged (`changed`) are written with it.
-// Human-only (`x-agent: false`).
+// Requests a change of a material's description, material group, status, plants or alternative units
+// with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b).
+// JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The
+// number, the base unit and the material type do not change. `status` moves between `active` and
+// `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's
+// plants in the companies the caller may act in, each with its storage locations, and leaves those of
+// other companies as they are; `alternative_units` replaces its alternative units, an empty list
+// removing them; each is checked as `createMaterial` checks it. A change that would leave the material
+// as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409
+// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`). A
+// change that only blocks the material is applied at once (the material answered blocked, with a
+// material change of kind `block`, applied). Any other opens a pending material change (kind `unblock`
+// when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it
+// in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when
+// its approval request is approved by the role `process_owner`, and leaving it as it is when it is
+// rejected or withdrawn. Audited with the values before and after, and published as
+// MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
 //
 // PATCH /v1/materials/{id}
 func (s *Server) handleUpdateMaterialRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -121919,7 +122330,7 @@ func (s *Server) handleUpdateMaterialRequest(args [1]string, argsEscaped bool, w
 		mreq := middleware.Request{
 			Context:          ctx,
 			OperationName:    UpdateMaterialOperation,
-			OperationSummary: "Change a material",
+			OperationSummary: "Request a change of a material",
 			OperationID:      "updateMaterial",
 			Body:             request,
 			RawBody:          rawBody,

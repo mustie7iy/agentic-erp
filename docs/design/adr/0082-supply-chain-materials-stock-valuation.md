@@ -184,8 +184,8 @@ confirms the mapping before S1d is built.
 
 As for business partners: creating a material makes it `pending` with a
 `create` change; approval makes it `active`; rejection or withdrawal
-leaves a `pending` material that no read lists and no duplicate check
-finds. A change of an active material is an `update` change applied to
+leaves it `pending`, used nowhere, and no duplicate check finds it (as a
+business partner whose create change was rejected, `partner.possibleDuplicates`). A change of an active material is an `update` change applied to
 the material when approved, at its version then. Blocking applies at once
 without approval; unblocking is a change. One pending change per
 material. The create change lists the materials with the same
@@ -256,3 +256,55 @@ create with such a match is refused (409) unless the request confirms it.
   (the org units by id in one read), so a page of materials reads its
   plants and storage locations once.
 - Walkthrough step 116, `step_material`.
+
+### S1b (2026-11-17)
+
+- Migrations 000364 and 000365: `materials.material_change` (numbered
+  `MC` and eight digits by the context, kind `create`, `update`, `block`
+  or `unblock`, status `pending`, `applied`, `rejected` or `cancelled`,
+  applied exactly with `applied_at`, its payload an object and its
+  possible duplicates an array, a reason of at most 500 characters, one
+  pending per material, `material_change_one_pending`, 409
+  `materials.change_pending`); the material status `pending`, widened NOT
+  VALID and validated by 000365; `platform.normalized_text`, partner's
+  name rule for every context (`TestNormalizedText` holds them equal),
+  with the index of the description match; the approval permission
+  `materials.change.approve`.
+- `POST /v1/materials` creates the material `pending` (`pending_change_id`,
+  `pending_change_number`) with its `create` change and approval request
+  (object type `material_change`, the fixed role `process_owner`,
+  `approvals.DefaultMaterialChangeRole`); approved it is `active`.
+  `confirm_duplicate` and `reason` on the request.
+- **Duplicates.** The materials of the same description, white space and
+  case aside, are listed on the create change, whatever their status, but
+  a pending one whose create change was rejected or withdrawn; a match is
+  refused (409 `materials.duplicate_description`) unless confirmed. The
+  description's advisory lock is taken before the check, so two creations
+  at once serialize (`TestDuplicatesAtOnce`). Description matches are
+  refused, not only listed (partner lists a name match and refuses only a
+  tax number's): a material has no other identifier to match by.
+- **PATCH answers 200 with the material**, not 202: in this API a 202
+  carries a long-running operation (`TestOperations`), so a pending
+  change is named by the material's `pending_change_id`. A change that
+  only blocks applies at once (an applied `block` change); one that only
+  sets `active` is an `unblock`; any other an `update`. A pending material
+  takes no change (409 `materials.invalid_status`).
+- **Applying.** An update applies to the material as it is when approved;
+  its plants replace those of the companies its requester could act in
+  when it was requested (`plant_scope`, kept in the payload with each
+  plant's company), whatever the approver's access, and are not checked
+  again: they were when requested. Approving, rejecting or withdrawing a
+  decided change is 409 `materials.invalid_status`.
+- **Locks.** A request locks the material, then writes the change; a
+  decision reads the change, locks the material, then the change (the
+  same order), so a request and a decision of one material never wait on
+  each other in a cycle.
+- `GET /v1/material-changes` (material, kind, status; newest first) and
+  `/{id}`, naming the material's number and description and the plants'
+  codes. `MaterialChangeChanged` at each step; `MaterialChanged` gains
+  `activated`, `blocked` and `unblocked`.
+- The web workspace names the object type (`object.material_change`) and
+  summarises a material change on a request's page, as for every object
+  type approvals decide.
+- Walkthrough step 116 extended (each create and change approved by
+  Priya) and step 117, `step_material_governance`.

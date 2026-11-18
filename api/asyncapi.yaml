@@ -525,11 +525,12 @@ channels:
   materials:
     address: 'erp.{cell}.materials.{tenant}.{event}'
     title: Material master events
-    description: Materials created and changed (ADR-0082 §4).
+    description: Materials created and changed, and their governed changes (ADR-0082 §4, §9).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       MaterialChanged: {$ref: '#/components/messages/MaterialChanged'}
+      MaterialChangeChanged: {$ref: '#/components/messages/MaterialChangeChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -881,6 +882,7 @@ operations:
     channel: {$ref: '#/channels/materials'}
     messages:
       - $ref: '#/channels/materials/messages/MaterialChanged'
+      - $ref: '#/channels/materials/messages/MaterialChangeChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -4764,9 +4766,11 @@ components:
       title: Material changed
       summary: A material was created or changed.
       description: |
-        Emitted at each change of a material (ADR-0082 §4, S1a): when a
-        person creates it (`change` `created`, status_before null) and when
-        a change is applied (`changed`). It carries the material's number,
+        Emitted at each change of a material (ADR-0082 §4, §9, S1a, S1b):
+        when a person creates it (`change` `created`, status `pending`,
+        status_before null), when its create change is approved
+        (`activated`), when an update or unblock change is applied
+        (`changed`, `unblocked`) and when it is blocked (`blocked`, at once). It carries the material's number,
         description, base unit, type, group and status, its plants with
         their companies and storage locations, by id and code, and its
         alternative units with their conversions, whatever companies the
@@ -4784,7 +4788,30 @@ components:
       examples:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001301, source: /erp/eu-1/materials, type: com.example.erp.materials.material_changed.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {material_id: 0192a000-0000-7000-8000-000000001311, number: MA1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', description: Machined bracket M10, base_unit: EA, material_type: trading_good, material_group: BRACKETS, status: active, status_before: null, plants: [{plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', storage_location_ids: [0192a000-0000-7000-8000-000000001322]}], alternative_units: [{unit: BOX, numerator: 20, denominator: 1}], change: created, version: 1}
+          payload: {material_id: 0192a000-0000-7000-8000-000000001311, number: MA1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', description: Machined bracket M10, base_unit: EA, material_type: trading_good, material_group: BRACKETS, status: pending, status_before: null, plants: [{plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', storage_location_ids: [0192a000-0000-7000-8000-000000001322]}], alternative_units: [{unit: BOX, numerator: 20, denominator: 1}], change: created, version: 1}
+    MaterialChangeChanged:
+      name: MaterialChangeChanged
+      title: Material change changed
+      summary: A material change was requested or decided.
+      description: |
+        Emitted at each step of a material change (ADR-0082 §9, S1b): when
+        it is requested (`pending`, status_before null; a block `applied`
+        at once) and when it is applied, rejected or withdrawn
+        (`applied`, `rejected`, `cancelled`, status_before `pending`).
+        `GET /v1/material-changes/{id}` returns the change at `version` or
+        later. Not offered to webhooks until a consumer asks. Subject is
+        the change id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.materials.material_change_changed.v1}
+      payload: {$ref: '#/components/schemas/MaterialChangeChangedV1'}
+      examples:
+        - name: requested
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001302, source: /erp/eu-1/materials, type: com.example.erp.materials.material_change_changed.v1, subject: 0192a000-0000-7000-8000-000000001331, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {material_change_id: 0192a000-0000-7000-8000-000000001331, number: MC00000001, kind: create, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, status: pending, status_before: null, workflow_request_id: null, version: 1}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -6109,7 +6136,7 @@ components:
         base_unit: {type: string, description: The base unit of measure.}
         material_type: {type: string, description: 'The material type. Open enum: raw_material, semi_finished, finished_good, trading_good, non_stock, service.'}
         material_group: {type: string, description: The material group.}
-        status: {type: string, description: "The material's status after the change. Open enum: active, blocked."}
+        status: {type: string, description: "The material's status after the change. Open enum: pending, active, blocked."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         plants:
           type: array
@@ -6133,8 +6160,25 @@ components:
               unit: {type: string, description: The alternative unit's code.}
               numerator: {type: integer, description: Base units per `denominator` of the alternative unit.}
               denominator: {type: integer, description: Alternative units the `numerator` base units are.}
-        change: {type: string, description: 'What happened. Open enum: created, changed.'}
+        change: {type: string, description: 'What happened. Open enum: created, activated, changed, blocked, unblocked.'}
         version: {type: integer, description: "The material's version after the change."}
+    MaterialChangeChangedV1:
+      type: object
+      required: [material_change_id, number, kind, material_id, material_number, status, status_before, workflow_request_id, version]
+      properties:
+        material_change_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material_change.id`.'}
+        number: {type: string, description: "The change's number."}
+        kind: {type: string, description: 'Open enum: create, update, block, unblock.'}
+        material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
+        material_number: {type: string, description: "The material's number."}
+        status: {type: string, description: "The change's status after the step. Open enum: pending, applied, rejected, cancelled."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was requested.'}
+        workflow_request_id:
+          description: "Its approval request, `workflow.approval_request.id`; null on a block and until the request is opened."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        version: {type: integer, description: "The change's version after the step."}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]

@@ -22460,6 +22460,7 @@ paths:
             maxLength: 20
             description: "Material status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
+              - pending
               - active
               - blocked
         - name: material_type
@@ -22501,24 +22502,31 @@ paths:
       tags:
         - materials
       summary: Create a material
-      description: "Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit of measure, material type and material group, extended to plants and their storage locations and given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in (422 `request.reference_not_found`); the material is numbered from its `material` number range of the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active org unit of kind `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org unit of kind `storage_location` under that plant, given once (422 `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit is not the base unit (422 `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and the material type do not change afterwards. Created `active`. Audited, and published as MaterialChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`)."
+      description: "Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit of measure, material type and material group, extended to plants and their storage locations and given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in (422 `request.reference_not_found`); the material is numbered from its `material` number range of the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active org unit of kind `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org unit of kind `storage_location` under that plant, given once (422 `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit is not the base unit (422 `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and the material type do not change afterwards. Created `pending` with a material change of kind `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner` decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn it stays `pending` and is used nowhere. The change lists the existing materials with the same description, white space and case aside, whatever their status, a pending one whose create change was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is refused (409 `materials.duplicate_description`, naming them) unless the request sets `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`)."
       x-permission: materials.material.write
       x-agent: false
       x-problem-codes:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - ledger.no_exchange_rate
         - ledger.no_fiscal_period
         - materials.base_unit_conversion
+        - materials.change_pending
+        - materials.duplicate_description
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
+        - materials.invalid_status
         - materials.number_taken
         - materials.plant_invalid
         - materials.storage_location_invalid
         - materials.unknown_material_type
         - materials.unknown_unit
         - request.validation_failed
+        - workflow.no_policy
+        - workflow.request_pending
+        - workflow.unknown_role
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -22605,15 +22613,19 @@ paths:
       operationId: updateMaterial
       tags:
         - materials
-      summary: Change a material
-      description: "Changes a material's description, material group, status, plants or alternative units at once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC 7396): absent fields are unchanged. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A change that would leave the material as it is is refused (422 `materials.nothing_to_change`). An audit record with the values before and after and MaterialChanged (`changed`) are written with it. Human-only (`x-agent: false`)."
+      summary: Request a change of a material
+      description: "Requests a change of a material's description, material group, status, plants or alternative units with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`). A change that only blocks the material is applied at once (the material answered blocked, with a material change of kind `block`, applied). Any other opens a pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when its approval request is approved by the role `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values before and after, and published as MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`)."
       x-permission: materials.material.write
       x-agent: false
       x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.no_exchange_rate
         - materials.base_unit_conversion
+        - materials.change_pending
         - materials.duplicate_plant
         - materials.duplicate_storage_location
         - materials.duplicate_unit
+        - materials.invalid_status
         - materials.nothing_to_change
         - materials.number_taken
         - materials.plant_invalid
@@ -22622,6 +22634,9 @@ paths:
         - materials.unknown_unit
         - request.validation_failed
         - request.version_mismatch
+        - workflow.no_policy
+        - workflow.request_pending
+        - workflow.unknown_role
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -22635,7 +22650,7 @@ paths:
               $ref: "#/components/schemas/MaterialUpdate"
       responses:
         "200":
-          description: "Updated; the material after the change."
+          description: "The material: blocked at once, or as it is with its pending change (`pending_change_id`)."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -22661,6 +22676,93 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/material-changes:
+    get:
+      operationId: listMaterialChanges
+      tags:
+        - materials
+      summary: List material changes
+      description: "Governed changes of materials (ADR-0082 §9, S1b), newest first: each with its kind, status, what it asks for, its possible duplicates (a create's) and its approval request. Filtered by material, kind and status. Sortable by: `created_at`."
+      x-permission: materials.material.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: material_id
+          in: query
+          required: false
+          description: Only the changes of this material.
+          schema:
+            type: string
+            format: uuid
+        - name: kind
+          in: query
+          required: false
+          description: Only changes of this kind. A value that is no kind matches none.
+          schema:
+            type: string
+            maxLength: 20
+            description: "Material change kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [create, update, block, unblock]
+        - name: status
+          in: query
+          required: false
+          description: Only changes in this status. A value that is no status matches none.
+          schema:
+            type: string
+            maxLength: 20
+            description: "Material change status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [pending, applied, rejected, cancelled]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of material changes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialChangePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/material-changes/{id}":
+    get:
+      operationId: getMaterialChange
+      tags:
+        - materials
+      summary: Get a material change
+      description: "One material change (ADR-0082 §9, S1b) with its material's number and description, what it asks for, its possible duplicates and its approval request."
+      x-permission: materials.material.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The material change.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/revenue-contracts/{id}/schedule":
@@ -30469,6 +30571,9 @@ paths:
         - ledger.unknown_unit
         - ledger.zero_amount
         - ledger.zero_tax_base
+        - materials.change_pending
+        - materials.invalid_status
+        - materials.number_taken
         - partner.address_overlap
         - partner.bank_account_overlap
         - partner.change_pending
@@ -30599,6 +30704,7 @@ paths:
         center_change: ledger.cost_center.approve
         payment_run_release: payments.run.release
         gr_ir_clearing: procurement.gr_ir.clear.approve
+        material_change: materials.change.approve
         tax_return: tax.return.approve
   "/v1/approval-requests/{id}:reject":
     post:
@@ -30615,6 +30721,8 @@ paths:
         - config.unknown_base_version
         - ledger.center_change_pending
         - ledger.item_reserved
+        - materials.change_pending
+        - materials.invalid_status
         - partner.change_pending
         - partner.invalid_status
         - payables.already_captured
@@ -30691,6 +30799,7 @@ paths:
         center_change: ledger.cost_center.approve
         payment_run_release: payments.run.release
         gr_ir_clearing: procurement.gr_ir.clear.approve
+        material_change: materials.change.approve
         tax_return: tax.return.approve
   "/v1/approval-requests/{id}:cancel":
     post:
@@ -30705,6 +30814,8 @@ paths:
         - config.invalid_status
         - config.unknown_base_version
         - ledger.center_change_pending
+        - materials.change_pending
+        - materials.invalid_status
         - partner.change_pending
         - partner.invalid_status
         - payables.already_captured
@@ -58804,6 +58915,8 @@ components:
           maxItems: 20
           items: {$ref: "#/components/schemas/MaterialUnitInput"}
           description: "Its alternative units of measure, each once; none when absent."
+        reason: {type: string, maxLength: 500, description: "Why the material is created, kept on its create change for the approver."}
+        confirm_duplicate: {type: boolean, default: false, description: "Create it though materials with its description exist: it is another material, and its approver sees them."}
     MaterialUpdate:
       type: object
       description: "Merge patch of a material: its description, material group, status, plants or alternative units. The number, the base unit and the material type do not change."
@@ -58826,6 +58939,7 @@ components:
           maxItems: 20
           items: {$ref: "#/components/schemas/MaterialUnitInput"}
           description: "The material's alternative units, replacing those it has; an empty list removes them."
+        reason: {type: string, maxLength: 500, description: "Why it is changed, kept on the change for the approver."}
       examples:
         - material_group: FASTENERS
     MaterialStorageLocation:
@@ -58881,8 +58995,11 @@ components:
             material_group: {type: string, description: "The material group."}
             status:
               type: string
-              x-extensible-enum: [active, blocked]
-              description: "`active`: usable. `blocked`: kept, but not to be used in new documents. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [pending, active, blocked]
+              description: "`pending`: created, its create change not yet approved, or rejected or withdrawn; used nowhere. `active`: usable. `blocked`: kept, but not to be used in new documents. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            pending_change_id: {type: string, format: uuid, description: "Its pending material change (`GET /v1/material-changes/{id}`); absent when none is pending.", readOnly: true}
+            pending_change_number: {type: string, description: "That change's number; absent when none is pending.", readOnly: true}
             plants:
               type: array
               items: {$ref: "#/components/schemas/MaterialPlant"}
@@ -58928,6 +59045,101 @@ components:
           type: array
           items: {$ref: "#/components/schemas/Material"}
           description: The materials on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    MaterialDuplicate:
+      type: object
+      description: "An existing material a new one may duplicate: with the same description, white space and case aside."
+      required: [material_id, number, description]
+      properties:
+        material_id: {type: string, format: uuid, description: "The existing material (`GET /v1/materials/{id}`).", readOnly: true}
+        number: {type: string, description: "Its number.", readOnly: true}
+        description: {type: string, description: "Its description as it was when the change was requested.", readOnly: true}
+    MaterialChangePlant:
+      type: object
+      description: "A plant a change extends the material to, with its storage locations."
+      required: [plant_id, plant_code, legal_entity_id, storage_location_ids]
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant (`GET /v1/org-units/{id}`).", readOnly: true}
+        plant_code: {type: string, description: "The plant's code.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+        storage_location_ids: {type: array, items: {type: string, format: uuid}, description: "Its storage locations (`GET /v1/org-units/{id}`).", readOnly: true}
+    MaterialChangeRequested:
+      type: object
+      description: "What a material change asks for: the fields it sets, absent when it leaves them. A create's names the whole material; an update's `plants` replace the material's plants in the companies its requester could act in."
+      properties:
+        description: {type: string, description: "The description.", readOnly: true}
+        base_unit: {type: string, description: "The base unit (a create's only).", readOnly: true}
+        material_type: {type: string, description: "The material type (a create's only).", readOnly: true}
+        material_group: {type: string, description: "The material group.", readOnly: true}
+        status: {type: string, description: "The status, `active` or `blocked`.", readOnly: true}
+        plants:
+          type: array
+          items: {$ref: "#/components/schemas/MaterialChangePlant"}
+          description: "The plants with their storage locations."
+          readOnly: true
+        alternative_units:
+          type: array
+          items: {$ref: "#/components/schemas/MaterialUnitInput"}
+          description: "The alternative units with their conversions."
+          readOnly: true
+    MaterialChange:
+      description: "A governed change of a material (materials, ADR-0082 §9): created `pending` with its approval request (`workflow_request_id`), then `applied`, `rejected` or `cancelled` once; a block is `applied` when it is requested. Its `version` moves with each step."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [number, kind, material_id, material_number, material_description, status, requested, reason, possible_duplicates, requested_by]
+          properties:
+            number: {type: string, description: "The change's number, MC and eight digits.", readOnly: true}
+            kind:
+              type: string
+              x-extensible-enum: [create, update, block, unblock]
+              description: "`create`: the material's creation. `update`: a change of its fields. `block`: its block, applied at once. `unblock`: its status set `active` again. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
+            material_number: {type: string, description: "The material's number.", readOnly: true}
+            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [pending, applied, rejected, cancelled]
+              description: "`pending`: waiting for its approval. `applied`: written to the material. `rejected`: refused by its approver. `cancelled`: withdrawn by its requester. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            requested: {$ref: "#/components/schemas/MaterialChangeRequested"}
+            reason: {type: string, description: "Its requester's reason, empty when none was given.", readOnly: true}
+            possible_duplicates:
+              type: array
+              items: {$ref: "#/components/schemas/MaterialDuplicate"}
+              description: "The materials a create's material may duplicate, as they were when it was requested, by number; empty on another change."
+              readOnly: true
+            workflow_request_id: {type: string, format: uuid, description: "Its approval request (`GET /v1/approval-requests/{id}`); absent on a block.", readOnly: true}
+            requested_by: {type: string, format: uuid, description: "Who requested it.", readOnly: true}
+            applied_at: {type: string, format: date-time, description: "When it was applied; absent until then.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          version: 2
+          created_at: "2026-11-20T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-20T10:00:01Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          number: MC00000001
+          kind: create
+          material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          material_number: MA1
+          material_description: Machined bracket M10
+          status: pending
+          requested: {description: Machined bracket M10, base_unit: EA, material_type: trading_good, material_group: BRACKETS, plants: [], alternative_units: [{unit: BOX, numerator: 20, denominator: 1}]}
+          reason: ""
+          possible_duplicates: []
+          workflow_request_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          requested_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    MaterialChangePage:
+      type: object
+      description: One page of material changes.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/MaterialChange"}
+          description: The material changes on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     ReceivablesAgingBucket:
       type: object

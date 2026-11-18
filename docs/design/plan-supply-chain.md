@@ -142,8 +142,9 @@ by description are listed for the approver, and blocking applies at once.
   payload, reason, possible duplicates, the approval request);
   `GET /v1/material-changes`, `GET /v1/material-changes/{id}`; `POST
   /v1/materials` creates the material `pending` with its create change;
-  `PATCH /v1/materials/{id}` opens an `update` change (202) unless it only
-  blocks; approval object type `material_change` decided by the role
+  `PATCH /v1/materials/{id}` opens an `update` change (the material
+  answered with `pending_change_id`) unless it only blocks; approval
+  object type `material_change` decided by the role
   `process_owner`; permission `materials.change.approve`; event
   `MaterialChangeChanged`.
 - **Walkthrough:** `step_material_governance`: a new material waits for
@@ -156,7 +157,8 @@ by description are listed for the approver, and blocking applies at once.
   change lists the others; a second pending change of the same material
   is refused (409); approval applies the change to the material's then
   current version, rejection and withdrawal leave it unchanged, and a
-  rejected create leaves the material out of reads and duplicate checks;
+  rejected create leaves the material pending, used nowhere and out of the
+  duplicate checks (as a business partner's);
   the decisions are the approvals context's (the requester's own approval
   as approvals refuses it).
 

@@ -31,8 +31,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// Material statuses (ADR-0082 §7).
+// Material statuses (ADR-0082 §7, §9): pending until its create change is
+// approved.
 const (
+	Pending = "pending"
 	Active  = "active"
 	Blocked = "blocked"
 )
@@ -91,6 +93,7 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Approvals     Opener // opens the approval requests of material changes (workflow context)
 	// Now is the clock a material is numbered by, in its company's time
 	// zone; nil: the wall clock.
 	Now func() time.Time
@@ -128,15 +131,20 @@ type Material struct {
 	Status        string
 	Plants        []Plant
 	Units         []Unit
-	Version       int32
-	CreatedAt     time.Time
-	CreatedBy     uuid.UUID
-	UpdatedAt     time.Time
-	UpdatedBy     uuid.UUID
+	// PendingChangeID and PendingChangeNumber are its pending change, nil
+	// when none is pending (ADR-0082 §9).
+	PendingChangeID     *uuid.UUID
+	PendingChangeNumber *string
+	Version             int32
+	CreatedAt           time.Time
+	CreatedBy           uuid.UUID
+	UpdatedAt           time.Time
+	UpdatedBy           uuid.UUID
 }
 
 // materialSelect reads materials with their plants, storage locations and
-// alternative units, each in a stated order.
+// alternative units, each in a stated order, and the one change pending
+// (material_change_one_pending).
 const materialSelect = `SELECT m.id, m.number, m.legal_entity_id, m.description, m.base_uom_code, b.name, m.material_type, m.material_group,
 		m.status, m.version, m.created_at, m.created_by, m.updated_at, m.updated_by,
 		coalesce((SELECT json_agg(json_build_object('plant_id', d.plant_id, 'legal_entity_id', d.legal_entity_id,
@@ -147,13 +155,15 @@ const materialSelect = `SELECT m.id, m.number, m.legal_entity_id, m.description,
 		coalesce((SELECT json_agg(json_build_object('unit', u.uom_code, 'name', r.name, 'numerator', u.numerator, 'denominator', u.denominator)
 				ORDER BY u.uom_code)
 			FROM materials.unit_conversion u JOIN ref.unit_of_measure r ON r.code = u.uom_code
-			WHERE u.tenant_id = m.tenant_id AND u.material_id = m.id AND u.removed_at IS NULL), '[]')
+			WHERE u.tenant_id = m.tenant_id AND u.material_id = m.id AND u.removed_at IS NULL), '[]'),
+		(SELECT c.id FROM materials.material_change c WHERE c.tenant_id = m.tenant_id AND c.material_id = m.id AND c.status = 'pending') AS pending_change_id,
+		(SELECT c.number FROM materials.material_change c WHERE c.tenant_id = m.tenant_id AND c.material_id = m.id AND c.status = 'pending') AS pending_change_number
 	FROM materials.material m JOIN ref.unit_of_measure b ON b.code = m.base_uom_code`
 
 func scanMaterial(row pgx.Row) (Material, error) {
 	var m Material
 	err := row.Scan(&m.ID, &m.Number, &m.LegalEntityID, &m.Description, &m.BaseUnit, &m.BaseUnitName, &m.Type, &m.Group, &m.Status, &m.Version,
-		&m.CreatedAt, &m.CreatedBy, &m.UpdatedAt, &m.UpdatedBy, &m.Plants, &m.Units)
+		&m.CreatedAt, &m.CreatedBy, &m.UpdatedAt, &m.UpdatedBy, &m.Plants, &m.Units, &m.PendingChangeID, &m.PendingChangeNumber)
 	return m, errs.Wrapf(err, "scan material")
 }
 

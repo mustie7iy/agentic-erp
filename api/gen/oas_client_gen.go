@@ -1880,9 +1880,16 @@ type Invoker interface {
 	// is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
 	// `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
 	// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
-	// the material type do not change afterwards. Created `active`. Audited, and published as
-	// MaterialChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only
-	// (`x-agent: false`).
+	// the material type do not change afterwards. Created `pending` with a material change of kind
+	// `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner`
+	// decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn
+	// it stays `pending` and is used nowhere. The change lists the existing materials with the same
+	// description, white space and case aside, whatever their status, a pending one whose create change
+	// was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is
+	// refused (409 `materials.duplicate_description`, naming them) unless the request sets
+	// `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the
+	// first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same
+	// `Idempotency-Key` answers the material created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/materials
 	CreateMaterial(ctx context.Context, request *MaterialCreate, params CreateMaterialParams) (CreateMaterialRes, error)
@@ -3944,6 +3951,13 @@ type Invoker interface {
 	//
 	// GET /v1/materials/{id}
 	GetMaterial(ctx context.Context, params GetMaterialParams) (GetMaterialRes, error)
+	// GetMaterialChange invokes getMaterialChange operation.
+	//
+	// One material change (ADR-0082 §9, S1b) with its material's number and description, what it asks
+	// for, its possible duplicates and its approval request.
+	//
+	// GET /v1/material-changes/{id}
+	GetMaterialChange(ctx context.Context, params GetMaterialChangeParams) (GetMaterialChangeRes, error)
 	// GetMemoRecord invokes getMemoRecord operation.
 	//
 	// One memo record, with its status as of the read date: its legal entity's date at the read in its
@@ -5548,6 +5562,14 @@ type Invoker interface {
 	//
 	// GET /v1/supplier-invoices/{id}/match-results
 	ListMatchResults(ctx context.Context, params ListMatchResultsParams) (ListMatchResultsRes, error)
+	// ListMaterialChanges invokes listMaterialChanges operation.
+	//
+	// Governed changes of materials (ADR-0082 §9, S1b), newest first: each with its kind, status, what it
+	// asks for, its possible duplicates (a create's) and its approval request. Filtered by material, kind
+	// and status. Sortable by: `created_at`.
+	//
+	// GET /v1/material-changes
+	ListMaterialChanges(ctx context.Context, params ListMaterialChangesParams) (ListMaterialChangesRes, error)
 	// ListMaterials invokes listMaterials operation.
 	//
 	// The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
@@ -8135,16 +8157,23 @@ type Invoker interface {
 	UpdateLegalEntity(ctx context.Context, request *LegalEntityUpdate, params UpdateLegalEntityParams) (UpdateLegalEntityRes, error)
 	// UpdateMaterial invokes updateMaterial operation.
 	//
-	// Changes a material's description, material group, status, plants or alternative units at once, with
-	// the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC
-	// 7396): absent fields are unchanged. The number, the base unit and the material type do not change.
-	// `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value).
-	// `plants` replaces the material's plants in the companies the caller may act in, each with its
-	// storage locations, and leaves those of other companies as they are; `alternative_units` replaces its
-	// alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A
-	// change that would leave the material as it is is refused (422 `materials.nothing_to_change`). An
-	// audit record with the values before and after and MaterialChanged (`changed`) are written with it.
-	// Human-only (`x-agent: false`).
+	// Requests a change of a material's description, material group, status, plants or alternative units
+	// with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b).
+	// JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The
+	// number, the base unit and the material type do not change. `status` moves between `active` and
+	// `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's
+	// plants in the companies the caller may act in, each with its storage locations, and leaves those of
+	// other companies as they are; `alternative_units` replaces its alternative units, an empty list
+	// removing them; each is checked as `createMaterial` checks it. A change that would leave the material
+	// as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409
+	// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`). A
+	// change that only blocks the material is applied at once (the material answered blocked, with a
+	// material change of kind `block`, applied). Any other opens a pending material change (kind `unblock`
+	// when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it
+	// in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when
+	// its approval request is approved by the role `process_owner`, and leaving it as it is when it is
+	// rejected or withdrawn. Audited with the values before and after, and published as
+	// MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
 	//
 	// PATCH /v1/materials/{id}
 	UpdateMaterial(ctx context.Context, request *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error)
@@ -24354,9 +24383,16 @@ func (c *Client) sendCreateLegalEntity(ctx context.Context, request *LegalEntity
 // is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
 // `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
 // `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
-// the material type do not change afterwards. Created `active`. Audited, and published as
-// MaterialChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only
-// (`x-agent: false`).
+// the material type do not change afterwards. Created `pending` with a material change of kind
+// `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner`
+// decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn
+// it stays `pending` and is used nowhere. The change lists the existing materials with the same
+// description, white space and case aside, whatever their status, a pending one whose create change
+// was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is
+// refused (409 `materials.duplicate_description`, naming them) unless the request sets
+// `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the
+// first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same
+// `Idempotency-Key` answers the material created. Human-only (`x-agent: false`).
 //
 // POST /v1/materials
 func (c *Client) CreateMaterial(ctx context.Context, request *MaterialCreate, params CreateMaterialParams) (CreateMaterialRes, error) {
@@ -46272,6 +46308,138 @@ func (c *Client) sendGetMaterial(ctx context.Context, params GetMaterialParams) 
 
 	stage = "DecodeResponse"
 	result, err := decodeGetMaterialResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetMaterialChange invokes getMaterialChange operation.
+//
+// One material change (ADR-0082 §9, S1b) with its material's number and description, what it asks
+// for, its possible duplicates and its approval request.
+//
+// GET /v1/material-changes/{id}
+func (c *Client) GetMaterialChange(ctx context.Context, params GetMaterialChangeParams) (GetMaterialChangeRes, error) {
+	res, err := c.sendGetMaterialChange(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetMaterialChange(ctx context.Context, params GetMaterialChangeParams) (res GetMaterialChangeRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getMaterialChange"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/material-changes/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetMaterialChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/material-changes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetMaterialChangeOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetMaterialChangeResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -76551,6 +76719,227 @@ func (c *Client) sendListMatchResults(ctx context.Context, params ListMatchResul
 
 	stage = "DecodeResponse"
 	result, err := decodeListMatchResultsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListMaterialChanges invokes listMaterialChanges operation.
+//
+// Governed changes of materials (ADR-0082 §9, S1b), newest first: each with its kind, status, what it
+// asks for, its possible duplicates (a create's) and its approval request. Filtered by material, kind
+// and status. Sortable by: `created_at`.
+//
+// GET /v1/material-changes
+func (c *Client) ListMaterialChanges(ctx context.Context, params ListMaterialChangesParams) (ListMaterialChangesRes, error) {
+	res, err := c.sendListMaterialChanges(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListMaterialChanges(ctx context.Context, params ListMaterialChangesParams) (res ListMaterialChangesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listMaterialChanges"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/material-changes"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListMaterialChangesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/material-changes"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListMaterialChangesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListMaterialChangesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -111598,16 +111987,23 @@ func (c *Client) sendUpdateLegalEntity(ctx context.Context, request *LegalEntity
 
 // UpdateMaterial invokes updateMaterial operation.
 //
-// Changes a material's description, material group, status, plants or alternative units at once, with
-// the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC
-// 7396): absent fields are unchanged. The number, the base unit and the material type do not change.
-// `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value).
-// `plants` replaces the material's plants in the companies the caller may act in, each with its
-// storage locations, and leaves those of other companies as they are; `alternative_units` replaces its
-// alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A
-// change that would leave the material as it is is refused (422 `materials.nothing_to_change`). An
-// audit record with the values before and after and MaterialChanged (`changed`) are written with it.
-// Human-only (`x-agent: false`).
+// Requests a change of a material's description, material group, status, plants or alternative units
+// with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b).
+// JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The
+// number, the base unit and the material type do not change. `status` moves between `active` and
+// `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's
+// plants in the companies the caller may act in, each with its storage locations, and leaves those of
+// other companies as they are; `alternative_units` replaces its alternative units, an empty list
+// removing them; each is checked as `createMaterial` checks it. A change that would leave the material
+// as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409
+// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`). A
+// change that only blocks the material is applied at once (the material answered blocked, with a
+// material change of kind `block`, applied). Any other opens a pending material change (kind `unblock`
+// when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it
+// in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when
+// its approval request is approved by the role `process_owner`, and leaving it as it is when it is
+// rejected or withdrawn. Audited with the values before and after, and published as
+// MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
 //
 // PATCH /v1/materials/{id}
 func (c *Client) UpdateMaterial(ctx context.Context, request *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error) {

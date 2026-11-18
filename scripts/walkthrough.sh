@@ -12595,16 +12595,26 @@ step_rfq_requisition() {
   passed
 }
 
-# step_material is S1a (ADR-0082, plan-supply-chain.md): Mira, the master
-# data specialist, sets up Maple's Toronto plant with two storage
+# material_request MATERIAL is the approval request of the material's
+# pending change.
+material_request() {
+  QUIET=1 api 200 '' getMaterial -p "id=$1"
+  QUIET=1 api 200 '' getMaterialChange -p "id=$(field .pending_change_id)"
+  field .workflow_request_id
+}
+
+# step_material is S1a and S1b (ADR-0082, plan-supply-chain.md): Mira, the
+# master data specialist, sets up Maple's Toronto plant with two storage
 # locations and a second plant, then creates the M10 bracket: numbered
 # from the company's material range, kept in each, bought by the box of
 # 20. A box that converts to the base unit itself and a storage location
-# of the other plant are refused naming their fields. She changes the
-# description and adds the second storage location at the version she
-# read; her earlier version is stale then; she blocks the bracket.
+# of the other plant are refused naming their fields. The bracket is
+# pending until Priya, the process owner, approves its create change
+# (S1b). Mira's change of its description and storage locations waits for
+# Priya's approval in turn; her earlier version is stale then; she blocks
+# the bracket, which applies at once.
 step_material() {
-  heading "Step 116 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20; the base unit as an alternative unit and another plant's storage location refused; changed at its version, a stale version refused; blocked"
+  heading "Step 116 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20, active once the process owner approves it; the base unit as an alternative unit and another plant's storage location refused; a change approved, a stale version refused; blocked at once"
   local plant main spares other far material number
   as ada
   say "Ada adds Mira, the master data specialist, to the team:"
@@ -12629,15 +12639,21 @@ step_material() {
   far=$(field .id)
   QUIET=1 api 200 '' activateOrgUnit -p "id=$far" -if-match "$ETAG"
   say "She creates the M10 bracket: counted each, bought by the box of 20, kept in Toronto's main store. Its number"
-  say "comes from Maple's material range (ADR-0082 §6):"
-  api 201 '"material \(.number) \(.description): \(.material_type), group \(.material_group), base unit \(.base_unit) (\(.base_unit_name)), \(.status)", (.plants[] | "  plant \(.plant_code) \(.plant_name) of company \(.company_code): \([.storage_locations[] | .code] | join(", "))"), (.alternative_units[] | "  alternative unit \(.unit) (\(.unit_name)): \(.numerator) base units per \(.denominator)")' \
+  say "comes from Maple's material range (ADR-0082 §6); it waits for its approval (S1b):"
+  api 201 '"material \(.number) \(.description): \(.material_type), group \(.material_group), base unit \(.base_unit) (\(.base_unit_name)), \(.status), change \(.pending_change_number)", (.plants[] | "  plant \(.plant_code) \(.plant_name) of company \(.company_code): \([.storage_locations[] | .code] | join(", "))"), (.alternative_units[] | "  alternative unit \(.unit) (\(.unit_name)): \(.numerator) base units per \(.denominator)")' \
     createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M10\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\",
-      \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\"]}], \"alternative_units\": [{\"unit\": \"BOX\", \"numerator\": 20, \"denominator\": 1}]}"
+      \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\"]}], \"alternative_units\": [{\"unit\": \"BOX\", \"numerator\": 20, \"denominator\": 1}],
+      \"reason\": \"New bracket for the Northwind range\"}"
   material=$(field .id)
   number=$(field .number)
   expect "the new material" "$(field '"\(.status) \(.version) \(.company_code) \(.plants[0].plant_code):\(.plants[0].storage_locations[0].code) \(.alternative_units[0].unit) \(.alternative_units[0].numerator)/\(.alternative_units[0].denominator)"')" \
-    "active 1 $CC P100:SL01 BOX 20/1"
+    "pending 1 $CC P100:SL01 BOX 20/1"
   case "$number" in MA*) ;; *) fail "the material's number: got $number, want one of the MA range" ;; esac
+  say "Priya, the process owner, approves its creation:"
+  approve priya "$(material_request "$material")" "The bracket is in the range."
+  as mira
+  api 200 '"material \(.number): \(.status), version \(.version)"' getMaterial -p "id=$material"
+  expect "the approved material" "$(field '"\(.status) \(.version)"')" "active 2"
   say "The base unit converts to itself, so it is no alternative unit; Montreal's store is not Toronto's:"
   refused 422 materials.base_unit_conversion createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
       \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"alternative_units\": [{\"unit\": \"EA\", \"numerator\": 1, \"denominator\": 1}]}"
@@ -12645,22 +12661,83 @@ step_material() {
   refused 422 materials.storage_location_invalid createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
       \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$far\"]}]}"
   expect "the refused storage location's field" "$(field '.errors[0].field')" "plants[0].storage_location_ids[0]"
-  say "Mira reads the bracket back, then names its finish and keeps it in the spare parts store too, at the version"
-  say "she read:"
-  api 200 '"material \(.number): version \(.version)"' getMaterial -p "id=$material"
-  api 200 '"material \(.number) \(.description): version \(.version)", (.plants[] | "  plant \(.plant_code): \([.storage_locations[] | .code] | join(", "))")' \
-    updateMaterial -p "id=$material" -if-match "$ETAG" \
-    -body "{\"description\": \"Machined bracket M10, zinc plated\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\", \"$spares\"]}]}"
-  expect "the changed material" "$(field '"\(.version) \(.description) \([.plants[0].storage_locations[] | .code] | join(","))"')" "2 Machined bracket M10, zinc plated SL01,SL02"
+  say "Mira names the bracket's finish and keeps it in the spare parts store too, at the version she read; the"
+  say "change waits for Priya:"
+  QUIET=1 api 200 '' getMaterial -p "id=$material"
+  api 200 '"material \(.number) \(.description): version \(.version), change \(.pending_change_number) pending"' updateMaterial -p "id=$material" -if-match "$ETAG" \
+    -body "{\"description\": \"Machined bracket M10, zinc plated\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\", \"$spares\"]}], \"reason\": \"Zinc plated from now on\"}"
+  expect "the material while its change waits" "$(field '"\(.version) \(.description)"')" "2 Machined bracket M10"
+  approve priya "$(material_request "$material")" "Agreed with purchasing."
+  as mira
+  api 200 '"material \(.number) \(.description): version \(.version)", (.plants[] | "  plant \(.plant_code): \([.storage_locations[] | .code] | join(", "))")' getMaterial -p "id=$material"
+  expect "the changed material" "$(field '"\(.version) \(.description) \([.plants[0].storage_locations[] | .code] | join(","))"')" "3 Machined bracket M10, zinc plated SL01,SL02"
   say "Her first version is stale now:"
   refused 412 request.version_mismatch updateMaterial -p "id=$material" -if-match '"1"' -body '{"material_group": "FASTENERS"}'
-  say "The bracket is replaced by a new design; Mira blocks it, at the version she reads again:"
+  say "A batch of brackets is found faulty; Mira blocks the bracket, which needs no approval and applies at once, at"
+  say "the version she reads again:"
   QUIET=1 api 200 '' getMaterial -p "id=$material"
-  api 200 '"material \(.number): \(.status), version \(.version)"' updateMaterial -p "id=$material" -if-match "$ETAG" -body '{"status": "blocked"}'
-  expect "the blocked material" "$(field '"\(.status) \(.version)"')" "blocked 3"
+  api 200 '"material \(.number): \(.status), version \(.version)"' updateMaterial -p "id=$material" -if-match "$ETAG" -body '{"status": "blocked", "reason": "Faulty batch"}'
+  expect "the blocked material" "$(field '"\(.status) \(.version)"')" "blocked 4"
   QUIET=1 api 200 '' listMaterials -p "plant_id=$plant" -p status=blocked
   expect "Toronto's blocked materials" "$(field '[.items[] | .number] | join(" ")')" "$number"
-  MATERIAL_PLANT=$plant MATERIAL_STORE=$main
+  MATERIAL=$material
+  passed
+}
+
+# step_material_governance is S1b (ADR-0082 §9): a second bracket with
+# step 116's description is refused until Mira confirms it is another
+# material; its create change lists the first for Priya, who rejects it,
+# and it stays pending, used nowhere. Mira asks to unblock the first
+# bracket; a second change of it is refused while that waits; Priya
+# approves. A change of its group is rejected and leaves it as it was.
+step_material_governance() {
+  heading "Step 117 — Material governance: a material with another's description refused unless confirmed, its possible duplicate listed for the approver, who rejects it; an unblock approved; a second pending change refused; a rejected change leaving the material as it was"
+  local material=$MATERIAL second request version
+  [ -n "$material" ] || fail "step 116's material is not there"
+  as mira
+  say "Mira enters the zinc-plated M10 bracket again, not knowing step 116's: the description is taken, white space and"
+  say "case aside, so it is refused until she says it is another material:"
+  refused 409 materials.duplicate_description createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"machined bracket m10,  zinc plated\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\"}"
+  api 201 '"material \(.number): \(.status), change \(.pending_change_number)"' createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M10, zinc plated\",
+      \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"confirm_duplicate\": true, \"reason\": \"Thinks it is a new part\"}"
+  second=$(field .id)
+  QUIET=1 api 200 '' getMaterialChange -p "id=$(field .pending_change_id)"
+  request=$(field .workflow_request_id)
+  say "Its change shows Priya the material it may duplicate:"
+  api 200 '"change \(.number) (\(.kind)) of \(.material_number): \(.status)", (.possible_duplicates[] | "  possible duplicate \(.number) \(.description)")' \
+    getMaterialChange -p "id=$(field .id)"
+  expect "the possible duplicates" "$(field '[.possible_duplicates[] | .material_id] | join(" ")')" "$material"
+  as priya
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  api 200 '"approval request \(.object_type): \(.status)"' rejectApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{"comment": "The same part as step 116'"'"'s bracket."}'
+  as mira
+  QUIET=1 api 200 '' getMaterial -p "id=$second"
+  expect "the rejected material" "$(field '"\(.status) \(.pending_change_id // "none")"')" "pending none"
+  say "The faulty batch is replaced; Mira asks to unblock the first bracket. While that waits, a second change of it is"
+  say "refused:"
+  QUIET=1 api 200 '' getMaterial -p "id=$material"
+  version=$ETAG
+  api 200 '"material \(.number): \(.status), change \(.pending_change_number) pending"' updateMaterial -p "id=$material" -if-match "$version" -body '{"status": "active", "reason": "Batch replaced"}'
+  QUIET=1 api 200 '' getMaterialChange -p "id=$(field .pending_change_id)"
+  expect "the unblock change" "$(field '"\(.kind) \(.status)"')" "unblock pending"
+  refused 409 materials.change_pending updateMaterial -p "id=$material" -if-match "$version" -body '{"material_group": "FASTENERS"}'
+  approve priya "$(material_request "$material")" "Batch replaced."
+  as mira
+  api 200 '"material \(.number): \(.status), version \(.version)"' getMaterial -p "id=$material"
+  expect "the unblocked material" "$(field .status)" "active"
+  say "Mira asks to move the bracket to the fasteners group; Priya rejects it, and the bracket stays as it was:"
+  QUIET=1 api 200 '' getMaterial -p "id=$material"
+  version=$(field .version)
+  QUIET=1 api 200 '' updateMaterial -p "id=$material" -if-match "$ETAG" -body '{"material_group": "FASTENERS"}'
+  request=$(material_request "$material")
+  as priya
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  api 200 '"approval request \(.object_type): \(.status)"' rejectApprovalRequest -p "id=$request" -if-match "$ETAG" -body '{"comment": "Brackets stay brackets."}'
+  as mira
+  QUIET=1 api 200 '' getMaterial -p "id=$material"
+  expect "the material after the rejection" "$(field '"\(.material_group) \(.version) \(.pending_change_id // "none")"')" "BRACKETS $version none"
+  api 200 '.items[] | "  change \(.number) (\(.kind)): \(.status)"' listMaterialChanges -p "material_id=$material"
   passed
 }
 
@@ -14694,7 +14771,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_material step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_material step_material_governance step_close'
 
 main() {
   stop_unseen

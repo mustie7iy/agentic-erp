@@ -79,10 +79,39 @@ func (e env) bracket(t *testing.T, over map[string]any) string {
 	return mustJSON(t, m)
 }
 
-// create creates the material and returns it.
+// create creates the material, pending, and returns it.
 func (e env) create(t *testing.T, over map[string]any) map[string]any {
 	t.Helper()
 	got, _ := e.Must(201, "POST", path, e.bracket(t, over), "")
+	return got
+}
+
+// active creates the material, has its create change approved and returns
+// it active.
+func (e env) active(t *testing.T, over map[string]any) map[string]any {
+	t.Helper()
+	m := e.create(t, over)
+	e.Approve(t, m["pending_change_id"].(string))
+	got, _ := e.Must(200, "GET", path+"/"+m["id"].(string), "", "")
+	return got
+}
+
+// change requests the change of the material at its current version and
+// returns the pending change.
+func (e env) change(t *testing.T, id, body string) map[string]any {
+	t.Helper()
+	_, tag := e.Must(200, "GET", path+"/"+id, "", "")
+	m, _ := e.Must(200, "PATCH", path+"/"+id, body, tag)
+	got, _ := e.Must(200, "GET", "/v1/material-changes/"+m["pending_change_id"].(string), "", "")
+	return got
+}
+
+// changed requests the change and has it approved, and returns the
+// material after it.
+func (e env) changed(t *testing.T, id, body string) map[string]any {
+	t.Helper()
+	e.Approve(t, e.change(t, id, body)["id"].(string))
+	got, _ := e.Must(200, "GET", path+"/"+id, "", "")
 	return got
 }
 
@@ -160,12 +189,13 @@ func endpoints(t *testing.T) *materials.Endpoints {
 	return app.Materials(app.Config{Pages: pages, Now: time.Now})
 }
 
-// events are the payloads of MaterialChanged for the material, in the
-// order they were written, each conforming to the event contract.
-func (e env) events(t *testing.T, id string) []map[string]any {
+// events are the payloads of the event (material_changed or
+// material_change_changed) about the material, in the order they were
+// written, each conforming to the event contract.
+func (e env) events(t *testing.T, name, id string) []map[string]any {
 	t.Helper()
 	var out []map[string]any
-	for _, p := range apitest.Published(t, e.Tenant, outbox.Event{Context: "materials", Name: "material_changed"}) {
+	for _, p := range apitest.Published(t, e.Tenant, outbox.Event{Context: "materials", Name: name}) {
 		if p["material_id"] == id {
 			out = append(out, p)
 		}

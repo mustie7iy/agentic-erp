@@ -6009,8 +6009,16 @@ erDiagram
     text base_uom_code "ref, fixed"
     text material_type "fixed"
     text material_group "1 to 9 of A-Z 0-9 - _"
-    text status "active, blocked"
+    text status "pending, active, blocked"
     int version }
+  material ||--o{ material_change : "changed by"
+  material_change { uuid id PK
+    text number "MC and 8 digits"
+    text kind "create, update, block, unblock"
+    jsonb payload
+    jsonb possible_duplicates
+    text status "pending, applied, rejected, cancelled"
+    uuid workflow_request_id "workflow" }
   plant_data { uuid material_id PK
     uuid plant_id PK "tenancy: a plant"
     uuid legal_entity_id "tenancy: the plant's company"
@@ -6035,7 +6043,7 @@ erDiagram
   (`material_base_uom_code_fkey`); the type is `raw_material`,
   `semi_finished`, `finished_good`, `trading_good`, `non_stock` or
   `service` (`material_type_check`); the group is 1 to 9 capitals, digits,
-  `-` or `_` (`material_group_check`); the status is `active` or
+  `-` or `_` (`material_group_check`); the status is `pending` (until its create change is approved), `active` or
   `blocked` (`material_status_check`) and the version at least 1
   (`material_version_check`). The number, company, base unit and type do
   not change (`material_fixed`, a trigger). The list reads by number
@@ -6060,6 +6068,25 @@ erDiagram
   1,000,000 (`unit_conversion_numerator_check`,
   `unit_conversion_denominator_check`). The application updates the
   factors and the removal mark (`unit_conversion_removed_check`) alone.
+- `materials.material_change` (S1b, migrations 000364 and 000365): a
+  governed change of a material (`material_change_material_fkey`),
+  numbered `MC` and eight digits (`material_change_number_check`) once in
+  the tenant (`material_change_number_once`), of kind `create`, `update`,
+  `block` or `unblock` (`material_change_kind_check`) and status
+  `pending`, `applied`, `rejected` or `cancelled`
+  (`material_change_status_check`), applied exactly when it has
+  `applied_at` (`material_change_applied_check`); its payload is an object
+  (`material_change_payload_object`), its possible duplicates an array
+  (`material_change_possible_duplicates_array`), its reason at most 500
+  characters (`material_change_reason_check`), its version at least 1
+  (`material_change_version_check`). One pending change per material
+  (`material_change_one_pending`). A material's changes are read by
+  `material_change_by_material`, the tenant's by `material_change_by_created`.
+  The application writes changes and their status; it deletes none.
+  `materials.material.status` gains `pending` (000364, validated by
+  000365), and `material_normalized_description` serves the duplicate
+  check by `platform.normalized_text(description)`.
 - `materials.outbox`, `materials.inbox`: the context's events
-  (`MaterialChanged`).
-- Permissions `materials.material.read` and `.write`.
+  (`MaterialChanged`, `MaterialChangeChanged`).
+- Permissions `materials.material.read` and `.write`, and the approval
+  permission `materials.change.approve`.

@@ -977,6 +977,10 @@ type GetMatchResultRes interface {
 	getMatchResultRes()
 }
 
+type GetMaterialChangeRes interface {
+	getMaterialChangeRes()
+}
+
 type GetMaterialRes interface {
 	getMaterialRes()
 }
@@ -1579,6 +1583,10 @@ type ListLiquidityForecastFlowsRes interface {
 
 type ListMatchResultsRes interface {
 	listMatchResultsRes()
+}
+
+type ListMaterialChangesRes interface {
+	listMaterialChangesRes()
 }
 
 type ListMaterialsRes interface {

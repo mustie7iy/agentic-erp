@@ -124563,6 +124563,120 @@ func (s *GetMaterialBadRequest) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes GetMaterialChangeBadRequest as json.
+func (s *GetMaterialChangeBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetMaterialChangeBadRequest from json.
+func (s *GetMaterialChangeBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetMaterialChangeBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetMaterialChangeBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetMaterialChangeBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetMaterialChangeBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetMaterialChangeForbidden as json.
+func (s *GetMaterialChangeForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetMaterialChangeForbidden from json.
+func (s *GetMaterialChangeForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetMaterialChangeForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetMaterialChangeForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetMaterialChangeForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetMaterialChangeForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetMaterialChangeNotFound as json.
+func (s *GetMaterialChangeNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetMaterialChangeNotFound from json.
+func (s *GetMaterialChangeNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetMaterialChangeNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetMaterialChangeNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetMaterialChangeNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetMaterialChangeNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes GetMaterialForbidden as json.
 func (s *GetMaterialForbidden) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -163672,6 +163786,82 @@ func (s *ListMatchResultsNotFound) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes ListMaterialChangesBadRequest as json.
+func (s *ListMaterialChangesBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListMaterialChangesBadRequest from json.
+func (s *ListMaterialChangesBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListMaterialChangesBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListMaterialChangesBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListMaterialChangesBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListMaterialChangesBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ListMaterialChangesForbidden as json.
+func (s *ListMaterialChangesForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListMaterialChangesForbidden from json.
+func (s *ListMaterialChangesForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListMaterialChangesForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListMaterialChangesForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListMaterialChangesForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListMaterialChangesForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes ListMaterialsBadRequest as json.
 func (s *ListMaterialsBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -172100,6 +172290,18 @@ func (s *Material) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.PendingChangeID.Set {
+			e.FieldStart("pending_change_id")
+			s.PendingChangeID.Encode(e)
+		}
+	}
+	{
+		if s.PendingChangeNumber.Set {
+			e.FieldStart("pending_change_number")
+			s.PendingChangeNumber.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("plants")
 		e.ArrStart()
 		for _, elem := range s.Plants {
@@ -172117,7 +172319,7 @@ func (s *Material) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterial = [17]string{
+var jsonFieldsNameOfMaterial = [19]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -172133,8 +172335,10 @@ var jsonFieldsNameOfMaterial = [17]string{
 	12: "material_type",
 	13: "material_group",
 	14: "status",
-	15: "plants",
-	16: "alternative_units",
+	15: "pending_change_id",
+	16: "pending_change_number",
+	17: "plants",
+	18: "alternative_units",
 }
 
 // Decode decodes Material from json.
@@ -172324,8 +172528,28 @@ func (s *Material) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
+		case "pending_change_id":
+			if err := func() error {
+				s.PendingChangeID.Reset()
+				if err := s.PendingChangeID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"pending_change_id\"")
+			}
+		case "pending_change_number":
+			if err := func() error {
+				s.PendingChangeNumber.Reset()
+				if err := s.PendingChangeNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"pending_change_number\"")
+			}
 		case "plants":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				s.Plants = make([]MaterialPlant, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -172343,7 +172567,7 @@ func (s *Material) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plants\"")
 			}
 		case "alternative_units":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				s.AlternativeUnits = make([]MaterialUnit, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -172371,8 +172595,8 @@ func (s *Material) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11011111,
-		0b11111111,
-		0b00000001,
+		0b01111111,
+		0b00000110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -172414,6 +172638,870 @@ func (s *Material) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *Material) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *MaterialChange) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *MaterialChange) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("id")
+		json.EncodeUUID(e, s.ID)
+	}
+	{
+		e.FieldStart("version")
+		e.Int32(s.Version)
+	}
+	{
+		e.FieldStart("created_at")
+		json.EncodeDateTime(e, s.CreatedAt)
+	}
+	{
+		e.FieldStart("created_by")
+		json.EncodeUUID(e, s.CreatedBy)
+	}
+	{
+		e.FieldStart("updated_at")
+		json.EncodeDateTime(e, s.UpdatedAt)
+	}
+	{
+		if s.UpdatedBy.Set {
+			e.FieldStart("updated_by")
+			s.UpdatedBy.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("number")
+		e.Str(s.Number)
+	}
+	{
+		e.FieldStart("kind")
+		e.Str(s.Kind)
+	}
+	{
+		e.FieldStart("material_id")
+		json.EncodeUUID(e, s.MaterialID)
+	}
+	{
+		e.FieldStart("material_number")
+		e.Str(s.MaterialNumber)
+	}
+	{
+		e.FieldStart("material_description")
+		e.Str(s.MaterialDescription)
+	}
+	{
+		e.FieldStart("status")
+		e.Str(s.Status)
+	}
+	{
+		e.FieldStart("requested")
+		s.Requested.Encode(e)
+	}
+	{
+		e.FieldStart("reason")
+		e.Str(s.Reason)
+	}
+	{
+		e.FieldStart("possible_duplicates")
+		e.ArrStart()
+		for _, elem := range s.PossibleDuplicates {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
+		if s.WorkflowRequestID.Set {
+			e.FieldStart("workflow_request_id")
+			s.WorkflowRequestID.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("requested_by")
+		json.EncodeUUID(e, s.RequestedBy)
+	}
+	{
+		if s.AppliedAt.Set {
+			e.FieldStart("applied_at")
+			s.AppliedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+}
+
+var jsonFieldsNameOfMaterialChange = [18]string{
+	0:  "id",
+	1:  "version",
+	2:  "created_at",
+	3:  "created_by",
+	4:  "updated_at",
+	5:  "updated_by",
+	6:  "number",
+	7:  "kind",
+	8:  "material_id",
+	9:  "material_number",
+	10: "material_description",
+	11: "status",
+	12: "requested",
+	13: "reason",
+	14: "possible_duplicates",
+	15: "workflow_request_id",
+	16: "requested_by",
+	17: "applied_at",
+}
+
+// Decode decodes MaterialChange from json.
+func (s *MaterialChange) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MaterialChange to nil")
+	}
+	var requiredBitSet [3]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "version":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.Version = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"version\"")
+			}
+		case "created_at":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.CreatedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_at\"")
+			}
+		case "created_by":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.CreatedBy = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_by\"")
+			}
+		case "updated_at":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.UpdatedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"updated_at\"")
+			}
+		case "updated_by":
+			if err := func() error {
+				s.UpdatedBy.Reset()
+				if err := s.UpdatedBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"updated_by\"")
+			}
+		case "number":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.Number = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"number\"")
+			}
+		case "kind":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Str()
+				s.Kind = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"kind\"")
+			}
+		case "material_id":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.MaterialID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_id\"")
+			}
+		case "material_number":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.MaterialNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_number\"")
+			}
+		case "material_description":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.MaterialDescription = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_description\"")
+			}
+		case "status":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.Status = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "requested":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				if err := s.Requested.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"requested\"")
+			}
+		case "reason":
+			requiredBitSet[1] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.Reason = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
+			}
+		case "possible_duplicates":
+			requiredBitSet[1] |= 1 << 6
+			if err := func() error {
+				s.PossibleDuplicates = make([]MaterialDuplicate, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialDuplicate
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.PossibleDuplicates = append(s.PossibleDuplicates, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"possible_duplicates\"")
+			}
+		case "workflow_request_id":
+			if err := func() error {
+				s.WorkflowRequestID.Reset()
+				if err := s.WorkflowRequestID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"workflow_request_id\"")
+			}
+		case "requested_by":
+			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.RequestedBy = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"requested_by\"")
+			}
+		case "applied_at":
+			if err := func() error {
+				s.AppliedAt.Reset()
+				if err := s.AppliedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"applied_at\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode MaterialChange")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [3]uint8{
+		0b11011111,
+		0b01111111,
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfMaterialChange) {
+					name = jsonFieldsNameOfMaterialChange[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MaterialChange) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MaterialChange) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *MaterialChangePage) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *MaterialChangePage) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("items")
+		e.ArrStart()
+		for _, elem := range s.Items {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
+		if s.NextPageToken.Set {
+			e.FieldStart("next_page_token")
+			s.NextPageToken.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfMaterialChangePage = [2]string{
+	0: "items",
+	1: "next_page_token",
+}
+
+// Decode decodes MaterialChangePage from json.
+func (s *MaterialChangePage) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MaterialChangePage to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "items":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				s.Items = make([]MaterialChange, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialChange
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Items = append(s.Items, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"items\"")
+			}
+		case "next_page_token":
+			if err := func() error {
+				s.NextPageToken.Reset()
+				if err := s.NextPageToken.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_page_token\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode MaterialChangePage")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfMaterialChangePage) {
+					name = jsonFieldsNameOfMaterialChangePage[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MaterialChangePage) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MaterialChangePage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *MaterialChangePlant) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *MaterialChangePlant) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("plant_id")
+		json.EncodeUUID(e, s.PlantID)
+	}
+	{
+		e.FieldStart("plant_code")
+		e.Str(s.PlantCode)
+	}
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("storage_location_ids")
+		e.ArrStart()
+		for _, elem := range s.StorageLocationIds {
+			json.EncodeUUID(e, elem)
+		}
+		e.ArrEnd()
+	}
+}
+
+var jsonFieldsNameOfMaterialChangePlant = [4]string{
+	0: "plant_id",
+	1: "plant_code",
+	2: "legal_entity_id",
+	3: "storage_location_ids",
+}
+
+// Decode decodes MaterialChangePlant from json.
+func (s *MaterialChangePlant) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MaterialChangePlant to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "plant_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.PlantID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_id\"")
+			}
+		case "plant_code":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.PlantCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_code\"")
+			}
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "storage_location_ids":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				s.StorageLocationIds = make([]uuid.UUID, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem uuid.UUID
+					v, err := json.DecodeUUID(d)
+					elem = v
+					if err != nil {
+						return err
+					}
+					s.StorageLocationIds = append(s.StorageLocationIds, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"storage_location_ids\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode MaterialChangePlant")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00001111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfMaterialChangePlant) {
+					name = jsonFieldsNameOfMaterialChangePlant[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MaterialChangePlant) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MaterialChangePlant) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *MaterialChangeRequested) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *MaterialChangeRequested) encodeFields(e *jx.Encoder) {
+	{
+		if s.Description.Set {
+			e.FieldStart("description")
+			s.Description.Encode(e)
+		}
+	}
+	{
+		if s.BaseUnit.Set {
+			e.FieldStart("base_unit")
+			s.BaseUnit.Encode(e)
+		}
+	}
+	{
+		if s.MaterialType.Set {
+			e.FieldStart("material_type")
+			s.MaterialType.Encode(e)
+		}
+	}
+	{
+		if s.MaterialGroup.Set {
+			e.FieldStart("material_group")
+			s.MaterialGroup.Encode(e)
+		}
+	}
+	{
+		if s.Status.Set {
+			e.FieldStart("status")
+			s.Status.Encode(e)
+		}
+	}
+	{
+		if s.Plants != nil {
+			e.FieldStart("plants")
+			e.ArrStart()
+			for _, elem := range s.Plants {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
+		if s.AlternativeUnits != nil {
+			e.FieldStart("alternative_units")
+			e.ArrStart()
+			for _, elem := range s.AlternativeUnits {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+}
+
+var jsonFieldsNameOfMaterialChangeRequested = [7]string{
+	0: "description",
+	1: "base_unit",
+	2: "material_type",
+	3: "material_group",
+	4: "status",
+	5: "plants",
+	6: "alternative_units",
+}
+
+// Decode decodes MaterialChangeRequested from json.
+func (s *MaterialChangeRequested) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MaterialChangeRequested to nil")
+	}
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "description":
+			if err := func() error {
+				s.Description.Reset()
+				if err := s.Description.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description\"")
+			}
+		case "base_unit":
+			if err := func() error {
+				s.BaseUnit.Reset()
+				if err := s.BaseUnit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"base_unit\"")
+			}
+		case "material_type":
+			if err := func() error {
+				s.MaterialType.Reset()
+				if err := s.MaterialType.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_type\"")
+			}
+		case "material_group":
+			if err := func() error {
+				s.MaterialGroup.Reset()
+				if err := s.MaterialGroup.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_group\"")
+			}
+		case "status":
+			if err := func() error {
+				s.Status.Reset()
+				if err := s.Status.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "plants":
+			if err := func() error {
+				s.Plants = make([]MaterialChangePlant, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialChangePlant
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Plants = append(s.Plants, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plants\"")
+			}
+		case "alternative_units":
+			if err := func() error {
+				s.AlternativeUnits = make([]MaterialUnitInput, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem MaterialUnitInput
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.AlternativeUnits = append(s.AlternativeUnits, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"alternative_units\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode MaterialChangeRequested")
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MaterialChangeRequested) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MaterialChangeRequested) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -172467,9 +173555,21 @@ func (s *MaterialCreate) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.Reason.Set {
+			e.FieldStart("reason")
+			s.Reason.Encode(e)
+		}
+	}
+	{
+		if s.ConfirmDuplicate.Set {
+			e.FieldStart("confirm_duplicate")
+			s.ConfirmDuplicate.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialCreate = [7]string{
+var jsonFieldsNameOfMaterialCreate = [9]string{
 	0: "legal_entity_id",
 	1: "description",
 	2: "base_unit",
@@ -172477,6 +173577,8 @@ var jsonFieldsNameOfMaterialCreate = [7]string{
 	4: "material_group",
 	5: "plants",
 	6: "alternative_units",
+	7: "reason",
+	8: "confirm_duplicate",
 }
 
 // Decode decodes MaterialCreate from json.
@@ -172484,7 +173586,8 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode MaterialCreate to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
+	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -172582,6 +173685,26 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"alternative_units\"")
 			}
+		case "reason":
+			if err := func() error {
+				s.Reason.Reset()
+				if err := s.Reason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
+			}
+		case "confirm_duplicate":
+			if err := func() error {
+				s.ConfirmDuplicate.Reset()
+				if err := s.ConfirmDuplicate.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"confirm_duplicate\"")
+			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
 		}
@@ -172591,8 +173714,9 @@ func (s *MaterialCreate) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b00011111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -172634,6 +173758,136 @@ func (s *MaterialCreate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *MaterialCreate) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *MaterialDuplicate) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *MaterialDuplicate) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("material_id")
+		json.EncodeUUID(e, s.MaterialID)
+	}
+	{
+		e.FieldStart("number")
+		e.Str(s.Number)
+	}
+	{
+		e.FieldStart("description")
+		e.Str(s.Description)
+	}
+}
+
+var jsonFieldsNameOfMaterialDuplicate = [3]string{
+	0: "material_id",
+	1: "number",
+	2: "description",
+}
+
+// Decode decodes MaterialDuplicate from json.
+func (s *MaterialDuplicate) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MaterialDuplicate to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "material_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.MaterialID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_id\"")
+			}
+		case "number":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Number = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"number\"")
+			}
+		case "description":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.Description = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode MaterialDuplicate")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfMaterialDuplicate) {
+					name = jsonFieldsNameOfMaterialDuplicate[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MaterialDuplicate) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MaterialDuplicate) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -173532,14 +174786,21 @@ func (s *MaterialUpdate) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.Reason.Set {
+			e.FieldStart("reason")
+			s.Reason.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMaterialUpdate = [5]string{
+var jsonFieldsNameOfMaterialUpdate = [6]string{
 	0: "description",
 	1: "material_group",
 	2: "status",
 	3: "plants",
 	4: "alternative_units",
+	5: "reason",
 }
 
 // Decode decodes MaterialUpdate from json.
@@ -173613,6 +174874,16 @@ func (s *MaterialUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"alternative_units\"")
+			}
+		case "reason":
+			if err := func() error {
+				s.Reason.Reset()
+				if err := s.Reason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)

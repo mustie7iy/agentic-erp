@@ -452,6 +452,7 @@ func approvalHandlers(cfg Config) map[string]approvals.Handler {
 		approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
 		approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: procurementEndpoints(cfg)},
 		approvals.TaxReturn:         taxfiling.TaxReturns{Endpoints: &taxfiling.Endpoints{Items: ledger.TaxItems{}}},
+		approvals.MaterialChange:    materials.Approvals{Endpoints: Materials(cfg)},
 	}
 }
 

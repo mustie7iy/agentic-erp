@@ -39,6 +39,11 @@ type Input struct {
 	Group         string
 	Plants        []PlantInput
 	Units         []UnitInput
+	// Reason is the creator's, kept on the create change.
+	Reason string
+	// ConfirmDuplicate creates the material though others have its
+	// description (ADR-0082 §9).
+	ConfirmDuplicate bool
 }
 
 // company is the company whose range numbers a material, one the caller
@@ -174,10 +179,13 @@ func (e *Endpoints) says(ctx context.Context, tx pgx.Tx, in Input) (map[uuid.UUI
 	return e.checkPlants(ctx, in.Plants)
 }
 
-// Create creates a material (ADR-0082 §4-§6): the request checked, the
-// material numbered from its company's material range and written active
-// with its plants, storage locations and alternative units; the audit
-// record and MaterialChanged in the request's transaction.
+// Create creates a material (ADR-0082 §4-§6, §9): the request checked,
+// the materials of its description found and refused unless confirmed, the
+// material numbered from its company's material range and written pending
+// with its plants, storage locations and alternative units, and its create
+// change opened with the possible duplicates for its approval; the audit
+// records, MaterialChanged and MaterialChangeChanged in the request's
+// transaction.
 func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -191,6 +199,38 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 	if err != nil {
 		return Material{}, err
 	}
+	dups, err := duplicates(ctx, tx, in.Description)
+	if err != nil {
+		return Material{}, err
+	}
+	if err := confirmed(dups, in.ConfirmDuplicate); err != nil {
+		return Material{}, err
+	}
+	m, err := e.insert(ctx, tx, p, le, in, companies)
+	if err != nil {
+		return Material{}, err
+	}
+	c, err := insertChange(ctx, tx, p, KindCreate, m.ID, requestedOf(m, in, companies), in.Reason, dups, false)
+	if err != nil {
+		return Material{}, err
+	}
+	if err := e.record(ctx, m, change{action: "create", name: "created", detail: map[string]any{"number": m.Number, "description": m.Description,
+		"base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status, "plants": plantIDs(m.Plants),
+		"alternative_units": unitDetail(m.Units), "material_change_id": c.ID, "possible_duplicates": len(dups)}}, nil); err != nil {
+		return Material{}, err
+	}
+	if err := recordChange(ctx, c, m, "materials.change.request", nil, nil); err != nil {
+		return Material{}, err
+	}
+	if _, err := e.open(ctx, tx, p, c, m.Number); err != nil {
+		return Material{}, err
+	}
+	return load(ctx, tx, m.ID, false)
+}
+
+// insert numbers the material and writes it pending with its plants,
+// storage locations and units.
+func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, in Input, companies map[uuid.UUID]uuid.UUID) (Material, error) {
 	number, err := e.number(ctx, le)
 	if err != nil {
 		return Material{}, err
@@ -198,7 +238,7 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type,
 			material_group, status, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)`,
-		p.TenantID, id, number, le.ID, in.Description, in.BaseUnit, in.Type, in.Group, Active, p.ID); err != nil {
+		p.TenantID, id, number, le.ID, in.Description, in.BaseUnit, in.Type, in.Group, Pending, p.ID); err != nil {
 		return Material{}, fmt.Errorf("materials: insert material %s: %w", number, err)
 	}
 	if err := writePlants(ctx, tx, p, id, in.Plants, companies); err != nil {
@@ -207,13 +247,17 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 	if err := writeUnits(ctx, tx, p, id, in.Units); err != nil {
 		return Material{}, err
 	}
-	m, err := load(ctx, tx, id, false)
-	if err != nil {
-		return Material{}, err
+	return load(ctx, tx, id, false)
+}
+
+// requestedOf is a create change's payload: the material as requested.
+func requestedOf(m Material, in Input, companies map[uuid.UUID]uuid.UUID) Requested {
+	units := make([]RequestedUnit, len(in.Units))
+	for i, u := range in.Units {
+		units[i] = RequestedUnit(u)
 	}
-	return m, e.record(ctx, m, change{action: "create", name: "created", detail: map[string]any{"number": m.Number, "description": m.Description,
-		"base_unit": m.BaseUnit, "material_type": m.Type, "material_group": m.Group, "status": m.Status, "plants": plantIDs(m.Plants),
-		"alternative_units": unitDetail(m.Units)}}, nil)
+	return Requested{Description: &m.Description, BaseUnit: &m.BaseUnit, Type: &m.Type, Group: &m.Group, Plants: requestedPlants(in.Plants, companies),
+		Units: &units}
 }
 
 // writePlants writes the plants a material is extended to and their
