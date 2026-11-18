@@ -6531,7 +6531,7 @@
        {
         "s": "T",
         "t": "A dispute case's free-text reason and note are copied into its audit details (opened, changed, closed), which a deletion run cannot blank: audit records are insert-only, so the text outlives the erasure of its subject; keep such text out of audit details, as customer contacts do since batch 79, or make it erasable (found in batch 79's review)",
-        "r": "internal/collections disputes.go audit details (recordCase, changed) · audit.audit_event · audit.audit_event · ADR-0079 · ADR-0011",
+        "r": "internal/collections disputes.go audit details (recordCase, changed) · audit.audit_event · ADR-0079 · ADR-0011",
         "src": "review:batch79",
         "c": []
        }
