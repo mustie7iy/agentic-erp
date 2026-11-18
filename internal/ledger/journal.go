@@ -1561,7 +1561,8 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry, cancelling uu
 // (goods-receipts/{id}:reverse, T33), and assets, whose documents are
 // reversed through their own paths (asset-acquisitions/{id}:reverse,
 // ADR-0057 §4), and controlling, whose settlements are reversed by
-// internal-orders/{id}/settlements/{settlement id}:reverse (T60i), and
+// internal-orders/{id}/settlements/{settlement id}:reverse (T60i) and
+// whose allocation runs by allocation-runs/{id}:reverse (T60k), and
 // receivables, whose credit and debit memos are reversed by
 // customer-invoices/{id}:reverse (T75k) and whose applications are undone
 // by incoming-payments/{id}:reset (T75i). Entries
@@ -1587,10 +1588,10 @@ func requireOwnEntry(orig Entry) error {
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for goods movement "+orig.SourceDocumentID.String()+
 			"; goods receipts are reversed with POST /v1/goods-receipts/{receipt id}:reverse, which posts its own entry.")
 	case orig.SourceContext == "controlling" && orig.SourceDocumentID != nil:
-		// A settlement's or a cycle run's (ADR-0064 §3, §5; T60i).
+		// A settlement's or a cycle run's (ADR-0064 §3, §5; T60i, T60k).
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for controlling document "+orig.SourceDocumentID.String()+
 			"; an internal order's settlement is reversed with POST /v1/internal-orders/{order id}/settlements/"+orig.SourceDocumentID.String()+
-			":reverse, and an allocation cycle's run is not reversed.")
+			":reverse, and an allocation cycle's run with POST /v1/allocation-runs/"+orig.SourceDocumentID.String()+":reverse.")
 	case orig.SourceContext == "receivables" && orig.SourceDocumentID != nil:
 		// A customer invoice's, credit memo's or debit memo's, or an
 		// incoming payment's application (ADR-0063 §5, As built T75i, T75k).

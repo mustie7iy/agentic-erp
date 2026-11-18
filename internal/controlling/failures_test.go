@@ -200,14 +200,14 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		},
 		"create an allocation cycle": func(ctx context.Context) error {
 			_, err := h.CreateAllocationCycle(ctx, &gen.AllocationCycleCreate{LegalEntityID: c.DE, Code: "MADE", Name: "M", Kind: "distribution",
-				SenderCostCenterID: c.c.Admin, Receivers: []gen.AllocationCycleCreateReceiversItem{{CostCenterID: c.c.Sales, Percentage: "100"}}},
+				SenderCostCenterID: c.c.Admin, Receivers: []gen.AllocationCycleCreateReceiversItem{{CostCenterID: c.c.Sales, Percentage: gen.NewOptString("100")}}},
 				gen.CreateAllocationCycleParams{})
 			return err
 		},
 		"create an assessment cycle": func(ctx context.Context) error {
 			_, err := h.CreateAllocationCycle(ctx, &gen.AllocationCycleCreate{LegalEntityID: c.DE, Code: "MADE", Name: "M", Kind: "assessment",
 				SenderCostCenterID: c.c.Admin, AssessmentAccountID: gen.NewOptUUID(c.assessed),
-				Receivers: []gen.AllocationCycleCreateReceiversItem{{CostCenterID: c.c.Sales, Percentage: "100"}}}, gen.CreateAllocationCycleParams{})
+				Receivers: []gen.AllocationCycleCreateReceiversItem{{CostCenterID: c.c.Sales, Percentage: gen.NewOptString("100")}}}, gen.CreateAllocationCycleParams{})
 			return err
 		},
 		"get an assessment cycle": func(ctx context.Context) error {
@@ -423,7 +423,8 @@ func TestPlanConstraintProblems(t *testing.T) {
 	for constraint, code := range map[string]string{
 		"plan_category_code_once": "controlling.plan_category_exists", "plan_category_open": "controlling.plan_category_locked",
 		"internal_order_code_once": "controlling.internal_order_exists", "allocation_cycle_code_once": "controlling.allocation_cycle_exists",
-		"allocation_run_once": "controlling.allocation_run_exists",
+		"allocation_run_once": "controlling.allocation_run_exists", "allocation_run_attempt_once": "controlling.allocation_run_exists",
+		"allocation_run_in_force_once": "controlling.allocation_run_exists", "statistical_key_figure_code_once": "controlling.statistical_key_figure_exists",
 	} {
 		t.Run(constraint, func(t *testing.T) {
 			if got := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: constraint}).Code; got != code {

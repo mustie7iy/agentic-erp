@@ -1764,6 +1764,34 @@ func encodeCreateSodRuleRequest(
 	return nil
 }
 
+func encodeCreateStatisticalKeyFigureRequest(
+	req *StatisticalKeyFigureCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateStatisticalKeyFigurePostingRequest(
+	req *StatisticalKeyFigurePostingCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateSupplierInvoiceRequest(
 	req *SupplierInvoiceCreate,
 	r *http.Request,

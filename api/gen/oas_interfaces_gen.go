@@ -561,6 +561,14 @@ type CreateSodRuleRes interface {
 	createSodRuleRes()
 }
 
+type CreateStatisticalKeyFigurePostingRes interface {
+	createStatisticalKeyFigurePostingRes()
+}
+
+type CreateStatisticalKeyFigureRes interface {
+	createStatisticalKeyFigureRes()
+}
+
 type CreateSupplierInvoiceRes interface {
 	createSupplierInvoiceRes()
 }
@@ -1233,6 +1241,10 @@ type GetSodRuleRes interface {
 	getSodRuleRes()
 }
 
+type GetStatisticalKeyFigureRes interface {
+	getStatisticalKeyFigureRes()
+}
+
 type GetSupplierInvoiceDocumentRes interface {
 	getSupplierInvoiceDocumentRes()
 }
@@ -1869,6 +1881,14 @@ type ListSodRulesRes interface {
 	listSodRulesRes()
 }
 
+type ListStatisticalKeyFigureValuesRes interface {
+	listStatisticalKeyFigureValuesRes()
+}
+
+type ListStatisticalKeyFiguresRes interface {
+	listStatisticalKeyFiguresRes()
+}
+
 type ListStockRes interface {
 	listStockRes()
 }
@@ -2215,6 +2235,10 @@ type RetireControlRes interface {
 
 type RetireEntryTemplateRes interface {
 	retireEntryTemplateRes()
+}
+
+type ReverseAllocationRunRes interface {
+	reverseAllocationRunRes()
 }
 
 type ReverseAssetAcquisitionRes interface {

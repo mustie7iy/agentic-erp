@@ -3711,6 +3711,14 @@ ledger the secondary cost element and its two rules (§3.7). Migration
 000308 adds the permission `controlling.margin.read` of the margin report
 (ADR-0075, T92b), which has no table. Migration 000309 adds the origin of
 a plan batch written by a copy of another category's plan (T93a).
+Migration 000373 (T60j) adds statistical key figures, their postings and
+values, a cycle's share basis and key figure, and the permissions
+`controlling.key_figure.read` and `.write`; 000374 validates the
+cycle's new constraints. Migration 000375 (T60k) adds the share basis
+`fixed_amounts` with each receiver's amount, a run's attempt and
+`controlling.allocation_run_reversal`; 000376 builds
+`allocation_run_attempt_once` concurrently; 000377 validates and drops
+`allocation_run_once`.
 Migration 000331 adds the permission `controlling.profitability.read` of
 net revenue by profitability segment (ADR-0075 §6, T92a), which has no
 table either.
@@ -3795,11 +3803,34 @@ erDiagram
     text name
     text kind "distribution, assessment"
     uuid sender_cost_center_id "ledger context"
-    uuid assessment_account_id "ledger context; an assessment's" }
+    uuid assessment_account_id "ledger context; an assessment's"
+    text share_basis "fixed_percentages, statistical_key_figure"
+    uuid statistical_key_figure_id FK "by key figure" }
   allocation_receiver { uuid cycle_id PK
     smallint position PK
     uuid cost_center_id "ledger context, once per cycle"
-    int share_bp "basis points; a cycle's add up to 10000" }
+    int share_bp "basis points; fixed percentages' add up to 10000"
+    bigint amount "fixed amounts: local currency, minor units" }
+  allocation_run ||--o| allocation_run_reversal : "reversed by"
+  allocation_run_reversal { uuid run_id PK
+    uuid journal_entry_id "ledger context, once"
+    text document_number }
+  statistical_key_figure ||--o{ statistical_key_figure_posting : "posted"
+  statistical_key_figure ||--o{ allocation_cycle : "shares of"
+  statistical_key_figure_posting ||--|{ statistical_key_figure_value : "holds"
+  statistical_key_figure { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    text code "unique per company"
+    text name
+    text unit FK "ref.unit_of_measure" }
+  statistical_key_figure_posting { uuid id PK
+    uuid key_figure_id FK
+    smallint fiscal_year
+    smallint fiscal_period }
+  statistical_key_figure_value { uuid posting_id PK
+    smallint position PK
+    uuid cost_center_id "ledger context, once per posting"
+    numeric value "not zero, six decimals" }
   allocation_run { uuid id PK
     uuid cycle_id FK
     smallint fiscal_year
@@ -3822,10 +3853,14 @@ erDiagram
 | `controlling.settlement_rule` | An order's settlement rule (ADR-0064 §3, T60d): at most one row per order (the primary key; `settlement_rule_order`, a foreign key to the order) naming its one receiver, a cost center (the ledger's; no foreign key crosses the schema: checked when the rule is set, through `ledger.AssignmentBalances.CostCenterRefs` and `CostCenterValidOn`, to be an active cost center of the order's company valid on the company's date), which takes the whole. An order without a row has no rule. Replaced with the order's version (`controlling.order.write`; the order read FOR UPDATE and its version moved with the rule), each change audited with the receivers before and after; the row's own `version` counts its replacements (`platform.touch`); never deleted |
 | `controlling.order_settlement` | A settlement of an order (ADR-0064 §3, T60e), insert-only (no `UPDATE` or `DELETE` granted): the order (`order_settlement_order`), its company, the fiscal year and regular period settled up to, the posting date (the period's last day), the receiving cost center and the journal entry (the ledger's; no foreign key crosses the schema; an entry is one settlement's, `order_settlement_entry_once`) with its document number, the amount moved in minor units of the company's local currency (the total of the accounts' balances, negative for a credit balance) and the number of accounts. The entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the settlement as its source document: per account the order credited and the receiver debited, so each account's balance is unchanged. The order is read FOR UPDATE from before its balance is read (`ledger.AssignmentBalances.OrderAccountBalances`) until the entry is posted; with nothing unsettled no row is written. A settled order, its balance zero on every account, is closed (`controlling.internal_order.status` `closed`, from `released` alone and for good, `internal_order_lifecycle`): a closed order takes no posting, and the entries that posted to it are no longer reversed |
 | `controlling.order_settlement_reversal` | A settlement reversed (ADR-0064 §3, T60i, 000358), insert-only (no `UPDATE` or `DELETE` granted): at most one row per settlement (the primary key; `order_settlement_reversal_settlement`, a foreign key to it), the reversal's journal entry (the ledger's, no foreign key; an entry reverses one settlement, `order_settlement_reversal_entry_once`) and its document number (`order_settlement_reversal_number`). Written with the reversal posted through `ledger.Postings.Reverse` on the settlement's own posting date, the settlement entry's lock taken first and then the order FOR UPDATE; only the order's latest settlement not reversed is reversed, and a reversed one no longer bounds the period of the next settlement |
-| `controlling.allocation_cycle` | An allocation cycle (ADR-0064 §5, T60f): a company's cycle with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `allocation_cycle_code_once`), a name, a `kind` (`distribution` or, since T60g, `assessment`), its sender cost center (the ledger's; no foreign key crosses the schema: sender and receivers are checked through `ledger.AssignmentBalances.CostCenterRefs` to be active cost centers of the company) and, exactly for an assessment, its `assessment_account_id` (`allocation_cycle_assessment_account`; the ledger's, checked through `ledger.AssignmentBalances.CostAccounts` to be an active secondary cost element of the company). It keeps its company, code, kind, sender and assessment account (`allocation_cycle_identity`, a trigger); never deleted. A run holds every cycle of its sender FOR UPDATE, in id order, before it reads the sender's costs, so the runs of one sender follow one another whichever of its cycles they are |
-| `controlling.allocation_receiver` | A receiver of a cycle, insert-only: its place in the cycle's list, the cost center, once per cycle (`allocation_receiver_once`), and its share in basis points, 1 to 10,000 (a percentage with two decimals). A cycle's shares add up to 10,000 and no receiver is its sender, held when the transaction that wrote the cycle or a receiver commits (`allocation_receiver_shares_whole`, `allocation_receiver_not_sender`, raised by deferred constraint triggers on both tables) |
-| `controlling.allocation_run` | A run of a cycle for a fiscal period, insert-only: the cycle with its company (foreign key), the fiscal year and regular period, the posting date (the period's last day), the journal entry (the ledger's; once, `allocation_run_entry_once`) with its document number, the amount moved off the sender in minor units of the company's local currency and the number of accounts. One run per cycle and period (`allocation_run_once`). A distribution's entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the run as its source document: per account the sender credited with its cost of the period (the ledger's actuals of the center on primary cost accounts) and each receiver debited with its share, split by `money.Allocate` so the shares add up to the cost to the minor unit. A sender without costs in the period posts nothing and no row is written |
-| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`, `InternalOrderSettled`, `AllocationCycleChanged`, `AllocationRunPosted`), relayed as every context's (`outbox.Contexts`) |
+| `controlling.allocation_cycle` | An allocation cycle (ADR-0064 §5, T60f): a company's cycle with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `allocation_cycle_code_once`), a name, a `kind` (`distribution` or, since T60g, `assessment`), its sender cost center (the ledger's; no foreign key crosses the schema: sender and receivers are checked through `ledger.AssignmentBalances.CostCenterRefs` to be active cost centers of the company) and, exactly for an assessment, its `assessment_account_id` (`allocation_cycle_assessment_account`; the ledger's, checked through `ledger.AssignmentBalances.CostAccounts` to be an active secondary cost element of the company). Since T60j (000373) its `share_basis` says what its receivers' shares are: `fixed_percentages` (every cycle before) or `statistical_key_figure` with its `statistical_key_figure_id` (`allocation_cycle_share_basis`, `allocation_cycle_key_figure`), a key figure of the cycle's company (`allocation_cycle_key_figure_company`, a foreign key). It keeps its company, code, kind, sender, assessment account, share basis and key figure (`allocation_cycle_identity`, a trigger); never deleted. A run holds every cycle of its sender FOR UPDATE, in id order, before it reads the sender's costs, so the runs of one sender follow one another whichever of its cycles they are |
+| `controlling.allocation_receiver` | A receiver of a cycle, insert-only: its place in the cycle's list, the cost center, once per cycle (`allocation_receiver_once`), and on a cycle by fixed percentages its share in basis points, 1 to 10,000 (a percentage with two decimals). A cycle by fixed percentages has every receiver's share and they add up to 10,000 (`allocation_receiver_shares_whole`); a cycle by key figure has receivers and none has a share (`allocation_receiver_shares_by_basis`, T60j); no receiver is its sender (`allocation_receiver_not_sender`); held when the transaction that wrote the cycle or a receiver commits, raised by deferred constraint triggers on both tables |
+| `controlling.allocation_run_reversal` | A run reversed (ADR-0064 As built T60k, 000375), insert-only: at most one row per run (the primary key; `allocation_run_reversal_run`, a foreign key), the reversal's journal entry (the ledger's, no foreign key; once, `allocation_run_reversal_entry_once`) and its number (`allocation_run_reversal_number`). Written with the reversal posted through `ledger.Postings.Reverse` on the run's own posting date, the sender's cycles held FOR UPDATE; a reversed run is no longer in force |
+| `controlling.statistical_key_figure` | A statistical key figure (ADR-0064 As built T60j, 000373): a company's quantity such as employees or floor space, with a code unique in the company (`^[0-9A-Z_-]{1,12}$`, `statistical_key_figure_code_once`), a name and a unit of measure of the reference data (`statistical_key_figure_unit`, a foreign key to `ref.unit_of_measure`). It keeps its company, code and unit (`statistical_key_figure_identity`, a trigger); not changed by the API in the first version; never deleted |
+| `controlling.statistical_key_figure_posting` | A posting of a key figure's values for a fiscal year and period 1-16 of its company (`statistical_key_figure_posting_key_figure`, a foreign key with the company), insert-only (no version, so no `UPDATE`; no `DELETE`): a correction is a further posting |
+| `controlling.statistical_key_figure_value` | A posting's value for a cost center (the ledger's, no foreign key; checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the key figure's company), once per posting (`statistical_key_figure_value_once`), not zero (`statistical_key_figure_value_not_zero`), numeric(20,6), a negative value correcting an earlier one; insert-only. A center's value of a period is the sum of its postings' values in it (`GET /v1/statistical-key-figures/{id}/values`), which a run of a cycle by the key figure reads for its receivers: their shares are their values over their total |
+| `controlling.allocation_run` | A run of a cycle for a fiscal period, insert-only: the cycle with its company (foreign key), the fiscal year and regular period, the posting date (the period's last day), the journal entry (the ledger's; once, `allocation_run_entry_once`) with its document number, the amount moved off the sender in minor units of the company's local currency and the number of accounts. One run per cycle and period (`allocation_run_once`); since T60k one run in force per cycle and period: each run is an `attempt`, unique per cycle and period (`allocation_run_attempt_once`), the next only after every earlier one is reversed (`allocation_run_in_force_once`, a trigger), and a run by fixed amounts names no account (`account_count` 0). A distribution's entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the run as its source document: per account the sender credited with its cost of the period (the ledger's actuals of the center on primary cost accounts) and each receiver debited with its share, split by `money.Allocate` so the shares add up to the cost to the minor unit. A sender without costs in the period posts nothing and no row is written |
+| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`, `InternalOrderSettled`, `AllocationCycleChanged` (.v1 for a cycle by fixed percentages, .v2 for every cycle since T60j), `AllocationRunPosted`, `AllocationRunReversed`, `StatisticalKeyFigureChanged`, `StatisticalKeyFigurePosted`), relayed as every context's (`outbox.Contexts`) |
 
 Plan against actual (`GET /v1/cost-center-plan-actual`, and `GET
 /v1/profit-center-plan-actual`, T56g3) stores nothing: the category's
