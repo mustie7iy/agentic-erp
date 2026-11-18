@@ -1,0 +1,35 @@
+# A starter chart: the accounts automatic postings need, mapped to the
+# account determination, and a few common expense accounts. Tenants extend
+# it; the merge keeps their own accounts.
+accounts:
+  - {number: "1000", name: Bank - operating, type: asset}
+  - {number: "1300", name: GST/HST receivable (input tax credits), type: asset}
+  - {number: "1310", name: QST receivable (input tax refunds), type: asset}
+  - {number: "1400", name: Down payments to suppliers, type: asset, vendor_reconciliation: true}
+  - {number: "2000", name: Accounts payable - trade, type: liability, vendor_reconciliation: true}
+  - {number: "2100", name: Goods received not invoiced (GR/IR), type: liability}
+  - {number: "2300", name: GST/HST payable, type: liability}
+  - {number: "2310", name: QST payable, type: liability}
+  - {number: "3000", name: Share capital, type: equity}
+  - {number: "3100", name: Retained earnings, type: equity}
+  - {number: "4000", name: Sales, type: revenue}
+  - {number: "4800", name: Purchase discounts received, type: revenue}
+  - {number: "4900", name: Foreign exchange gains, type: revenue}
+  - {number: "5000", name: Purchases and cost of goods sold, type: expense}
+  - {number: "5100", name: Purchase price differences, type: expense}
+  - {number: "6000", name: Office and administrative expenses, type: expense}
+  - {number: "6100", name: Professional fees, type: expense}
+  - {number: "6200", name: Rent, type: expense}
+  - {number: "6300", name: Travel, type: expense}
+  - {number: "6400", name: Provincial sales tax (non-recoverable), type: expense}
+  - {number: "6900", name: Foreign exchange losses, type: expense}
+account_determination:
+  ap_reconciliation: "2000"
+  input_tax: "1300"
+  bank: "1000"
+  fx_gain: "4900"
+  fx_loss: "6900"
+  gr_ir: "2100"
+  price_difference: "5100"
+  cash_discount: "4800"
+  down_payment: "1400"
