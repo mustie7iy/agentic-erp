@@ -1227,8 +1227,22 @@
        },
        {
         "s": "T",
-        "t": "later: customer credit memo variants: debit memos, credit memos from returns and credit memo requests, paying a credit out, reversal (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T75d, Later",
+        "t": "An AR accountant enters and posts a debit memo to a customer: posted as an invoice is, Dr the customer and Cr revenue and output tax at its own date, as journal document type DD with its own number range journal_dd; the customer's open item with its terms; it names no invoice",
+        "r": "T75j · docs/design/plan-depth-3.md §T75j · ADR-0063 §7",
+        "src": "split:T75d · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An AR accountant reverses a posted credit memo or debit memo: a reversal document turns its entry's signs, its open item is cleared against the reversal, a reversed credit memo frees its invoice's credit limit; refused when its item is cleared, for an invoice, for a memo sales entered, and into a closed period with the period's problem (POST /v1/customer-invoices/{id}:reverse)",
+        "r": "T75k · docs/design/plan-depth-3.md §T75k · ADR-0063 §7",
+        "src": "split:T75d · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: customer credit memo variants: credit memos from returns and credit memo requests, paying a credit out, a debit memo naming the invoice it adds to, reversal reason codes (debit memos and reversing a credit memo or debit memo are T75j and T75k; after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75d, Later · docs/design/plan-depth-3.md §cm, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        }
