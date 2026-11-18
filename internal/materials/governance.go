@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/numbering"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -137,28 +138,13 @@ func getChange(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Materia
 	return c, nil
 }
 
-// nextChangeNumber issues the tenant's next change number, MC and eight
-// digits, as the partner context numbers its changes (ADR-0004 As built):
-// numbering is serialized per tenant.
-func nextChangeNumber(ctx context.Context, tx pgx.Tx, tenant uuid.UUID) (string, error) {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "materials.material_change."+tenant.String()); err != nil {
-		return "", fmt.Errorf("materials: lock the material change numbering: %w", err)
-	}
-	var n string
-	if err := tx.QueryRow(ctx, `SELECT 'MC' || lpad((coalesce(max(substr(number, 3)::bigint), 0) + 1)::text, 8, '0') FROM materials.material_change`).
-		Scan(&n); err != nil {
-		return "", fmt.Errorf("materials: issue the next material change number: %w", err)
-	}
-	return n, nil
-}
-
 // insertChange writes a change of the material, pending or, for a block,
 // applied.
 func insertChange(ctx context.Context, tx pgx.Tx, p reqctx.Principal, kind string, material uuid.UUID, req Requested, reason string,
 	dups []Duplicate, applied bool) (MaterialChange, error) {
-	number, err := nextChangeNumber(ctx, tx, p.TenantID)
+	number, err := numbering.Next(ctx, tx, p.TenantID, "materials", "material_change", "MC")
 	if err != nil {
-		return MaterialChange{}, err
+		return MaterialChange{}, fmt.Errorf("materials: number a material change: %w", err)
 	}
 	status := ChangePending
 	if applied {

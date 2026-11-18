@@ -12603,9 +12603,9 @@ material_request() {
   field .workflow_request_id
 }
 
-# step_material is S1a and S1b (ADR-0082, plan-supply-chain.md): Mira, the
-# master data specialist, sets up Maple's Toronto plant with two storage
-# locations and a second plant, then creates the M10 bracket: numbered
+# step_material is S1a and S1b (ADR-0082, plan-supply-chain.md): Ada sets
+# up Maple's Toronto plant with two storage locations and a second plant;
+# Mira, the master data specialist, creates the M10 bracket: numbered
 # from the company's material range, kept in each, bought by the box of
 # 20. A box that converts to the base unit itself and a storage location
 # of the other plant are refused naming their fields. The bracket is
@@ -12619,8 +12619,8 @@ step_material() {
   as ada
   say "Ada adds Mira, the master data specialist, to the team:"
   person mira "Mira Materials" finance_staff
-  as mira
-  say "Mira sets up the Toronto plant with its main store and spare parts store, and the Montreal plant:"
+  say "Ada, who manages the organisation, sets up the Toronto plant with its main store and spare parts store, and"
+  say "the Montreal plant:"
   api 201 '"\(.kind) \(.code) \(.name): \(.status)"' createOrgUnit -body "{\"legal_entity_id\": \"$LE\", \"kind\": \"plant\", \"code\": \"P100\", \"name\": \"Toronto plant\"}"
   plant=$(field .id)
   api 200 '"\(.kind) \(.code): \(.status)"' activateOrgUnit -p "id=$plant" -if-match "$ETAG"
@@ -12638,7 +12638,8 @@ step_material() {
   QUIET=1 api 201 '' createOrgUnit -body "{\"legal_entity_id\": \"$LE\", \"kind\": \"storage_location\", \"code\": \"SL03\", \"name\": \"Montreal store\", \"parent_id\": \"$other\"}"
   far=$(field .id)
   QUIET=1 api 200 '' activateOrgUnit -p "id=$far" -if-match "$ETAG"
-  say "She creates the M10 bracket: counted each, bought by the box of 20, kept in Toronto's main store. Its number"
+  as mira
+  say "Mira creates the M10 bracket: counted each, bought by the box of 20, kept in Toronto's main store. Its number"
   say "comes from Maple's material range (ADR-0082 §6); it waits for its approval (S1b):"
   api 201 '"material \(.number) \(.description): \(.material_type), group \(.material_group), base unit \(.base_unit) (\(.base_unit_name)), \(.status), change \(.pending_change_number)", (.plants[] | "  plant \(.plant_code) \(.plant_name) of company \(.company_code): \([.storage_locations[] | .code] | join(", "))"), (.alternative_units[] | "  alternative unit \(.unit) (\(.unit_name)): \(.numerator) base units per \(.denominator)")' \
     createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M10\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\",

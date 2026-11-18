@@ -188,3 +188,44 @@ func TestChangeKeepsOtherCompanies(t *testing.T) {
 		t.Errorf("after company 2000's change: got %q, want company 1000's P2:S3 kept", got)
 	}
 }
+
+// TestBlockWhileChangePending: a block applies while a change waits, and
+// the change, approved later, keeps the block: it writes only the fields
+// it changes (a status given as it was is not one of them).
+func TestBlockWhileChangePending(t *testing.T) {
+	e := setup(t)
+	id := e.active(t, nil)["id"].(string)
+	c := e.change(t, id, `{"description": "Machined bracket M10, zinc", "status": "active"}`)
+	if req := c["requested"].(map[string]any); req["status"] != nil || req["description"] != "Machined bracket M10, zinc" {
+		t.Errorf("requested: got %v, want the description alone", req)
+	}
+	blocked, _ := e.Must(200, "PATCH", path+"/"+id, `{"status": "blocked"}`, `"2"`)
+	fields(t, blocked, map[string]any{"status": "blocked", "version": 3, "pending_change_id": c["id"]})
+	e.Approve(t, c["id"].(string))
+	after, _ := e.Must(200, "GET", path+"/"+id, "", "")
+	fields(t, after, map[string]any{"status": "blocked", "description": "Machined bracket M10, zinc", "version": 4})
+}
+
+// TestChangeSeenByCompany: a person who may act in company 2000 alone sees
+// a change's plants of that company only, each with its company and
+// storage locations by code, and finds no material by another company's
+// plant.
+func TestChangeSeenByCompany(t *testing.T) {
+	e := setup(t)
+	m := e.create(t, map[string]any{"plants": []any{map[string]any{"plant_id": e.p1, "storage_location_ids": []any{e.s1}},
+		map[string]any{"plant_id": e.p2, "storage_location_ids": []any{e.s3}}}})
+	de := e.As(e.Reader(t, "Dana", e.DE))
+	c, _ := de.Must(200, "GET", "/v1/material-changes/"+m["pending_change_id"].(string), "", "")
+	got := rows(t, c["requested"].(map[string]any), "plants")
+	if len(got) != 1 {
+		t.Fatalf("plants: got %v, want company 2000's alone", got)
+	}
+	fields(t, got[0], map[string]any{"plant_code": "P1", "company_code": "2000"})
+	if l := rows(t, got[0], "storage_locations"); len(l) != 1 || l[0]["code"] != "S1" || l[0]["name"] != "Unit S1" {
+		t.Errorf("storage locations: got %v, want S1 by code and name", l)
+	}
+	page, _ := de.Must(200, "GET", path+"?plant_id="+e.p2.String(), "", "")
+	if n := len(rows(t, page, "items")); n != 0 {
+		t.Errorf("by company 1000's plant: got %d materials, want none", n)
+	}
+}

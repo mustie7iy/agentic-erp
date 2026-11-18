@@ -81118,7 +81118,8 @@ func decodeListMaterialChangesParams(args [0]string, argsEscaped bool, r *http.R
 type ListMaterialsParams struct {
 	// Only the material with this number.
 	Number OptString `json:",omitempty,omitzero"`
-	// Only the materials extended to this plant (an org unit of kind `plant`).
+	// Only the materials extended to this plant (an org unit of kind `plant`) of a company the caller may
+	// act in; another company's plant matches none.
 	PlantID OptUUID `json:",omitempty,omitzero"`
 	// Only materials in this status. A value that is no status matches none.
 	Status OptString `json:",omitempty,omitzero"`

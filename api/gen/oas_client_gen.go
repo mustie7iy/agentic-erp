@@ -8166,13 +8166,15 @@ type Invoker interface {
 	// other companies as they are; `alternative_units` replaces its alternative units, an empty list
 	// removing them; each is checked as `createMaterial` checks it. A change that would leave the material
 	// as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409
-	// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`). A
-	// change that only blocks the material is applied at once (the material answered blocked, with a
-	// material change of kind `block`, applied). Any other opens a pending material change (kind `unblock`
-	// when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it
-	// in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when
-	// its approval request is approved by the role `process_owner`, and leaving it as it is when it is
-	// rejected or withdrawn. Audited with the values before and after, and published as
+	// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a
+	// block. A change that only blocks the material is applied at once, a pending change or not (the
+	// material answered blocked, with a material change of kind `block`, applied, read with
+	// `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a
+	// pending update approved later leaves the block in place. Any other opens a pending material change
+	// (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as
+	// it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material
+	// as it is then when its approval request is approved by the role `process_owner`, and leaving it as
+	// it is when it is rejected or withdrawn. Audited with the values before and after, and published as
 	// MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
 	//
 	// PATCH /v1/materials/{id}
@@ -111996,13 +111998,15 @@ func (c *Client) sendUpdateLegalEntity(ctx context.Context, request *LegalEntity
 // other companies as they are; `alternative_units` replaces its alternative units, an empty list
 // removing them; each is checked as `createMaterial` checks it. A change that would leave the material
 // as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409
-// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`). A
-// change that only blocks the material is applied at once (the material answered blocked, with a
-// material change of kind `block`, applied). Any other opens a pending material change (kind `unblock`
-// when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it
-// in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when
-// its approval request is approved by the role `process_owner`, and leaving it as it is when it is
-// rejected or withdrawn. Audited with the values before and after, and published as
+// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a
+// block. A change that only blocks the material is applied at once, a pending change or not (the
+// material answered blocked, with a material change of kind `block`, applied, read with
+// `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a
+// pending update approved later leaves the block in place. Any other opens a pending material change
+// (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as
+// it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material
+// as it is then when its approval request is approved by the role `process_owner`, and leaving it as
+// it is when it is rejected or withdrawn. Audited with the values before and after, and published as
 // MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
 //
 // PATCH /v1/materials/{id}

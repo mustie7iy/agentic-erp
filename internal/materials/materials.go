@@ -224,23 +224,38 @@ func (e *Endpoints) record(ctx context.Context, m Material, ch change, before *s
 // codes reads the codes of a material's numbering company and of its
 // plants and their companies, whatever the caller may act in.
 func (e *Endpoints) codes(ctx context.Context, m Material) (map[uuid.UUID]string, map[uuid.UUID]tenancy.Unit, error) {
-	codes, companies, ids := map[uuid.UUID]string{}, []uuid.UUID{m.LegalEntityID}, make([]uuid.UUID, len(m.Plants))
+	companies, ids := []uuid.UUID{m.LegalEntityID}, make([]uuid.UUID, len(m.Plants))
 	for i, p := range m.Plants {
 		ids[i], companies = p.PlantID, append(companies, p.LegalEntityID)
 	}
+	les, units, err := e.lookup(ctx, companies, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	codes := make(map[uuid.UUID]string, len(les))
+	for id, le := range les {
+		codes[id] = le.Code
+	}
+	return codes, units, nil
+}
+
+// lookup reads the companies, once each, and the org units (plants and
+// storage locations) in one read: what responses and events name by id.
+func (e *Endpoints) lookup(ctx context.Context, companies, units []uuid.UUID) (map[uuid.UUID]tenancy.Entity, map[uuid.UUID]tenancy.Unit, error) {
+	les := map[uuid.UUID]tenancy.Entity{}
 	for _, id := range companies {
-		if _, ok := codes[id]; ok {
+		if _, ok := les[id]; ok {
 			continue
 		}
 		le, _, err := e.LegalEntities.Entity(ctx, id) // a stored material's or plant's company exists
 		if err != nil {
 			return nil, nil, fmt.Errorf("materials: company %s: %w", id, err)
 		}
-		codes[id] = le.Code
+		les[id] = le
 	}
-	units, err := e.LegalEntities.OrgUnits(ctx, ids)
+	out, err := e.LegalEntities.OrgUnits(ctx, units)
 	if err != nil {
-		return nil, nil, fmt.Errorf("materials: plants of material %s: %w", m.Number, err)
+		return nil, nil, fmt.Errorf("materials: %d plants and storage locations: %w", len(units), err)
 	}
-	return codes, units, nil
+	return les, out, nil
 }

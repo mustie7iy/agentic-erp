@@ -35,7 +35,6 @@ func (e *Endpoints) references(ctx context.Context, ms []Material) (references, 
 	if err != nil {
 		return references{}, fmt.Errorf("materials: company access: %w", err)
 	}
-	refs := references{companies: map[uuid.UUID]tenancy.Entity{}, access: access}
 	companies, ids := []uuid.UUID{}, []uuid.UUID{}
 	for _, m := range ms {
 		companies = append(companies, m.LegalEntityID)
@@ -45,18 +44,9 @@ func (e *Endpoints) references(ctx context.Context, ms []Material) (references, 
 			}
 		}
 	}
-	for _, id := range companies {
-		if _, ok := refs.companies[id]; ok {
-			continue
-		}
-		le, _, err := e.LegalEntities.Entity(ctx, id) // a stored material's or plant's company exists
-		if err != nil {
-			return references{}, fmt.Errorf("materials: company %s: %w", id, err)
-		}
-		refs.companies[id] = le
-	}
-	if refs.units, err = e.LegalEntities.OrgUnits(ctx, ids); err != nil {
-		return references{}, fmt.Errorf("materials: %d plants and storage locations: %w", len(ids), err)
+	refs := references{access: access}
+	if refs.companies, refs.units, err = e.lookup(ctx, companies, ids); err != nil {
+		return references{}, err
 	}
 	return refs, nil
 }
@@ -179,10 +169,16 @@ func (e *Endpoints) ListMaterials(ctx context.Context, params gen.ListMaterialsP
 	if err != nil {
 		return nil, fmt.Errorf("materials: page of materials: %w", err)
 	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("materials: company access for materials: %w", err)
+	}
+	// A plant of a company the caller may not act in matches none, as
+	// materialAPI does not show it.
 	query, args := ks.SQL(materialSelect+` WHERE ($1 = '' OR m.number = $1) AND ($2::uuid IS NULL OR EXISTS (SELECT FROM materials.plant_data d
-			WHERE d.tenant_id = m.tenant_id AND d.material_id = m.id AND d.plant_id = $2 AND d.removed_at IS NULL))
+			WHERE d.tenant_id = m.tenant_id AND d.material_id = m.id AND d.plant_id = $2 AND d.removed_at IS NULL AND ($6 OR d.legal_entity_id = ANY($7))))
 		AND ($3 = '' OR m.status = $3) AND ($4 = '' OR m.material_type = $4) AND ($5 = '' OR m.material_group = $5)`,
-		[]any{params.Number.Value, plant, params.Status.Value, params.MaterialType.Value, params.MaterialGroup.Value})
+		[]any{params.Number.Value, plant, params.Status.Value, params.MaterialType.Value, params.MaterialGroup.Value, access.All, access.IDs})
 	rows, _ := tx.Query(ctx, query, args...)
 	ms, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Material, error) { return scanMaterial(r) })
 	if err != nil {

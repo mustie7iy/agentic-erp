@@ -64638,8 +64638,10 @@ type MaterialChangePlant struct {
 	PlantCode string `json:"plant_code"`
 	// The plant's company.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Its storage locations (`GET /v1/org-units/{id}`).
-	StorageLocationIds []uuid.UUID `json:"storage_location_ids"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// Its storage locations, as given.
+	StorageLocations []MaterialStorageLocation `json:"storage_locations"`
 }
 
 // GetPlantID returns the value of PlantID.
@@ -64657,9 +64659,14 @@ func (s *MaterialChangePlant) GetLegalEntityID() uuid.UUID {
 	return s.LegalEntityID
 }
 
-// GetStorageLocationIds returns the value of StorageLocationIds.
-func (s *MaterialChangePlant) GetStorageLocationIds() []uuid.UUID {
-	return s.StorageLocationIds
+// GetCompanyCode returns the value of CompanyCode.
+func (s *MaterialChangePlant) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetStorageLocations returns the value of StorageLocations.
+func (s *MaterialChangePlant) GetStorageLocations() []MaterialStorageLocation {
+	return s.StorageLocations
 }
 
 // SetPlantID sets the value of PlantID.
@@ -64677,9 +64684,14 @@ func (s *MaterialChangePlant) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
 }
 
-// SetStorageLocationIds sets the value of StorageLocationIds.
-func (s *MaterialChangePlant) SetStorageLocationIds(val []uuid.UUID) {
-	s.StorageLocationIds = val
+// SetCompanyCode sets the value of CompanyCode.
+func (s *MaterialChangePlant) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetStorageLocations sets the value of StorageLocations.
+func (s *MaterialChangePlant) SetStorageLocations(val []MaterialStorageLocation) {
+	s.StorageLocations = val
 }
 
 // What a material change asks for: the fields it sets, absent when it leaves them. A create's names
@@ -64697,7 +64709,7 @@ type MaterialChangeRequested struct {
 	MaterialGroup OptString `json:"material_group"`
 	// The status, `active` or `blocked`.
 	Status OptString `json:"status"`
-	// The plants with their storage locations.
+	// The plants with their storage locations, in the companies the caller may act in.
 	Plants []MaterialChangePlant `json:"plants"`
 	// The alternative units with their conversions.
 	AlternativeUnits []MaterialUnitInput `json:"alternative_units"`

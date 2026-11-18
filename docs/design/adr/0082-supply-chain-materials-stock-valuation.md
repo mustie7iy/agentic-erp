@@ -299,6 +299,20 @@ create with such a match is refused (409) unless the request confirms it.
   decision reads the change, locks the material, then the change (the
   same order), so a request and a decision of one material never wait on
   each other in a cycle.
+- **A block wins.** A block applies at once even while a change waits (it
+  is an applied change, so `material_change_one_pending` does not refuse
+  it), and a change keeps only the fields it changes (`Requested.only`),
+  so an update approved after the block leaves it in place
+  (review round 1 on S1b; `TestBlockWhileChangePending`).
+- **Plants by company access on changes too.** A change's requested
+  plants are shown only in the companies the caller may act in, each with
+  its company's code and its storage locations by code and name; the
+  list's `plant_id` filter matches only such plants (review round 1).
+- **Only a creation is checked for duplicates**; a change of the
+  description is not (its approver sees it). Planned with the fuzzy
+  check of the governance variants.
+- Numbering a material change moved, with partner's, to
+  `internal/platform/numbering` (review round 1: a helper is not copied).
 - `GET /v1/material-changes` (material, kind, status; newest first) and
   `/{id}`, naming the material's number and description and the plants'
   codes. `MaterialChangeChanged` at each step; `MaterialChanged` gains

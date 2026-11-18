@@ -22447,7 +22447,7 @@ paths:
         - name: plant_id
           in: query
           required: false
-          description: Only the materials extended to this plant (an org unit of kind `plant`).
+          description: Only the materials extended to this plant (an org unit of kind `plant`) of a company the caller may act in; another company's plant matches none.
           schema:
             type: string
             format: uuid
@@ -22614,7 +22614,7 @@ paths:
       tags:
         - materials
       summary: Request a change of a material
-      description: "Requests a change of a material's description, material group, status, plants or alternative units with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`). A change that only blocks the material is applied at once (the material answered blocked, with a material change of kind `block`, applied). Any other opens a pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when its approval request is approved by the role `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values before and after, and published as MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`)."
+      description: "Requests a change of a material's description, material group, status, plants or alternative units with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b). JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A change that would leave the material as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409 `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a block. A change that only blocks the material is applied at once, a pending change or not (the material answered blocked, with a material change of kind `block`, applied, read with `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a pending update approved later leaves the block in place. Any other opens a pending material change (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material as it is then when its approval request is approved by the role `process_owner`, and leaving it as it is when it is rejected or withdrawn. Audited with the values before and after, and published as MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`)."
       x-permission: materials.material.write
       x-agent: false
       x-problem-codes:
@@ -59057,12 +59057,17 @@ components:
     MaterialChangePlant:
       type: object
       description: "A plant a change extends the material to, with its storage locations."
-      required: [plant_id, plant_code, legal_entity_id, storage_location_ids]
+      required: [plant_id, plant_code, legal_entity_id, company_code, storage_locations]
       properties:
         plant_id: {type: string, format: uuid, description: "The plant (`GET /v1/org-units/{id}`).", readOnly: true}
         plant_code: {type: string, description: "The plant's code.", readOnly: true}
         legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
-        storage_location_ids: {type: array, items: {type: string, format: uuid}, description: "Its storage locations (`GET /v1/org-units/{id}`).", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        storage_locations:
+          type: array
+          items: {$ref: "#/components/schemas/MaterialStorageLocation"}
+          description: "Its storage locations, as given."
+          readOnly: true
     MaterialChangeRequested:
       type: object
       description: "What a material change asks for: the fields it sets, absent when it leaves them. A create's names the whole material; an update's `plants` replace the material's plants in the companies its requester could act in."
@@ -59075,7 +59080,7 @@ components:
         plants:
           type: array
           items: {$ref: "#/components/schemas/MaterialChangePlant"}
-          description: "The plants with their storage locations."
+          description: "The plants with their storage locations, in the companies the caller may act in."
           readOnly: true
         alternative_units:
           type: array

@@ -26,6 +26,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/extensions"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
+	"github.com/mustie7iy/agentic-erp/internal/platform/numbering"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -478,18 +479,10 @@ func getBank(ctx context.Context, tx pgx.Tx, partnerID, id uuid.UUID) (BankAccou
 }
 
 // nextNumber issues the tenant's next number with the prefix (BP or PC):
-// the prefix and eight digits. Numbering is serialized per tenant and table.
+// the prefix and eight digits (numbering.Next).
 func nextNumber(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, table, prefix string) (string, error) {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "partner."+table+"."+tenant.String()); err != nil {
-		return "", fmt.Errorf("partner: lock the %s numbering: %w", table, err)
-	}
-	var n string
-	err := tx.QueryRow(ctx, `SELECT $1 || lpad((coalesce(substr(max(number), 3)::bigint, 0) + 1)::text, 8, '0')
-		FROM `+pgx.Identifier{"partner", table}.Sanitize()+` WHERE number LIKE $1 || '%'`, prefix).Scan(&n)
-	if err != nil {
-		return n, fmt.Errorf("partner: issue the next %s number: %w", table, err)
-	}
-	return n, nil
+	n, err := numbering.Next(ctx, tx, tenant, "partner", table, prefix)
+	return n, errs.Wrapf(err, "partner: number a %s", table)
 }
 
 func event(name string, aggregate uuid.UUID, aggregateType string, payload map[string]any) outbox.Event {

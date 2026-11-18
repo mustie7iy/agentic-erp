@@ -55349,13 +55349,13 @@ func (s *MaterialChangePlant) Validate() error {
 
 	var failures []validate.FieldError
 	if err := func() error {
-		if s.StorageLocationIds == nil {
+		if s.StorageLocations == nil {
 			return errors.New("nil is invalid value")
 		}
 		return nil
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
-			Name:  "storage_location_ids",
+			Name:  "storage_locations",
 			Error: err,
 		})
 	}

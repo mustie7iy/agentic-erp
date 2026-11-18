@@ -200,7 +200,29 @@ func (e *Endpoints) requested(ctx context.Context, tx pgx.Tx, m Material, ch Cha
 		}
 		req.Plants, req.Scope = requestedPlants(*ch.Plants, companies), &Scope{All: access.All, Companies: append([]uuid.UUID{}, access.IDs...)}
 	}
-	return req, fields, before, to, nil
+	return req.only(fields), fields, before, to, nil
+}
+
+// only keeps what the change sets of the fields it changes: a field it
+// gives as it is would, applied after another change, write the value of
+// the request's time back (an update undoing a block in between).
+func (r Requested) only(fields []string) Requested {
+	if !slices.Contains(fields, "description") {
+		r.Description = nil
+	}
+	if !slices.Contains(fields, "material_group") {
+		r.Group = nil
+	}
+	if !slices.Contains(fields, "status") {
+		r.Status = nil
+	}
+	if !slices.Contains(fields, "plants") {
+		r.Plants, r.Scope = nil, nil
+	}
+	if !slices.Contains(fields, "alternative_units") {
+		r.Units = nil
+	}
+	return r
 }
 
 // requestedPlants are the plants as a change keeps them, each with its

@@ -4772,7 +4772,7 @@ components:
         (`activated`), when an update or unblock change is applied
         (`changed`, `unblocked`) and when it is blocked (`blocked`, at once). It carries the material's number,
         description, base unit, type, group and status, its plants with
-        their companies and storage locations, by id and code, and its
+        their companies by id and code and their storage locations by id, and its
         alternative units with their conversions, whatever companies the
         person who changed it may act in.
         `GET /v1/materials/{id}` returns the material at `version` or

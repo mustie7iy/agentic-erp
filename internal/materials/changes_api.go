@@ -9,6 +9,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
+	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -17,26 +18,31 @@ import (
 
 // changeRefs is what material changes name by id, as their consumer reads
 // it: their materials by number and description and the plants they ask
-// for by code.
+// for, with their companies and storage locations, by code; access is the
+// companies whose plants the caller sees.
 type changeRefs struct {
 	materials map[uuid.UUID]Material
-	plants    map[uuid.UUID]tenancy.Unit
+	companies map[uuid.UUID]tenancy.Entity
+	units     map[uuid.UUID]tenancy.Unit
+	access    authz.Access
 }
 
-// changeReferences reads the changes' materials and plants, in one read
-// each.
+// changeReferences reads the changes' materials in one read, and the
+// companies and org units of the plants the caller sees.
 func (e *Endpoints) changeReferences(ctx context.Context, tx pgx.Tx, cs []MaterialChange) (changeRefs, error) {
-	ids, plants := make([]uuid.UUID, len(cs)), []uuid.UUID{}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return changeRefs{}, fmt.Errorf("materials: company access for material changes: %w", err)
+	}
+	ids, companies, units := make([]uuid.UUID, len(cs)), []uuid.UUID{}, []uuid.UUID{}
 	for i, c := range cs {
 		ids[i] = c.MaterialID
-		if c.Requested.Plants != nil {
-			for _, p := range *c.Requested.Plants {
-				plants = append(plants, p.PlantID)
-			}
+		for _, p := range visiblePlants(c.Requested, access) {
+			companies, units = append(companies, p.LegalEntityID), append(append(units, p.PlantID), p.StorageLocations...)
 		}
 	}
 	rows, _ := tx.Query(ctx, materialSelect+` WHERE m.id = ANY($1)`, ids)
-	refs := changeRefs{materials: map[uuid.UUID]Material{}}
+	refs := changeRefs{materials: map[uuid.UUID]Material{}, access: access}
 	if _, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Material, error) {
 		m, err := scanMaterial(r)
 		refs.materials[m.ID] = m
@@ -44,11 +50,25 @@ func (e *Endpoints) changeReferences(ctx context.Context, tx pgx.Tx, cs []Materi
 	}); err != nil {
 		return changeRefs{}, fmt.Errorf("materials: the materials of %d changes: %w", len(cs), err)
 	}
-	var err error
-	if refs.plants, err = e.LegalEntities.OrgUnits(ctx, plants); err != nil {
-		return changeRefs{}, fmt.Errorf("materials: the plants of %d changes: %w", len(cs), err)
+	if refs.companies, refs.units, err = e.lookup(ctx, companies, units); err != nil {
+		return changeRefs{}, err
 	}
 	return refs, nil
+}
+
+// visiblePlants are the plants a change asks for in the companies the
+// caller may act in, as a material's plants are shown.
+func visiblePlants(r Requested, access authz.Access) []RequestedPlant {
+	if r.Plants == nil {
+		return nil
+	}
+	out := []RequestedPlant{}
+	for _, p := range *r.Plants {
+		if access.Allows(p.LegalEntityID) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // changeAPI is a material change as the API gives it.
@@ -57,10 +77,14 @@ func changeAPI(c MaterialChange, refs changeRefs) gen.MaterialChange {
 	req := gen.MaterialChangeRequested{Description: apitypes.OptString(r.Description), BaseUnit: apitypes.OptString(r.BaseUnit),
 		MaterialType: apitypes.OptString(r.Type), MaterialGroup: apitypes.OptString(r.Group), Status: apitypes.OptString(r.Status)}
 	if r.Plants != nil {
-		req.Plants = make([]gen.MaterialChangePlant, len(*r.Plants))
-		for i, p := range *r.Plants {
-			req.Plants[i] = gen.MaterialChangePlant{PlantID: p.PlantID, PlantCode: refs.plants[p.PlantID].Code, LegalEntityID: p.LegalEntityID,
-				StorageLocationIds: p.StorageLocations}
+		req.Plants = []gen.MaterialChangePlant{}
+		for _, p := range visiblePlants(r, refs.access) {
+			row := gen.MaterialChangePlant{PlantID: p.PlantID, PlantCode: refs.units[p.PlantID].Code, LegalEntityID: p.LegalEntityID,
+				CompanyCode: refs.companies[p.LegalEntityID].Code, StorageLocations: make([]gen.MaterialStorageLocation, len(p.StorageLocations))}
+			for i, s := range p.StorageLocations {
+				row.StorageLocations[i] = gen.MaterialStorageLocation{StorageLocationID: s, Code: refs.units[s].Code, Name: refs.units[s].Name}
+			}
+			req.Plants = append(req.Plants, row)
 		}
 	}
 	if r.Units != nil {

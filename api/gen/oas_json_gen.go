@@ -173182,20 +173182,25 @@ func (s *MaterialChangePlant) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.LegalEntityID)
 	}
 	{
-		e.FieldStart("storage_location_ids")
+		e.FieldStart("company_code")
+		e.Str(s.CompanyCode)
+	}
+	{
+		e.FieldStart("storage_locations")
 		e.ArrStart()
-		for _, elem := range s.StorageLocationIds {
-			json.EncodeUUID(e, elem)
+		for _, elem := range s.StorageLocations {
+			elem.Encode(e)
 		}
 		e.ArrEnd()
 	}
 }
 
-var jsonFieldsNameOfMaterialChangePlant = [4]string{
+var jsonFieldsNameOfMaterialChangePlant = [5]string{
 	0: "plant_id",
 	1: "plant_code",
 	2: "legal_entity_id",
-	3: "storage_location_ids",
+	3: "company_code",
+	4: "storage_locations",
 }
 
 // Decode decodes MaterialChangePlant from json.
@@ -173243,25 +173248,35 @@ func (s *MaterialChangePlant) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"legal_entity_id\"")
 			}
-		case "storage_location_ids":
+		case "company_code":
 			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
-				s.StorageLocationIds = make([]uuid.UUID, 0)
+				v, err := d.Str()
+				s.CompanyCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "storage_locations":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				s.StorageLocations = make([]MaterialStorageLocation, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
-					var elem uuid.UUID
-					v, err := json.DecodeUUID(d)
-					elem = v
-					if err != nil {
+					var elem MaterialStorageLocation
+					if err := elem.Decode(d); err != nil {
 						return err
 					}
-					s.StorageLocationIds = append(s.StorageLocationIds, elem)
+					s.StorageLocations = append(s.StorageLocations, elem)
 					return nil
 				}); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"storage_location_ids\"")
+				return errors.Wrap(err, "decode field \"storage_locations\"")
 			}
 		default:
 			return d.Skip()
@@ -173273,7 +173288,7 @@ func (s *MaterialChangePlant) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
