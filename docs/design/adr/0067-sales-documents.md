@@ -1989,7 +1989,7 @@ change documents) is the reference.
   `sales.invalid_percent`, an unknown unit or currency of a discount's
   scale `sales.unknown_unit`, `sales.unknown_currency`; an amount that is
   not its currency's 400 `request.invalid_amount`.
-- Walkthrough `step_price_scales` (step 122): Paula records BOLT-M10 at
+- Walkthrough `step_price_scales` (step 128): Paula records BOLT-M10 at
   0.80 CAD, 0.70 from 1000 and 0.60 from 5000, and Northwind's K007 of
   one percent, two from 1000.00 CAD and three from 5000.00 by value;
   levels that do not rise and a price scaled by value are refused
@@ -2042,7 +2042,7 @@ change documents) is the reference.
   racing end with one); a change to the group it has 422
   `sales.nothing_to_change`; a stale `If-Match` 412; a record for a
   customer and a group 422 `sales.customer_or_group` (`price_group`).
-- Walkthrough `step_price_groups` (step 123): Ada's price groups 01 and 02
+- Walkthrough `step_price_groups` (step 129): Ada's price groups 01 and 02
   through a tier 2 change; Paula puts Contoso and Northwind in 01 and
   records 01's bracket price, 11.75; Contoso's item takes it (`access`
   `price_group` 01), Northwind's its own price and discount (`customer`);

@@ -1164,7 +1164,7 @@ memory, not checked against a source in the lane).
   (a debit memo naming an invoice, `customer_invoice_reference_on_credit`).
 - Tests: `TestDebitMemo`, `TestDebitMemoWithoutRange`,
   `TestCreditMemoRefusals` (a debit memo naming an invoice, a credit memo
-  naming a debit memo). Walkthrough `step_debit_memo` (step 122).
+  naming a debit memo). Walkthrough `step_debit_memo` (step 126).
 - **Decided by default:** (1) the journal document type is `DD`, the
   brief's own type and range beside the invoice's `DR` (SAP's standard
   FI type for a customer debit memo is DR, from memory; a type of its own
@@ -1257,7 +1257,7 @@ memo (§5, plan default 3).
   `TestReverseRefusals`, `TestReverseConcurrently`,
   `TestReverseRacesAClearing`, `TestDatabaseFailures`; the ledger's
   `TestReversalBelongsToTheOwner`. Walkthrough `step_memo_reversal`
-  (step 123).
+  (step 127).
 - **Decided by default:** (1) the reversal is dated the memo's own
   posting date unless another is given, as the ledger's reversal and
   T75i's are; a period closed since refuses it, and the person names a

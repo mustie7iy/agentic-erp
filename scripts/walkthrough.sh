@@ -13486,7 +13486,7 @@ step_goods_movements() {
 # discount, reaches, and the record's own below the first level; each
 # condition shows the level.
 step_price_scales() {
-  heading "Step 122 — Scales on price records: a price by quantity and a customer's discount by value, each item taking the rate of the level its quantity or value reaches and showing it; levels that do not rise and a price scaled by value refused"
+  heading "Step 128 — Scales on price records: a price by quantity and a customer's discount by value, each item taking the rate of the level its quantity or value reaches and showing it; levels that do not rise and a price scaled by value refused"
   local customer=$CUSTOMER sales from until bolts price discount conditions
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as paula
@@ -13542,7 +13542,7 @@ step_price_scales() {
 # 02, which has no record, and its next item takes the general price; an
 # unknown group and a stale version are refused.
 step_price_groups() {
-  heading "Step 123 — Prices per customer price group: price groups through a governed change, a customer's group in its sales data, a group's price before the general one and after the customer's own, each condition naming its access; a changed group holding for items priced after it"
+  heading "Step 129 — Prices per customer price group: price groups through a governed change, a customer's group in its sales data, a group's price before the general one and after the customer's own, each condition naming its access; a changed group holding for items priced after it"
   local customer=$CUSTOMER contoso sales until base cr bracket conditions data tag
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as ada
@@ -13632,7 +13632,7 @@ step_price_groups() {
 # Northwind's term from its own date; a debit memo naming an invoice is
 # refused. step_memo_reversal reverses it.
 step_debit_memo() {
-  heading "Step 122 — Customer debit memos: freight charged after the invoice by a debit memo posted as an invoice is, as its own document type DD; the customer's open item"
+  heading "Step 126 — Customer debit memos: freight charged after the invoice by a debit memo posted as an invoice is, as its own document type DD; the customer's open item"
   local customer=$CUSTOMER sales memo entry due
   [ -n "$customer" ] && [ -n "$CREDITED_INVOICE" ] || fail "step 55's invoice is not there"
   as ruth
@@ -13681,12 +13681,12 @@ step_debit_memo() {
 # reversal is refused with the period's problem; reopened, it is
 # reversed, and the CAD 50.00 credit posts within the limit freed.
 step_memo_reversal() {
-  heading "Step 123 — Credit and debit memos reversed: a reversal document turning the memo's entry, its item cleared against the reversal's; a reversed credit memo frees its invoice's limit; refused for an invoice, twice, and into a closed period"
+  heading "Step 127 — Credit and debit memos reversed: a reversal document turning the memo's entry, its item cleared against the reversal's; a reversed credit memo frees its invoice's limit; refused for an invoice, twice, and into a closed period"
   local customer=$CUSTOMER sales memo reversal invoice full more leading period
   [ -n "$customer" ] && [ -n "$DEBIT_MEMO" ] && [ -n "$CREDITED_INVOICE" ] || fail "steps 55 and 122's documents are not there"
   as ruth
   sales=$(account 4000)
-  say "Step 122's freight was charged on Maple's invoice after all: the debit memo charges it twice. Ruth reverses it"
+  say "Step 126's freight was charged on Maple's invoice after all: the debit memo charges it twice. Ruth reverses it"
   say "(T75k). The reversal posts on the memo's own posting date, as no other date is given:"
   QUIET=1 api 200 '' getCustomerInvoice -p "id=$DEBIT_MEMO"
   api 200 '"\(.kind) \(.document_number): \(.status), reversed by journal entry \(.reversal_entry_number) on \(.reversal_posting_date): \(.reversal_reason)"' \
