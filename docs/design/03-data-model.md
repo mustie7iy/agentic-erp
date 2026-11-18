@@ -1782,7 +1782,8 @@ erDiagram
     uuid legal_entity_id
     char currency
     date due_date
-    text status "draft | published | awarded"
+    text status "draft | published | awarded | cancelled | closed"
+    text closing_reason "why it was cancelled or closed without an award (T82g)"
     uuid contract_id FK "the contract an award created"
     uuid purchase_order_id FK "the purchase order an award created (T82f)"
     text award_reason "why the quotation won, when it was not ranked first"
@@ -2071,6 +2072,14 @@ A quotation is written as `recorded` and its outcome, `awarded` or
 one quotation of an RFQ is awarded (`supplier_quotation_one_awarded`). The
 application may update a quotation's status, version and `updated_by`
 and nothing else of it. Permission `procurement.rfq.award`.
+
+An RFQ ends without an award (migration 000363, T82g, ADR-0069 As
+built): a draft or published one is `cancelled`, a published one
+`closed`, each with `closing_reason` (`rfq_closing_reason_check`: exactly
+on those statuses, not blank, at most 500 characters), and only once each
+of its quotations is `not_awarded` (`rfq_lifecycle`); it stays so with
+its reason. Only a `draft` or `published` RFQ is its requisition's open
+RFQ, so a requisition whose RFQ ended is sourced again by a new one.
 
 A contract has a kind (migration 000301, T83a, ADR-0070 §1): `contract`,
 the default, or `scheduling_agreement`, given when it is created and kept

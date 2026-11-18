@@ -437,8 +437,16 @@ func requisitionEvent(name string, r Requisition, extra map[string]any) map[stri
 	return payload
 }
 
-// setStatus moves a requisition on and publishes the event of the move.
+// setStatus moves a requisition on and publishes the event of the move,
+// audited by the status it moves to.
 func (e *Endpoints) setStatus(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Requisition, status string, request *uuid.UUID, name string, extra map[string]any) (Requisition, error) {
+	return e.moveRequisition(ctx, tx, p, r, status, status, request, name, extra)
+}
+
+// moveRequisition moves a requisition to status, audited as action, and
+// publishes the event name of the move with extra, or none for "".
+func (e *Endpoints) moveRequisition(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Requisition, status, action string, request *uuid.UUID, name string,
+	extra map[string]any) (Requisition, error) {
 	if _, err := tx.Exec(ctx, `UPDATE procurement.requisition SET status = $2, workflow_request_id = $3, version = version + 1, updated_by = $4 WHERE id = $1`,
 		r.ID, status, request, p.ID); err != nil {
 		return Requisition{}, fmt.Errorf("procurement: set requisition %s status %s: %w", r.ID, status, err)
@@ -449,13 +457,13 @@ func (e *Endpoints) setStatus(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	}
 	detail := map[string]any{"from_status": r.Status, "status": status}
 	if name == "" {
-		return updated, audit.Record(ctx, "procurement.requisition."+status, "procurement.requisition", r.ID, detail)
+		return updated, audit.Record(ctx, "procurement.requisition."+action, "procurement.requisition", r.ID, detail)
 	}
 	extra["status"] = status
 	if name != "requisition_submitted" { // submission has no previous status in the event contract
 		extra["previous_status"] = r.Status
 	}
-	return updated, e.record(ctx, "procurement.requisition."+status, "procurement.requisition", r.ID, detail,
+	return updated, e.record(ctx, "procurement.requisition."+action, "procurement.requisition", r.ID, detail,
 		event(name, "requisition", r.ID, requisitionEvent(name, r, extra)))
 }
 

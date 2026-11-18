@@ -656,6 +656,23 @@ func (UnimplementedHandler) CancelRevaluationRun(ctx context.Context, req *Reaso
 	return r, ht.ErrNotImplemented
 }
 
+// CancelRfq implements cancelRfq operation.
+//
+// Cancels a `draft` or `published` RFQ that is no longer needed, with a reason, at the version the
+// caller read (`If-Match`), once (T82g, ADR-0069 As built): the RFQ is read under a row lock and
+// becomes `cancelled`, keeping the reason as `closing_reason`; an RFQ awarded, cancelled or closed is
+// refused (409 `procurement.invalid_status`), and of two requests one cancels it and the other meets
+// another version (412). Its recorded quotations all become `not_awarded`; none is recorded or awarded
+// after. A requisition the RFQ was created from leaves sourcing in the same transaction: it is
+// `approved` again, available to a new RFQ, an order or its cancellation, and is published as
+// RequisitionReopened (`cause` `rfq_cancelled`). A retry with the same `Idempotency-Key` answers the
+// cancelled RFQ. Audited, and published as RfqChanged (`cancelled`, with the reason).
+//
+// POST /v1/rfqs/{id}:cancel
+func (UnimplementedHandler) CancelRfq(ctx context.Context, req *RfqClosing, params CancelRfqParams) (r CancelRfqRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CancelSalesOrder implements cancelSalesOrder operation.
 //
 // Cancels a `draft` or `confirmed` sales order of which nothing is delivered (ADR-0067, As built
@@ -908,6 +925,24 @@ func (UnimplementedHandler) CloseInternalOrder(ctx context.Context, params Close
 //
 // POST /v1/purchase-orders/{id}:close
 func (UnimplementedHandler) ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (r ClosePurchaseOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CloseRfq implements closeRfq operation.
+//
+// Closes a `published` RFQ without an award, with a reason, when its quotations do not lead to one, at
+// the version the caller read (`If-Match`), once (T82g, ADR-0069 As built): the RFQ is read under a
+// row lock and becomes `closed`, keeping the reason as `closing_reason`; a draft is cancelled, not
+// closed, and an RFQ awarded, cancelled or closed is refused (409 `procurement.invalid_status`), and
+// of two requests one closes it and the other meets another version (412). Its recorded quotations all
+// become `not_awarded`; none is recorded or awarded after. A requisition the RFQ was created from
+// leaves sourcing in the same transaction: it is `approved` again, available to a new RFQ, an order or
+// its cancellation, and is published as RequisitionReopened (`cause` `rfq_closed`). A retry with the
+// same `Idempotency-Key` answers the closed RFQ. Audited, and published as RfqChanged (`closed`, with
+// the reason).
+//
+// POST /v1/rfqs/{id}:close
+func (UnimplementedHandler) CloseRfq(ctx context.Context, req *RfqClosing, params CloseRfqParams) (r CloseRfqRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2769,10 +2804,10 @@ func (UnimplementedHandler) CreateSupplierInvoice(ctx context.Context, req *Supp
 // CreateSupplierQuotation implements createSupplierQuotation operation.
 //
 // Records the quotation an invited supplier gave for a `published` RFQ (409
-// `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069
-// §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in
-// the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ
-// item's unit of measure. The supplier must be one the RFQ invites (422
+// `procurement.invalid_status` for a draft or an awarded, cancelled or closed one), read under the
+// RFQ's row lock (ADR-0069 §7): the supplier's reference, the date the quotation is valid until, and
+// a price per RFQ item, in the RFQ's currency (422 `procurement.currency_mismatch`), positive, per
+// `price_unit` of the RFQ item's unit of measure. The supplier must be one the RFQ invites (422
 // `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409
 // `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers
 // what it answered. Each item names an item of the RFQ by `rfq_item_no` (422
@@ -8269,11 +8304,12 @@ func (UnimplementedHandler) ProposeVarianceComment(ctx context.Context, req *Var
 // Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
 // lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
 // after which quotations are recorded against it and nothing changes it until it is awarded
-// (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be
-// one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming
-// `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its
-// company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished,
-// which names the suppliers invited by id and number.
+// (`:award`), cancelled (`:cancel`) or closed without an award (`:close`). The RFQ is checked again as
+// it was when created: every supplier invited must still be one an order could be placed with (422
+// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
+// date not before the legal entity's date today in its company's time zone (422
+// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
+// invited by id and number.
 //
 // POST /v1/rfqs/{id}:publish
 func (UnimplementedHandler) PublishRfq(ctx context.Context, params PublishRfqParams) (r PublishRfqRes, _ error) {

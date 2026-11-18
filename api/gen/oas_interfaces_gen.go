@@ -153,6 +153,10 @@ type CancelRevaluationRunRes interface {
 	cancelRevaluationRunRes()
 }
 
+type CancelRfqRes interface {
+	cancelRfqRes()
+}
+
 type CancelSalesOrderRes interface {
 	cancelSalesOrderRes()
 }
@@ -199,6 +203,10 @@ type CloseInternalOrderRes interface {
 
 type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
+}
+
+type CloseRfqRes interface {
+	closeRfqRes()
 }
 
 type CloseRiskRes interface {

@@ -4544,9 +4544,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A buyer cancels or closes an RFQ without an award, with a reason: a requisition it was created from leaves sourcing (approved again, available to a new RFQ or an order), and the change is audited and published as an event (split from the RFQ variants placeholder).",
-        "r": "T82g · docs/design/plan-depth-2.md §T82g · split from docs/design/plan-breadth-week2.md §T82b, Later · T82e (a requisition in sourcing) · ADR-0069",
+        "r": "T82g · docs/design/plan-depth-2.md §T82g · split from docs/design/plan-breadth-week2.md §T82b, Later · migrations 000363, 000364 · internal/procurement/rfq_close.go · POST /v1/rfqs/{id}:cancel, :close · RequisitionReopened · ADR-0069 As built · walkthrough step_rfq_requisition",
         "src": "split:T82b",
         "c": []
        },

@@ -387,6 +387,20 @@ func encodeCancelRevaluationRunRequest(
 	return nil
 }
 
+func encodeCancelRfqRequest(
+	req *RfqClosing,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCancelSalesOrderRequest(
 	req *ReasonInput,
 	r *http.Request,
@@ -522,6 +536,20 @@ func encodeClearSupplierInvoiceDownPaymentsRequest(
 
 func encodeCloseDisputeCaseRequest(
 	req *DisputeCaseClose,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCloseRfqRequest(
+	req *RfqClosing,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

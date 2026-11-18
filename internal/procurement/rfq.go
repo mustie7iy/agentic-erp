@@ -26,7 +26,8 @@ import (
 
 // RFQPublished is the status of an RFQ that was published to the suppliers
 // invited; before that it is a Draft, and an award (rfq_award.go) makes
-// it RFQAwarded.
+// it RFQAwarded; ended without one (rfq_close.go), it is RFQCancelled or
+// RFQClosed.
 const RFQPublished = "published"
 
 // rfqNumberRange is the document type RFQs draw their numbers from
@@ -64,6 +65,9 @@ type RFQ struct {
 	PurchaseOrderID     *uuid.UUID
 	PurchaseOrderNumber *string
 	AwardReason         *string
+	// Why the RFQ was cancelled or closed without an award (T82g); nil
+	// otherwise.
+	ClosingReason *string
 	// The requisition the RFQ was created from and its number (T82e); nil
 	// for an RFQ with its own items.
 	RequisitionID     *uuid.UUID
@@ -88,7 +92,7 @@ const rfqSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.currency
 		(SELECT ct.document_number FROM procurement.contract ct WHERE ct.tenant_id = r.tenant_id AND ct.id = r.contract_id) AS contract_document_number,
 		r.purchase_order_id,
 		(SELECT po.document_number FROM procurement.purchase_order po WHERE po.tenant_id = r.tenant_id AND po.id = r.purchase_order_id) AS purchase_order_document_number,
-		r.award_reason, r.requisition_id,
+		r.award_reason, r.closing_reason, r.requisition_id,
 		(SELECT rq.document_number FROM procurement.requisition rq WHERE rq.tenant_id = r.tenant_id AND rq.id = r.requisition_id) AS requisition_document_number,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_key', i.material_key, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'account_id', i.account_id, 'delivery_date', ` + deliveryDate + `,
@@ -101,7 +105,7 @@ func scanRFQ(row pgx.Row) (RFQ, error) {
 	var r RFQ
 	var suppliers []uuid.UUID
 	if err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.Currency, &r.Exponent, &r.DueDate, &r.Status, &r.Version, &r.CreatedAt, &r.CreatedBy,
-		&r.UpdatedAt, &r.UpdatedBy, &r.ContractID, &r.ContractNumber, &r.PurchaseOrderID, &r.PurchaseOrderNumber, &r.AwardReason, &r.RequisitionID, &r.RequisitionNumber, &r.Items, &suppliers); err != nil {
+		&r.UpdatedAt, &r.UpdatedBy, &r.ContractID, &r.ContractNumber, &r.PurchaseOrderID, &r.PurchaseOrderNumber, &r.AwardReason, &r.ClosingReason, &r.RequisitionID, &r.RequisitionNumber, &r.Items, &suppliers); err != nil {
 		return RFQ{}, fmt.Errorf("scan RFQ: %w", err)
 	}
 	r.Suppliers = make([]RFQSupplier, len(suppliers))
@@ -393,6 +397,9 @@ func (e *Endpoints) recorded(ctx context.Context, tx pgx.Tx, id uuid.UUID, actio
 	}
 	changed := payload()
 	changed["status"], changed["change"], changed["supplier_count"] = stored.Status, change, len(stored.Suppliers)
+	if stored.ClosingReason != nil {
+		changed["reason"] = *stored.ClosingReason
+	}
 	events := []outbox.Event{event("rfq_changed", "rfq", stored.ID, changed)}
 	if stored.Status == RFQPublished {
 		published := payload()
