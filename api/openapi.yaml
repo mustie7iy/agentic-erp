@@ -11315,6 +11315,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.requisition_mismatch
@@ -11421,6 +11422,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.requisition_ordered
@@ -11864,6 +11866,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.supplier_not_usable
@@ -11970,6 +11973,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.supplier_not_usable
@@ -12105,6 +12109,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.requisition_ordered
@@ -12947,6 +12952,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.not_a_scheduling_agreement
@@ -13328,6 +13334,7 @@ paths:
         - procurement.invalid_quantity
         - procurement.invalid_renewal
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.invalid_validity
         - procurement.legal_entity_not_active
@@ -13612,6 +13619,28 @@ paths:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - inventory.amount_too_large
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -13673,6 +13702,8 @@ paths:
         - procurement.reason_required
         - procurement.return_exceeds_receipts
         - procurement.reversal_exceeds_receipts
+        - procurement.stock_item_not_valued
+        - procurement.stock_item_return
         - procurement.unit_mismatch
         - procurement.unknown_order_item
         - request.invalid_amount
@@ -13758,6 +13789,28 @@ paths:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - inventory.amount_too_large
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -13815,6 +13868,8 @@ paths:
         - procurement.return_exceeds_receipts
         - procurement.reversal_below_invoiced
         - procurement.reversal_exceeds_receipts
+        - procurement.stock_item_not_valued
+        - procurement.stock_item_return
         - procurement.unknown_order_item
         - request.invalid_amount
         - request.version_mismatch
@@ -14492,6 +14547,9 @@ paths:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - inventory.no_inventory_account
+        - inventory.no_valuation
+        - inventory.stock_value_below_zero
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -14978,6 +15036,7 @@ paths:
         - payables.invoice_cleared
         - payables.invoice_has_corrections
         - payables.invoice_in_payment_run
+        - payables.invoice_revalued_stock
         - payables.negative_amount
         - payables.order_not_found
         - payables.reversal_exceeds_invoiced
@@ -24079,7 +24138,7 @@ paths:
             type: string
             maxLength: 3
             description: "Movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: ["501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302"]
+            x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302"]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -24289,6 +24348,7 @@ paths:
         - inventory.no_price
         - inventory.no_valuation
         - inventory.quantity_too_large
+        - inventory.reverse_goods_receipt
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -35503,6 +35563,28 @@ paths:
         - integration.legal_entity_not_active
         - integration.migration_failed
         - integration.secret_unavailable
+        - inventory.amount_too_large
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -35664,6 +35746,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.mixed_currencies
@@ -35676,6 +35759,8 @@ paths:
         - procurement.requisition_ordered
         - procurement.return_exceeds_receipts
         - procurement.reversal_exceeds_receipts
+        - procurement.stock_item_not_valued
+        - procurement.stock_item_return
         - procurement.supplier_not_usable
         - procurement.unit_mismatch
         - procurement.unknown_currency
@@ -50386,6 +50471,30 @@ components:
           format: int32
           description: Contract item the price comes from.
           minimum: 1
+        plant_id:
+          type: string
+          format: uuid
+          description: "With `storage_location_id`, makes the item a stock item of `material_id` (S1e; ADR-0082 As built): the plant (an org unit of kind `plant` of the order's legal entity) whose storage location its goods are received into. A stock item names its material, plant and storage location together, is assigned to no cost center (`account_assignment` `none`), is ordered in the company's currency, which its stock is valued in, of an active material kept at that storage location, in a unit of the material whose ordered quantity converts exactly to its base unit (422 `procurement.invalid_stock_item` otherwise). Its goods receipt (101) is also a material document (`material_document_id` on the goods receipt) that moves the stock, valued by the material's valuation in the plant (refused, receiving nothing, without one: 422 `inventory.no_valuation`); its WE entry debits the valuation class's stock account rather than `account_id` (at a standard price its quantity at the price, the rest on the class's price difference account), and its invoice's price difference goes to the stock as far as the stock still holds the invoiced quantity at a moving price, to the class's price difference account otherwise. A stock item is not returned to the supplier (122) yet. A released order's item keeps its plant and storage location (422 `procurement.invalid_change`); an order change that sends neither keeps them, and a kept item is checked only for its quantity's exact conversion, not again for its material's status or extension, so a change still brings down the open quantity of an item whose material was blocked since."
+        storage_location_id:
+          type: string
+          format: uuid
+          description: "The storage location (an org unit of kind `storage_location` under `plant_id`) a stock item is received into; see `plant_id`."
+        plant_code:
+          type: string
+          description: "Derived: `plant_id`'s code (`GET /v1/org-units/{id}`); with it."
+          readOnly: true
+        plant_name:
+          type: string
+          description: "Derived: `plant_id`'s name; with it."
+          readOnly: true
+        storage_location_code:
+          type: string
+          description: "Derived: `storage_location_id`'s code; with it."
+          readOnly: true
+        storage_location_name:
+          type: string
+          description: "Derived: `storage_location_id`'s name; with it."
+          readOnly: true
         delivery_date:
           type: string
           format: date
@@ -52453,7 +52562,7 @@ components:
             journal_entry_id:
               type: string
               format: uuid
-              description: "Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a receipt (101) or a return's reversal (123), the other way for a receipt's reversal (102) or a return (122). Only for items of orders valued `gr_ir`; absent when it has none."
+              description: "Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a receipt (101) or a return's reversal (123), the other way for a receipt's reversal (102) or a return (122); a stock item's debit on its valuation class's stock and price difference accounts instead (S1e). Only for items of orders valued `gr_ir`; absent when it has none."
               readOnly: true
             journal_entry_year:
               type: integer
@@ -52461,6 +52570,15 @@ components:
               description: Fiscal year of the journal entry, set with `journal_entry_id`.
               minimum: 1900
               maximum: 2999
+              readOnly: true
+            material_document_id:
+              type: string
+              format: uuid
+              description: "The material document (`GET /v1/material-documents/{id}`, movement type 101 or 102) that moved the stock of the movement's stock items (S1e: items of order items naming a storage location), whose value the WE entry posts against GR/IR; absent when the movement has no stock items."
+              readOnly: true
+            material_document_number:
+              type: string
+              description: That material document's number; absent with it.
               readOnly: true
             items:
               type: array
@@ -62030,7 +62148,7 @@ components:
         fiscal_year: {type: integer, format: int32, description: "The fiscal year of its posting date, which its number is of.", readOnly: true}
         movement_type:
           type: string
-          x-extensible-enum: ["501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302"]
+          x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302"]
           description: "Its movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         movement_type_name: {type: string, description: "What the movement type is, in English.", readOnly: true}
@@ -62043,6 +62161,7 @@ components:
         journal_entry_id: {type: string, format: uuid, description: "The journal entry that posted its value (`GET /v1/journal-entries/{id}`); absent when it moved none.", readOnly: true}
         journal_entry_year: {type: integer, format: int32, description: "That entry's fiscal year; absent with it.", readOnly: true}
         journal_entry_number: {type: string, description: "That entry's document number; absent with it.", readOnly: true}
+        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); absent on every other document. Such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here).", readOnly: true}
         lines:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocumentLine"}

@@ -94,6 +94,17 @@ type Entry struct {
 	ExpLC          int
 	ExpGC          int
 	Lines          []Line
+	// Stock is what each of the posting's GR/IR items put on its stock
+	// and price difference accounts (GRIRItem.Stock), by the item's index,
+	// zero for an item without; set only on the entry Postings.Post
+	// answers, nil when no item is a stock item's.
+	Stock []StockPosted
+}
+
+// StockPosted is what a stock item's counter line put on its stock
+// account and on its price difference account (GRIRStock).
+type StockPosted struct {
+	Stock, Difference money.Minor
 }
 
 // Line is one journal line.

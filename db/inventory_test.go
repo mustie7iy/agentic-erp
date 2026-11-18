@@ -82,7 +82,7 @@ func TestInventoryRules(t *testing.T) {
 		want string // empty: allowed
 	}{
 		{"a receipt into stock", func(s inventoryScene) []stmt { return s.received() }, ""},
-		{"an unknown movement type", func(s inventoryScene) []stmt { return []stmt{s.document(s.doc, "MD1", "101", nil)} }, "material_document_movement_type_check"},
+		{"an unknown movement type", func(s inventoryScene) []stmt { return []stmt{s.document(s.doc, "MD1", "601", nil)} }, "material_document_movement_type_check"},
 		{"an empty number", func(s inventoryScene) []stmt { return []stmt{s.document(s.doc, "", "561", nil)} }, "material_document_number_check"},
 		{"a number of 41 characters", func(s inventoryScene) []stmt {
 			return []stmt{s.document(s.doc, strings.Repeat("M", 41), "561", nil)}

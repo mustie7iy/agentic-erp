@@ -52093,10 +52093,17 @@ type GoodsReceipt struct {
 	Reason OptString `json:"reason"`
 	// Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a
 	// receipt (101) or a return's reversal (123), the other way for a receipt's reversal (102) or a return
-	// (122). Only for items of orders valued `gr_ir`; absent when it has none.
+	// (122); a stock item's debit on its valuation class's stock and price difference accounts instead
+	// (S1e). Only for items of orders valued `gr_ir`; absent when it has none.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// Fiscal year of the journal entry, set with `journal_entry_id`.
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The material document (`GET /v1/material-documents/{id}`, movement type 101 or 102) that moved the
+	// stock of the movement's stock items (S1e: items of order items naming a storage location), whose
+	// value the WE entry posts against GR/IR; absent when the movement has no stock items.
+	MaterialDocumentID OptUUID `json:"material_document_id"`
+	// That material document's number; absent with it.
+	MaterialDocumentNumber OptString `json:"material_document_number"`
 	// Items.
 	Items []GoodsReceiptItem `json:"items"`
 }
@@ -52169,6 +52176,16 @@ func (s *GoodsReceipt) GetJournalEntryID() OptUUID {
 // GetJournalEntryYear returns the value of JournalEntryYear.
 func (s *GoodsReceipt) GetJournalEntryYear() OptInt32 {
 	return s.JournalEntryYear
+}
+
+// GetMaterialDocumentID returns the value of MaterialDocumentID.
+func (s *GoodsReceipt) GetMaterialDocumentID() OptUUID {
+	return s.MaterialDocumentID
+}
+
+// GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
+func (s *GoodsReceipt) GetMaterialDocumentNumber() OptString {
+	return s.MaterialDocumentNumber
 }
 
 // GetItems returns the value of Items.
@@ -52244,6 +52261,16 @@ func (s *GoodsReceipt) SetJournalEntryID(val OptUUID) {
 // SetJournalEntryYear sets the value of JournalEntryYear.
 func (s *GoodsReceipt) SetJournalEntryYear(val OptInt32) {
 	s.JournalEntryYear = val
+}
+
+// SetMaterialDocumentID sets the value of MaterialDocumentID.
+func (s *GoodsReceipt) SetMaterialDocumentID(val OptUUID) {
+	s.MaterialDocumentID = val
+}
+
+// SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
+func (s *GoodsReceipt) SetMaterialDocumentNumber(val OptString) {
+	s.MaterialDocumentNumber = val
 }
 
 // SetItems sets the value of Items.
@@ -67090,6 +67117,11 @@ type MaterialDocument struct {
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
 	// That entry's document number; absent with it.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number`
+	// (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock
+	// against GR/IR (S1e); absent on every other document. Such a document is reversed by reversing its
+	// goods receipt (409 `inventory.reverse_goods_receipt` here).
+	Reference OptString `json:"reference"`
 	// Its lines, in line order.
 	Lines []MaterialDocumentLine `json:"lines"`
 	// When it was posted.
@@ -67176,6 +67208,11 @@ func (s *MaterialDocument) GetJournalEntryYear() OptInt32 {
 // GetJournalEntryNumber returns the value of JournalEntryNumber.
 func (s *MaterialDocument) GetJournalEntryNumber() OptString {
 	return s.JournalEntryNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *MaterialDocument) GetReference() OptString {
+	return s.Reference
 }
 
 // GetLines returns the value of Lines.
@@ -67271,6 +67308,11 @@ func (s *MaterialDocument) SetJournalEntryYear(val OptInt32) {
 // SetJournalEntryNumber sets the value of JournalEntryNumber.
 func (s *MaterialDocument) SetJournalEntryNumber(val OptString) {
 	s.JournalEntryNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *MaterialDocument) SetReference(val OptString) {
+	s.Reference = val
 }
 
 // SetLines sets the value of Lines.
@@ -90462,6 +90504,35 @@ type PurchaseOrderItem struct {
 	TaxCode OptString `json:"tax_code"`
 	// Contract item the price comes from.
 	ContractItemNo OptInt32 `json:"contract_item_no"`
+	// With `storage_location_id`, makes the item a stock item of `material_id` (S1e; ADR-0082 As built):
+	// the plant (an org unit of kind `plant` of the order's legal entity) whose storage location its goods
+	// are received into. A stock item names its material, plant and storage location together, is assigned
+	// to no cost center (`account_assignment` `none`), is ordered in the company's currency, which its
+	// stock is valued in, of an active material kept at that storage location, in a unit of the material
+	// whose ordered quantity converts exactly to its base unit (422 `procurement.invalid_stock_item`
+	// otherwise). Its goods receipt (101) is also a material document (`material_document_id` on the goods
+	// receipt) that moves the stock, valued by the material's valuation in the plant (refused, receiving
+	// nothing, without one: 422 `inventory.no_valuation`); its WE entry debits the valuation class's stock
+	// account rather than `account_id` (at a standard price its quantity at the price, the rest on the
+	// class's price difference account), and its invoice's price difference goes to the stock as far as
+	// the stock still holds the invoiced quantity at a moving price, to the class's price difference
+	// account otherwise. A stock item is not returned to the supplier (122) yet. A released order's item
+	// keeps its plant and storage location (422 `procurement.invalid_change`); an order change that sends
+	// neither keeps them, and a kept item is checked only for its quantity's exact conversion, not again
+	// for its material's status or extension, so a change still brings down the open quantity of an item
+	// whose material was blocked since.
+	PlantID OptUUID `json:"plant_id"`
+	// The storage location (an org unit of kind `storage_location` under `plant_id`) a stock item is
+	// received into; see `plant_id`.
+	StorageLocationID OptUUID `json:"storage_location_id"`
+	// Derived: `plant_id`'s code (`GET /v1/org-units/{id}`); with it.
+	PlantCode OptString `json:"plant_code"`
+	// Derived: `plant_id`'s name; with it.
+	PlantName OptString `json:"plant_name"`
+	// Derived: `storage_location_id`'s code; with it.
+	StorageLocationCode OptString `json:"storage_location_code"`
+	// Derived: `storage_location_id`'s name; with it.
+	StorageLocationName OptString `json:"storage_location_name"`
 	// The day the item is expected to be delivered (SAP's delivery date, EKET-EINDT; ADR-0051 §5, T53g).
 	// Optional. An item that gives none takes the `needed_by` of the requisition its order was created
 	// from, if it has one; in an order change, an item the order has keeps its own date first. The
@@ -90536,6 +90607,36 @@ func (s *PurchaseOrderItem) GetTaxCode() OptString {
 // GetContractItemNo returns the value of ContractItemNo.
 func (s *PurchaseOrderItem) GetContractItemNo() OptInt32 {
 	return s.ContractItemNo
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *PurchaseOrderItem) GetPlantID() OptUUID {
+	return s.PlantID
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *PurchaseOrderItem) GetStorageLocationID() OptUUID {
+	return s.StorageLocationID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *PurchaseOrderItem) GetPlantCode() OptString {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *PurchaseOrderItem) GetPlantName() OptString {
+	return s.PlantName
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *PurchaseOrderItem) GetStorageLocationCode() OptString {
+	return s.StorageLocationCode
+}
+
+// GetStorageLocationName returns the value of StorageLocationName.
+func (s *PurchaseOrderItem) GetStorageLocationName() OptString {
+	return s.StorageLocationName
 }
 
 // GetDeliveryDate returns the value of DeliveryDate.
@@ -90616,6 +90717,36 @@ func (s *PurchaseOrderItem) SetTaxCode(val OptString) {
 // SetContractItemNo sets the value of ContractItemNo.
 func (s *PurchaseOrderItem) SetContractItemNo(val OptInt32) {
 	s.ContractItemNo = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *PurchaseOrderItem) SetPlantID(val OptUUID) {
+	s.PlantID = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *PurchaseOrderItem) SetStorageLocationID(val OptUUID) {
+	s.StorageLocationID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *PurchaseOrderItem) SetPlantCode(val OptString) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *PurchaseOrderItem) SetPlantName(val OptString) {
+	s.PlantName = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *PurchaseOrderItem) SetStorageLocationCode(val OptString) {
+	s.StorageLocationCode = val
+}
+
+// SetStorageLocationName sets the value of StorageLocationName.
+func (s *PurchaseOrderItem) SetStorageLocationName(val OptString) {
+	s.StorageLocationName = val
 }
 
 // SetDeliveryDate sets the value of DeliveryDate.

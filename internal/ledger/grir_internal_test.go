@@ -156,3 +156,29 @@ func TestGRIRClearingItems(t *testing.T) {
 		t.Errorf("mixed items: got %v, want an internal error", err)
 	}
 }
+
+// TestStockLines (S1e): a stock item's invoiced difference out of range
+// is too large to post, its share's too, and one that names neither a
+// goods movement's offset account nor an invoice's amount and share is an
+// internal error.
+func TestStockLines(t *testing.T) {
+	lowest, highest := money.Minor(math.MinInt64+1), money.Minor(math.MaxInt64)
+	st := &GRIRStock{AccountID: uuid.New(), DifferenceAccountID: uuid.New(), Share: big.NewRat(2, 1)}
+	g := grirPosting{stock: make([]StockPosted, 1)}
+	for name, c := range map[string]struct {
+		it   GRIRItem
+		tc   money.Minor
+		code string
+	}{
+		"a difference out of range": {GRIRItem{Invoiced: &lowest, Stock: st}, 1_000_000_000_000_000_000, "ledger.amount_too_large"},
+		"a share out of range":      {GRIRItem{Invoiced: &highest, Stock: st}, 0, "ledger.amount_too_large"},
+		"neither":                   {GRIRItem{Stock: &GRIRStock{}}, 0, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := g.stockLines(0, c.it, c.tc, 0, 0, nil)
+			if err == nil || problemCode(err) != c.code {
+				t.Errorf("got %v, want %q", err, c.code)
+			}
+		})
+	}
+}

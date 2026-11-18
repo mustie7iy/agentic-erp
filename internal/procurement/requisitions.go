@@ -50,6 +50,11 @@ type Item struct {
 	// (T84b, ADR-0071 §6), whose key is then its MaterialKey; nil for an
 	// item the requester described, and for contracts' and orders' items.
 	CatalogItemID *uuid.UUID `json:"catalog_item_id,omitempty"`
+	// PlantID and StorageLocationID make an order's item a stock item of
+	// its material (S1e): received into that storage location's stock.
+	// nil on every other item.
+	PlantID           *uuid.UUID `json:"plant_id,omitempty"`
+	StorageLocationID *uuid.UUID `json:"storage_location_id,omitempty"`
 	// RequisitionItemNo is the requisition item an RFQ item was taken from
 	// (T82e), nil for an RFQ's own item and for the other documents' items.
 	RequisitionItemNo *int32 `json:"requisition_item_no,omitempty"`
@@ -94,6 +99,9 @@ type ItemInput struct {
 	// CatalogItemID is the catalog item a requisition item is taken from
 	// (T84b): fromCatalog fills the description, key and price from it.
 	CatalogItemID *uuid.UUID
+	// PlantID and StorageLocationID make an order's item a stock item
+	// (S1e, stockItem).
+	PlantID, StorageLocationID *uuid.UUID
 }
 
 // Requisition is a row of procurement.requisition with its live items.

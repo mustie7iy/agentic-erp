@@ -13478,6 +13478,94 @@ step_goods_movements() {
   passed
 }
 
+# step_stock_receipt is S1e (ADR-0082 As built S1e, plan-supply-chain.md):
+# Ben orders 100 brackets and 100 bolts from Tyrell as stock items of
+# Toronto's main store. The brackets arrive in two parts, each goods
+# receipt also a material document (101) that moves the stock, its value
+# posted on the WE entry against GR/IR: at the bracket's moving price the
+# order price, at the bolt's standard price the stock at 0.55 and the rest
+# a price difference. A miscounted receipt is reversed (102), stock and
+# GR/IR with it, once; a stock item is not returned to the supplier yet.
+# Tyrell invoices the brackets at 2.54: the 4.00 over the order price goes
+# to the stock, which still holds all of them, and the moving price
+# follows; GR/IR is cleared, and the invoice, which revalued stock, is not
+# reversed.
+step_stock_receipt() {
+  heading "Step 130 — Goods receipt into stock: an order's stock items received in two parts as material documents valued against GR/IR, at the order price and at a standard price with its price difference; a receipt reversed once; the invoice at a higher price clearing GR/IR, its difference on the stock and the moving price after it"
+  local po first second rev entry inv
+  [ -n "$BOLT" ] || fail "step 124's valuations are not there"
+  accounts
+  as ben
+  say "Ben orders 100 brackets at 2.50 CAD and 100 bolts at 0.60 CAD from Tyrell as stock items: each names its"
+  say "material, the Toronto plant and its main store, the storage location its goods are received into (S1e):"
+  api 201 '"purchase order \(.document_number // .id): \(.status)", (.items[] | "  item \(.item_no): \(.description), \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) \(.unit_price.currency) into \(.plant_code)/\(.storage_location_code) \(.storage_location_name)")' createPurchaseOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"items\": [
+      {\"material_id\": \"$MATERIAL\", \"description\": \"Machined bracket M10\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"2.50\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"},
+      {\"material_id\": \"$BOLT\", \"description\": \"Hex bolt M10\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"0.60\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}]}"
+  po=$(field .id)
+  api 200 '"\(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Stock replenishment"
+    as ben
+  fi
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  expect "the order" "$(field '"\(.status) \(.valuation)"')" "released gr_ir"
+  say "The first delivery: 60 brackets and the 100 bolts. The goods receipt is a material document too (101); its WE"
+  say "entry puts the brackets on the stock at the order price, the bolts at their standard price of 0.55 and the"
+  say "0.05 more a bolt cost on the price difference account, against GR/IR:"
+  api 201 '"goods receipt \(.document_number): material document \(.material_document_number), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"60\", \"unit\": \"EA\"}},
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 2, \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}}]}"
+  first=$(field .id)
+  entry=$(field .journal_entry_id)
+  api 200 '"material document \(.number) (\(.movement_type) \(.movement_type_name)), reference \(.reference)", (.lines[] | "  \(.material_number): \(.quantity.value) \(.quantity.unit) worth \(.amount.amount), price difference \(.price_difference.amount)")' \
+    getMaterialDocument -p "id=$(field .material_document_id)"
+  expect "the receipt's values" "$(field '[.lines[] | "\(.amount.amount)/\(.price_difference.amount)"] | join(" ")')" "150.00/0.00 55.00/5.00"
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
+  say "The second part, 40 brackets, is counted wrong at 35; Ben posts it, sees it and reverses it (102), which takes"
+  say "the stock and GR/IR back, once:"
+  api 201 '"goods receipt \(.document_number): material document \(.material_document_number)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"35\", \"unit\": \"EA\"}}]}"
+  second=$(field .id)
+  api 200 '"reversal \(.document_number) (\(.movement_type)): material document \(.material_document_number)"' reverseGoodsReceipt -p "id=$second" -if-match "$ETAG" -body '{}'
+  QUIET=1 api 200 '' getGoodsReceipt -p "id=$second"
+  refused 409 procurement.already_reversed reverseGoodsReceipt -p "id=$second" -if-match "$ETAG" -body '{}'
+  api 201 '"goods receipt \(.document_number): material document \(.material_document_number)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}}]}"
+  say "Stock items are not returned to the supplier yet (122 is Later):"
+  refused 422 procurement.stock_item_return postGoodsReceipt -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\",
+      \"movement_type\": \"122\", \"reason\": \"Damaged\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  say "The main store's stock and the valuations: 100 brackets more at 2.50, 100 bolts more at 0.55:"
+  expect "the main store's brackets" "$(stock_at "$MAIN_STORE")" "288 EA"
+  expect "the bracket's valuation" "$(valuation "$MATERIAL")" "288 EA: 720.00 CAD at 2.50 per 1 EA"
+  expect "the bolt's valuation" "$(valuation "$BOLT")" "1100 EA: 605.00 CAD at 0.55 per 1 EA"
+  as alex
+  say "Tyrell invoices the brackets at 2.54 CAD and the bolts at the order price. Alex matches and posts it: GR/IR"
+  say "is cleared; the brackets' 4.00 over the order price goes to their stock, which still holds all 100, so the"
+  say "moving price follows:"
+  api 201 '"\(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-6100\", \"invoice_date\": \"$TODAY\",
+      \"gross_amount\": {\"amount\": \"314.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$po\", \"items\": [
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"254.00\", \"currency\": \"CAD\"}},
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 2, \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"60.00\", \"currency\": \"CAD\"}}]}"
+  inv=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$inv" -if-match "$ETAG"
+  expect "the match" "$(field .is_clean)" true
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the bracket's valuation after the invoice" "$(valuation "$MATERIAL")" "288 EA: 724.00 CAD at 2.51 per 1 EA"
+  QUIET=1 api 200 '' listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$po" -p open_only=false
+  expect "the order's GR/IR" "$(field '[.items[] | .balance.amount] | join(" ")')" "0.00 0.00"
+  say "An invoice that revalued stock is not reversed, as the stock may have been issued since; a credit memo corrects it:"
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
+  refused 409 payables.invoice_revalued_stock reverseSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body '{"reason": "Wrong price"}'
+  passed
+}
+
 # step_debit_memo is T75j (ADR-0063 §7 As built): Maple charges Northwind
 # freight its invoice of step 55 left out. Ruth enters a debit memo, the
 # customer invoice document with the kind debit_memo, and posts it as an
@@ -15771,7 +15859,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_debit_memo step_memo_reversal step_price_scales step_price_groups step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_close'
 
 main() {
   stop_unseen

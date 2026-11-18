@@ -2032,6 +2032,18 @@ released order's item keeps its assignment as it keeps its account
 (`purchase_order_item_identity`, 000161), and its goods movements post the
 item's account with its cost center.
 
+A purchase order item that names a plant and a storage location (migration
+000390, S1e, ADR-0082 As built S1e) is a stock item of its material:
+`purchase_order_item.plant_id` and `.storage_location_id` (tenancy's org
+units, by id), given together, with the material and no cost center
+(`purchase_order_item_stock`, added `NOT VALID` and validated by 000391),
+kept by a released order's item (`purchase_order_item_identity`). Its goods
+receipt (101) and the receipt's reversal (102) are material documents of
+the inventory context too, which `goods_movement.material_document_id` and
+`.material_document_number` name, together
+(`goods_movement_material_document`); its WE entry posts the stock's value
+against GR/IR on the valuation class's accounts (§3.35).
+
 A request for quotation (migration 000285, T82a, ADR-0069) asks the
 suppliers invited for prices of items a company wants to buy, without a
 requisition. `rfq` is numbered per company (`rfq_number_once`, from the
@@ -6345,7 +6357,8 @@ erDiagram
     uuid legal_entity_id "tenancy: its plants' company"
     smallint fiscal_year
     text number "material_document range, once per company and year"
-    text movement_type "501 561 201 551 311 301 and their reversals"
+    text movement_type "101 501 561 201 551 311 301 and their reversals"
+    text reference "a goods receipt's number (101, 102)"
     date posting_date "the company's date"
     text header_text "1 to 200"
     uuid reversal_of_id FK "once" }
@@ -6449,6 +6462,22 @@ erDiagram
   `inventory_<kind>:<class>` (`account_determination_key_check`, 000377,
   validated by 000378), and `ledger.journal_entry` the source context
   `inventory`.
+- S1e (migrations 000390, 000391): `inventory.material_document` takes the
+  movement types `101` and `102`, a purchase order's goods receipt and its
+  reversal, which procurement posts, and their `reference`, the goods
+  movement's number, of 1 to 40 characters
+  (`material_document_reference_check`), named by those documents and no
+  other (`material_document_reference`); their journal entry is
+  procurement's WE entry. `inventory.invoice_difference`: what a supplier
+  invoice's price difference put on a moving-priced valuation's stock
+  (`invoice_difference_valuation_fkey`), not zero
+  (`invoice_difference_amount_check`), with the invoice, the order item
+  and the journal entry, added to the valuation's value with its moving
+  price following, only to a moving-priced valuation holding stock
+  (`invoice_difference_valuation`, a security definer trigger) and never
+  below a value of zero (`valuation_value_check`). Insert-only
+  (`invoice_difference_insert_only`); an invoice's are read by
+  `invoice_difference_by_invoice`.
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,

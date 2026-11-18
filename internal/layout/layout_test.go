@@ -123,9 +123,9 @@ var allowed = map[string][]string{
 	"nfr":                     {"analytics", "app", "ledger"},
 	"offboarding":             {"tenancy"},
 	"partner":                 {"approvals", "bankfile", "config", "tenancy"},
-	"payables":                {"approvals", "capture", "config", "configuration", "ledger", "operations", "partner", "procurement", "tenancy"},
+	"payables":                {"approvals", "capture", "config", "configuration", "inventory", "ledger", "operations", "partner", "procurement", "tenancy"}, // inventory's published API for stock items' invoices (ADR-0082 As built S1e)
 	"payments":                {"approvals", "bankfile", "bankstatement", "config", "ledger", "operations", "partner", "tenancy"},
-	"procurement":             {"approvals", "config", "ledger", "partner", "tenancy"},
+	"procurement":             {"approvals", "config", "inventory", "ledger", "materials", "partner", "tenancy"}, // materials and inventory's published APIs for stock items (ADR-0082 §3, S1e)
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"receivables":             {"config", "ledger", "partner", "tenancy"},                                         // as payables reads them (ADR-0063 §1)
 	"sales":                   {"capture", "config", "ledger", "operations", "partner", "receivables", "tenancy"}, // as receivables reads them; receivables itself for billing, which posts through it (ADR-0067 §1, §9); capture and operations for order capture, as payables' capture (ADR-0067 As built T90a)

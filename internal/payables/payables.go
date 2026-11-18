@@ -11,7 +11,10 @@
 // per item, Dr input tax, Cr the supplier's reconciliation account
 // (document type KR). On an order valued through GR/IR (T33), whose goods
 // receipts post Cr GR/IR, an item on an order item debits GR/IR at the
-// order price instead, with the price difference on its own line.
+// order price instead, with the price difference on its own line; on a
+// stock item (S1e) the difference goes to its stock as far as the stock
+// holds the invoiced quantity at a moving price, through the inventory
+// context's published API (stock.go; ADR-0082 As built S1e).
 //
 // Down payment requests (ADR-0037) are payables documents outside the
 // ledger: a payment run pays them, which posts the special G/L item.
@@ -211,6 +214,7 @@ type Endpoints struct {
 	Uploads       *Uploads          // direct uploads of large documents; nil or without a store: uploads answer 503
 	ExpenseLedger ExpenseLedger     // the accounts and cost centers expense reports name (ADR-0074)
 	Partners      PartnerNames      // the numbers and names of expense reports' employees
+	Stock         Stock             // an invoice's price differences on stock items' stock (S1e)
 	// Now is the clock a posting date the caller leaves out is read from,
 	// as the company's date in its time zone (companyDay); nil is the
 	// system clock.

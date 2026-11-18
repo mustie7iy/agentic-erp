@@ -384,6 +384,27 @@ type GRIRItem struct {
 	// over (409 ledger.gr_ir_position_exists), so a source system's
 	// position is never taken over twice.
 	TakenOver *GRIRTakenOver
+	// Stock makes the item a stock item's (S1e, ADR-0082 As built): its
+	// counter line goes to the stock account of its material's valuation
+	// class rather than to OffsetAccountID or the price difference account,
+	// as far as the stock takes it, the rest to the class's price
+	// difference account. Given only with OffsetAccountID or Invoiced, on
+	// an entry in the company's currency, which a valuation is kept in.
+	Stock *GRIRStock
+}
+
+// GRIRStock is how a stock item's counter line divides between its stock
+// account and its price difference account (SAP BSX and PRD, from
+// memory): a goods movement's mirror of its GR/IR line takes Amount on the
+// stock (all of it when nil), the value the receipt or its reversal moves
+// in the valuation; an invoice's price difference takes Share on the stock
+// (from 0 to 1, rounded half away from zero), the part of the invoiced
+// quantity the stock still holds at a moving price, none at a standard
+// one. What each item put on either is the entry's Stock.
+type GRIRStock struct {
+	AccountID, DifferenceAccountID uuid.UUID
+	Amount                         *money.Minor
+	Share                          *big.Rat
 }
 
 // GRIRTakenOver is what migration runs' take-overs (GRIRItem.TakesOver)

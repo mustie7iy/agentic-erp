@@ -75,19 +75,28 @@ var ErrUnknownUnit = errors.New("not a unit of the material")
 // rounded.
 var ErrInexact = errors.New("not exact in the base unit")
 
-// Convert is quantity, a positive plain decimal (money.PositiveQuantity)
-// in unit, in the material's base unit, exactly: one alternative unit is
-// numerator / denominator base units (ADR-0082 §5).
-func (m Material) Convert(quantity *big.Rat, unit string) (*big.Rat, error) {
+// Factor is how many base units one unit is: 1 for the base unit, an
+// alternative unit's numerator / denominator (ADR-0082 §5).
+func (m Material) Factor(unit string) (*big.Rat, error) {
 	if unit == m.BaseUnit {
-		return new(big.Rat).Set(quantity), nil
+		return big.NewRat(1, 1), nil
 	}
 	i := slices.IndexFunc(m.Units, func(u Unit) bool { return u.Code == unit })
 	if i < 0 {
 		return nil, fmt.Errorf("materials: %s of material %s: %w", unit, m.Number, ErrUnknownUnit)
 	}
-	u := m.Units[i]
-	base := new(big.Rat).Mul(quantity, big.NewRat(int64(u.Numerator), int64(u.Denominator)))
+	return big.NewRat(int64(m.Units[i].Numerator), int64(m.Units[i].Denominator)), nil
+}
+
+// Convert is quantity, a positive plain decimal (money.PositiveQuantity)
+// in unit, in the material's base unit, exactly: one alternative unit is
+// numerator / denominator base units (ADR-0082 §5).
+func (m Material) Convert(quantity *big.Rat, unit string) (*big.Rat, error) {
+	f, err := m.Factor(unit)
+	if err != nil {
+		return nil, err
+	}
+	base := new(big.Rat).Mul(quantity, f)
 	if money.PositiveQuantity(base.FloatString(money.QuantityDecimals)) != nil || !exact(base) {
 		return nil, fmt.Errorf("materials: %s %s of material %s in %s: %w", quantity.FloatString(money.QuantityDecimals), unit, m.Number, m.BaseUnit,
 			ErrInexact)

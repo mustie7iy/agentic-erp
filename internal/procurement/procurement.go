@@ -114,6 +114,10 @@ type Endpoints struct {
 	// SupplierNames reads the numbers and names catalog items show beside
 	// their supplier's id and their events name the supplier by (ADR-0071).
 	SupplierNames SupplierNames
+	// Materials and Movements check stock items and move their stock
+	// (S1e).
+	Materials Materials
+	Movements Movements
 	// Now dates requisitions in their company's time zone (T72n5); nil
 	// means the wall clock. Tests fix it.
 	Now func() time.Time

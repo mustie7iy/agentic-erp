@@ -62,7 +62,7 @@ func (e *Endpoints) Post(ctx context.Context, in Input) (Document, error) {
 		return Document{}, err
 	}
 	mt, ok := movementTypes[in.MovementType]
-	if !ok || mt.reverses != "" {
+	if !ok || mt.reverses != "" || mt.order {
 		return Document{}, problem.Invalid("inventory.unknown_movement_type", "movement_type", fmt.Sprintf("%q is not a movement type that is posted; "+
 			"they are 501, 561, 201, 551, 311 and 301, and a reversal is posted by reversing its document.", in.MovementType))
 	}
@@ -346,6 +346,7 @@ type posting struct {
 	day          time.Time
 	headerText   *string
 	reversalOf   *uuid.UUID
+	reference    *string // a purchase order's goods receipt's number (101, 102)
 	lines        []Line
 	items        []ItemInput
 }
@@ -372,30 +373,62 @@ func (e *Endpoints) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in
 	if err := valueLines(in.lines, mt, vals, amounts, r); err != nil {
 		return Document{}, err
 	}
+	n, err := e.numbered(ctx, in)
+	if err != nil {
+		return Document{}, err
+	}
+	entry, err := e.post(ctx, in, n.id, n.number, vals, r)
+	if err != nil {
+		return Document{}, err
+	}
+	return insertDocument(ctx, tx, p, in, n, entry)
+}
+
+// lock locks the valuations and then the stock the lines move, refusing
+// a line without a valuation or below zero.
+func (e *Endpoints) lock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in posting, r refs) (map[valuationKey]*Valuation, error) {
+	vals, err := lockValuations(ctx, tx, in.lines, r)
+	if err != nil {
+		return nil, err
+	}
+	return vals, takeStock(ctx, tx, p, in.company.ID, in.lines, r)
+}
+
+// numbering is a document's id, fiscal year and number.
+type numbering struct {
+	id     uuid.UUID
+	year   int16
+	number string
+}
+
+// numbered numbers a document from its company's material_document range
+// of its posting date's fiscal year.
+func (e *Endpoints) numbered(ctx context.Context, in posting) (numbering, error) {
 	year, err := e.Calendar.FiscalYear(ctx, in.company.ID, in.day)
 	if err != nil {
-		return Document{}, fmt.Errorf("inventory: fiscal year of %s in company %s: %w", in.day.Format(time.DateOnly), in.company.Code, err)
+		return numbering{}, fmt.Errorf("inventory: fiscal year of %s in company %s: %w", in.day.Format(time.DateOnly), in.company.Code, err)
 	}
 	number, err := e.Numbers.Next(ctx, in.company.ID, NumberRange, year)
 	if err != nil {
-		return Document{}, fmt.Errorf("inventory: number a material document in company %s: %w", in.company.Code, err)
+		return numbering{}, fmt.Errorf("inventory: number a material document in company %s: %w", in.company.Code, err)
 	}
-	id := uuid.Must(uuid.NewV7())
-	entry, err := e.post(ctx, in, id, number, vals, r)
-	if err != nil {
-		return Document{}, err
-	}
+	return numbering{id: uuid.Must(uuid.NewV7()), year: year, number: number}, nil
+}
+
+// insertDocument writes a valued document with its lines and the entry
+// that posted it, and reads it back.
+func insertDocument(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in posting, n numbering, entry entryRef) (Document, error) {
 	if _, err := tx.Exec(ctx, `INSERT INTO inventory.material_document (tenant_id, id, legal_entity_id, fiscal_year, number, movement_type,
-			posting_date, header_text, reversal_of_id, currency, journal_entry_id, journal_entry_year, journal_entry_number, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-		p.TenantID, id, in.company.ID, year, number, in.movementType, in.day, in.headerText, in.reversalOf, in.company.LocalCurrency, entry.id,
-		entry.year, entry.number, p.ID); err != nil {
-		return Document{}, fmt.Errorf("inventory: insert material document %s: %w", number, err)
+			posting_date, header_text, reversal_of_id, currency, journal_entry_id, journal_entry_year, journal_entry_number, reference, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		p.TenantID, n.id, in.company.ID, n.year, n.number, in.movementType, in.day, in.headerText, in.reversalOf, in.company.LocalCurrency, entry.id,
+		entry.year, entry.number, in.reference, p.ID); err != nil {
+		return Document{}, fmt.Errorf("inventory: insert material document %s: %w", n.number, err)
 	}
-	if err := writeLines(ctx, tx, p, id, in.lines); err != nil {
+	if err := writeLines(ctx, tx, p, n.id, in.lines); err != nil {
 		return Document{}, err
 	}
-	return load(ctx, tx, id)
+	return load(ctx, tx, n.id)
 }
 
 // writeLines writes a document's movements in line order, the order

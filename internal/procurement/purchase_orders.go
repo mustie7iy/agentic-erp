@@ -64,6 +64,7 @@ const orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.purcha
 			'account_id', i.account_id, 'over_delivery_pct', trim_scale(i.over_delivery_pct)::text, 'tax_code', i.tax_code,
 			'contract_item_no', i.contract_item_no, 'valuation_price', i.valuation_price, 'valuation_price_unit', i.valuation_price_unit,
 			'account_assignment', i.account_assignment, 'cost_center_id', i.cost_center_id, 'delivery_date', ` + deliveryDate + `,
+			'plant_id', i.plant_id, 'storage_location_id', i.storage_location_id,
 			'received', trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text) ORDER BY i.item_no)
 		 FROM procurement.purchase_order_item i WHERE i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND NOT i.is_removed), '[]')
@@ -159,6 +160,11 @@ type orderHeader struct {
 	// neededBy is the need date of the requisition the order was created
 	// from, which an item without a delivery date takes (T53g).
 	neededBy *time.Time
+	// kept is how many of the items are the released order's own, which
+	// an order change keeps (keptItems): their stock items are not judged
+	// again on their material's status or extension, which may have
+	// changed since they were ordered (stockItem).
+	kept int
 }
 
 // orderItems validates order items. Contract items take the contract's
@@ -191,7 +197,7 @@ func (e *Endpoints) orderItem(ctx context.Context, h orderHeader, i int, it Item
 	}
 	item := Item{No: int32(i + 1), MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
 		UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID, OverDelivery: h.tolerance, TaxCode: it.TaxCode,
-		ContractItemNo: it.ContractItemNo, DeliveryDate: cmp.Or(it.DeliveryDate, h.neededBy)}
+		ContractItemNo: it.ContractItemNo, DeliveryDate: cmp.Or(it.DeliveryDate, h.neededBy), PlantID: it.PlantID, StorageLocationID: it.StorageLocationID}
 	if it.OverDelivery != nil {
 		pct, ok := new(big.Rat).SetString(*it.OverDelivery)
 		if !ok || pct.Sign() < 0 || pct.Cmp(big.NewRat(100, 1)) > 0 {
@@ -206,6 +212,9 @@ func (e *Endpoints) orderItem(ctx context.Context, h orderHeader, i int, it Item
 		return Item{}, err
 	}
 	if err := e.account(ctx, h.le.ID, it.AccountID, field+".account_id"); err != nil {
+		return Item{}, err
+	}
+	if err := e.stockItem(ctx, h, field, item, i >= h.kept); err != nil {
 		return Item{}, err
 	}
 	if it.TaxCode != nil {
@@ -250,26 +259,27 @@ func writeOrderItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items
 	nos, materials, descriptions, quantities, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
 	prices, priceUnits, accounts, tolerances := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n), make([]string, n)
 	taxes, contractItems, assigned, centers := make([]*string, n), make([]*int32, n), make([]string, n), make([]*uuid.UUID, n)
-	delivery := make([]*time.Time, n)
+	delivery, plants, locations := make([]*time.Time, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
 	for i, it := range items {
+		plants[i], locations[i] = it.PlantID, it.StorageLocationID
 		nos[i], materials[i], descriptions[i], quantities[i], units[i] = it.No, it.MaterialID, it.Description, it.Quantity, it.Unit
 		prices[i], priceUnits[i], accounts[i], tolerances[i] = it.UnitPrice, it.PriceUnit, it.AccountID, it.OverDelivery
 		taxes[i], contractItems[i], assigned[i], centers[i], delivery[i] = it.TaxCode, it.ContractItemNo, it.assignment(), it.CostCenterID, it.DeliveryDate
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.purchase_order_item AS i (tenant_id, purchase_order_id, item_no, material_id, description, quantity,
 			uom_code, unit_price, price_unit, account_id, over_delivery_pct, tax_code, contract_item_no, valuation_price, valuation_price_unit,
-			account_assignment, cost_center_id, delivery_date)
-		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, t::numeric, tx, ci, CASE WHEN $14 THEN p END, CASE WHEN $14 THEN pu END, aa, cc, dd
+			account_assignment, cost_center_id, delivery_date, plant_id, storage_location_id)
+		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, t::numeric, tx, ci, CASE WHEN $14 THEN p END, CASE WHEN $14 THEN pu END, aa, cc, dd, pl, sl
 		FROM unnest($3::int[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::uuid[], $11::text[], $12::text[], $13::int[],
-			$15::text[], $16::uuid[], $17::date[]) AS x(n, m, d, q, u, p, pu, a, t, tx, ci, aa, cc, dd)
+			$15::text[], $16::uuid[], $17::date[], $18::uuid[], $19::uuid[]) AS x(n, m, d, q, u, p, pu, a, t, tx, ci, aa, cc, dd, pl, sl)
 		ON CONFLICT (tenant_id, purchase_order_id, item_no) DO UPDATE SET material_id = EXCLUDED.material_id, description = EXCLUDED.description,
 			quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code, unit_price = EXCLUDED.unit_price, price_unit = EXCLUDED.price_unit,
 			account_id = EXCLUDED.account_id, over_delivery_pct = EXCLUDED.over_delivery_pct, tax_code = EXCLUDED.tax_code,
 			contract_item_no = EXCLUDED.contract_item_no, account_assignment = EXCLUDED.account_assignment, cost_center_id = EXCLUDED.cost_center_id,
-			delivery_date = EXCLUDED.delivery_date, is_removed = false, valuation_price = coalesce(i.valuation_price, EXCLUDED.valuation_price),
+			delivery_date = EXCLUDED.delivery_date, plant_id = EXCLUDED.plant_id, storage_location_id = EXCLUDED.storage_location_id, is_removed = false, valuation_price = coalesce(i.valuation_price, EXCLUDED.valuation_price),
 			valuation_price_unit = coalesce(i.valuation_price_unit, EXCLUDED.valuation_price_unit)`,
 		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, tolerances, taxes, contractItems, valued,
-		assigned, centers, delivery); err != nil {
+		assigned, centers, delivery, plants, locations); err != nil {
 		return fmt.Errorf("procurement: write items of purchase order %s: %w", id, err)
 	}
 	return removeItems(ctx, tx, "purchase_order_item", "purchase_order_id", id, n)
