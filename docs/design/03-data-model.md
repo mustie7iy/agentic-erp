@@ -6232,3 +6232,82 @@ erDiagram
   (`MaterialChanged`, `MaterialChangeChanged`).
 - Permissions `materials.material.read` and `.write`, and the approval
   permission `materials.change.approve`.
+
+## 3.35 Inventory management (`inventory`)
+
+ADR-0082, S1c. Stock by location and goods movements: the context reads
+the materials context's published API, tenancy's companies and org units,
+the ledger's cost centers and fiscal calendar and the configuration's
+number ranges and company dates through its ports, and keeps no foreign
+key out of its schema but `ref`'s (02 §2.1). S1c (migration 000376) builds
+the schema with its outbox and inbox, material documents, their movements
+and the stock. Documents and movements are insert-only: a mistaken
+document is reversed by another. Nothing is posted to the ledger in S1c.
+
+```mermaid
+erDiagram
+  material_document ||--|{ movement : "lines"
+  material_document ||--o| material_document : "reversed by"
+  stock ||--o{ movement : "the sum of"
+  material_document { uuid id PK
+    uuid legal_entity_id "tenancy: its plants' company"
+    smallint fiscal_year
+    text number "material_document range, once per company and year"
+    text movement_type "501 561 201 551 311 301 and their reversals"
+    date posting_date "the company's date"
+    text header_text "1 to 200"
+    uuid reversal_of_id FK "once" }
+  movement { uuid material_document_id PK
+    smallint line_no PK "1 to 200"
+    smallint item_no "1 to 100"
+    uuid material_id "materials"
+    uuid plant_id "tenancy"
+    uuid storage_location_id "tenancy"
+    numeric quantity "base unit, signed, not 0"
+    numeric entry_quantity "positive"
+    text entry_uom_code "ref"
+    uuid cost_center_id "ledger" }
+  stock { uuid id PK
+    uuid legal_entity_id "tenancy: the plant's company"
+    uuid material_id "once per material, plant and location"
+    uuid plant_id
+    uuid storage_location_id
+    numeric quantity "never below zero" }
+```
+
+- `inventory.material_document`: a goods movement (SAP MKPF) of one
+  movement type, `501`, `502`, `561`, `562`, `201`, `202`, `551`, `552`,
+  `311`, `312`, `301` or `302` (`material_document_movement_type_check`),
+  numbered 1 to 40 characters (`material_document_number_check`) once per
+  company and fiscal year (`material_document_number_once`), with a header
+  text of 1 to 200 characters that is not blank
+  (`material_document_header_text_check`). A reversal type names the
+  document it reverses and another type none
+  (`material_document_reversal_check`); a reversal is of its original's
+  company with its type's reversal, of a document that reverses none
+  (`material_document_reversal`, a trigger), once
+  (`material_document_reversed_once`). Insert-only
+  (`material_document_insert_only`); the list reads by
+  `material_document_by_created_at`.
+- `inventory.movement`: a line of a document (MSEG), one stock effect in
+  the material's base unit, signed and not zero (`movement_quantity_check`),
+  with the item's quantity as entered, positive
+  (`movement_entry_quantity_check`), in a unit of measure
+  (`movement_entry_uom_code_fkey`); lines 1 to 200
+  (`movement_line_no_check`) of items 1 to 100 (`movement_item_no_check`)
+  of a document that exists (`movement_document_fkey`), once
+  (`movement_pkey`). Insert-only (`movement_insert_only`); a stock's
+  movements are read by `movement_by_stock`. Each adds its quantity to its
+  stock row, which must exist (`movement_stock`, a security definer
+  trigger).
+- `inventory.stock`: the quantity of a material at a storage location of a
+  plant (MARD's unrestricted stock), once (`stock_once`), with the plant's
+  company. Written empty by the application (`stock_from_movements`, a
+  trigger) before the first movement of it, its quantity changed by
+  `movement_stock` alone (the application may update `updated_at`, which
+  its row lock needs, and nothing else) and never below zero
+  (`stock_not_negative`). The list reads by `stock_by_created_at`, a
+  plant's stock by `stock_by_plant`.
+- `inventory.outbox`, `inventory.inbox`: the context's events
+  (`MaterialDocumentPosted`).
+- Permissions `inventory.movement.post` and `inventory.stock.read`.

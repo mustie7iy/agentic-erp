@@ -27310,6 +27310,7 @@ func (*ConflictHeaders) createInternalOrderRes()                   {}
 func (*ConflictHeaders) createLeaseContractRes()                   {}
 func (*ConflictHeaders) createLeaseRunRes()                        {}
 func (*ConflictHeaders) createLegalEntityRes()                     {}
+func (*ConflictHeaders) createMaterialDocumentRes()                {}
 func (*ConflictHeaders) createMaterialRes()                        {}
 func (*ConflictHeaders) createMemoRecordRes()                      {}
 func (*ConflictHeaders) createMetricWatcherRes()                   {}
@@ -27488,6 +27489,7 @@ func (*ConflictHeaders) reverseAssetTransferRes()                  {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()                   {}
 func (*ConflictHeaders) reverseInternalOrderSettlementRes()        {}
 func (*ConflictHeaders) reverseJournalEntryRes()                   {}
+func (*ConflictHeaders) reverseMaterialDocumentRes()               {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ConflictHeaders) runAllocationCycleRes()                    {}
@@ -34672,6 +34674,18 @@ func (*CreateLegalEntityUnprocessableEntity) createLegalEntityRes() {}
 type CreateMaterialBadRequest Problem
 
 func (*CreateMaterialBadRequest) createMaterialRes() {}
+
+type CreateMaterialDocumentBadRequest Problem
+
+func (*CreateMaterialDocumentBadRequest) createMaterialDocumentRes() {}
+
+type CreateMaterialDocumentForbidden Problem
+
+func (*CreateMaterialDocumentForbidden) createMaterialDocumentRes() {}
+
+type CreateMaterialDocumentUnprocessableEntity Problem
+
+func (*CreateMaterialDocumentUnprocessableEntity) createMaterialDocumentRes() {}
 
 type CreateMaterialForbidden Problem
 
@@ -49185,6 +49199,46 @@ func (*GetMaterialChangeForbidden) getMaterialChangeRes() {}
 type GetMaterialChangeNotFound Problem
 
 func (*GetMaterialChangeNotFound) getMaterialChangeRes() {}
+
+type GetMaterialDocumentBadRequest Problem
+
+func (*GetMaterialDocumentBadRequest) getMaterialDocumentRes() {}
+
+type GetMaterialDocumentForbidden Problem
+
+func (*GetMaterialDocumentForbidden) getMaterialDocumentRes() {}
+
+type GetMaterialDocumentNotFound Problem
+
+func (*GetMaterialDocumentNotFound) getMaterialDocumentRes() {}
+
+// GetMaterialDocumentOKHeaders wraps MaterialDocument with response headers.
+type GetMaterialDocumentOKHeaders struct {
+	ETag     OptString
+	Response MaterialDocument
+}
+
+// GetETag returns the value of ETag.
+func (s *GetMaterialDocumentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetMaterialDocumentOKHeaders) GetResponse() MaterialDocument {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetMaterialDocumentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetMaterialDocumentOKHeaders) SetResponse(val MaterialDocument) {
+	s.Response = val
+}
+
+func (*GetMaterialDocumentOKHeaders) getMaterialDocumentRes() {}
 
 type GetMaterialForbidden Problem
 
@@ -63884,6 +63938,14 @@ type ListMaterialChangesForbidden Problem
 
 func (*ListMaterialChangesForbidden) listMaterialChangesRes() {}
 
+type ListMaterialDocumentsBadRequest Problem
+
+func (*ListMaterialDocumentsBadRequest) listMaterialDocumentsRes() {}
+
+type ListMaterialDocumentsForbidden Problem
+
+func (*ListMaterialDocumentsForbidden) listMaterialDocumentsRes() {}
+
 type ListMaterialsBadRequest Problem
 
 func (*ListMaterialsBadRequest) listMaterialsRes() {}
@@ -64367,6 +64429,14 @@ func (*ListSodRulesBadRequest) listSodRulesRes() {}
 type ListSodRulesForbidden Problem
 
 func (*ListSodRulesForbidden) listSodRulesRes() {}
+
+type ListStockBadRequest Problem
+
+func (*ListStockBadRequest) listStockRes() {}
+
+type ListStockForbidden Problem
+
+func (*ListStockForbidden) listStockRes() {}
 
 type ListSupplierInvoicesBadRequest Problem
 
@@ -66103,6 +66173,607 @@ func (s *MaterialCreate) SetReason(val OptString) {
 func (s *MaterialCreate) SetConfirmDuplicate(val OptBool) {
 	s.ConfirmDuplicate = val
 }
+
+// A material document (SAP MKPF with its MSEG lines): a goods movement of one movement type, posted
+// once and never changed; a mistaken one is reversed by another.
+// Ref: #/components/schemas/MaterialDocument
+type MaterialDocument struct {
+	// The document's id.
+	ID uuid.UUID `json:"id"`
+	// The document's number in its company's `material_document` range of its fiscal year.
+	Number string `json:"number"`
+	// The company of its plants.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The fiscal year of its posting date, which its number is of.
+	FiscalYear int32 `json:"fiscal_year"`
+	// Its movement type. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	MovementType string `json:"movement_type"`
+	// What the movement type is, in English.
+	MovementTypeName string `json:"movement_type_name"`
+	// The company's date it was posted on, which its stock as at a date counts from.
+	PostingDate time.Time `json:"posting_date"`
+	// What the movement is for; absent when none was given.
+	HeaderText OptString `json:"header_text"`
+	// The document this one reverses; absent on a document that reverses none.
+	ReversalOfID OptUUID `json:"reversal_of_id"`
+	// That document's number; absent with it.
+	ReversalOfNumber OptString `json:"reversal_of_number"`
+	// The document that reverses this one; absent while it is not reversed.
+	ReversedByID OptUUID `json:"reversed_by_id"`
+	// That document's number; absent with it.
+	ReversedByNumber OptString `json:"reversed_by_number"`
+	// Its lines, in line order.
+	Lines []MaterialDocumentLine `json:"lines"`
+	// When it was posted.
+	CreatedAt time.Time `json:"created_at"`
+	// Who posted it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *MaterialDocument) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *MaterialDocument) GetNumber() string {
+	return s.Number
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MaterialDocument) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *MaterialDocument) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *MaterialDocument) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetMovementType returns the value of MovementType.
+func (s *MaterialDocument) GetMovementType() string {
+	return s.MovementType
+}
+
+// GetMovementTypeName returns the value of MovementTypeName.
+func (s *MaterialDocument) GetMovementTypeName() string {
+	return s.MovementTypeName
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *MaterialDocument) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetHeaderText returns the value of HeaderText.
+func (s *MaterialDocument) GetHeaderText() OptString {
+	return s.HeaderText
+}
+
+// GetReversalOfID returns the value of ReversalOfID.
+func (s *MaterialDocument) GetReversalOfID() OptUUID {
+	return s.ReversalOfID
+}
+
+// GetReversalOfNumber returns the value of ReversalOfNumber.
+func (s *MaterialDocument) GetReversalOfNumber() OptString {
+	return s.ReversalOfNumber
+}
+
+// GetReversedByID returns the value of ReversedByID.
+func (s *MaterialDocument) GetReversedByID() OptUUID {
+	return s.ReversedByID
+}
+
+// GetReversedByNumber returns the value of ReversedByNumber.
+func (s *MaterialDocument) GetReversedByNumber() OptString {
+	return s.ReversedByNumber
+}
+
+// GetLines returns the value of Lines.
+func (s *MaterialDocument) GetLines() []MaterialDocumentLine {
+	return s.Lines
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *MaterialDocument) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *MaterialDocument) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *MaterialDocument) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *MaterialDocument) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MaterialDocument) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *MaterialDocument) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *MaterialDocument) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetMovementType sets the value of MovementType.
+func (s *MaterialDocument) SetMovementType(val string) {
+	s.MovementType = val
+}
+
+// SetMovementTypeName sets the value of MovementTypeName.
+func (s *MaterialDocument) SetMovementTypeName(val string) {
+	s.MovementTypeName = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *MaterialDocument) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetHeaderText sets the value of HeaderText.
+func (s *MaterialDocument) SetHeaderText(val OptString) {
+	s.HeaderText = val
+}
+
+// SetReversalOfID sets the value of ReversalOfID.
+func (s *MaterialDocument) SetReversalOfID(val OptUUID) {
+	s.ReversalOfID = val
+}
+
+// SetReversalOfNumber sets the value of ReversalOfNumber.
+func (s *MaterialDocument) SetReversalOfNumber(val OptString) {
+	s.ReversalOfNumber = val
+}
+
+// SetReversedByID sets the value of ReversedByID.
+func (s *MaterialDocument) SetReversedByID(val OptUUID) {
+	s.ReversedByID = val
+}
+
+// SetReversedByNumber sets the value of ReversedByNumber.
+func (s *MaterialDocument) SetReversedByNumber(val OptString) {
+	s.ReversedByNumber = val
+}
+
+// SetLines sets the value of Lines.
+func (s *MaterialDocument) SetLines(val []MaterialDocumentLine) {
+	s.Lines = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *MaterialDocument) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *MaterialDocument) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// A goods movement to post: one movement type and its items.
+// Ref: #/components/schemas/MaterialDocumentCreate
+type MaterialDocumentCreate struct {
+	// `501` receipt without purchase order, `561` initial entry of stock, `201` issue to a cost center,
+	// `551` scrapping, `311` transfer between storage locations, `301` transfer between plants. Open
+	// enumeration: values may be added within /v1.
+	MovementType string `json:"movement_type"`
+	// What the movement is for, kept on the document.
+	HeaderText OptString `json:"header_text"`
+	// Its items, each moving one material.
+	Items []MaterialDocumentItemInput `json:"items"`
+}
+
+// GetMovementType returns the value of MovementType.
+func (s *MaterialDocumentCreate) GetMovementType() string {
+	return s.MovementType
+}
+
+// GetHeaderText returns the value of HeaderText.
+func (s *MaterialDocumentCreate) GetHeaderText() OptString {
+	return s.HeaderText
+}
+
+// GetItems returns the value of Items.
+func (s *MaterialDocumentCreate) GetItems() []MaterialDocumentItemInput {
+	return s.Items
+}
+
+// SetMovementType sets the value of MovementType.
+func (s *MaterialDocumentCreate) SetMovementType(val string) {
+	s.MovementType = val
+}
+
+// SetHeaderText sets the value of HeaderText.
+func (s *MaterialDocumentCreate) SetHeaderText(val OptString) {
+	s.HeaderText = val
+}
+
+// SetItems sets the value of Items.
+func (s *MaterialDocumentCreate) SetItems(val []MaterialDocumentItemInput) {
+	s.Items = val
+}
+
+// MaterialDocumentHeaders wraps MaterialDocument with response headers.
+type MaterialDocumentHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           MaterialDocument
+}
+
+// GetETag returns the value of ETag.
+func (s *MaterialDocumentHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MaterialDocumentHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *MaterialDocumentHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *MaterialDocumentHeaders) GetResponse() MaterialDocument {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MaterialDocumentHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MaterialDocumentHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *MaterialDocumentHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MaterialDocumentHeaders) SetResponse(val MaterialDocument) {
+	s.Response = val
+}
+
+func (*MaterialDocumentHeaders) createMaterialDocumentRes() {}
+
+// An item of a goods movement: a quantity of a material at a plant's storage location; a transfer's
+// item names where it is received, an issue to a cost center or a scrapping its cost center.
+// Ref: #/components/schemas/MaterialDocumentItemInput
+type MaterialDocumentItemInput struct {
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The plant the stock is at (`GET /v1/org-units/{id}`).
+	PlantID uuid.UUID `json:"plant_id"`
+	// The storage location the stock is at, under the plant; a transfer's issuing one.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+	// The quantity moved, positive, in the material's base unit or one of its alternative units.
+	Quantity Quantity `json:"quantity"`
+	// The cost center of a `201` or `551` (`GET /v1/cost-centers/{id}`); no other movement type names one.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The plant a `301` receives at, another of the company's.
+	ToPlantID OptUUID `json:"to_plant_id"`
+	// The storage location a `311` or `301` receives at: under the plant of a `311`, under `to_plant_id`
+	// of a `301`.
+	ToStorageLocationID OptUUID `json:"to_storage_location_id"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *MaterialDocumentItemInput) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *MaterialDocumentItemInput) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *MaterialDocumentItemInput) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *MaterialDocumentItemInput) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *MaterialDocumentItemInput) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetToPlantID returns the value of ToPlantID.
+func (s *MaterialDocumentItemInput) GetToPlantID() OptUUID {
+	return s.ToPlantID
+}
+
+// GetToStorageLocationID returns the value of ToStorageLocationID.
+func (s *MaterialDocumentItemInput) GetToStorageLocationID() OptUUID {
+	return s.ToStorageLocationID
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *MaterialDocumentItemInput) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *MaterialDocumentItemInput) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *MaterialDocumentItemInput) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *MaterialDocumentItemInput) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *MaterialDocumentItemInput) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetToPlantID sets the value of ToPlantID.
+func (s *MaterialDocumentItemInput) SetToPlantID(val OptUUID) {
+	s.ToPlantID = val
+}
+
+// SetToStorageLocationID sets the value of ToStorageLocationID.
+func (s *MaterialDocumentItemInput) SetToStorageLocationID(val OptUUID) {
+	s.ToStorageLocationID = val
+}
+
+// A line of a material document (SAP MSEG): one stock effect of an item at a storage location, in the
+// material's base unit, signed (a receipt positive, an issue negative).
+// Ref: #/components/schemas/MaterialDocumentLine
+type MaterialDocumentLine struct {
+	// The line's number in the document, from 1.
+	LineNo int32 `json:"line_no"`
+	// The item of the request it stands for, from 1: a transfer's item has two lines.
+	ItemNo int32 `json:"item_no"`
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The storage location.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+	// The storage location's code.
+	StorageLocationCode string `json:"storage_location_code"`
+	// The storage location's name, as it is now.
+	StorageLocationName string `json:"storage_location_name"`
+	// What the line moves, in the material's base unit: positive into the location's stock, negative out
+	// of it.
+	Quantity Quantity `json:"quantity"`
+	// The item's quantity as it was entered, positive, in the unit it was entered in.
+	EntryQuantity Quantity `json:"entry_quantity"`
+	// The cost center of an issue to a cost center or a scrapping; absent on other lines.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The cost center's code; absent with it.
+	CostCenterCode OptString `json:"cost_center_code"`
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *MaterialDocumentLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *MaterialDocumentLine) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *MaterialDocumentLine) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *MaterialDocumentLine) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *MaterialDocumentLine) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *MaterialDocumentLine) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *MaterialDocumentLine) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *MaterialDocumentLine) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *MaterialDocumentLine) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *MaterialDocumentLine) GetStorageLocationCode() string {
+	return s.StorageLocationCode
+}
+
+// GetStorageLocationName returns the value of StorageLocationName.
+func (s *MaterialDocumentLine) GetStorageLocationName() string {
+	return s.StorageLocationName
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *MaterialDocumentLine) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetEntryQuantity returns the value of EntryQuantity.
+func (s *MaterialDocumentLine) GetEntryQuantity() Quantity {
+	return s.EntryQuantity
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *MaterialDocumentLine) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *MaterialDocumentLine) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *MaterialDocumentLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *MaterialDocumentLine) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *MaterialDocumentLine) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *MaterialDocumentLine) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *MaterialDocumentLine) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *MaterialDocumentLine) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *MaterialDocumentLine) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *MaterialDocumentLine) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *MaterialDocumentLine) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *MaterialDocumentLine) SetStorageLocationCode(val string) {
+	s.StorageLocationCode = val
+}
+
+// SetStorageLocationName sets the value of StorageLocationName.
+func (s *MaterialDocumentLine) SetStorageLocationName(val string) {
+	s.StorageLocationName = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *MaterialDocumentLine) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetEntryQuantity sets the value of EntryQuantity.
+func (s *MaterialDocumentLine) SetEntryQuantity(val Quantity) {
+	s.EntryQuantity = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *MaterialDocumentLine) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *MaterialDocumentLine) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// One page of material documents.
+// Ref: #/components/schemas/MaterialDocumentPage
+type MaterialDocumentPage struct {
+	// The material documents on this page.
+	Items []MaterialDocument `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *MaterialDocumentPage) GetItems() []MaterialDocument {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MaterialDocumentPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *MaterialDocumentPage) SetItems(val []MaterialDocument) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MaterialDocumentPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*MaterialDocumentPage) listMaterialDocumentsRes() {}
 
 // An existing material a new one may duplicate: with the same description, white space and case aside.
 // Ref: #/components/schemas/MaterialDuplicate
@@ -97402,6 +98073,69 @@ type ReverseJournalEntryUnprocessableEntity Problem
 
 func (*ReverseJournalEntryUnprocessableEntity) reverseJournalEntryRes() {}
 
+type ReverseMaterialDocumentBadRequest Problem
+
+func (*ReverseMaterialDocumentBadRequest) reverseMaterialDocumentRes() {}
+
+type ReverseMaterialDocumentForbidden Problem
+
+func (*ReverseMaterialDocumentForbidden) reverseMaterialDocumentRes() {}
+
+type ReverseMaterialDocumentNotFound Problem
+
+func (*ReverseMaterialDocumentNotFound) reverseMaterialDocumentRes() {}
+
+// ReverseMaterialDocumentOKHeaders wraps MaterialDocument with response headers.
+type ReverseMaterialDocumentOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           MaterialDocument
+}
+
+// GetETag returns the value of ETag.
+func (s *ReverseMaterialDocumentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ReverseMaterialDocumentOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ReverseMaterialDocumentOKHeaders) GetResponse() MaterialDocument {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ReverseMaterialDocumentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ReverseMaterialDocumentOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReverseMaterialDocumentOKHeaders) SetResponse(val MaterialDocument) {
+	s.Response = val
+}
+
+func (*ReverseMaterialDocumentOKHeaders) reverseMaterialDocumentRes() {}
+
+type ReverseMaterialDocumentPreconditionFailed Problem
+
+func (*ReverseMaterialDocumentPreconditionFailed) reverseMaterialDocumentRes() {}
+
+type ReverseMaterialDocumentPreconditionRequired Problem
+
+func (*ReverseMaterialDocumentPreconditionRequired) reverseMaterialDocumentRes() {}
+
+type ReverseMaterialDocumentUnprocessableEntity Problem
+
+func (*ReverseMaterialDocumentUnprocessableEntity) reverseMaterialDocumentRes() {}
+
 type ReverseSupplierInvoiceBadRequest Problem
 
 func (*ReverseSupplierInvoiceBadRequest) reverseSupplierInvoiceRes() {}
@@ -105195,6 +105929,187 @@ func (s *StatementMatchTarget) SetIncoming(val OptBool) {
 	s.Incoming = val
 }
 
+// The stock of a material at a storage location of a plant (SAP MARD's unrestricted stock), in its
+// base unit.
+// Ref: #/components/schemas/Stock
+type Stock struct {
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The storage location.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+	// The storage location's code.
+	StorageLocationCode string `json:"storage_location_code"`
+	// The storage location's name, as it is now.
+	StorageLocationName string `json:"storage_location_name"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The quantity in stock, in the material's base unit.
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *Stock) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *Stock) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *Stock) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *Stock) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *Stock) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *Stock) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *Stock) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *Stock) GetStorageLocationCode() string {
+	return s.StorageLocationCode
+}
+
+// GetStorageLocationName returns the value of StorageLocationName.
+func (s *Stock) GetStorageLocationName() string {
+	return s.StorageLocationName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *Stock) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *Stock) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *Stock) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *Stock) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *Stock) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *Stock) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *Stock) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *Stock) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *Stock) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *Stock) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *Stock) SetStorageLocationCode(val string) {
+	s.StorageLocationCode = val
+}
+
+// SetStorageLocationName sets the value of StorageLocationName.
+func (s *Stock) SetStorageLocationName(val string) {
+	s.StorageLocationName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *Stock) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *Stock) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *Stock) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// One page of stock.
+// Ref: #/components/schemas/StockPage
+type StockPage struct {
+	// The stock on this page.
+	Items []Stock `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *StockPage) GetItems() []Stock {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *StockPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *StockPage) SetItems(val []Stock) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *StockPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*StockPage) listStockRes() {}
+
 type SubmitChangeRequestBadRequest Problem
 
 func (*SubmitChangeRequestBadRequest) submitChangeRequestRes() {}
@@ -109031,6 +109946,7 @@ func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) createLeaseContractRes()                   {}
 func (*TooManyRequestsHeaders) createLeaseRunRes()                        {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                     {}
+func (*TooManyRequestsHeaders) createMaterialDocumentRes()                {}
 func (*TooManyRequestsHeaders) createMaterialRes()                        {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) createMetricWatcherRes()                   {}
@@ -109179,6 +110095,7 @@ func (*TooManyRequestsHeaders) getLiquidityForecastVarianceRes()          {}
 func (*TooManyRequestsHeaders) getMarginReportRes()                       {}
 func (*TooManyRequestsHeaders) getMatchResultRes()                        {}
 func (*TooManyRequestsHeaders) getMaterialChangeRes()                     {}
+func (*TooManyRequestsHeaders) getMaterialDocumentRes()                   {}
 func (*TooManyRequestsHeaders) getMaterialRes()                           {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                         {}
 func (*TooManyRequestsHeaders) getMetricAlertRes()                        {}
@@ -109333,6 +110250,7 @@ func (*TooManyRequestsHeaders) listLegalEntitiesRes()                     {}
 func (*TooManyRequestsHeaders) listLiquidityForecastFlowsRes()            {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                      {}
 func (*TooManyRequestsHeaders) listMaterialChangesRes()                   {}
+func (*TooManyRequestsHeaders) listMaterialDocumentsRes()                 {}
 func (*TooManyRequestsHeaders) listMaterialsRes()                         {}
 func (*TooManyRequestsHeaders) listMemoRecordsRes()                       {}
 func (*TooManyRequestsHeaders) listMetricAlertsRes()                      {}
@@ -109386,6 +110304,7 @@ func (*TooManyRequestsHeaders) listSalesPricesRes()                       {}
 func (*TooManyRequestsHeaders) listScheduleLinesRes()                     {}
 func (*TooManyRequestsHeaders) listSegmentsRes()                          {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                          {}
+func (*TooManyRequestsHeaders) listStockRes()                             {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listSupplierQuotationsRes()                {}
 func (*TooManyRequestsHeaders) listTaxPeriodsRes()                        {}
@@ -109478,6 +110397,7 @@ func (*TooManyRequestsHeaders) reverseAssetTransferRes()                  {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()                   {}
 func (*TooManyRequestsHeaders) reverseInternalOrderSettlementRes()        {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()                   {}
+func (*TooManyRequestsHeaders) reverseMaterialDocumentRes()               {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*TooManyRequestsHeaders) runAllocationCycleRes()                    {}
@@ -109947,6 +110867,7 @@ func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) createLeaseContractRes()                   {}
 func (*UnauthorizedHeaders) createLeaseRunRes()                        {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                     {}
+func (*UnauthorizedHeaders) createMaterialDocumentRes()                {}
 func (*UnauthorizedHeaders) createMaterialRes()                        {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) createMetricWatcherRes()                   {}
@@ -110095,6 +111016,7 @@ func (*UnauthorizedHeaders) getLiquidityForecastVarianceRes()          {}
 func (*UnauthorizedHeaders) getMarginReportRes()                       {}
 func (*UnauthorizedHeaders) getMatchResultRes()                        {}
 func (*UnauthorizedHeaders) getMaterialChangeRes()                     {}
+func (*UnauthorizedHeaders) getMaterialDocumentRes()                   {}
 func (*UnauthorizedHeaders) getMaterialRes()                           {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                         {}
 func (*UnauthorizedHeaders) getMetricAlertRes()                        {}
@@ -110249,6 +111171,7 @@ func (*UnauthorizedHeaders) listLegalEntitiesRes()                     {}
 func (*UnauthorizedHeaders) listLiquidityForecastFlowsRes()            {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                      {}
 func (*UnauthorizedHeaders) listMaterialChangesRes()                   {}
+func (*UnauthorizedHeaders) listMaterialDocumentsRes()                 {}
 func (*UnauthorizedHeaders) listMaterialsRes()                         {}
 func (*UnauthorizedHeaders) listMemoRecordsRes()                       {}
 func (*UnauthorizedHeaders) listMetricAlertsRes()                      {}
@@ -110302,6 +111225,7 @@ func (*UnauthorizedHeaders) listSalesPricesRes()                       {}
 func (*UnauthorizedHeaders) listScheduleLinesRes()                     {}
 func (*UnauthorizedHeaders) listSegmentsRes()                          {}
 func (*UnauthorizedHeaders) listSodRulesRes()                          {}
+func (*UnauthorizedHeaders) listStockRes()                             {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listSupplierQuotationsRes()                {}
 func (*UnauthorizedHeaders) listTaxPeriodsRes()                        {}
@@ -110394,6 +111318,7 @@ func (*UnauthorizedHeaders) reverseAssetTransferRes()                  {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()                   {}
 func (*UnauthorizedHeaders) reverseInternalOrderSettlementRes()        {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()                   {}
+func (*UnauthorizedHeaders) reverseMaterialDocumentRes()               {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*UnauthorizedHeaders) runAllocationCycleRes()                    {}

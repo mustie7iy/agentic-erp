@@ -323,3 +323,66 @@ create with such a match is refused (409) unless the request confirms it.
   type approvals decide.
 - Walkthrough step 122 extended (each create and change approved by
   Priya) and step 123, `step_material_governance`.
+
+### S1c (2026-11-18)
+
+- Migration 000376: schema `inventory` with its outbox and inbox,
+  `inventory.material_document` (SAP MKPF), `.movement` (MSEG: one row per
+  stock effect, a transfer's issue and receipt apart) and `.stock` (MARD's
+  quantity) with RLS, `tenant_id` first, the rules of 03 §3.35 with schema
+  tests (`db/inventory_test.go`, the triggers also as the owner); the
+  permissions `inventory.movement.post` and `inventory.stock.read` (which
+  reads documents too). `inventory` is in `outbox.Contexts` and in
+  `internal/layout`, importing `config`, `ledger`, `materials` and
+  `tenancy`; it is not a leaf, as procurement will import it (S1e).
+- `materials.Materials`, the published API (§2): materials by id with
+  their plants, storage locations and units, whatever companies the
+  caller may act in; `Material.Stocked` (types other than `non_stock` and
+  `service`), `KeptAt` and `Convert` (exact, `ErrUnknownUnit`,
+  `ErrInexact`).
+- **One movement type per document**, as SAP's MIGO posts one
+  transaction's items with one; items up to 100. The forward types are
+  posted by `POST /v1/material-documents`, the reversal types only by
+  `:reverse` (422 `inventory.unknown_movement_type` otherwise). Decided by
+  default.
+- **Cost centers.** A `201` and a `551` name an active cost center of the
+  document's company in force on the posting date (SAP's scrapping takes
+  its cost center as an issue does, from memory); other types name none.
+- **Transfers stay in one company**: a `301` to a plant of another
+  company is refused (422 `inventory.mixed_companies`); between companies
+  is S2i's. Every plant of a document is of one company, whose range
+  numbers it.
+- **Posting date is the company's date today** (`config.DocumentDay`);
+  the request gives none, so the stock as at any earlier day never falls
+  below zero. Posting into an earlier day waits for S1d's periods
+  (Later). SAP allows the current and the previous period.
+- **Stock never below zero.** A posting locks the stock rows it moves in
+  one order (material, plant, storage location, as PostgreSQL orders
+  uuids), writing an empty row for a first movement, then checks the
+  quantity left (409 `inventory.insufficient_stock` naming the material,
+  the location and both quantities) and the column's 14 integer digits
+  (422 `inventory.quantity_too_large`); the database adds each movement to
+  its row (`movement_stock`, a security definer, the only writer of the
+  quantity) and refuses one below zero (`stock_not_negative`).
+  `TestIssuesAtOnce` and `TestTransfersInOppositeOrder` hold it.
+- **Reversal** of the whole document, once: a lock named after the
+  document serializes reversals (documents are insert-only), as
+  procurement's goods receipts do; `If-Match` is the document's
+  representation (`etag.Of`), which moves when it is reversed. A
+  reversal moves the stock back under the same checks; a material blocked
+  since is still reversed (a correction, not a new use).
+- `GET /v1/stock` (material, plant, storage location, `as_of`): now from
+  `inventory.stock`, as at a day the sum of the movements of documents
+  posted up to it; a location with none is left out; in the order its
+  stock was first moved. `GET /v1/material-documents` (material, plant,
+  movement type; the latest first) and `/{id}`, each line naming its
+  material, plant, storage location and cost center by number or code.
+- `MaterialDocumentPosted` names the company and every line's material,
+  plant, storage location and cost center by id and number or code; the
+  header text, a person's free text, is in neither the event nor the
+  audit, which says whether there is one (ADR-0079). Writes are
+  human-only (`x-agent: false`); no agent's never-list names an inventory
+  operation, as no agent posts goods movements.
+- Walkthrough step 124, `step_goods_movements`; the pilot's settings add
+  Maple's `MD` range (`material_document`), as the fixture's companies
+  have theirs.

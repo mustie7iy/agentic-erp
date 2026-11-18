@@ -5333,9 +5333,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "A warehouse clerk posts goods movements of a material at a plant's storage location (receipt without order, initial entry, issue to a cost center, scrapping, transfers between storage locations and plants) as material documents, reverses one, and reads stock by location now or as at a date; stock never below zero",
-      "r": "S1c · docs/design/plan-supply-chain.md §S1c · ADR-0082",
+      "r": "S1c · docs/design/plan-supply-chain.md §S1c · ADR-0082 As built S1c · db/migrations/000376 · internal/inventory · inventory.material_document, .movement, .stock · POST /v1/material-documents · GET /v1/material-documents · GET /v1/material-documents/{id} · POST /v1/material-documents/{id}:reverse · GET /v1/stock · MaterialDocumentPosted · inventory.movement.post, inventory.stock.read · materials.Materials · walkthrough step_goods_movements",
       "src": "po:2026-11-17",
       "c": []
      },

@@ -409,6 +409,10 @@ type CreateLegalEntityRes interface {
 	createLegalEntityRes()
 }
 
+type CreateMaterialDocumentRes interface {
+	createMaterialDocumentRes()
+}
+
 type CreateMaterialRes interface {
 	createMaterialRes()
 }
@@ -999,6 +1003,10 @@ type GetMatchResultRes interface {
 
 type GetMaterialChangeRes interface {
 	getMaterialChangeRes()
+}
+
+type GetMaterialDocumentRes interface {
+	getMaterialDocumentRes()
 }
 
 type GetMaterialRes interface {
@@ -1617,6 +1625,10 @@ type ListMaterialChangesRes interface {
 	listMaterialChangesRes()
 }
 
+type ListMaterialDocumentsRes interface {
+	listMaterialDocumentsRes()
+}
+
 type ListMaterialsRes interface {
 	listMaterialsRes()
 }
@@ -1827,6 +1839,10 @@ type ListSegmentsRes interface {
 
 type ListSodRulesRes interface {
 	listSodRulesRes()
+}
+
+type ListStockRes interface {
+	listStockRes()
 }
 
 type ListSupplierInvoicesRes interface {
@@ -2195,6 +2211,10 @@ type ReverseInternalOrderSettlementRes interface {
 
 type ReverseJournalEntryRes interface {
 	reverseJournalEntryRes()
+}
+
+type ReverseMaterialDocumentRes interface {
+	reverseMaterialDocumentRes()
 }
 
 type ReverseSupplierInvoiceRes interface {

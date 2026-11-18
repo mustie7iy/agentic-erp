@@ -200,9 +200,12 @@ and reads the stock by location now or as at a date.
   material, or at a plant the material is not extended to, is refused; a
   reversal reverses the whole document once; the stock as at a date is
   the sum of the movements posted up to it; nothing is posted to the
-  ledger yet (S1d values the movements).
+  ledger yet (S1d values the movements); a document is posted on its
+  company's date today, one movement type and one company per document
+  (a transfer between plants stays in the company).
 
-**Later for Stock by location and Goods movements:** stock types (quality
+**Later for Stock by location and Goods movements:** posting into an
+earlier day or the previous period, stock types (quality
 inspection, blocked, restricted; SAP's 321–344), special stocks
 (consignment, customer, project), negative stock by plant, goods movement
 reasons, reservations (RESB), the movement types of production (261, 101

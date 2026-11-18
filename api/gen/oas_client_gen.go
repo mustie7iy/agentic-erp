@@ -1957,6 +1957,43 @@ type Invoker interface {
 	//
 	// POST /v1/materials
 	CreateMaterial(ctx context.Context, request *MaterialCreate, params CreateMaterialParams) (CreateMaterialRes, error)
+	// CreateMaterialDocument invokes createMaterialDocument operation.
+	//
+	// Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a
+	// receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center,
+	// `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between
+	// plants of one company; each item moves a quantity of a material at a plant's storage location. Each
+	// material is an `active` material (422 `inventory.material_invalid` when there is none with the id,
+	// `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type
+	// `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a
+	// company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422
+	// `inventory.plant_not_extended`), each storage location an active one under it (422
+	// `inventory.storage_location_invalid`) the material is kept at (422
+	// `inventory.storage_location_not_extended`), and every plant of the document one company's (422
+	// `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the
+	// material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted
+	// exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a
+	// cost center (422 `inventory.cost_center_required`), an active one of the company in force on the
+	// posting date (422 `inventory.cost_center_invalid`); another movement type names none (422
+	// `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same
+	// plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`,
+	// `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422
+	// `inventory.transfer_target_required`, `inventory.same_location`); another movement type names
+	// neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
+	// `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`).
+	// The document is posted on the company's date today in its time zone and numbered from its
+	// `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is
+	// in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue
+	// of more than a storage location holds is refused naming the material, the location and both
+	// quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post
+	// one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`).
+	// Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
+	// item is two, the issue and the receipt. Nothing is posted to the ledger. Audited, and published as
+	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/material-documents
+	CreateMaterialDocument(ctx context.Context, request *MaterialDocumentCreate, params CreateMaterialDocumentParams) (CreateMaterialDocumentRes, error)
 	// CreateMemoRecord invokes createMemoRecord operation.
 	//
 	// Creates an `active` memo record (ADR-0051 §7, T53d): an expected receipt (positive amount) or
@@ -4064,6 +4101,15 @@ type Invoker interface {
 	//
 	// GET /v1/material-changes/{id}
 	GetMaterialChange(ctx context.Context, params GetMaterialChangeParams) (GetMaterialChangeRes, error)
+	// GetMaterialDocument invokes getMaterialDocument operation.
+	//
+	// One material document (ADR-0082 §7, S1c) with its company, movement type, posting date and lines,
+	// each naming its material by number and description, its plant and storage location by code and name
+	// and its cost center by code, and the documents it reverses and that reverse it. A document of a
+	// company the caller may not act in is not found (404).
+	//
+	// GET /v1/material-documents/{id}
+	GetMaterialDocument(ctx context.Context, params GetMaterialDocumentParams) (GetMaterialDocumentRes, error)
 	// GetMemoRecord invokes getMemoRecord operation.
 	//
 	// One memo record, with its status as of the read date: its legal entity's date at the read in its
@@ -5695,6 +5741,14 @@ type Invoker interface {
 	//
 	// GET /v1/material-changes
 	ListMaterialChanges(ctx context.Context, params ListMaterialChangesParams) (ListMaterialChangesRes, error)
+	// ListMaterialDocuments invokes listMaterialDocuments operation.
+	//
+	// The material documents of the companies the caller may act in (ADR-0082 §7, S1c), each as
+	// `getMaterialDocument` gives it, the latest first. Filtered by material, plant and movement type: a
+	// document matches a material or a plant when one of its lines names it. Sortable by: `created_at`.
+	//
+	// GET /v1/material-documents
+	ListMaterialDocuments(ctx context.Context, params ListMaterialDocumentsParams) (ListMaterialDocumentsRes, error)
 	// ListMaterials invokes listMaterials operation.
 	//
 	// The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
@@ -6181,6 +6235,16 @@ type Invoker interface {
 	//
 	// GET /v1/sod-rules
 	ListSodRules(ctx context.Context, params ListSodRulesParams) (ListSodRulesRes, error)
+	// ListStock invokes listStock operation.
+	//
+	// The stock of materials by plant and storage location in the companies the caller may act in
+	// (ADR-0082 §7, S1c; SAP MMBE), in the material's base unit: as it is now, or as at the end of a day
+	// (`as_of`), the sum of the movements of material documents posted up to and including it. A location
+	// with no stock is left out. Filtered by material, plant and storage location; in the order each
+	// location's stock was first moved. Sortable by: `created_at`.
+	//
+	// GET /v1/stock
+	ListStock(ctx context.Context, params ListStockParams) (ListStockRes, error)
 	// ListSupplierInvoices invokes listSupplierInvoices operation.
 	//
 	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
@@ -7626,6 +7690,22 @@ type Invoker interface {
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, request OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)
+	// ReverseMaterialDocument invokes reverseMaterialDocument operation.
+	//
+	// Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal
+	// movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a
+	// `311`, `302` of a `301`) whose lines are the original's with their quantities negated, posted on the
+	// company's date today and numbered from its `material_document` range as a posting is, naming the
+	// original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed
+	// (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`);
+	// two reversals at once post one. The reversal moves the stock back, so it is refused when the stock
+	// the original received has gone (409 `inventory.insufficient_stock`, naming the material, the
+	// location and both quantities). The material may have been blocked since; the reversal is still
+	// posted. A document of a company the caller may not act in is not found (404). Audited, and published
+	// as MaterialDocumentPosted. Human-only (`x-agent: false`).
+	//
+	// POST /v1/material-documents/{id}:reverse
+	ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (ReverseMaterialDocumentRes, error)
 	// ReverseSupplierInvoice invokes reverseSupplierInvoice operation.
 	//
 	// Posts a reversal of the invoice's journal entry; the status becomes `reversed` and
@@ -25186,6 +25266,167 @@ func (c *Client) sendCreateMaterial(ctx context.Context, request *MaterialCreate
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateMaterialResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateMaterialDocument invokes createMaterialDocument operation.
+//
+// Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a
+// receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center,
+// `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between
+// plants of one company; each item moves a quantity of a material at a plant's storage location. Each
+// material is an `active` material (422 `inventory.material_invalid` when there is none with the id,
+// `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type
+// `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a
+// company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422
+// `inventory.plant_not_extended`), each storage location an active one under it (422
+// `inventory.storage_location_invalid`) the material is kept at (422
+// `inventory.storage_location_not_extended`), and every plant of the document one company's (422
+// `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the
+// material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted
+// exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a
+// cost center (422 `inventory.cost_center_required`), an active one of the company in force on the
+// posting date (422 `inventory.cost_center_invalid`); another movement type names none (422
+// `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same
+// plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`,
+// `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422
+// `inventory.transfer_target_required`, `inventory.same_location`); another movement type names
+// neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
+// `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`).
+// The document is posted on the company's date today in its time zone and numbered from its
+// `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is
+// in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue
+// of more than a storage location holds is refused naming the material, the location and both
+// quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post
+// one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`).
+// Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
+// item is two, the issue and the receipt. Nothing is posted to the ledger. Audited, and published as
+// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/material-documents
+func (c *Client) CreateMaterialDocument(ctx context.Context, request *MaterialDocumentCreate, params CreateMaterialDocumentParams) (CreateMaterialDocumentRes, error) {
+	res, err := c.sendCreateMaterialDocument(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateMaterialDocument(ctx context.Context, request *MaterialDocumentCreate, params CreateMaterialDocumentParams) (res CreateMaterialDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createMaterialDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/material-documents"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateMaterialDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/material-documents"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateMaterialDocumentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateMaterialDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateMaterialDocumentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -47404,6 +47645,140 @@ func (c *Client) sendGetMaterialChange(ctx context.Context, params GetMaterialCh
 
 	stage = "DecodeResponse"
 	result, err := decodeGetMaterialChangeResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetMaterialDocument invokes getMaterialDocument operation.
+//
+// One material document (ADR-0082 §7, S1c) with its company, movement type, posting date and lines,
+// each naming its material by number and description, its plant and storage location by code and name
+// and its cost center by code, and the documents it reverses and that reverse it. A document of a
+// company the caller may not act in is not found (404).
+//
+// GET /v1/material-documents/{id}
+func (c *Client) GetMaterialDocument(ctx context.Context, params GetMaterialDocumentParams) (GetMaterialDocumentRes, error) {
+	res, err := c.sendGetMaterialDocument(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetMaterialDocument(ctx context.Context, params GetMaterialDocumentParams) (res GetMaterialDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getMaterialDocument"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/material-documents/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetMaterialDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/material-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetMaterialDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetMaterialDocumentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -78251,6 +78626,227 @@ func (c *Client) sendListMaterialChanges(ctx context.Context, params ListMateria
 	return result, nil
 }
 
+// ListMaterialDocuments invokes listMaterialDocuments operation.
+//
+// The material documents of the companies the caller may act in (ADR-0082 §7, S1c), each as
+// `getMaterialDocument` gives it, the latest first. Filtered by material, plant and movement type: a
+// document matches a material or a plant when one of its lines names it. Sortable by: `created_at`.
+//
+// GET /v1/material-documents
+func (c *Client) ListMaterialDocuments(ctx context.Context, params ListMaterialDocumentsParams) (ListMaterialDocumentsRes, error) {
+	res, err := c.sendListMaterialDocuments(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListMaterialDocuments(ctx context.Context, params ListMaterialDocumentsParams) (res ListMaterialDocumentsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listMaterialDocuments"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/material-documents"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListMaterialDocumentsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/material-documents"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "movement_type" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "movement_type",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MovementType.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListMaterialDocumentsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListMaterialDocumentsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListMaterials invokes listMaterials operation.
 //
 // The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
@@ -90462,6 +91058,246 @@ func (c *Client) sendListSodRules(ctx context.Context, params ListSodRulesParams
 
 	stage = "DecodeResponse"
 	result, err := decodeListSodRulesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListStock invokes listStock operation.
+//
+// The stock of materials by plant and storage location in the companies the caller may act in
+// (ADR-0082 §7, S1c; SAP MMBE), in the material's base unit: as it is now, or as at the end of a day
+// (`as_of`), the sum of the movements of material documents posted up to and including it. A location
+// with no stock is left out. Filtered by material, plant and storage location; in the order each
+// location's stock was first moved. Sortable by: `created_at`.
+//
+// GET /v1/stock
+func (c *Client) ListStock(ctx context.Context, params ListStockParams) (ListStockRes, error) {
+	res, err := c.sendListStock(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListStock(ctx context.Context, params ListStockParams) (res ListStockRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listStock"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/stock"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListStockOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/stock"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "storage_location_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "storage_location_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.StorageLocationID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "as_of" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "as_of",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AsOf.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListStockOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListStockResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -106719,6 +107555,173 @@ func (c *Client) sendReverseJournalEntry(ctx context.Context, request OptJournal
 
 	stage = "DecodeResponse"
 	result, err := decodeReverseJournalEntryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ReverseMaterialDocument invokes reverseMaterialDocument operation.
+//
+// Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal
+// movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a
+// `311`, `302` of a `301`) whose lines are the original's with their quantities negated, posted on the
+// company's date today and numbered from its `material_document` range as a posting is, naming the
+// original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed
+// (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`);
+// two reversals at once post one. The reversal moves the stock back, so it is refused when the stock
+// the original received has gone (409 `inventory.insufficient_stock`, naming the material, the
+// location and both quantities). The material may have been blocked since; the reversal is still
+// posted. A document of a company the caller may not act in is not found (404). Audited, and published
+// as MaterialDocumentPosted. Human-only (`x-agent: false`).
+//
+// POST /v1/material-documents/{id}:reverse
+func (c *Client) ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (ReverseMaterialDocumentRes, error) {
+	res, err := c.sendReverseMaterialDocument(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (res ReverseMaterialDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reverseMaterialDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/material-documents/{id}:reverse"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReverseMaterialDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/material-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":reverse"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReverseMaterialDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReverseMaterialDocumentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -534,6 +534,14 @@ channels:
     messages:
       MaterialChanged: {$ref: '#/components/messages/MaterialChanged'}
       MaterialChangeChanged: {$ref: '#/components/messages/MaterialChangeChanged'}
+  inventory:
+    address: 'erp.{cell}.inventory.{tenant}.{event}'
+    title: Inventory management events
+    description: Goods movements posted as material documents and their reversals (ADR-0082 §7).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      MaterialDocumentPosted: {$ref: '#/components/messages/MaterialDocumentPosted'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -889,6 +897,12 @@ operations:
     messages:
       - $ref: '#/channels/materials/messages/MaterialChanged'
       - $ref: '#/channels/materials/messages/MaterialChangeChanged'
+  publishInventoryEvents:
+    action: send
+    title: Inventory management publishes
+    channel: {$ref: '#/channels/inventory'}
+    messages:
+      - $ref: '#/channels/inventory/messages/MaterialDocumentPosted'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -4897,6 +4911,32 @@ components:
         - name: requested
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001302, source: /erp/eu-1/materials, type: com.example.erp.materials.material_change_changed.v1, subject: 0192a000-0000-7000-8000-000000001331, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {material_change_id: 0192a000-0000-7000-8000-000000001331, number: MC00000001, kind: create, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, status: pending, status_before: null, workflow_request_id: null, version: 1}
+    MaterialDocumentPosted:
+      name: MaterialDocumentPosted
+      title: Material document posted
+      summary: A goods movement was posted, or reversed.
+      description: |
+        Emitted when a material document is posted (ADR-0082 §7, S1c): a
+        goods movement, or the reversal of one (`reversal_of_id` names the
+        document reversed). It carries the document's number, company,
+        movement type and posting date and its lines, each with its
+        material, plant and storage location by id and number or code,
+        its quantity in the material's base unit, signed, and its cost
+        center by id and code. The header text is left out.
+        `GET /v1/material-documents/{id}` returns the document. Not
+        offered to webhooks until a consumer asks. Subject is the
+        document id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.inventory.material_document_posted.v1}
+      payload: {$ref: '#/components/schemas/MaterialDocumentPostedV1'}
+      examples:
+        - name: issued
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001401, source: /erp/eu-1/inventory, type: com.example.erp.inventory.material_document_posted.v1, subject: 0192a000-0000-7000-8000-000000001411, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {material_document_id: 0192a000-0000-7000-8000-000000001411, number: MD1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', fiscal_year: 2026, movement_type: '201', posting_date: '2026-11-20', reversal_of_id: null, reversal_of_number: null, lines: [{line_no: 1, item_no: 1, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, storage_location_id: 0192a000-0000-7000-8000-000000001322, storage_location_code: SL01, quantity: '-10', unit: EA, cost_center_id: 0192a000-0000-7000-8000-000000001431, cost_center_code: CC-1100}]}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -6329,6 +6369,46 @@ components:
             - $ref: '#/components/schemas/Uuid'
             - type: 'null'
         version: {type: integer, description: "The change's version after the step."}
+    MaterialDocumentPostedV1:
+      type: object
+      required: [material_document_id, number, legal_entity_id, legal_entity_code, fiscal_year, movement_type, posting_date, reversal_of_id, reversal_of_number, lines]
+      properties:
+        material_document_id: {$ref: '#/components/schemas/Uuid', description: '`inventory.material_document.id`.'}
+        number: {type: string, description: "The document's number in its company's range of its fiscal year."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company of its plants.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        fiscal_year: {type: integer, description: The fiscal year of its posting date.}
+        movement_type: {type: string, description: 'Open enum: 501, 502, 561, 562, 201, 202, 551, 552, 311, 312, 301, 302.'}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The company's date it was posted on."}
+        reversal_of_id:
+          description: "The document it reverses, `inventory.material_document.id`; null when it reverses none."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        reversal_of_number: {type: [string, 'null'], description: "That document's number; null with it."}
+        lines:
+          type: array
+          description: Its lines, in line order.
+          items:
+            type: object
+            required: [line_no, item_no, material_id, material_number, plant_id, plant_code, storage_location_id, storage_location_code, quantity, unit, cost_center_id, cost_center_code]
+            properties:
+              line_no: {type: integer, description: "The line's number, from 1."}
+              item_no: {type: integer, description: 'The item it stands for, from 1: a transfer''s item has two lines.'}
+              material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
+              material_number: {type: string, description: "The material's number."}
+              plant_id: {$ref: '#/components/schemas/Uuid', description: 'The plant: `tenancy.org_unit.id`.'}
+              plant_code: {type: string, description: "The plant's code."}
+              storage_location_id: {$ref: '#/components/schemas/Uuid', description: 'The storage location: `tenancy.org_unit.id`.'}
+              storage_location_code: {type: string, description: "The storage location's code."}
+              quantity: {type: string, description: "What the line moves in the material's base unit, a decimal: positive into the location's stock, negative out of it."}
+              unit: {type: string, description: The material's base unit.}
+              cost_center_id:
+                description: "The cost center of an issue or a scrapping, `ledger.cost_center.id`; null on other lines."
+                oneOf:
+                  - $ref: '#/components/schemas/Uuid'
+                  - type: 'null'
+              cost_center_code: {type: [string, 'null'], description: "The cost center's code; null with it."}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]

@@ -1708,7 +1708,8 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "credit_memo_request", "fiscal_year": @YEAR@, "prefix": "CR", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "lease_contract", "fiscal_year": @YEAR@, "prefix": "LC", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "expense_report", "fiscal_year": @YEAR@, "prefix": "ER", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999}]'
+    {"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
+    {"company": "@CC@", "document_type": "material_document", "fiscal_year": @YEAR@, "prefix": "MD", "first": 1, "last": 9999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -13156,7 +13157,7 @@ step_material() {
   expect "the blocked material" "$(field '"\(.status) \(.version)"')" "blocked 4"
   QUIET=1 api 200 '' listMaterials -p "plant_id=$plant" -p status=blocked
   expect "Toronto's blocked materials" "$(field '[.items[] | .number] | join(" ")')" "$number"
-  MATERIAL=$material
+  MATERIAL=$material PLANT=$plant MAIN_STORE=$main SPARES_STORE=$spares
   passed
 }
 
@@ -13214,6 +13215,78 @@ step_material_governance() {
   QUIET=1 api 200 '' getMaterial -p "id=$material"
   expect "the material after the rejection" "$(field '"\(.material_group) \(.version) \(.pending_change_id // "none")"')" "BRACKETS $version none"
   api 200 '.items[] | "  change \(.number) (\(.kind)): \(.status)"' listMaterialChanges -p "material_id=$material"
+  passed
+}
+
+# stock reads the material's stock at a storage location ("none" when it
+# has none), now or as at the day given.
+stock_at() {
+  local location=$1 day=${2:-}
+  if [ -n "$day" ]; then
+    QUIET=1 api 200 '' listStock -p "material_id=$MATERIAL" -p "storage_location_id=$location" -p "as_of=$day"
+  else
+    QUIET=1 api 200 '' listStock -p "material_id=$MATERIAL" -p "storage_location_id=$location"
+  fi
+  field '.items[0] | if . == null then "none" else "\(.quantity.value) \(.quantity.unit)" end'
+}
+
+# step_goods_movements is S1c (ADR-0082 §7, plan-supply-chain.md): Wade,
+# the warehouse clerk, enters the bracket's opening stock in Toronto's
+# main store, issues some to a cost center and moves some to the spare
+# parts store, each a material document numbered from Maple's range; an
+# issue of more than the store holds is refused naming both quantities;
+# he reverses the transfer, which a second reversal cannot repeat. The
+# stock is read now and as at the day before, when there was none.
+# Nothing is posted to the ledger yet (S1d values the movements).
+step_goods_movements() {
+  heading "Step 124 — Goods movements: an initial entry of stock by the box, an issue to a cost center, a transfer between storage locations and its reversal, each a numbered material document; an issue beyond the stock refused; the stock now and as at the day before"
+  local cc doc transfer yesterday
+  [ -n "$MATERIAL" ] || fail "step 122's material is not there"
+  as ada
+  say "Ada adds Wade, the warehouse clerk, to the team:"
+  person wade "Wade Warehouse" finance_staff
+  as wade
+  say "Wade counts the brackets on the main store's shelves and enters them as opening stock (movement type 561):"
+  say "5 boxes, which the material converts to its base unit exactly (ADR-0082 §5):"
+  api 201 '"material document \(.number) (\(.movement_type) \(.movement_type_name)) on \(.posting_date)", (.lines[] | "  line \(.line_no): \(.material_number) at \(.plant_code)/\(.storage_location_code): \(.quantity.value) \(.quantity.unit), entered as \(.entry_quantity.value) \(.entry_quantity.unit)")' \
+    createMaterialDocument -body "{\"movement_type\": \"561\", \"header_text\": \"Opening count of the main store\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"5\", \"unit\": \"BOX\"}}]}"
+  case "$(field .number)" in MD*) ;; *) fail "the material document's number: got $(field .number), want one of the MD range" ;; esac
+  expect "the opening stock" "$(stock_at "$MAIN_STORE")" "100 EA"
+  say "Maintenance takes 12 brackets for cost center CC-1100 (201):"
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  api 201 '"material document \(.number) (\(.movement_type)): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) to cost center \(.lines[0].cost_center_code)"' \
+    createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"cost_center_id\": \"$cc\"}]}"
+  say "He moves 30 to the spare parts store (311): one item, two lines, the issue and the receipt:"
+  api 201 '"material document \(.number) (\(.movement_type)):", (.lines[] | "  line \(.line_no): \(.storage_location_code) \(.quantity.value) \(.quantity.unit)")' \
+    createMaterialDocument -body "{\"movement_type\": \"311\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"to_storage_location_id\": \"$SPARES_STORE\", \"quantity\": {\"value\": \"30\", \"unit\": \"EA\"}}]}"
+  transfer=$(field .id)
+  expect "the main store after the transfer" "$(stock_at "$MAIN_STORE")" "58 EA"
+  expect "the spare parts store" "$(stock_at "$SPARES_STORE")" "30 EA"
+  say "An issue of three boxes from the spare parts store is more than it holds; it is refused, and no stock goes"
+  say "below zero:"
+  refused 409 inventory.insufficient_stock createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$SPARES_STORE\", \"quantity\": {\"value\": \"3\", \"unit\": \"BOX\"}, \"cost_center_id\": \"$cc\"}]}"
+  say "The transfer was a mistake; Wade reverses it at the version he reads (312 reverses a 311):"
+  QUIET=1 api 200 '' getMaterialDocument -p "id=$transfer"
+  doc=$ETAG
+  api 200 '"material document \(.number) (\(.movement_type)) reverses \(.reversal_of_number)"' reverseMaterialDocument -p "id=$transfer" -if-match "$doc"
+  QUIET=1 api 200 '' getMaterialDocument -p "id=$transfer"
+  expect "the reversed transfer" "$(field '.reversed_by_number != null')" "true"
+  say "A document is reversed once:"
+  refused 409 inventory.already_reversed reverseMaterialDocument -p "id=$transfer" -if-match "$ETAG"
+  yesterday=$(date_add "$TODAY" -1)
+  say "The stock now and as at the end of $yesterday, before any of today's documents:"
+  QUIET=1 api 200 '' listStock -p "material_id=$MATERIAL"
+  api 200 '.items[] | "  \(.material_number) at \(.plant_code)/\(.storage_location_code): \(.quantity.value) \(.quantity.unit)"' listStock -p "material_id=$MATERIAL"
+  expect "the main store now" "$(stock_at "$MAIN_STORE")" "88 EA"
+  expect "the spare parts store now" "$(stock_at "$SPARES_STORE")" "none"
+  expect "the main store as at $yesterday" "$(stock_at "$MAIN_STORE" "$yesterday")" "none"
+  api 200 '.items[] | "  \(.number) \(.movement_type) \(.movement_type_name)\(if .reversed_by_number then ", reversed by \(.reversed_by_number)" else "" end)"' \
+    listMaterialDocuments -p "material_id=$MATERIAL"
   passed
 }
 
@@ -15247,7 +15320,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_goods_movements step_close'
 
 main() {
   stop_unseen

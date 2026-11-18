@@ -71,6 +71,8 @@ tags:
     description: "Lease accounting as lessee (ADR-0073): lease contracts with their payment schedules, and the lease runs that post their interest and depreciation."
   - name: materials
     description: "The material master (ADR-0082): materials with their plants, storage locations and alternative units of measure."
+  - name: inventory
+    description: "Inventory management (ADR-0082): goods movements posted as material documents, their reversal, and the stock of materials by plant and storage location."
   - name: records
     description: "Records management (ADR-0079): retention rules' status per fiscal year, archiving runs and the personal data inventory."
   - name: processmining
@@ -23391,6 +23393,282 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/material-documents:
+    get:
+      operationId: listMaterialDocuments
+      tags:
+        - inventory
+      summary: List material documents
+      description: "The material documents of the companies the caller may act in (ADR-0082 §7, S1c), each as `getMaterialDocument` gives it, the latest first. Filtered by material, plant and movement type: a document matches a material or a plant when one of its lines names it. Sortable by: `created_at`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: material_id
+          in: query
+          required: false
+          description: Only the documents moving this material (`GET /v1/materials/{id}`).
+          schema:
+            type: string
+            format: uuid
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the documents moving stock at this plant (an org unit of kind `plant`).
+          schema:
+            type: string
+            format: uuid
+        - name: movement_type
+          in: query
+          required: false
+          description: Only documents of this movement type. A value that is no movement type matches none.
+          schema:
+            type: string
+            maxLength: 3
+            description: "Movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: ["501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302"]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of material documents.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialDocumentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createMaterialDocument
+      tags:
+        - inventory
+      summary: Post a goods movement
+      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. Nothing is posted to the ledger. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
+      x-permission: inventory.movement.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.cost_center_invalid
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_movement_type
+        - inventory.unknown_unit
+        - ledger.no_fiscal_period
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The goods movement to post.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialDocumentCreate"
+            examples:
+              issue:
+                summary: Ten brackets issued to a cost center
+                value:
+                  movement_type: "201"
+                  items:
+                    - material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                      plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                      storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+                      quantity: {value: "10", unit: EA}
+                      cost_center_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+      responses:
+        "201":
+          description: "Posted; the material document."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/material-documents/{id}":
+    get:
+      operationId: getMaterialDocument
+      tags:
+        - inventory
+      summary: Get a material document
+      description: "One material document (ADR-0082 §7, S1c) with its company, movement type, posting date and lines, each naming its material by number and description, its plant and storage location by code and name and its cost center by code, and the documents it reverses and that reverse it. A document of a company the caller may not act in is not found (404)."
+      x-permission: inventory.stock.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The material document.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/material-documents/{id}:reverse":
+    post:
+      operationId: reverseMaterialDocument
+      tags:
+        - inventory
+      summary: Reverse a material document
+      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). The material may have been blocked since; the reversal is still posted. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
+      x-permission: inventory.movement.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.already_reversed
+        - inventory.cannot_reverse_reversal
+        - inventory.insufficient_stock
+        - inventory.quantity_too_large
+        - ledger.no_fiscal_period
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The reversal material document.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/stock:
+    get:
+      operationId: listStock
+      tags:
+        - inventory
+      summary: List stock by location
+      description: "The stock of materials by plant and storage location in the companies the caller may act in (ADR-0082 §7, S1c; SAP MMBE), in the material's base unit: as it is now, or as at the end of a day (`as_of`), the sum of the movements of material documents posted up to and including it. A location with no stock is left out. Filtered by material, plant and storage location; in the order each location's stock was first moved. Sortable by: `created_at`."
+      x-permission: inventory.stock.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: material_id
+          in: query
+          required: false
+          description: Only the stock of this material.
+          schema:
+            type: string
+            format: uuid
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the stock at this plant.
+          schema:
+            type: string
+            format: uuid
+        - name: storage_location_id
+          in: query
+          required: false
+          description: Only the stock at this storage location.
+          schema:
+            type: string
+            format: uuid
+        - name: as_of
+          in: query
+          required: false
+          description: "The stock at the end of this day, from the documents posted up to and including it; absent: now."
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of stock.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/revenue-contracts/{id}/schedule":
@@ -60111,6 +60389,150 @@ components:
           type: array
           items: {$ref: "#/components/schemas/MaterialChange"}
           description: The material changes on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    MaterialDocumentItemInput:
+      type: object
+      description: "An item of a goods movement: a quantity of a material at a plant's storage location; a transfer's item names where it is received, an issue to a cost center or a scrapping its cost center."
+      required: [material_id, plant_id, storage_location_id, quantity]
+      additionalProperties: false
+      properties:
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`)."}
+        plant_id: {type: string, format: uuid, description: "The plant the stock is at (`GET /v1/org-units/{id}`)."}
+        storage_location_id: {type: string, format: uuid, description: "The storage location the stock is at, under the plant; a transfer's issuing one."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity moved, positive, in the material's base unit or one of its alternative units."}
+        cost_center_id: {type: string, format: uuid, description: "The cost center of a `201` or `551` (`GET /v1/cost-centers/{id}`); no other movement type names one."}
+        to_plant_id: {type: string, format: uuid, description: "The plant a `301` receives at, another of the company's."}
+        to_storage_location_id: {type: string, format: uuid, description: "The storage location a `311` or `301` receives at: under the plant of a `311`, under `to_plant_id` of a `301`."}
+    MaterialDocumentCreate:
+      type: object
+      description: "A goods movement to post: one movement type and its items."
+      required: [movement_type, items]
+      additionalProperties: false
+      properties:
+        movement_type:
+          type: string
+          maxLength: 3
+          x-extensible-enum: ["501", "561", "201", "551", "311", "301"]
+          description: "`501` receipt without purchase order, `561` initial entry of stock, `201` issue to a cost center, `551` scrapping, `311` transfer between storage locations, `301` transfer between plants. Open enumeration: values may be added within /v1."
+        header_text: {type: string, minLength: 1, maxLength: 200, description: "What the movement is for, kept on the document."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: "#/components/schemas/MaterialDocumentItemInput"}
+          description: "Its items, each moving one material."
+    MaterialDocumentLine:
+      type: object
+      description: "A line of a material document (SAP MSEG): one stock effect of an item at a storage location, in the material's base unit, signed (a receipt positive, an issue negative)."
+      required: [line_no, item_no, material_id, material_number, material_description, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, quantity, entry_quantity]
+      properties:
+        line_no: {type: integer, format: int32, description: "The line's number in the document, from 1.", readOnly: true}
+        item_no: {type: integer, format: int32, description: "The item of the request it stands for, from 1: a transfer's item has two lines.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
+        material_number: {type: string, description: "The material's number.", readOnly: true}
+        material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+        plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+        plant_code: {type: string, description: "The plant's code.", readOnly: true}
+        plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+        storage_location_id: {type: string, format: uuid, description: "The storage location.", readOnly: true}
+        storage_location_code: {type: string, description: "The storage location's code.", readOnly: true}
+        storage_location_name: {type: string, description: "The storage location's name, as it is now.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "What the line moves, in the material's base unit: positive into the location's stock, negative out of it.", readOnly: true}
+        entry_quantity: {$ref: "#/components/schemas/Quantity", description: "The item's quantity as it was entered, positive, in the unit it was entered in.", readOnly: true}
+        cost_center_id: {type: string, format: uuid, description: "The cost center of an issue to a cost center or a scrapping; absent on other lines.", readOnly: true}
+        cost_center_code: {type: string, description: "The cost center's code; absent with it.", readOnly: true}
+    MaterialDocument:
+      type: object
+      description: "A material document (SAP MKPF with its MSEG lines): a goods movement of one movement type, posted once and never changed; a mistaken one is reversed by another."
+      required: [id, number, legal_entity_id, company_code, fiscal_year, movement_type, movement_type_name, posting_date, lines, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, readOnly: true, description: "The document's id."}
+        number: {type: string, description: "The document's number in its company's `material_document` range of its fiscal year.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company of its plants.", readOnly: true}
+        company_code: {type: string, description: "That company's code.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of its posting date, which its number is of.", readOnly: true}
+        movement_type:
+          type: string
+          x-extensible-enum: ["501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302"]
+          description: "Its movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        movement_type_name: {type: string, description: "What the movement type is, in English.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The company's date it was posted on, which its stock as at a date counts from.", readOnly: true}
+        header_text: {type: string, description: "What the movement is for; absent when none was given.", readOnly: true}
+        reversal_of_id: {type: string, format: uuid, description: "The document this one reverses; absent on a document that reverses none.", readOnly: true}
+        reversal_of_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
+        reversed_by_id: {type: string, format: uuid, description: "The document that reverses this one; absent while it is not reversed.", readOnly: true}
+        reversed_by_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
+        lines:
+          type: array
+          items: {$ref: "#/components/schemas/MaterialDocumentLine"}
+          description: "Its lines, in line order."
+          readOnly: true
+        created_at: {type: string, format: date-time, readOnly: true, description: "When it was posted."}
+        created_by: {type: string, format: uuid, readOnly: true, description: "Who posted it."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          number: MD000001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          fiscal_year: 2026
+          movement_type: "201"
+          movement_type_name: Issue to a cost center
+          posting_date: "2026-11-20"
+          lines:
+            - line_no: 1
+              item_no: 1
+              material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+              material_number: MA000001
+              material_description: Machined bracket M10
+              plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+              plant_code: P100
+              plant_name: Toronto plant
+              storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+              storage_location_code: SL01
+              storage_location_name: Main store
+              quantity: {value: "-10", unit: EA}
+              entry_quantity: {value: "10", unit: EA}
+              cost_center_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+              cost_center_code: CC-1100
+          created_at: "2026-11-20T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    MaterialDocumentPage:
+      type: object
+      description: One page of material documents.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/MaterialDocument"}
+          description: The material documents on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    Stock:
+      type: object
+      description: "The stock of a material at a storage location of a plant (SAP MARD's unrestricted stock), in its base unit."
+      required: [material_id, material_number, material_description, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, legal_entity_id, company_code, quantity]
+      properties:
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
+        material_number: {type: string, description: "The material's number.", readOnly: true}
+        material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+        plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+        plant_code: {type: string, description: "The plant's code.", readOnly: true}
+        plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+        storage_location_id: {type: string, format: uuid, description: "The storage location.", readOnly: true}
+        storage_location_code: {type: string, description: "The storage location's code.", readOnly: true}
+        storage_location_name: {type: string, description: "The storage location's name, as it is now.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+        company_code: {type: string, description: "That company's code.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity in stock, in the material's base unit.", readOnly: true}
+    StockPage:
+      type: object
+      description: One page of stock.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Stock"}
+          description: The stock on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     ReceivablesAgingBucket:
       type: object

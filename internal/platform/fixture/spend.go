@@ -39,6 +39,29 @@ func (e Env) CostCenter(tb testing.TB, legalEntity uuid.UUID, code string) uuid.
 	return id
 }
 
+// CostCenterFrom writes an active cost center of the legal entity, as
+// CostCenter does, in force from the day until the day before to (nil:
+// without end), and returns its id.
+func (e Env) CostCenterFrom(tb testing.TB, legalEntity uuid.UUID, code, from string, to *string) uuid.UUID {
+	tb.Helper()
+	id := e.CostCenter(tb, legalEntity, code)
+	ctx := context.Background()
+	admin := pgtest.Admin(tb)
+	_, err := admin.Exec(ctx, `SET session_replication_role = replica`)
+	if err == nil {
+		_, err = admin.Exec(ctx, `INSERT INTO ledger.cost_center_period (tenant_id, id, cost_center_id, legal_entity_id, valid_from, valid_to, category,
+				change_id, created_by, updated_by)
+			VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, 'ADMIN', gen_random_uuid(), $6, $6)`, e.Tenant.ID, id, legalEntity, from, to, e.Tenant.Human.ID)
+	}
+	if err == nil {
+		_, err = admin.Exec(ctx, `RESET session_replication_role`)
+	}
+	if err != nil {
+		tb.Fatalf("period of cost center %s: %v", code, err)
+	}
+	return id
+}
+
 // Contract writes an active contract of the legal entity with the
 // supplier, numbered number, and returns its id.
 func (e Env) Contract(tb testing.TB, legalEntity, supplier uuid.UUID, currency, number string) uuid.UUID {

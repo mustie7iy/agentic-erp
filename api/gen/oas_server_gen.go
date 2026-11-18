@@ -1936,6 +1936,43 @@ type Handler interface {
 	//
 	// POST /v1/materials
 	CreateMaterial(ctx context.Context, req *MaterialCreate, params CreateMaterialParams) (CreateMaterialRes, error)
+	// CreateMaterialDocument implements createMaterialDocument operation.
+	//
+	// Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a
+	// receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center,
+	// `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between
+	// plants of one company; each item moves a quantity of a material at a plant's storage location. Each
+	// material is an `active` material (422 `inventory.material_invalid` when there is none with the id,
+	// `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type
+	// `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a
+	// company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422
+	// `inventory.plant_not_extended`), each storage location an active one under it (422
+	// `inventory.storage_location_invalid`) the material is kept at (422
+	// `inventory.storage_location_not_extended`), and every plant of the document one company's (422
+	// `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the
+	// material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted
+	// exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a
+	// cost center (422 `inventory.cost_center_required`), an active one of the company in force on the
+	// posting date (422 `inventory.cost_center_invalid`); another movement type names none (422
+	// `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same
+	// plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`,
+	// `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422
+	// `inventory.transfer_target_required`, `inventory.same_location`); another movement type names
+	// neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
+	// `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`).
+	// The document is posted on the company's date today in its time zone and numbered from its
+	// `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is
+	// in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue
+	// of more than a storage location holds is refused naming the material, the location and both
+	// quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post
+	// one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`).
+	// Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
+	// item is two, the issue and the receipt. Nothing is posted to the ledger. Audited, and published as
+	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/material-documents
+	CreateMaterialDocument(ctx context.Context, req *MaterialDocumentCreate, params CreateMaterialDocumentParams) (CreateMaterialDocumentRes, error)
 	// CreateMemoRecord implements createMemoRecord operation.
 	//
 	// Creates an `active` memo record (ADR-0051 §7, T53d): an expected receipt (positive amount) or
@@ -4043,6 +4080,15 @@ type Handler interface {
 	//
 	// GET /v1/material-changes/{id}
 	GetMaterialChange(ctx context.Context, params GetMaterialChangeParams) (GetMaterialChangeRes, error)
+	// GetMaterialDocument implements getMaterialDocument operation.
+	//
+	// One material document (ADR-0082 §7, S1c) with its company, movement type, posting date and lines,
+	// each naming its material by number and description, its plant and storage location by code and name
+	// and its cost center by code, and the documents it reverses and that reverse it. A document of a
+	// company the caller may not act in is not found (404).
+	//
+	// GET /v1/material-documents/{id}
+	GetMaterialDocument(ctx context.Context, params GetMaterialDocumentParams) (GetMaterialDocumentRes, error)
 	// GetMemoRecord implements getMemoRecord operation.
 	//
 	// One memo record, with its status as of the read date: its legal entity's date at the read in its
@@ -5674,6 +5720,14 @@ type Handler interface {
 	//
 	// GET /v1/material-changes
 	ListMaterialChanges(ctx context.Context, params ListMaterialChangesParams) (ListMaterialChangesRes, error)
+	// ListMaterialDocuments implements listMaterialDocuments operation.
+	//
+	// The material documents of the companies the caller may act in (ADR-0082 §7, S1c), each as
+	// `getMaterialDocument` gives it, the latest first. Filtered by material, plant and movement type: a
+	// document matches a material or a plant when one of its lines names it. Sortable by: `created_at`.
+	//
+	// GET /v1/material-documents
+	ListMaterialDocuments(ctx context.Context, params ListMaterialDocumentsParams) (ListMaterialDocumentsRes, error)
 	// ListMaterials implements listMaterials operation.
 	//
 	// The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
@@ -6160,6 +6214,16 @@ type Handler interface {
 	//
 	// GET /v1/sod-rules
 	ListSodRules(ctx context.Context, params ListSodRulesParams) (ListSodRulesRes, error)
+	// ListStock implements listStock operation.
+	//
+	// The stock of materials by plant and storage location in the companies the caller may act in
+	// (ADR-0082 §7, S1c; SAP MMBE), in the material's base unit: as it is now, or as at the end of a day
+	// (`as_of`), the sum of the movements of material documents posted up to and including it. A location
+	// with no stock is left out. Filtered by material, plant and storage location; in the order each
+	// location's stock was first moved. Sortable by: `created_at`.
+	//
+	// GET /v1/stock
+	ListStock(ctx context.Context, params ListStockParams) (ListStockRes, error)
 	// ListSupplierInvoices implements listSupplierInvoices operation.
 	//
 	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
@@ -7605,6 +7669,22 @@ type Handler interface {
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, req OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)
+	// ReverseMaterialDocument implements reverseMaterialDocument operation.
+	//
+	// Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal
+	// movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a
+	// `311`, `302` of a `301`) whose lines are the original's with their quantities negated, posted on the
+	// company's date today and numbered from its `material_document` range as a posting is, naming the
+	// original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed
+	// (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`);
+	// two reversals at once post one. The reversal moves the stock back, so it is refused when the stock
+	// the original received has gone (409 `inventory.insufficient_stock`, naming the material, the
+	// location and both quantities). The material may have been blocked since; the reversal is still
+	// posted. A document of a company the caller may not act in is not found (404). Audited, and published
+	// as MaterialDocumentPosted. Human-only (`x-agent: false`).
+	//
+	// POST /v1/material-documents/{id}:reverse
+	ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (ReverseMaterialDocumentRes, error)
 	// ReverseSupplierInvoice implements reverseSupplierInvoice operation.
 	//
 	// Posts a reversal of the invoice's journal entry; the status becomes `reversed` and
