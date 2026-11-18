@@ -5018,8 +5018,22 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Scales on a condition record: a price or discount's rate by the level an item's quantity or value reaches (basis quantity or value, its unit or currency stated, a \"from\" scale exact in minor units), shown on the item's condition",
+        "r": "T80e · docs/design/plan-depth-3.md §T80e · db/migrations/000373 · sales.price_scale · scale_basis, scale[] on POST /v1/sales-prices and SalesPrice · SalesCondition.scale · SalesPriceChanged · walkthrough step_price_scales · ADR-0067 §12 and As built",
+        "src": "split:T80a · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Prices per customer price group: price groups in configuration, a customer's group on its sales data in a company, price records for a group, and the access sequence customer, price group, general",
+        "r": "T80f · docs/design/plan-depth-3.md §T80f · db/migrations/000374 · configuration pricing.price_groups · sales.customer_sales_data · price_group on sales.price · POST /v1/customer-sales-data · GET /v1/customer-sales-data · GET, PATCH /v1/customer-sales-data/{id} · CustomerSalesDataChanged · SalesCondition.access · walkthrough step_price_groups · ADR-0067 §13 and As built",
+        "src": "split:T80a · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: price determination variants: scales by quantity or value, prices per customer group, price list type or sales organization, surcharges and freight, minimum prices and manual price approval, currency conversion of a price, repricing a document, mass changes and price uploads, prices taken over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: price determination variants: prices per price list type or sales organization, surcharges and freight, minimum prices and manual price approval, currency conversion of a price, repricing a document, mass changes and price uploads, prices taken over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T80a, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []

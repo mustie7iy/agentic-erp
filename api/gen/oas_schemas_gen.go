@@ -27358,6 +27358,7 @@ func (*ConflictHeaders) createCreditLimitRes()                     {}
 func (*ConflictHeaders) createCreditMemoRequestRes()               {}
 func (*ConflictHeaders) createCustomerContactRes()                 {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
+func (*ConflictHeaders) createCustomerSalesDataRes()               {}
 func (*ConflictHeaders) createDisputeCaseRes()                     {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
 func (*ConflictHeaders) createDunningBlockRes()                    {}
@@ -27594,6 +27595,7 @@ func (*ConflictHeaders) updateContractRes()                        {}
 func (*ConflictHeaders) updateControlRes()                         {}
 func (*ConflictHeaders) updateCostCenterRes()                      {}
 func (*ConflictHeaders) updateCreditLimitRes()                     {}
+func (*ConflictHeaders) updateCustomerSalesDataRes()               {}
 func (*ConflictHeaders) updateDisputeCaseRes()                     {}
 func (*ConflictHeaders) updateEntryTemplateRes()                   {}
 func (*ConflictHeaders) updateLegalEntityRes()                     {}
@@ -34381,6 +34383,22 @@ type CreateCustomerInvoiceUnprocessableEntity Problem
 
 func (*CreateCustomerInvoiceUnprocessableEntity) createCustomerInvoiceRes() {}
 
+type CreateCustomerSalesDataBadRequest Problem
+
+func (*CreateCustomerSalesDataBadRequest) createCustomerSalesDataRes() {}
+
+type CreateCustomerSalesDataForbidden Problem
+
+func (*CreateCustomerSalesDataForbidden) createCustomerSalesDataRes() {}
+
+type CreateCustomerSalesDataPreconditionRequired Problem
+
+func (*CreateCustomerSalesDataPreconditionRequired) createCustomerSalesDataRes() {}
+
+type CreateCustomerSalesDataUnprocessableEntity Problem
+
+func (*CreateCustomerSalesDataUnprocessableEntity) createCustomerSalesDataRes() {}
+
 type CreateDisputeCaseBadRequest Problem
 
 func (*CreateDisputeCaseBadRequest) createDisputeCaseRes() {}
@@ -38618,6 +38636,320 @@ func (s *CustomerInvoiceReverse) SetReason(val string) {
 // SetPostingDate sets the value of PostingDate.
 func (s *CustomerInvoiceReverse) SetPostingDate(val OptDate) {
 	s.PostingDate = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/CustomerSalesData
+type CustomerSalesData struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The customer's price group (`pricing.price_groups` of the configuration); absent: none.
+	PriceGroup OptString `json:"price_group"`
+	// The price group's name in the active configuration; absent without a group.
+	PriceGroupName OptString `json:"price_group_name"`
+}
+
+// GetID returns the value of ID.
+func (s *CustomerSalesData) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CustomerSalesData) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CustomerSalesData) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CustomerSalesData) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CustomerSalesData) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CustomerSalesData) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerSalesData) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CustomerSalesData) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CustomerSalesData) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CustomerSalesData) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CustomerSalesData) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CustomerSalesData) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetPriceGroup returns the value of PriceGroup.
+func (s *CustomerSalesData) GetPriceGroup() OptString {
+	return s.PriceGroup
+}
+
+// GetPriceGroupName returns the value of PriceGroupName.
+func (s *CustomerSalesData) GetPriceGroupName() OptString {
+	return s.PriceGroupName
+}
+
+// SetID sets the value of ID.
+func (s *CustomerSalesData) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CustomerSalesData) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CustomerSalesData) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CustomerSalesData) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CustomerSalesData) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CustomerSalesData) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerSalesData) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CustomerSalesData) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CustomerSalesData) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CustomerSalesData) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CustomerSalesData) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CustomerSalesData) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetPriceGroup sets the value of PriceGroup.
+func (s *CustomerSalesData) SetPriceGroup(val OptString) {
+	s.PriceGroup = val
+}
+
+// SetPriceGroupName sets the value of PriceGroupName.
+func (s *CustomerSalesData) SetPriceGroupName(val OptString) {
+	s.PriceGroupName = val
+}
+
+// Set up a customer's sales data in a company.
+// Ref: #/components/schemas/CustomerSalesDataCreate
+type CustomerSalesDataCreate struct {
+	// The company: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer: an active business partner with the customer role, not blocked for posting in the
+	// company.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's price group, one of the active configuration's (`pricing.price_groups`); absent:
+	// none, and the customer takes the general price records.
+	PriceGroup OptString `json:"price_group"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerSalesDataCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CustomerSalesDataCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetPriceGroup returns the value of PriceGroup.
+func (s *CustomerSalesDataCreate) GetPriceGroup() OptString {
+	return s.PriceGroup
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerSalesDataCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CustomerSalesDataCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetPriceGroup sets the value of PriceGroup.
+func (s *CustomerSalesDataCreate) SetPriceGroup(val OptString) {
+	s.PriceGroup = val
+}
+
+// CustomerSalesDataHeaders wraps CustomerSalesData with response headers.
+type CustomerSalesDataHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CustomerSalesData
+}
+
+// GetETag returns the value of ETag.
+func (s *CustomerSalesDataHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CustomerSalesDataHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CustomerSalesDataHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CustomerSalesDataHeaders) GetResponse() CustomerSalesData {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CustomerSalesDataHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CustomerSalesDataHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CustomerSalesDataHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CustomerSalesDataHeaders) SetResponse(val CustomerSalesData) {
+	s.Response = val
+}
+
+func (*CustomerSalesDataHeaders) createCustomerSalesDataRes() {}
+
+// One page of customers' sales data.
+// Ref: #/components/schemas/CustomerSalesDataPage
+type CustomerSalesDataPage struct {
+	// The sales data on this page.
+	Items []CustomerSalesData `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CustomerSalesDataPage) GetItems() []CustomerSalesData {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CustomerSalesDataPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CustomerSalesDataPage) SetItems(val []CustomerSalesData) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CustomerSalesDataPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CustomerSalesDataPage) listCustomerSalesDataRes() {}
+
+// Merge patch of a customer's sales data: its price group.
+// Ref: #/components/schemas/CustomerSalesDataUpdate
+type CustomerSalesDataUpdate struct {
+	// The new price group, one of the active configuration's (`pricing.price_groups`). Send null for none.
+	PriceGroup NilString `json:"price_group"`
+}
+
+// GetPriceGroup returns the value of PriceGroup.
+func (s *CustomerSalesDataUpdate) GetPriceGroup() NilString {
+	return s.PriceGroup
+}
+
+// SetPriceGroup sets the value of PriceGroup.
+func (s *CustomerSalesDataUpdate) SetPriceGroup(val NilString) {
+	s.PriceGroup = val
 }
 
 type DecideRecommendationBadRequest Problem
@@ -48569,6 +48901,46 @@ func (s *GetCustomerInvoiceOKHeaders) SetResponse(val CustomerInvoice) {
 }
 
 func (*GetCustomerInvoiceOKHeaders) getCustomerInvoiceRes() {}
+
+type GetCustomerSalesDataBadRequest Problem
+
+func (*GetCustomerSalesDataBadRequest) getCustomerSalesDataRes() {}
+
+type GetCustomerSalesDataForbidden Problem
+
+func (*GetCustomerSalesDataForbidden) getCustomerSalesDataRes() {}
+
+type GetCustomerSalesDataNotFound Problem
+
+func (*GetCustomerSalesDataNotFound) getCustomerSalesDataRes() {}
+
+// GetCustomerSalesDataOKHeaders wraps CustomerSalesData with response headers.
+type GetCustomerSalesDataOKHeaders struct {
+	ETag     OptString
+	Response CustomerSalesData
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCustomerSalesDataOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCustomerSalesDataOKHeaders) GetResponse() CustomerSalesData {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCustomerSalesDataOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCustomerSalesDataOKHeaders) SetResponse(val CustomerSalesData) {
+	s.Response = val
+}
+
+func (*GetCustomerSalesDataOKHeaders) getCustomerSalesDataRes() {}
 
 type GetDepreciationRunBadRequest Problem
 
@@ -63818,6 +64190,14 @@ type ListCustomerInvoicesForbidden Problem
 
 func (*ListCustomerInvoicesForbidden) listCustomerInvoicesRes() {}
 
+type ListCustomerSalesDataBadRequest Problem
+
+func (*ListCustomerSalesDataBadRequest) listCustomerSalesDataRes() {}
+
+type ListCustomerSalesDataForbidden Problem
+
+func (*ListCustomerSalesDataForbidden) listCustomerSalesDataRes() {}
+
 type ListDepreciationRunsBadRequest Problem
 
 func (*ListDepreciationRunsBadRequest) listDepreciationRunsRes() {}
@@ -78008,6 +78388,52 @@ func (o OptReportTileWhere) Get() (v ReportTileWhere, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptReportTileWhere) Or(d ReportTileWhere) ReportTileWhere {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptSalesConditionScale returns new OptSalesConditionScale with value set to v.
+func NewOptSalesConditionScale(v SalesConditionScale) OptSalesConditionScale {
+	return OptSalesConditionScale{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSalesConditionScale is optional SalesConditionScale.
+type OptSalesConditionScale struct {
+	Value SalesConditionScale
+	Set   bool
+}
+
+// IsSet returns true if OptSalesConditionScale was set.
+func (o OptSalesConditionScale) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSalesConditionScale) Reset() {
+	var v SalesConditionScale
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSalesConditionScale) SetTo(v SalesConditionScale) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSalesConditionScale) Get() (v SalesConditionScale, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSalesConditionScale) Or(d SalesConditionScale) SalesConditionScale {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -102119,6 +102545,18 @@ type SalesCondition struct {
 	// for a discount, the percentage of the value before it, rounded half away from zero to the currency's
 	// minor unit, negative.
 	Amount Money `json:"amount"`
+	// The scale of the record the condition was found by (T80e), with the level the item reached; absent:
+	// the record has no scale.
+	Scale OptSalesConditionScale `json:"scale"`
+	// Which step of the access found the record (ADR-0067 §13, T80f): `customer`, the customer's own;
+	// `price_group`, its price group's; `general`, the record for every customer. Absent for an entered
+	// price and for items priced before T80f. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Access OptString `json:"access"`
+	// The price group whose record was found, when `access` is `price_group`.
+	PriceGroup OptString `json:"price_group"`
+	// The price group's name when the item was priced, with `price_group`.
+	PriceGroupName OptString `json:"price_group_name"`
 }
 
 // GetConditionType returns the value of ConditionType.
@@ -102156,6 +102594,26 @@ func (s *SalesCondition) GetAmount() Money {
 	return s.Amount
 }
 
+// GetScale returns the value of Scale.
+func (s *SalesCondition) GetScale() OptSalesConditionScale {
+	return s.Scale
+}
+
+// GetAccess returns the value of Access.
+func (s *SalesCondition) GetAccess() OptString {
+	return s.Access
+}
+
+// GetPriceGroup returns the value of PriceGroup.
+func (s *SalesCondition) GetPriceGroup() OptString {
+	return s.PriceGroup
+}
+
+// GetPriceGroupName returns the value of PriceGroupName.
+func (s *SalesCondition) GetPriceGroupName() OptString {
+	return s.PriceGroupName
+}
+
 // SetConditionType sets the value of ConditionType.
 func (s *SalesCondition) SetConditionType(val string) {
 	s.ConditionType = val
@@ -102189,6 +102647,85 @@ func (s *SalesCondition) SetPercent(val OptString) {
 // SetAmount sets the value of Amount.
 func (s *SalesCondition) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetScale sets the value of Scale.
+func (s *SalesCondition) SetScale(val OptSalesConditionScale) {
+	s.Scale = val
+}
+
+// SetAccess sets the value of Access.
+func (s *SalesCondition) SetAccess(val OptString) {
+	s.Access = val
+}
+
+// SetPriceGroup sets the value of PriceGroup.
+func (s *SalesCondition) SetPriceGroup(val OptString) {
+	s.PriceGroup = val
+}
+
+// SetPriceGroupName sets the value of PriceGroupName.
+func (s *SalesCondition) SetPriceGroupName(val OptString) {
+	s.PriceGroupName = val
+}
+
+// The scale level a sales item reached on the record its condition was found by (ADR-0067 §12): the
+// highest level whose `from` the item's quantity or value reaches; level 0, below the first, is the
+// record's own rate.
+// Ref: #/components/schemas/SalesConditionScale
+type SalesConditionScale struct {
+	// What the scale is read by: `quantity`, the item's quantity in its unit; `value`, the item's value
+	// before the condition, in the document's currency. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Basis string `json:"basis"`
+	// The level reached, from 1 in the order of the record's `scale`; 0: below the first level, the
+	// record's own rate applied.
+	Level int32 `json:"level"`
+	// A quantity scale: where the level reached starts; absent at level 0 and for a value scale.
+	FromQuantity OptQuantity `json:"from_quantity"`
+	// A value scale: where the level reached starts, in the document's currency; absent at level 0 and for
+	// a quantity scale.
+	FromAmount OptMoney `json:"from_amount"`
+}
+
+// GetBasis returns the value of Basis.
+func (s *SalesConditionScale) GetBasis() string {
+	return s.Basis
+}
+
+// GetLevel returns the value of Level.
+func (s *SalesConditionScale) GetLevel() int32 {
+	return s.Level
+}
+
+// GetFromQuantity returns the value of FromQuantity.
+func (s *SalesConditionScale) GetFromQuantity() OptQuantity {
+	return s.FromQuantity
+}
+
+// GetFromAmount returns the value of FromAmount.
+func (s *SalesConditionScale) GetFromAmount() OptMoney {
+	return s.FromAmount
+}
+
+// SetBasis sets the value of Basis.
+func (s *SalesConditionScale) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetLevel sets the value of Level.
+func (s *SalesConditionScale) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetFromQuantity sets the value of FromQuantity.
+func (s *SalesConditionScale) SetFromQuantity(val OptQuantity) {
+	s.FromQuantity = val
+}
+
+// SetFromAmount sets the value of FromAmount.
+func (s *SalesConditionScale) SetFromAmount(val OptMoney) {
+	s.FromAmount = val
 }
 
 // A delivery confirmation (sales, ADR-0067 §8): quantities of a sales order's items a person
@@ -104320,6 +104857,11 @@ type SalesPrice struct {
 	CustomerNumber OptString `json:"customer_number"`
 	// The customer's name, as it is now; absent for a general price.
 	CustomerName OptString `json:"customer_name"`
+	// The customer price group the record is for (`pricing.price_groups` of the configuration); absent for
+	// a general record and a customer's.
+	PriceGroup OptString `json:"price_group"`
+	// The price group's name in the active configuration, with `price_group`.
+	PriceGroupName OptString `json:"price_group_name"`
 	// What the record is: a `price`, or a `discount_percent`, a percentage of the item's value before it.
 	// Open enumeration: clients must accept and preserve values not listed here; values may be added
 	// within /v1.
@@ -104339,6 +104881,13 @@ type SalesPrice struct {
 	ValidFrom time.Time `json:"valid_from"`
 	// The last day the price is valid; absent: no last day.
 	ValidTo OptDate `json:"valid_to"`
+	// What the record's scale is read by (ADR-0067 §12): `quantity` or `value`; absent: the record has no
+	// scale. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	ScaleBasis OptString `json:"scale_basis"`
+	// The scale levels by `from`, the lowest first; empty for a record without a scale, whose own rate
+	// applies to every item.
+	Scale []SalesPriceScaleLevel `json:"scale"`
 }
 
 // GetID returns the value of ID.
@@ -104406,6 +104955,16 @@ func (s *SalesPrice) GetCustomerName() OptString {
 	return s.CustomerName
 }
 
+// GetPriceGroup returns the value of PriceGroup.
+func (s *SalesPrice) GetPriceGroup() OptString {
+	return s.PriceGroup
+}
+
+// GetPriceGroupName returns the value of PriceGroupName.
+func (s *SalesPrice) GetPriceGroupName() OptString {
+	return s.PriceGroupName
+}
+
 // GetKind returns the value of Kind.
 func (s *SalesPrice) GetKind() string {
 	return s.Kind
@@ -104444,6 +105003,16 @@ func (s *SalesPrice) GetValidFrom() time.Time {
 // GetValidTo returns the value of ValidTo.
 func (s *SalesPrice) GetValidTo() OptDate {
 	return s.ValidTo
+}
+
+// GetScaleBasis returns the value of ScaleBasis.
+func (s *SalesPrice) GetScaleBasis() OptString {
+	return s.ScaleBasis
+}
+
+// GetScale returns the value of Scale.
+func (s *SalesPrice) GetScale() []SalesPriceScaleLevel {
+	return s.Scale
 }
 
 // SetID sets the value of ID.
@@ -104511,6 +105080,16 @@ func (s *SalesPrice) SetCustomerName(val OptString) {
 	s.CustomerName = val
 }
 
+// SetPriceGroup sets the value of PriceGroup.
+func (s *SalesPrice) SetPriceGroup(val OptString) {
+	s.PriceGroup = val
+}
+
+// SetPriceGroupName sets the value of PriceGroupName.
+func (s *SalesPrice) SetPriceGroupName(val OptString) {
+	s.PriceGroupName = val
+}
+
 // SetKind sets the value of Kind.
 func (s *SalesPrice) SetKind(val string) {
 	s.Kind = val
@@ -104551,6 +105130,16 @@ func (s *SalesPrice) SetValidTo(val OptDate) {
 	s.ValidTo = val
 }
 
+// SetScaleBasis sets the value of ScaleBasis.
+func (s *SalesPrice) SetScaleBasis(val OptString) {
+	s.ScaleBasis = val
+}
+
+// SetScale sets the value of Scale.
+func (s *SalesPrice) SetScale(val []SalesPriceScaleLevel) {
+	s.Scale = val
+}
+
 // Record a price for an item key (ADR-0067 §10), or a discount on it (§11): for every customer of
 // the company, or for one. A price gives `unit` and `unit_price`; a discount gives `condition_type`, a
 // configured type of kind `discount_percent`, and `percent`.
@@ -104563,6 +105152,10 @@ type SalesPriceCreate struct {
 	// The customer the price is for: an active business partner with the customer role; absent: a general
 	// price, for every customer.
 	CustomerID OptUUID `json:"customer_id"`
+	// The customer price group the price is for (ADR-0067 §13, T80f), one of the active configuration's
+	// (`pricing.price_groups`): the customers whose sales data in the company name it take it before the
+	// general one. Not given with `customer_id`; absent with it too: a general price.
+	PriceGroup OptString `json:"price_group"`
 	// A condition type of the active configuration (`pricing.condition_types`): of kind `price` for a
 	// price, of kind `discount_percent` for a discount. Absent: a price, which the pricing procedure's
 	// price step takes as it takes one of its own type.
@@ -104583,6 +105176,16 @@ type SalesPriceCreate struct {
 	// The last day the price is valid, not before `valid_from`; absent: valid until a later record
 	// replaces it.
 	ValidTo OptDate `json:"valid_to"`
+	// With `scale`, what the scale is read by (ADR-0067 §12, T80e): `quantity`, the item's quantity, the
+	// levels' `from_quantity` in one unit (a price's own `unit`); `value`, the item's value before the
+	// condition, the levels' `from_amount` in one currency, a discount's only. Absent: the record has no
+	// scale. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	ScaleBasis OptString `json:"scale_basis"`
+	// With `scale_basis`, the scale levels, their `from` more than zero and each above the one before: an
+	// item takes the rate of the highest level whose `from` its quantity or value reaches, and the
+	// record's own rate below the first.
+	Scale []SalesPriceScaleLevelCreate `json:"scale"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -104598,6 +105201,11 @@ func (s *SalesPriceCreate) GetItemKey() string {
 // GetCustomerID returns the value of CustomerID.
 func (s *SalesPriceCreate) GetCustomerID() OptUUID {
 	return s.CustomerID
+}
+
+// GetPriceGroup returns the value of PriceGroup.
+func (s *SalesPriceCreate) GetPriceGroup() OptString {
+	return s.PriceGroup
 }
 
 // GetConditionType returns the value of ConditionType.
@@ -104635,6 +105243,16 @@ func (s *SalesPriceCreate) GetValidTo() OptDate {
 	return s.ValidTo
 }
 
+// GetScaleBasis returns the value of ScaleBasis.
+func (s *SalesPriceCreate) GetScaleBasis() OptString {
+	return s.ScaleBasis
+}
+
+// GetScale returns the value of Scale.
+func (s *SalesPriceCreate) GetScale() []SalesPriceScaleLevelCreate {
+	return s.Scale
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SalesPriceCreate) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -104648,6 +105266,11 @@ func (s *SalesPriceCreate) SetItemKey(val string) {
 // SetCustomerID sets the value of CustomerID.
 func (s *SalesPriceCreate) SetCustomerID(val OptUUID) {
 	s.CustomerID = val
+}
+
+// SetPriceGroup sets the value of PriceGroup.
+func (s *SalesPriceCreate) SetPriceGroup(val OptString) {
+	s.PriceGroup = val
 }
 
 // SetConditionType sets the value of ConditionType.
@@ -104683,6 +105306,16 @@ func (s *SalesPriceCreate) SetValidFrom(val time.Time) {
 // SetValidTo sets the value of ValidTo.
 func (s *SalesPriceCreate) SetValidTo(val OptDate) {
 	s.ValidTo = val
+}
+
+// SetScaleBasis sets the value of ScaleBasis.
+func (s *SalesPriceCreate) SetScaleBasis(val OptString) {
+	s.ScaleBasis = val
+}
+
+// SetScale sets the value of Scale.
+func (s *SalesPriceCreate) SetScale(val []SalesPriceScaleLevelCreate) {
+	s.Scale = val
 }
 
 // SalesPriceHeaders wraps SalesPrice with response headers.
@@ -104765,6 +105398,127 @@ func (s *SalesPricePage) SetNextPageToken(val OptString) {
 }
 
 func (*SalesPricePage) listSalesPricesRes() {}
+
+// A scale level of a price record (ADR-0067 §12): its number, where it starts and its rate.
+// Ref: #/components/schemas/SalesPriceScaleLevel
+type SalesPriceScaleLevel struct {
+	// The level's number, from 1, in the order of `from`.
+	Level int32 `json:"level"`
+	// A quantity scale: the quantity the level starts at.
+	FromQuantity OptQuantity `json:"from_quantity"`
+	// A value scale: the item value the level starts at.
+	FromAmount OptMoney `json:"from_amount"`
+	// A price: the net price per the record's `price_unit` at this level.
+	UnitPrice OptMoney `json:"unit_price"`
+	// A discount: the percentage at this level, a decimal string.
+	Percent OptString `json:"percent"`
+}
+
+// GetLevel returns the value of Level.
+func (s *SalesPriceScaleLevel) GetLevel() int32 {
+	return s.Level
+}
+
+// GetFromQuantity returns the value of FromQuantity.
+func (s *SalesPriceScaleLevel) GetFromQuantity() OptQuantity {
+	return s.FromQuantity
+}
+
+// GetFromAmount returns the value of FromAmount.
+func (s *SalesPriceScaleLevel) GetFromAmount() OptMoney {
+	return s.FromAmount
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SalesPriceScaleLevel) GetUnitPrice() OptMoney {
+	return s.UnitPrice
+}
+
+// GetPercent returns the value of Percent.
+func (s *SalesPriceScaleLevel) GetPercent() OptString {
+	return s.Percent
+}
+
+// SetLevel sets the value of Level.
+func (s *SalesPriceScaleLevel) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetFromQuantity sets the value of FromQuantity.
+func (s *SalesPriceScaleLevel) SetFromQuantity(val OptQuantity) {
+	s.FromQuantity = val
+}
+
+// SetFromAmount sets the value of FromAmount.
+func (s *SalesPriceScaleLevel) SetFromAmount(val OptMoney) {
+	s.FromAmount = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SalesPriceScaleLevel) SetUnitPrice(val OptMoney) {
+	s.UnitPrice = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *SalesPriceScaleLevel) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// A scale level of a price record (ADR-0067 §12): where it starts, by the record's `scale_basis`, and
+// its rate, by the record's kind.
+// Ref: #/components/schemas/SalesPriceScaleLevelCreate
+type SalesPriceScaleLevelCreate struct {
+	// A quantity scale: the quantity the level starts at, more than zero, in the scale's unit (a price's
+	// own `unit`).
+	FromQuantity OptQuantity `json:"from_quantity"`
+	// A value scale: the item value the level starts at, more than zero, in the scale's currency.
+	FromAmount OptMoney `json:"from_amount"`
+	// A price's rate at this level: the net price per the record's `price_unit`, more than zero, in the
+	// record's currency.
+	UnitPrice OptMoney `json:"unit_price"`
+	// A discount's rate at this level: a percentage more than 0 and less than 100 of at most six decimals.
+	Percent OptString `json:"percent"`
+}
+
+// GetFromQuantity returns the value of FromQuantity.
+func (s *SalesPriceScaleLevelCreate) GetFromQuantity() OptQuantity {
+	return s.FromQuantity
+}
+
+// GetFromAmount returns the value of FromAmount.
+func (s *SalesPriceScaleLevelCreate) GetFromAmount() OptMoney {
+	return s.FromAmount
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SalesPriceScaleLevelCreate) GetUnitPrice() OptMoney {
+	return s.UnitPrice
+}
+
+// GetPercent returns the value of Percent.
+func (s *SalesPriceScaleLevelCreate) GetPercent() OptString {
+	return s.Percent
+}
+
+// SetFromQuantity sets the value of FromQuantity.
+func (s *SalesPriceScaleLevelCreate) SetFromQuantity(val OptQuantity) {
+	s.FromQuantity = val
+}
+
+// SetFromAmount sets the value of FromAmount.
+func (s *SalesPriceScaleLevelCreate) SetFromAmount(val OptMoney) {
+	s.FromAmount = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SalesPriceScaleLevelCreate) SetUnitPrice(val OptMoney) {
+	s.UnitPrice = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *SalesPriceScaleLevelCreate) SetPercent(val OptString) {
+	s.Percent = val
+}
 
 // Merged schema.
 // Ref: #/components/schemas/ScheduleLine
@@ -110881,6 +111635,7 @@ func (*TooManyRequestsHeaders) createCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) createCreditMemoRequestRes()               {}
 func (*TooManyRequestsHeaders) createCustomerContactRes()                 {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
+func (*TooManyRequestsHeaders) createCustomerSalesDataRes()               {}
 func (*TooManyRequestsHeaders) createDisputeCaseRes()                     {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) createDunningBlockRes()                    {}
@@ -111015,6 +111770,7 @@ func (*TooManyRequestsHeaders) getCreditMemoRequestRes()                  {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getCustomerContactRes()                    {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
+func (*TooManyRequestsHeaders) getCustomerSalesDataRes()                  {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
 func (*TooManyRequestsHeaders) getDisputeCaseRes()                        {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
@@ -111167,6 +111923,7 @@ func (*TooManyRequestsHeaders) listCreditLimitsRes()                      {}
 func (*TooManyRequestsHeaders) listCreditMemoRequestsRes()                {}
 func (*TooManyRequestsHeaders) listCustomerContactsRes()                  {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
+func (*TooManyRequestsHeaders) listCustomerSalesDataRes()                 {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDisputeCasesRes()                      {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
@@ -111391,6 +112148,7 @@ func (*TooManyRequestsHeaders) updateContractRes()                        {}
 func (*TooManyRequestsHeaders) updateControlRes()                         {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) updateCreditLimitRes()                     {}
+func (*TooManyRequestsHeaders) updateCustomerSalesDataRes()               {}
 func (*TooManyRequestsHeaders) updateDisputeCaseRes()                     {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()             {}
@@ -111808,6 +112566,7 @@ func (*UnauthorizedHeaders) createCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) createCreditMemoRequestRes()               {}
 func (*UnauthorizedHeaders) createCustomerContactRes()                 {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
+func (*UnauthorizedHeaders) createCustomerSalesDataRes()               {}
 func (*UnauthorizedHeaders) createDisputeCaseRes()                     {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) createDunningBlockRes()                    {}
@@ -111942,6 +112701,7 @@ func (*UnauthorizedHeaders) getCreditMemoRequestRes()                  {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getCustomerContactRes()                    {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
+func (*UnauthorizedHeaders) getCustomerSalesDataRes()                  {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
 func (*UnauthorizedHeaders) getDisputeCaseRes()                        {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
@@ -112094,6 +112854,7 @@ func (*UnauthorizedHeaders) listCreditLimitsRes()                      {}
 func (*UnauthorizedHeaders) listCreditMemoRequestsRes()                {}
 func (*UnauthorizedHeaders) listCustomerContactsRes()                  {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
+func (*UnauthorizedHeaders) listCustomerSalesDataRes()                 {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDisputeCasesRes()                      {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
@@ -112318,6 +113079,7 @@ func (*UnauthorizedHeaders) updateContractRes()                        {}
 func (*UnauthorizedHeaders) updateControlRes()                         {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                      {}
 func (*UnauthorizedHeaders) updateCreditLimitRes()                     {}
+func (*UnauthorizedHeaders) updateCustomerSalesDataRes()               {}
 func (*UnauthorizedHeaders) updateDisputeCaseRes()                     {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()             {}
@@ -113038,6 +113800,69 @@ func (*UpdateCreditLimitPreconditionRequired) updateCreditLimitRes() {}
 type UpdateCreditLimitUnprocessableEntity Problem
 
 func (*UpdateCreditLimitUnprocessableEntity) updateCreditLimitRes() {}
+
+type UpdateCustomerSalesDataBadRequest Problem
+
+func (*UpdateCustomerSalesDataBadRequest) updateCustomerSalesDataRes() {}
+
+type UpdateCustomerSalesDataForbidden Problem
+
+func (*UpdateCustomerSalesDataForbidden) updateCustomerSalesDataRes() {}
+
+type UpdateCustomerSalesDataNotFound Problem
+
+func (*UpdateCustomerSalesDataNotFound) updateCustomerSalesDataRes() {}
+
+// UpdateCustomerSalesDataOKHeaders wraps CustomerSalesData with response headers.
+type UpdateCustomerSalesDataOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CustomerSalesData
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateCustomerSalesDataOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateCustomerSalesDataOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateCustomerSalesDataOKHeaders) GetResponse() CustomerSalesData {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateCustomerSalesDataOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateCustomerSalesDataOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateCustomerSalesDataOKHeaders) SetResponse(val CustomerSalesData) {
+	s.Response = val
+}
+
+func (*UpdateCustomerSalesDataOKHeaders) updateCustomerSalesDataRes() {}
+
+type UpdateCustomerSalesDataPreconditionFailed Problem
+
+func (*UpdateCustomerSalesDataPreconditionFailed) updateCustomerSalesDataRes() {}
+
+type UpdateCustomerSalesDataPreconditionRequired Problem
+
+func (*UpdateCustomerSalesDataPreconditionRequired) updateCustomerSalesDataRes() {}
+
+type UpdateCustomerSalesDataUnprocessableEntity Problem
+
+func (*UpdateCustomerSalesDataUnprocessableEntity) updateCustomerSalesDataRes() {}
 
 type UpdateDisputeCaseBadRequest Problem
 

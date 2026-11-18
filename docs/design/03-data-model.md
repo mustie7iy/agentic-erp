@@ -5551,6 +5551,39 @@ erDiagram
   discount has a condition type and a `percent` above 0 and below 100
   (`price_percent_range`) and none of a price's columns. The discounts
   of a key are read by their type (`price_by_condition`).
+  From T80e (migration 000373; ADR-0067 §12) a record may have a scale:
+  `scale_basis` `quantity` or `value` (`price_scale_basis_check`) with
+  the unit (`scale_uom_code`) or the currency (`scale_currency`) it is
+  read in, both of the reference data, the one its basis needs and not
+  the other, and a value scale a discount's only (`price_scale_stated`);
+  a price's quantity scale is in its own unit (`price_scale_unit`).
+- `sales.price_scale` (T80e, migration 000373; ADR-0067 §12): the scale
+  levels of a record (foreign key to `sales.price`), numbered 1 to 20
+  (`price_scale_level_check`), each starting at a quantity
+  (`from_quantity`) or a value in minor units of the scale's currency
+  (`from_amount`), one of them and above zero (`price_scale_from`,
+  `price_scale_from_quantity_check`, `price_scale_from_amount_check`),
+  with one rate (`price_scale_rate`): a price per the record's price
+  unit above zero (`price_scale_unit_price_check`) or a percent above 0
+  and below 100 (`price_scale_percent_check`). No two levels of a record
+  start at the same place (`price_scale_by_quantity`,
+  `price_scale_by_amount`). An item takes the rate of the level with the
+  highest start its quantity or its value before the condition reaches,
+  and the record's own below the first. Insert-only
+  (`platform.forbid_mutation`), as the record is.
+- `price_group` on `sales.price` (T80f, migration 000374; ADR-0067 §13):
+  the customer price group of the configuration a record is for
+  (`price_price_group_check`, a short code, no foreign key), never with a
+  customer (`price_customer_or_group`). An item takes the customer's
+  record, then its group's, then the general one.
+- `sales.customer_sales_data` (T80f, migration 000374; ADR-0067 §13): a
+  customer's sales data in a company, one per customer and company
+  (`customer_sales_data_once`), with the customer's number when it was set
+  up (`customer_sales_data_customer_number_check`), its price group or
+  none (`customer_sales_data_price_group_check`) and a version
+  (`customer_sales_data_version_check`). The application may change the
+  group, the version and `updated_by` alone and deletes nothing. The list
+  reads it by customer number (`customer_sales_data_by_customer_number`).
 - `conditions` on `sales.quotation_item` and `sales.sales_order_item`
   (T80b): a JSON array (`quotation_item_conditions_array`,
   `sales_order_item_conditions_array`), empty by default, of the
@@ -5561,9 +5594,15 @@ erDiagram
   amounts add up to the item's `net_amount`. An item whose price was
   entered (`price_source` `manual`) has its price alone: an entered
   price is the final net price (T80c, product owner 2026-11-12).
+  A condition found by a scaled record (T80e) has its `scale`: the
+  `basis`, the `level` reached (0 below the first) and where it starts,
+  `from_quantity` with its `unit` or `from_amount`. From T80f it says
+  which step of the access found its record (`access`, with
+  `price_group` for a group's).
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
   `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,
+  `CustomerSalesDataChanged`,
   `SalesOrderCreditBlocked`, `SalesOrderCreditReleased`,
   `ReturnsOrderChanged`, `ReturnReceived`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,

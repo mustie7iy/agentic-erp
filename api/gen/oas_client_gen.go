@@ -1587,6 +1587,26 @@ type Invoker interface {
 	//
 	// POST /v1/customer-invoices
 	CreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
+	// CreateCustomerSalesData invokes createCustomerSalesData operation.
+	//
+	// Sets up a customer's sales data in a company (ADR-0067 §13, T80f; SAP's sales area data of a
+	// customer, from memory): what selling to the customer there needs beyond its company data, now its
+	// customer price group. A quotation or sales order item of the customer in the company that is priced
+	// from the price records takes the customer's own record first, then the one for its price group, then
+	// the general one (`createSalesPrice`), prices and discounts alike. The customer is an active business
+	// partner with the customer role that is not blocked for posting in the company (422
+	// `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable`
+	// otherwise). A price group is one of the active configuration's (`pricing.price_groups`; 422
+	// `sales.unknown_price_group` naming `price_group`); without one the customer takes the general
+	// records. A customer has one sales data per company: a second is refused (409
+	// `sales.customer_sales_data_exists`), and the first is found with
+	// `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with
+	// `updateCustomerSalesData`. The items priced before keep their prices. Audited, and published as
+	// CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/customer-sales-data
+	CreateCustomerSalesData(ctx context.Context, request *CustomerSalesDataCreate, params CreateCustomerSalesDataParams) (CreateCustomerSalesDataRes, error)
 	// CreateDisputeCase invokes createDisputeCase operation.
 	//
 	// Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
@@ -2239,25 +2259,28 @@ type Invoker interface {
 	// `price_unit` (1 when absent; sent without a unit price it is refused, 422
 	// `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its
 	// `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency,
-	// the customer's before the general one and then the latest `valid_from` (`createSalesPrice`;
-	// `price_source` says which; an item with neither a price nor such a record is refused, 422
-	// `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that
-	// can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
-	// optionally an output tax code of the company with a rate in force on the quotation's date (422
-	// `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
-	// name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no
-	// jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷
-	// price unit, rounded half away from zero to the currency's minor unit and more than zero (422
-	// `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a
-	// price the request did not give); the quotation's `net_amount` is their sum, exactly. When the
-	// tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure
-	// recorded for the item's key and valid on the quotation's date, the customer's before the general
-	// one, is taken off an item priced from the price records, in the procedure's order, as a percentage
-	// of the value before it rounded half away from zero; `conditions` lists the price and the discounts
-	// applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A
-	// `unit_price` entered with the item is its final net price: no discount is taken off it, and its
-	// price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the
-	// invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
+	// the customer's before its price group's (by its sales data in the company,
+	// `createCustomerSalesData`) before the general one and then the latest `valid_from`
+	// (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is
+	// refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing
+	// credits, one that can be posted in the company (422 `sales.account_not_postable` naming
+	// `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the
+	// quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the
+	// subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales
+	// document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is
+	// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
+	// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or
+	// `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
+	// their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`),
+	// each discount of the procedure recorded for the item's key and valid on the quotation's date, the
+	// customer's before the general one, is taken off an item priced from the price records, in the
+	// procedure's order, as a percentage of the value before it rounded half away from zero; a price or
+	// discount record with a scale gives the rate of the level the item's quantity, or its value before
+	// the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the
+	// discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067
+	// §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
+	// its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
+	// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
 	// (`x-agent: false`).
 	//
 	// POST /v1/quotations
@@ -2546,10 +2569,24 @@ type Invoker interface {
 	// `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
 	// item key that is priced from the price records when the pricing procedure names its type, the
 	// customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price`
-	// was entered has none. A record is never changed or deleted: a new price is recorded with a later
-	// `valid_from`, and the items priced before keep their price. Audited, and published as
-	// SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
-	// (`x-agent: false`).
+	// was entered has none. With `price_group` the record is for the customers in that price group of the
+	// active configuration (ADR-0067 §13, T80f; 422 `sales.unknown_price_group`), by their sales data in
+	// the company (`createCustomerSalesData`), not with `customer_id` (422 `sales.customer_or_group`
+	// naming `price_group`): an item takes the customer's own record first, then its group's, then the
+	// general one. With `scale_basis` and `scale` the record has scale levels (ADR-0067 §12, T80e): an
+	// item takes the rate of the highest level whose `from` its quantity (`quantity`) or its value before
+	// the condition (`value`) reaches, and the record's own rate below the first level. A price's scale is
+	// by quantity in its own unit; a discount's by quantity in the one unit its levels state, which an
+	// item in another unit does not take, or by value in the one currency they state, which a document in
+	// another currency does not take. Each level gives its `from` of the basis, more than zero and above
+	// the one before, and the rate of the record's kind, a price's `unit_price` in the record's currency
+	// or a discount's `percent`; anything else is refused naming the level's field (422
+	// `sales.invalid_scale`; a level's price not more than zero `sales.amount_not_positive`, in another
+	// currency `sales.currency_mismatch`, a percent out of range `sales.invalid_percent`, a discount's
+	// unknown scale unit or currency `sales.unknown_unit`, `sales.unknown_currency`). A record is never
+	// changed or deleted: a new price is recorded with a later `valid_from`, and the items priced before
+	// keep their price. Audited, and published as SalesPriceChanged. A retry with the same
+	// `Idempotency-Key` answers the record created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-prices
 	CreateSalesPrice(ctx context.Context, request *SalesPriceCreate, params CreateSalesPriceParams) (CreateSalesPriceRes, error)
@@ -3701,6 +3738,14 @@ type Invoker interface {
 	//
 	// GET /v1/customer-invoices/{id}
 	GetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (GetCustomerInvoiceRes, error)
+	// GetCustomerSalesData invokes getCustomerSalesData operation.
+	//
+	// A customer's sales data in a company (ADR-0067 §13, T80f) with its company's code and name, its
+	// customer's number and name and its price group with the group's name. One of a company the caller
+	// may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/customer-sales-data/{id}
+	GetCustomerSalesData(ctx context.Context, params GetCustomerSalesDataParams) (GetCustomerSalesDataRes, error)
 	// GetDepreciationRun invokes getDepreciationRun operation.
 	//
 	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
@@ -5415,6 +5460,15 @@ type Invoker interface {
 	//
 	// GET /v1/customer-invoices
 	ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error)
+	// ListCustomerSalesData invokes listCustomerSalesData operation.
+	//
+	// The sales data of customers in the companies the caller may act in (ADR-0067 §13, T80f), each as
+	// `getCustomerSalesData` gives it: with its company's code and name, its customer's number and name
+	// and its price group with the group's name. Filtered by company, customer and price group. Sortable
+	// by: `customer_number` (default).
+	//
+	// GET /v1/customer-sales-data
+	ListCustomerSalesData(ctx context.Context, params ListCustomerSalesDataParams) (ListCustomerSalesDataRes, error)
 	// ListDepreciationRuns invokes listDepreciationRuns operation.
 	//
 	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -6275,9 +6329,9 @@ type Invoker interface {
 	// The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices
 	// and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a
 	// customer's record, the customer's number and name. Filtered by company, item key, customer (the
-	// records for that customer; general ones have none), condition type and `valid_on`, a day the record
-	// is valid on. Records are never changed: a new price is a new record with a later `valid_from`.
-	// Sortable by: `item_key`, `valid_from`.
+	// records for that customer; general ones have none), price group (T80f), condition type and
+	// `valid_on`, a day the record is valid on. Records are never changed: a new price is a new record
+	// with a later `valid_from`. Sortable by: `item_key`, `valid_from`.
 	//
 	// GET /v1/sales-prices
 	ListSalesPrices(ctx context.Context, params ListSalesPricesParams) (ListSalesPricesRes, error)
@@ -8447,6 +8501,19 @@ type Invoker interface {
 	//
 	// PATCH /v1/credit-limits/{id}
 	UpdateCreditLimit(ctx context.Context, request *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (UpdateCreditLimitRes, error)
+	// UpdateCustomerSalesData invokes updateCustomerSalesData operation.
+	//
+	// Changes a customer's price group in its sales data, with the caller's version of it (`If-Match`; 412
+	// when another change came first): the new group, one of the active configuration's (422
+	// `sales.unknown_price_group` naming `price_group`), or null for none, holds for the items priced from
+	// now on; the items priced before keep their prices. A change to the group the sales data already has
+	// is refused (422 `sales.nothing_to_change`). The customer and the company do not change. The audit
+	// record and CustomerSalesDataChanged carry the group before and after. JSON Merge Patch (RFC 7396) of
+	// the one field that changes. Sales data of a company the caller may not act in is not found (404).
+	// Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/customer-sales-data/{id}
+	UpdateCustomerSalesData(ctx context.Context, request *CustomerSalesDataUpdate, params UpdateCustomerSalesDataParams) (UpdateCustomerSalesDataRes, error)
 	// UpdateDisputeCase invokes updateDisputeCase operation.
 	//
 	// Changes an open dispute case's assignee or note, with the caller's version of it (`If-Match`; 412
@@ -23018,6 +23085,150 @@ func (c *Client) sendCreateCustomerInvoice(ctx context.Context, request *Custome
 	return result, nil
 }
 
+// CreateCustomerSalesData invokes createCustomerSalesData operation.
+//
+// Sets up a customer's sales data in a company (ADR-0067 §13, T80f; SAP's sales area data of a
+// customer, from memory): what selling to the customer there needs beyond its company data, now its
+// customer price group. A quotation or sales order item of the customer in the company that is priced
+// from the price records takes the customer's own record first, then the one for its price group, then
+// the general one (`createSalesPrice`), prices and discounts alike. The customer is an active business
+// partner with the customer role that is not blocked for posting in the company (422
+// `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable`
+// otherwise). A price group is one of the active configuration's (`pricing.price_groups`; 422
+// `sales.unknown_price_group` naming `price_group`); without one the customer takes the general
+// records. A customer has one sales data per company: a second is refused (409
+// `sales.customer_sales_data_exists`), and the first is found with
+// `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with
+// `updateCustomerSalesData`. The items priced before keep their prices. Audited, and published as
+// CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/customer-sales-data
+func (c *Client) CreateCustomerSalesData(ctx context.Context, request *CustomerSalesDataCreate, params CreateCustomerSalesDataParams) (CreateCustomerSalesDataRes, error) {
+	res, err := c.sendCreateCustomerSalesData(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCustomerSalesData(ctx context.Context, request *CustomerSalesDataCreate, params CreateCustomerSalesDataParams) (res CreateCustomerSalesDataRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCustomerSalesData"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/customer-sales-data"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCustomerSalesDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/customer-sales-data"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCustomerSalesDataRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCustomerSalesDataOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCustomerSalesDataResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateDisputeCase invokes createDisputeCase operation.
 //
 // Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
@@ -27706,25 +27917,28 @@ func (c *Client) sendCreatePurchaseOrderChange(ctx context.Context, request *Pur
 // `price_unit` (1 when absent; sent without a unit price it is refused, 422
 // `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its
 // `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency,
-// the customer's before the general one and then the latest `valid_from` (`createSalesPrice`;
-// `price_source` says which; an item with neither a price nor such a record is refused, 422
-// `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that
-// can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
-// optionally an output tax code of the company with a rate in force on the quotation's date (422
-// `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
-// name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no
-// jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷
-// price unit, rounded half away from zero to the currency's minor unit and more than zero (422
-// `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a
-// price the request did not give); the quotation's `net_amount` is their sum, exactly. When the
-// tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure
-// recorded for the item's key and valid on the quotation's date, the customer's before the general
-// one, is taken off an item priced from the price records, in the procedure's order, as a percentage
-// of the value before it rounded half away from zero; `conditions` lists the price and the discounts
-// applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A
-// `unit_price` entered with the item is its final net price: no discount is taken off it, and its
-// price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the
-// invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
+// the customer's before its price group's (by its sales data in the company,
+// `createCustomerSalesData`) before the general one and then the latest `valid_from`
+// (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is
+// refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing
+// credits, one that can be posted in the company (422 `sales.account_not_postable` naming
+// `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the
+// quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the
+// subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales
+// document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is
+// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
+// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or
+// `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
+// their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`),
+// each discount of the procedure recorded for the item's key and valid on the quotation's date, the
+// customer's before the general one, is taken off an item priced from the price records, in the
+// procedure's order, as a percentage of the value before it rounded half away from zero; a price or
+// discount record with a scale gives the rate of the level the item's quantity, or its value before
+// the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the
+// discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067
+// §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
+// its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
+// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
 // (`x-agent: false`).
 //
 // POST /v1/quotations
@@ -30035,10 +30249,24 @@ func (c *Client) sendCreateSalesOrderUpload(ctx context.Context, request *SalesO
 // `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
 // item key that is priced from the price records when the pricing procedure names its type, the
 // customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price`
-// was entered has none. A record is never changed or deleted: a new price is recorded with a later
-// `valid_from`, and the items priced before keep their price. Audited, and published as
-// SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
-// (`x-agent: false`).
+// was entered has none. With `price_group` the record is for the customers in that price group of the
+// active configuration (ADR-0067 §13, T80f; 422 `sales.unknown_price_group`), by their sales data in
+// the company (`createCustomerSalesData`), not with `customer_id` (422 `sales.customer_or_group`
+// naming `price_group`): an item takes the customer's own record first, then its group's, then the
+// general one. With `scale_basis` and `scale` the record has scale levels (ADR-0067 §12, T80e): an
+// item takes the rate of the highest level whose `from` its quantity (`quantity`) or its value before
+// the condition (`value`) reaches, and the record's own rate below the first level. A price's scale is
+// by quantity in its own unit; a discount's by quantity in the one unit its levels state, which an
+// item in another unit does not take, or by value in the one currency they state, which a document in
+// another currency does not take. Each level gives its `from` of the basis, more than zero and above
+// the one before, and the rate of the record's kind, a price's `unit_price` in the record's currency
+// or a discount's `percent`; anything else is refused naming the level's field (422
+// `sales.invalid_scale`; a level's price not more than zero `sales.amount_not_positive`, in another
+// currency `sales.currency_mismatch`, a percent out of range `sales.invalid_percent`, a discount's
+// unknown scale unit or currency `sales.unknown_unit`, `sales.unknown_currency`). A record is never
+// changed or deleted: a new price is recorded with a later `valid_from`, and the items priced before
+// keep their price. Audited, and published as SalesPriceChanged. A retry with the same
+// `Idempotency-Key` answers the record created. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-prices
 func (c *Client) CreateSalesPrice(ctx context.Context, request *SalesPriceCreate, params CreateSalesPriceParams) (CreateSalesPriceRes, error) {
@@ -43179,6 +43407,139 @@ func (c *Client) sendGetCustomerInvoice(ctx context.Context, params GetCustomerI
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCustomerInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCustomerSalesData invokes getCustomerSalesData operation.
+//
+// A customer's sales data in a company (ADR-0067 §13, T80f) with its company's code and name, its
+// customer's number and name and its price group with the group's name. One of a company the caller
+// may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/customer-sales-data/{id}
+func (c *Client) GetCustomerSalesData(ctx context.Context, params GetCustomerSalesDataParams) (GetCustomerSalesDataRes, error) {
+	res, err := c.sendGetCustomerSalesData(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCustomerSalesData(ctx context.Context, params GetCustomerSalesDataParams) (res GetCustomerSalesDataRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCustomerSalesData"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/customer-sales-data/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCustomerSalesDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/customer-sales-data/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCustomerSalesDataOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCustomerSalesDataResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -70523,6 +70884,228 @@ func (c *Client) sendListCustomerInvoices(ctx context.Context, params ListCustom
 	return result, nil
 }
 
+// ListCustomerSalesData invokes listCustomerSalesData operation.
+//
+// The sales data of customers in the companies the caller may act in (ADR-0067 §13, T80f), each as
+// `getCustomerSalesData` gives it: with its company's code and name, its customer's number and name
+// and its price group with the group's name. Filtered by company, customer and price group. Sortable
+// by: `customer_number` (default).
+//
+// GET /v1/customer-sales-data
+func (c *Client) ListCustomerSalesData(ctx context.Context, params ListCustomerSalesDataParams) (ListCustomerSalesDataRes, error) {
+	res, err := c.sendListCustomerSalesData(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCustomerSalesData(ctx context.Context, params ListCustomerSalesDataParams) (res ListCustomerSalesDataRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCustomerSalesData"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/customer-sales-data"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCustomerSalesDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/customer-sales-data"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "price_group" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "price_group",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PriceGroup.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCustomerSalesDataOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCustomerSalesDataResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListDepreciationRuns invokes listDepreciationRuns operation.
 //
 // The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -90934,9 +91517,9 @@ func (c *Client) sendListSalesOrders(ctx context.Context, params ListSalesOrders
 // The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices
 // and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a
 // customer's record, the customer's number and name. Filtered by company, item key, customer (the
-// records for that customer; general ones have none), condition type and `valid_on`, a day the record
-// is valid on. Records are never changed: a new price is a new record with a later `valid_from`.
-// Sortable by: `item_key`, `valid_from`.
+// records for that customer; general ones have none), price group (T80f), condition type and
+// `valid_on`, a day the record is valid on. Records are never changed: a new price is a new record
+// with a later `valid_from`. Sortable by: `item_key`, `valid_from`.
 //
 // GET /v1/sales-prices
 func (c *Client) ListSalesPrices(ctx context.Context, params ListSalesPricesParams) (ListSalesPricesRes, error) {
@@ -91032,6 +91615,23 @@ func (c *Client) sendListSalesPrices(ctx context.Context, params ListSalesPrices
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.CustomerID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "price_group" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "price_group",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PriceGroup.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
 		}); err != nil {
@@ -114999,6 +115599,172 @@ func (c *Client) sendUpdateCreditLimit(ctx context.Context, request *CustomerCre
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateCreditLimitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateCustomerSalesData invokes updateCustomerSalesData operation.
+//
+// Changes a customer's price group in its sales data, with the caller's version of it (`If-Match`; 412
+// when another change came first): the new group, one of the active configuration's (422
+// `sales.unknown_price_group` naming `price_group`), or null for none, holds for the items priced from
+// now on; the items priced before keep their prices. A change to the group the sales data already has
+// is refused (422 `sales.nothing_to_change`). The customer and the company do not change. The audit
+// record and CustomerSalesDataChanged carry the group before and after. JSON Merge Patch (RFC 7396) of
+// the one field that changes. Sales data of a company the caller may not act in is not found (404).
+// Human-only (`x-agent: false`).
+//
+// PATCH /v1/customer-sales-data/{id}
+func (c *Client) UpdateCustomerSalesData(ctx context.Context, request *CustomerSalesDataUpdate, params UpdateCustomerSalesDataParams) (UpdateCustomerSalesDataRes, error) {
+	res, err := c.sendUpdateCustomerSalesData(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateCustomerSalesData(ctx context.Context, request *CustomerSalesDataUpdate, params UpdateCustomerSalesDataParams) (res UpdateCustomerSalesDataRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateCustomerSalesData"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/customer-sales-data/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateCustomerSalesDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/customer-sales-data/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateCustomerSalesDataRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateCustomerSalesDataOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateCustomerSalesDataResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

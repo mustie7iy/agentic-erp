@@ -1832,6 +1832,29 @@ func (UnimplementedHandler) CreateCustomerInvoice(ctx context.Context, req *Cust
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCustomerSalesData implements createCustomerSalesData operation.
+//
+// Sets up a customer's sales data in a company (ADR-0067 §13, T80f; SAP's sales area data of a
+// customer, from memory): what selling to the customer there needs beyond its company data, now its
+// customer price group. A quotation or sales order item of the customer in the company that is priced
+// from the price records takes the customer's own record first, then the one for its price group, then
+// the general one (`createSalesPrice`), prices and discounts alike. The customer is an active business
+// partner with the customer role that is not blocked for posting in the company (422
+// `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable`
+// otherwise). A price group is one of the active configuration's (`pricing.price_groups`; 422
+// `sales.unknown_price_group` naming `price_group`); without one the customer takes the general
+// records. A customer has one sales data per company: a second is refused (409
+// `sales.customer_sales_data_exists`), and the first is found with
+// `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with
+// `updateCustomerSalesData`. The items priced before keep their prices. Audited, and published as
+// CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/customer-sales-data
+func (UnimplementedHandler) CreateCustomerSalesData(ctx context.Context, req *CustomerSalesDataCreate, params CreateCustomerSalesDataParams) (r CreateCustomerSalesDataRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateDisputeCase implements createDisputeCase operation.
 //
 // Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
@@ -2580,25 +2603,28 @@ func (UnimplementedHandler) CreatePurchaseOrderChange(ctx context.Context, req *
 // `price_unit` (1 when absent; sent without a unit price it is refused, 422
 // `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its
 // `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency,
-// the customer's before the general one and then the latest `valid_from` (`createSalesPrice`;
-// `price_source` says which; an item with neither a price nor such a record is refused, 422
-// `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that
-// can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
-// optionally an output tax code of the company with a rate in force on the quotation's date (422
-// `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
-// name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no
-// jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷
-// price unit, rounded half away from zero to the currency's minor unit and more than zero (422
-// `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a
-// price the request did not give); the quotation's `net_amount` is their sum, exactly. When the
-// tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure
-// recorded for the item's key and valid on the quotation's date, the customer's before the general
-// one, is taken off an item priced from the price records, in the procedure's order, as a percentage
-// of the value before it rounded half away from zero; `conditions` lists the price and the discounts
-// applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A
-// `unit_price` entered with the item is its final net price: no discount is taken off it, and its
-// price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the
-// invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
+// the customer's before its price group's (by its sales data in the company,
+// `createCustomerSalesData`) before the general one and then the latest `valid_from`
+// (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is
+// refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing
+// credits, one that can be posted in the company (422 `sales.account_not_postable` naming
+// `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the
+// quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the
+// subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales
+// document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is
+// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
+// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or
+// `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
+// their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`),
+// each discount of the procedure recorded for the item's key and valid on the quotation's date, the
+// customer's before the general one, is taken off an item priced from the price records, in the
+// procedure's order, as a percentage of the value before it rounded half away from zero; a price or
+// discount record with a scale gives the rate of the level the item's quantity, or its value before
+// the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the
+// discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067
+// §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
+// its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
+// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
 // (`x-agent: false`).
 //
 // POST /v1/quotations
@@ -2935,10 +2961,24 @@ func (UnimplementedHandler) CreateSalesOrderUpload(ctx context.Context, req *Sal
 // `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
 // item key that is priced from the price records when the pricing procedure names its type, the
 // customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price`
-// was entered has none. A record is never changed or deleted: a new price is recorded with a later
-// `valid_from`, and the items priced before keep their price. Audited, and published as
-// SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
-// (`x-agent: false`).
+// was entered has none. With `price_group` the record is for the customers in that price group of the
+// active configuration (ADR-0067 §13, T80f; 422 `sales.unknown_price_group`), by their sales data in
+// the company (`createCustomerSalesData`), not with `customer_id` (422 `sales.customer_or_group`
+// naming `price_group`): an item takes the customer's own record first, then its group's, then the
+// general one. With `scale_basis` and `scale` the record has scale levels (ADR-0067 §12, T80e): an
+// item takes the rate of the highest level whose `from` its quantity (`quantity`) or its value before
+// the condition (`value`) reaches, and the record's own rate below the first level. A price's scale is
+// by quantity in its own unit; a discount's by quantity in the one unit its levels state, which an
+// item in another unit does not take, or by value in the one currency they state, which a document in
+// another currency does not take. Each level gives its `from` of the basis, more than zero and above
+// the one before, and the rate of the record's kind, a price's `unit_price` in the record's currency
+// or a discount's `percent`; anything else is refused naming the level's field (422
+// `sales.invalid_scale`; a level's price not more than zero `sales.amount_not_positive`, in another
+// currency `sales.currency_mismatch`, a percent out of range `sales.invalid_percent`, a discount's
+// unknown scale unit or currency `sales.unknown_unit`, `sales.unknown_currency`). A record is never
+// changed or deleted: a new price is recorded with a later `valid_from`, and the items priced before
+// keep their price. Audited, and published as SalesPriceChanged. A retry with the same
+// `Idempotency-Key` answers the record created. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-prices
 func (UnimplementedHandler) CreateSalesPrice(ctx context.Context, req *SalesPriceCreate, params CreateSalesPriceParams) (r CreateSalesPriceRes, _ error) {
@@ -4345,6 +4385,17 @@ func (UnimplementedHandler) GetCustomerContact(ctx context.Context, params GetCu
 //
 // GET /v1/customer-invoices/{id}
 func (UnimplementedHandler) GetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (r GetCustomerInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCustomerSalesData implements getCustomerSalesData operation.
+//
+// A customer's sales data in a company (ADR-0067 §13, T80f) with its company's code and name, its
+// customer's number and name and its price group with the group's name. One of a company the caller
+// may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/customer-sales-data/{id}
+func (UnimplementedHandler) GetCustomerSalesData(ctx context.Context, params GetCustomerSalesDataParams) (r GetCustomerSalesDataRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -6518,6 +6569,18 @@ func (UnimplementedHandler) ListCustomerInvoices(ctx context.Context, params Lis
 	return r, ht.ErrNotImplemented
 }
 
+// ListCustomerSalesData implements listCustomerSalesData operation.
+//
+// The sales data of customers in the companies the caller may act in (ADR-0067 §13, T80f), each as
+// `getCustomerSalesData` gives it: with its company's code and name, its customer's number and name
+// and its price group with the group's name. Filtered by company, customer and price group. Sortable
+// by: `customer_number` (default).
+//
+// GET /v1/customer-sales-data
+func (UnimplementedHandler) ListCustomerSalesData(ctx context.Context, params ListCustomerSalesDataParams) (r ListCustomerSalesDataRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListDepreciationRuns implements listDepreciationRuns operation.
 //
 // The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -7639,9 +7702,9 @@ func (UnimplementedHandler) ListSalesOrders(ctx context.Context, params ListSale
 // The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices
 // and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a
 // customer's record, the customer's number and name. Filtered by company, item key, customer (the
-// records for that customer; general ones have none), condition type and `valid_on`, a day the record
-// is valid on. Records are never changed: a new price is a new record with a later `valid_from`.
-// Sortable by: `item_key`, `valid_from`.
+// records for that customer; general ones have none), price group (T80f), condition type and
+// `valid_on`, a day the record is valid on. Records are never changed: a new price is a new record
+// with a later `valid_from`. Sortable by: `item_key`, `valid_from`.
 //
 // GET /v1/sales-prices
 func (UnimplementedHandler) ListSalesPrices(ctx context.Context, params ListSalesPricesParams) (r ListSalesPricesRes, _ error) {
@@ -10219,6 +10282,22 @@ func (UnimplementedHandler) UpdateCostCenter(ctx context.Context, req *CenterTex
 //
 // PATCH /v1/credit-limits/{id}
 func (UnimplementedHandler) UpdateCreditLimit(ctx context.Context, req *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (r UpdateCreditLimitRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateCustomerSalesData implements updateCustomerSalesData operation.
+//
+// Changes a customer's price group in its sales data, with the caller's version of it (`If-Match`; 412
+// when another change came first): the new group, one of the active configuration's (422
+// `sales.unknown_price_group` naming `price_group`), or null for none, holds for the items priced from
+// now on; the items priced before keep their prices. A change to the group the sales data already has
+// is refused (422 `sales.nothing_to_change`). The customer and the company do not change. The audit
+// record and CustomerSalesDataChanged carry the group before and after. JSON Merge Patch (RFC 7396) of
+// the one field that changes. Sales data of a company the caller may not act in is not found (404).
+// Human-only (`x-agent: false`).
+//
+// PATCH /v1/customer-sales-data/{id}
+func (UnimplementedHandler) UpdateCustomerSalesData(ctx context.Context, req *CustomerSalesDataUpdate, params UpdateCustomerSalesDataParams) (r UpdateCustomerSalesDataRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

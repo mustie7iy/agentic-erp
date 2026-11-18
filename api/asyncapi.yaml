@@ -456,13 +456,14 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders, their receipts, credit memo requests and sales prices and discounts (ADR-0067 §6, §10, §11 and As built T85a, T85b, T85c, T85d; ADR-0066, T77b).
+    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders, their receipts, credit memo requests, sales prices and discounts and customers' sales data (ADR-0067 §6, §10, §11, §13 and As built T85a, T85b, T85c, T85d; ADR-0066, T77b).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       QuotationChanged: {$ref: '#/components/messages/QuotationChanged'}
       SalesOrderChanged: {$ref: '#/components/messages/SalesOrderChanged'}
       SalesPriceChanged: {$ref: '#/components/messages/SalesPriceChanged'}
+      CustomerSalesDataChanged: {$ref: '#/components/messages/CustomerSalesDataChanged'}
       SalesOrderDelivered: {$ref: '#/components/messages/SalesOrderDelivered'}
       BillingDocumentChanged: {$ref: '#/components/messages/BillingDocumentChanged'}
       SalesOrderCreditBlocked: {$ref: '#/components/messages/SalesOrderCreditBlocked'}
@@ -842,6 +843,7 @@ operations:
       - $ref: '#/channels/sales/messages/QuotationChanged'
       - $ref: '#/channels/sales/messages/SalesOrderChanged'
       - $ref: '#/channels/sales/messages/SalesPriceChanged'
+      - $ref: '#/channels/sales/messages/CustomerSalesDataChanged'
       - $ref: '#/channels/sales/messages/SalesOrderDelivered'
       - $ref: '#/channels/sales/messages/BillingDocumentChanged'
       - $ref: '#/channels/sales/messages/SalesOrderCreditBlocked'
@@ -4582,7 +4584,8 @@ components:
         customer_number null) or for one, valid from a day. `kind` says
         which: a `price` carries unit, unit_price and price_unit, and a
         null percent; a `discount_percent` carries percent, and the three
-        null. A record is never changed: a new price is a new record
+        null. A record with a scale (T80e) carries its scale_basis and
+        its levels, each with its rate of the record's kind. A record is never changed: a new price is a new record
         with a later valid_from, and this event again. It names the
         customer by id and number, never by name.
         `GET /v1/sales-prices/{id}` returns the record. Subject is the
@@ -4597,13 +4600,43 @@ components:
       examples:
         - name: general
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001021, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001031, time: '2026-11-19T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {price_id: 0192a000-0000-7000-8000-000000001031, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: null, customer_number: null, kind: price, condition_type: null, unit: EA, unit_price: {amount: '12.50', currency: CAD}, price_unit: 1, percent: null, valid_from: '2026-11-01', valid_to: null}
+          payload: {price_id: 0192a000-0000-7000-8000-000000001031, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: null, customer_number: null, price_group: null, kind: price, condition_type: null, unit: EA, unit_price: {amount: '12.50', currency: CAD}, price_unit: 1, percent: null, valid_from: '2026-11-01', valid_to: null, scale_basis: null, scale: []}
         - name: for_a_customer
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001022, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001032, time: '2026-11-19T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {price_id: 0192a000-0000-7000-8000-000000001032, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: price, condition_type: PR00, unit: EA, unit_price: {amount: '1175.00', currency: CAD}, price_unit: 100, percent: null, valid_from: '2026-11-01', valid_to: '2027-10-31'}
+          payload: {price_id: 0192a000-0000-7000-8000-000000001032, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, price_group: null, kind: price, condition_type: PR00, unit: EA, unit_price: {amount: '1175.00', currency: CAD}, price_unit: 100, percent: null, valid_from: '2026-11-01', valid_to: '2027-10-31', scale_basis: null, scale: []}
         - name: discount
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001023, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001033, time: '2026-11-19T10:10:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {price_id: 0192a000-0000-7000-8000-000000001033, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: discount_percent, condition_type: K007, unit: null, unit_price: null, price_unit: null, percent: '5', valid_from: '2026-11-01', valid_to: null}
+          payload: {price_id: 0192a000-0000-7000-8000-000000001033, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, price_group: null, kind: discount_percent, condition_type: K007, unit: null, unit_price: null, price_unit: null, percent: '5', valid_from: '2026-11-01', valid_to: null, scale_basis: null, scale: []}
+        - name: quantity_scale
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001024, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001034, time: '2026-11-19T10:15:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {price_id: 0192a000-0000-7000-8000-000000001034, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BOLT-M10, customer_id: null, customer_number: null, price_group: null, kind: price, condition_type: null, unit: EA, unit_price: {amount: '0.80', currency: CAD}, price_unit: 1, percent: null, valid_from: '2026-11-01', valid_to: null, scale_basis: quantity, scale: [{level: 1, from_quantity: {value: '1000', unit: EA}, from_amount: null, unit_price: {amount: '0.70', currency: CAD}, percent: null}, {level: 2, from_quantity: {value: '5000', unit: EA}, from_amount: null, unit_price: {amount: '0.60', currency: CAD}, percent: null}]}
+    CustomerSalesDataChanged:
+      name: CustomerSalesDataChanged
+      x-webhook: true
+      title: Customer sales data changed
+      summary: A customer's sales data in a company was set up or its price group changed.
+      description: |
+        Emitted when a customer's sales data in a company is set up
+        (`price_group_before` null and `version` 1) and at each change of
+        its price group (ADR-0067 §13, T80f), with the group after the
+        change and the one before; null is no group. It names the
+        customer by id and number, never by name.
+        `GET /v1/customer-sales-data/{id}` returns the sales data at
+        `version` or later. Subject is the sales data's id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.customer_sales_data_changed.v1}
+      payload: {$ref: '#/components/schemas/CustomerSalesDataChangedV1'}
+      examples:
+        - name: set_up
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001025, source: /erp/eu-1/sales, type: com.example.erp.sales.customer_sales_data_changed.v1, subject: 0192a000-0000-7000-8000-000000001035, time: '2026-11-19T10:20:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {customer_sales_data_id: 0192a000-0000-7000-8000-000000001035, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, price_group: '01', price_group_before: null, version: 1}
+        - name: group_changed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001026, source: /erp/eu-1/sales, type: com.example.erp.sales.customer_sales_data_changed.v1, subject: 0192a000-0000-7000-8000-000000001035, time: '2026-11-19T10:25:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {customer_sales_data_id: 0192a000-0000-7000-8000-000000001035, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, price_group: '02', price_group_before: '01', version: 2}
     SalesOrderDelivered:
       name: SalesOrderDelivered
       x-webhook: true
@@ -6186,6 +6219,7 @@ components:
         item_key: {type: string, description: 'The key naming what is sold, as sales items give it.'}
         customer_id: {type: [string, 'null'], format: uuid, description: 'The customer the price is for (`partner.business_partner.id`); null for a general price.'}
         customer_number: {type: [string, 'null'], description: "The customer's business partner number; null for a general price."}
+        price_group: {type: [string, 'null'], description: "The customer price group the record is for (`pricing.price_groups`, T80f); null for a general record and a customer's. Always sent from T80f; optional, as a field added to a published event is (ADR-0041)."}
         kind: {type: string, description: 'What the record is. Open enum: price, discount_percent.'}
         condition_type: {type: [string, 'null'], description: "The record's condition type of the configuration (`pricing.condition_types`); null for a price recorded without one."}
         unit: {type: [string, 'null'], description: "A price's unit of measure; null for a discount."}
@@ -6194,6 +6228,31 @@ components:
         percent: {type: [string, 'null'], description: "A discount: the percentage of an item's value before it, a decimal string; null for a price."}
         valid_from: {$ref: '#/components/schemas/Date', description: 'The first day the price is valid.'}
         valid_to: {type: [string, 'null'], format: date, description: 'The last day the price is valid; null: no last day.'}
+        scale_basis: {type: [string, 'null'], description: "What the record's scale is read by (ADR-0067 §12, T80e); null: no scale. Open enum: quantity, value. Always sent from T80e, with scale; optional, as a field added to a published event is (ADR-0041)."}
+        scale:
+          type: array
+          description: "The scale levels by `from`, the lowest first; empty for a record without a scale."
+          items:
+            type: object
+            required: [level, from_quantity, from_amount, unit_price, percent]
+            properties:
+              level: {type: integer, description: "The level's number, from 1."}
+              from_quantity: {"oneOf": [{"$ref": "#/components/schemas/Quantity"}, {"type": "null"}], "description": "A quantity scale: the quantity the level starts at; null for a value scale."}
+              from_amount: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "A value scale: the item value the level starts at; null for a quantity scale."}
+              unit_price: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "A price: the net price per the record's price_unit at this level; null for a discount."}
+              percent: {type: [string, 'null'], description: "A discount: the percentage at this level; null for a price."}
+    CustomerSalesDataChangedV1:
+      type: object
+      required: [customer_sales_data_id, legal_entity_id, legal_entity_code, customer_id, customer_number, price_group, price_group_before, version]
+      properties:
+        customer_sales_data_id: {$ref: '#/components/schemas/Uuid', description: '`sales.customer_sales_data.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        price_group: {type: [string, 'null'], description: "The customer's price group after the change (`pricing.price_groups`); null: none."}
+        price_group_before: {type: [string, 'null'], description: 'The price group before the change; null when there was none or the sales data was just set up.'}
+        version: {type: integer, description: "The sales data's version after the change."}
     SalesOrderDeliveredV1:
       type: object
       required: [delivery_id, delivery_no, sales_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, delivery_date, items, version]
