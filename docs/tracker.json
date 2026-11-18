@@ -2940,8 +2940,22 @@
        },
        {
         "s": "T",
-        "t": "later: credit limit variants: limits across the group, validity dates and reviews, approval of limit changes, risk classes (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T77a, Later",
+        "t": "A credit manager gives a customer's credit limit a validity (from, to) and a next review date; the credit check and the exposure use the limit only on the company's days it is valid; a worklist of the limits due for review or expiring by a date (GET /v1/credit-limits?due_by=)",
+        "r": "T77c · docs/design/plan-depth-3.md §T77c · ADR-0066 and As built T77c",
+        "src": "split:T77a · adr:ADR-0066",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A new credit limit, or a change raising a limit or changing its validity, takes effect only once another person approves it through the approvals context (object type credit_limit_change, role controller); a lowered limit or a new review date takes effect at once",
+        "r": "T77d · docs/design/plan-depth-3.md §T77d · ADR-0066 and As built T77d",
+        "src": "split:T77a · adr:ADR-0066",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: credit limit variants: limits across the group, risk classes, approval tiers by amount or a configurable approver role, lowering a limit while a raise waits (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T77a, Later · docs/design/plan-depth-3.md §crlim, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }

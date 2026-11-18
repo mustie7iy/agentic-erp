@@ -341,3 +341,107 @@ other than cost centers; fixed amounts on a distribution (per account);
 reversing into a later open period when the run's period is closed; a
 lock of a period for statistical key figure postings; a listing of a key figure's postings; changing or
 deleting a key figure.
+
+## crlim
+
+Placeholder: "later: credit limit variants" (`plan-breadth-week1.md`
+§T77a, Later; ADR-0066 §2). Two variants are split here: validity dates
+and reviews, and the approval of limit changes. Limits across the group
+and risk classes stay in the placeholder. SAP S/4HANA's credit
+management (FSCM, the business partner's credit segment data: a limit
+with a "valid to" date, a date of the next check, and limit requests
+approved before they apply) is the reference, stated from memory and not
+checked against a source in the lane; nothing below depends on a fact
+of SAP's beyond that shape.
+
+### T77c Credit limit validity and reviews
+
+**Capability.** A credit manager gives a customer's limit a validity (from
+and to, either open) and a date for its next review; the credit check and
+the exposure use the limit only on the days it is valid, and a worklist
+lists the limits due for review or expiring by a date.
+
+- **Reuses:** T77a's limit, its `If-Match` change, audit record and
+  `CreditLimitChanged`; `config.DocumentDay` for the company's day in its
+  time zone (the limits port of tenancy gives the code); the list's
+  keyset pages.
+- **Adds:** `valid_from`, `valid_to` and `next_review_on` (dates, each
+  optional) on `POST /v1/credit-limits`, `PATCH /v1/credit-limits/{id}`
+  (merge patch: `null` clears; `limit` no longer required, at least one
+  field) and the representation; `valid_to` before `valid_from` is 422
+  `credit.invalid_validity` naming `valid_to`. `GET /v1/credit-limits?due_by=`:
+  the limits whose next review date or end of validity is on or before
+  the date (the worklist), still by customer number.
+  `GET /v1/credit-exposure` gains `day`, the company's day the limit's
+  validity is judged on; `has_limit` is true for a limit valid on that
+  day, and `credit_limit_id` names the customer's limit even when it is
+  not. `CreditLimitChanged` and the audit records carry the dates.
+  Migration: three nullable columns (absent: valid without a start or
+  an end, no review planned, which is what every limit set before is),
+  the check `valid_to >= valid_from`, the update grant widened.
+- **Walkthrough:** `step_credit_limit_validity`: Ruth plans Northwind's
+  next review and the limit's end; the worklist by the review date lists
+  it, by an earlier date not; a limit whose validity ended yesterday is
+  not used: the exposure has no limit and an amount far above the old
+  limit is within; a validity ending before it starts is refused; the
+  validity is restored and the limit is used again.
+- **Acceptance:** the check at order confirmation (`credit.Check`) and
+  the exposure read compare with a limit only when the company's day is
+  within its validity; outside it the customer is treated as one without
+  a limit (no restriction, ADR-0066 §4), and nothing is converted or
+  stored; the worklist's filter, the dates' merge-patch semantics and the
+  check constraint are tested; changes of dates alone are audited with
+  their values before and after.
+- **Depends on:** T77a, T77b (in `main`).
+
+### T77d Approval of credit limit changes
+
+**Capability.** A new credit limit, or a change that raises a limit or
+changes its validity, takes effect only once a second person approves
+it through the approvals context; a lowered limit, or a new review date,
+takes effect at once.
+
+- **Reuses:** the approvals context (`approvals.Approvals.Open`, the
+  `Handler` and `Locator` callbacks, the approver never the requester),
+  materials' governed changes (S1b) as the pattern, T77a's limit, lock
+  (`hold`, then the limit's row) and records.
+- **Adds:** the object type `credit_limit_change`, approved by the fixed
+  role `controller` (as period unlocks and manual entries are) holding the
+  new approval permission `credit.limit.approve`. Table
+  `credit.credit_limit_change`: kind `create` or `change`, the values
+  asked for and those before, status `pending`, `applied`, `rejected` or
+  `cancelled`, the approval request, one pending per limit. A limit gains
+  `status` `pending` (asked for, never approved, not in effect) or
+  `active`, and `pending_change_id`. `POST /v1/credit-limits` answers the
+  limit `pending` with its create change; approved, it is `active` and
+  `CreditLimitChanged` is published. `PATCH` of an active limit applies
+  at once a change that raises nothing (the amount not above the limit's,
+  the validity kept; the review date may change with it); any other
+  opens a change and answers the limit as it is; a change of a limit with
+  a pending change is 409 `credit.change_pending`; a change of a pending
+  limit asks again (a new create change). `GET /v1/credit-limit-changes`
+  (filters limit and status) and `GET /v1/credit-limit-changes/{id}`, the
+  approver's read. Audit records `credit.credit_limit_change.request`,
+  `.apply`, `.reject`, `.cancel`; the limit's `.change` when a change is
+  applied, naming it. Migration: the status (default `active`, every
+  existing limit), the table, the permission.
+- **Walkthrough:** `step_credit_limit` (step 59) and the steps that raise
+  Northwind's limit later have each new or raised limit approved by
+  Carla, the controller; `step_credit_limit_approval`: Ruth raises the
+  limit, the exposure still uses the old one, she cannot approve her own
+  request, a second change waits for the first; Carla approves and the
+  raise holds; Ruth lowers the limit, which holds at once; a raise Carla
+  rejects leaves the limit as it was.
+- **Acceptance:** only an approved change applies, once, and nothing is
+  in effect before; a pending limit is not used by the check or the
+  exposure; the requester cannot approve; rejection or withdrawal leaves
+  the limit as it is; a lowering applies at once; the lock order (the
+  customer's key, the limit's row, the change's row) is the check's, so
+  an approval and an order confirmation of the customer run one after
+  the other; audited and published; schema tests for every rule.
+- **Depends on:** T77c.
+
+**Later (still in the placeholder):** limits across the group; risk
+classes; approval tiers by amount or a configurable approver role;
+lowering a limit while a raise waits (it is refused until the raise is
+decided); a limit request raised from an agent's recommendation.
