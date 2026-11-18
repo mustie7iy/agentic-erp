@@ -444,7 +444,8 @@ func (Directory) GroupCurrency(ctx context.Context) (string, error) {
 	return c, nil
 }
 
-// Unit is what other contexts read about an org unit.
+// Unit is what other contexts read about an org unit. ParentID is the unit
+// it is under (a storage location's plant), nil at the top.
 type Unit struct {
 	ID            uuid.UUID
 	LegalEntityID uuid.UUID
@@ -452,6 +453,7 @@ type Unit struct {
 	Code          string
 	Name          string
 	Status        string
+	ParentID      *uuid.UUID
 }
 
 // OrgUnit returns the org unit with the id, or ok = false.
@@ -461,8 +463,8 @@ func (Directory) OrgUnit(ctx context.Context, id uuid.UUID) (Unit, bool, error) 
 		return Unit{}, false, err
 	}
 	u := Unit{ID: id}
-	err = tx.QueryRow(ctx, `SELECT legal_entity_id, kind, code, name, status FROM tenancy.org_unit WHERE id = $1`, id).
-		Scan(&u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.Status)
+	err = tx.QueryRow(ctx, `SELECT legal_entity_id, kind, code, name, status, parent_id FROM tenancy.org_unit WHERE id = $1`, id).
+		Scan(&u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.Status, &u.ParentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Unit{}, false, nil
 	}
@@ -470,4 +472,25 @@ func (Directory) OrgUnit(ctx context.Context, id uuid.UUID) (Unit, bool, error) 
 		return u, false, fmt.Errorf("tenancy: read org unit %s: %w", id, err)
 	}
 	return u, true, nil
+}
+
+// OrgUnits returns the org units with the ids by id, in one read, leaving
+// out an id that names none. Company access is not applied: callers apply
+// it where it matters (a material's plants, ADR-0082 §4).
+func (Directory) OrgUnits(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Unit, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, legal_entity_id, kind, code, name, status, parent_id FROM tenancy.org_unit WHERE id = ANY($1)`, ids)
+	out := map[uuid.UUID]Unit{}
+	var u Unit
+	if _, err := pgx.ForEachRow(rows, []any{&u.ID, &u.LegalEntityID, &u.Kind, &u.Code, &u.Name, &u.Status, &u.ParentID}, func() error {
+		out[u.ID] = u
+		u.ParentID = nil // pgx scans the next parent into the pointer it finds, which the unit just kept holds
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("tenancy: read %d org units: %w", len(ids), err)
+	}
+	return out, nil
 }

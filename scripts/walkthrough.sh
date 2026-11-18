@@ -1707,7 +1707,8 @@ PILOT_SETTINGS='
 | .number_ranges += [{"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "credit_memo_request", "fiscal_year": @YEAR@, "prefix": "CR", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "lease_contract", "fiscal_year": @YEAR@, "prefix": "LC", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "expense_report", "fiscal_year": @YEAR@, "prefix": "ER", "first": 1, "last": 999999}]'
+    {"company": "@CC@", "document_type": "expense_report", "fiscal_year": @YEAR@, "prefix": "ER", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -4120,7 +4121,7 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 | ({"asset": "G1000", "liability": "G2000", "equity": "G3000", "revenue": "G4000", "expense": "G5000"}) as $type
 | (.companies[] | select(.code == "@CC@" or .code == "1000") | .chart_of_accounts[]) |= (.group_account = ($own[.number] // $type[.type]))
 | .number_ranges += ([.number_ranges[] | select(.company == "@CC@" and .fiscal_year == @YEAR@
-      and (.document_type | IN("asset", "journal_aa", "journal_af") | not)) | .company = "1000"]
+      and (.document_type | IN("asset", "journal_aa", "journal_af", "material") | not)) | .company = "1000"]
     + [.number_ranges[] | select(.company == "@CC@" and .fiscal_year == @YEAR@ and (.document_type | startswith("journal_"))
       and (.document_type | IN("journal_aa", "journal_af") | not)) | .company = "1000" | .fiscal_year = @YEAR@ - 1])'
 
@@ -12594,6 +12595,75 @@ step_rfq_requisition() {
   passed
 }
 
+# step_material is S1a (ADR-0082, plan-supply-chain.md): Mira, the master
+# data specialist, sets up Maple's Toronto plant with two storage
+# locations and a second plant, then creates the M10 bracket: numbered
+# from the company's material range, kept in each, bought by the box of
+# 20. A box that converts to the base unit itself and a storage location
+# of the other plant are refused naming their fields. She changes the
+# description and adds the second storage location at the version she
+# read; her earlier version is stale then; she blocks the bracket.
+step_material() {
+  heading "Step 116 — The material master: a plant with two storage locations; a bracket numbered from the company's material range, kept in one, bought by the box of 20; the base unit as an alternative unit and another plant's storage location refused; changed at its version, a stale version refused; blocked"
+  local plant main spares other far material number
+  as ada
+  say "Ada adds Mira, the master data specialist, to the team:"
+  person mira "Mira Materials" finance_staff
+  as mira
+  say "Mira sets up the Toronto plant with its main store and spare parts store, and the Montreal plant:"
+  api 201 '"\(.kind) \(.code) \(.name): \(.status)"' createOrgUnit -body "{\"legal_entity_id\": \"$LE\", \"kind\": \"plant\", \"code\": \"P100\", \"name\": \"Toronto plant\"}"
+  plant=$(field .id)
+  api 200 '"\(.kind) \(.code): \(.status)"' activateOrgUnit -p "id=$plant" -if-match "$ETAG"
+  api 201 '"\(.kind) \(.code) \(.name): \(.status)"' createOrgUnit \
+    -body "{\"legal_entity_id\": \"$LE\", \"kind\": \"storage_location\", \"code\": \"SL01\", \"name\": \"Main store\", \"parent_id\": \"$plant\"}"
+  main=$(field .id)
+  QUIET=1 api 200 '' activateOrgUnit -p "id=$main" -if-match "$ETAG"
+  api 201 '"\(.kind) \(.code) \(.name): \(.status)"' createOrgUnit \
+    -body "{\"legal_entity_id\": \"$LE\", \"kind\": \"storage_location\", \"code\": \"SL02\", \"name\": \"Spare parts\", \"parent_id\": \"$plant\"}"
+  spares=$(field .id)
+  QUIET=1 api 200 '' activateOrgUnit -p "id=$spares" -if-match "$ETAG"
+  QUIET=1 api 201 '' createOrgUnit -body "{\"legal_entity_id\": \"$LE\", \"kind\": \"plant\", \"code\": \"P200\", \"name\": \"Montreal plant\"}"
+  other=$(field .id)
+  QUIET=1 api 200 '' activateOrgUnit -p "id=$other" -if-match "$ETAG"
+  QUIET=1 api 201 '' createOrgUnit -body "{\"legal_entity_id\": \"$LE\", \"kind\": \"storage_location\", \"code\": \"SL03\", \"name\": \"Montreal store\", \"parent_id\": \"$other\"}"
+  far=$(field .id)
+  QUIET=1 api 200 '' activateOrgUnit -p "id=$far" -if-match "$ETAG"
+  say "She creates the M10 bracket: counted each, bought by the box of 20, kept in Toronto's main store. Its number"
+  say "comes from Maple's material range (ADR-0082 §6):"
+  api 201 '"material \(.number) \(.description): \(.material_type), group \(.material_group), base unit \(.base_unit) (\(.base_unit_name)), \(.status)", (.plants[] | "  plant \(.plant_code) \(.plant_name) of company \(.company_code): \([.storage_locations[] | .code] | join(", "))"), (.alternative_units[] | "  alternative unit \(.unit) (\(.unit_name)): \(.numerator) base units per \(.denominator)")' \
+    createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M10\", \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\",
+      \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\"]}], \"alternative_units\": [{\"unit\": \"BOX\", \"numerator\": 20, \"denominator\": 1}]}"
+  material=$(field .id)
+  number=$(field .number)
+  expect "the new material" "$(field '"\(.status) \(.version) \(.company_code) \(.plants[0].plant_code):\(.plants[0].storage_locations[0].code) \(.alternative_units[0].unit) \(.alternative_units[0].numerator)/\(.alternative_units[0].denominator)"')" \
+    "active 1 $CC P100:SL01 BOX 20/1"
+  case "$number" in MA*) ;; *) fail "the material's number: got $number, want one of the MA range" ;; esac
+  say "The base unit converts to itself, so it is no alternative unit; Montreal's store is not Toronto's:"
+  refused 422 materials.base_unit_conversion createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"alternative_units\": [{\"unit\": \"EA\", \"numerator\": 1, \"denominator\": 1}]}"
+  expect "the refused unit's field" "$(field '.errors[0].field')" "alternative_units[0].unit"
+  refused 422 materials.storage_location_invalid createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Machined bracket M12\", \"base_unit\": \"EA\",
+      \"material_type\": \"trading_good\", \"material_group\": \"BRACKETS\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$far\"]}]}"
+  expect "the refused storage location's field" "$(field '.errors[0].field')" "plants[0].storage_location_ids[0]"
+  say "Mira reads the bracket back, then names its finish and keeps it in the spare parts store too, at the version"
+  say "she read:"
+  api 200 '"material \(.number): version \(.version)"' getMaterial -p "id=$material"
+  api 200 '"material \(.number) \(.description): version \(.version)", (.plants[] | "  plant \(.plant_code): \([.storage_locations[] | .code] | join(", "))")' \
+    updateMaterial -p "id=$material" -if-match "$ETAG" \
+    -body "{\"description\": \"Machined bracket M10, zinc plated\", \"plants\": [{\"plant_id\": \"$plant\", \"storage_location_ids\": [\"$main\", \"$spares\"]}]}"
+  expect "the changed material" "$(field '"\(.version) \(.description) \([.plants[0].storage_locations[] | .code] | join(","))"')" "2 Machined bracket M10, zinc plated SL01,SL02"
+  say "Her first version is stale now:"
+  refused 412 request.version_mismatch updateMaterial -p "id=$material" -if-match '"1"' -body '{"material_group": "FASTENERS"}'
+  say "The bracket is replaced by a new design; Mira blocks it, at the version she reads again:"
+  QUIET=1 api 200 '' getMaterial -p "id=$material"
+  api 200 '"material \(.number): \(.status), version \(.version)"' updateMaterial -p "id=$material" -if-match "$ETAG" -body '{"status": "blocked"}'
+  expect "the blocked material" "$(field '"\(.status) \(.version)"')" "blocked 3"
+  QUIET=1 api 200 '' listMaterials -p "plant_id=$plant" -p status=blocked
+  expect "Toronto's blocked materials" "$(field '[.items[] | .number] | join(" ")')" "$number"
+  MATERIAL_PLANT=$plant MATERIAL_STORE=$main
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -14624,7 +14694,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_material step_close'
 
 main() {
   stop_unseen

@@ -1190,6 +1190,20 @@ func encodeCreateLegalEntityRequest(
 	return nil
 }
 
+func encodeCreateMaterialRequest(
+	req *MaterialCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateMemoRecordRequest(
 	req *MemoRecordCreate,
 	r *http.Request,
@@ -3217,6 +3231,20 @@ func encodeUpdateInternalOrderSettlementRuleRequest(
 
 func encodeUpdateLegalEntityRequest(
 	req *LegalEntityUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateMaterialRequest(
+	req *MaterialUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

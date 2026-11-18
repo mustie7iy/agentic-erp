@@ -2144,6 +2144,32 @@ func (UnimplementedHandler) CreateLegalEntity(ctx context.Context, req *LegalEnt
 	return r, ht.ErrNotImplemented
 }
 
+// CreateMaterial implements createMaterial operation.
+//
+// Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit
+// of measure, material type and material group, extended to plants and their storage locations and
+// given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in
+// (422 `request.reference_not_found`); the material is numbered from its `material` number range of
+// the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number
+// is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The
+// base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the
+// type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active
+// org unit of kind `plant` in a company the caller may act in, given once (422
+// `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org
+// unit of kind `storage_location` under that plant, given once (422
+// `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit
+// is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
+// `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
+// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
+// the material type do not change afterwards. Created `active`. Audited, and published as
+// MaterialChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/materials
+func (UnimplementedHandler) CreateMaterial(ctx context.Context, req *MaterialCreate, params CreateMaterialParams) (r CreateMaterialRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateMemoRecord implements createMemoRecord operation.
 //
 // Creates an `active` memo record (ADR-0051 §7, T53d): an expected receipt (positive amount) or
@@ -4626,6 +4652,17 @@ func (UnimplementedHandler) GetMatchResult(ctx context.Context, params GetMatchR
 	return r, ht.ErrNotImplemented
 }
 
+// GetMaterial implements getMaterial operation.
+//
+// One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description,
+// base unit, type, group and status, its plants and their storage locations in the companies the
+// caller may act in, each with its code and name, and its alternative units with their conversions.
+//
+// GET /v1/materials/{id}
+func (UnimplementedHandler) GetMaterial(ctx context.Context, params GetMaterialParams) (r GetMaterialRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetMemoRecord implements getMemoRecord operation.
 //
 // One memo record, with its status as of the read date: its legal entity's date at the read in its
@@ -6677,6 +6714,18 @@ func (UnimplementedHandler) ListLiquidityForecastFlows(ctx context.Context, para
 //
 // GET /v1/supplier-invoices/{id}/match-results
 func (UnimplementedHandler) ListMatchResults(ctx context.Context, params ListMatchResultsParams) (r ListMatchResultsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListMaterials implements listMaterials operation.
+//
+// The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
+// base unit, type, group and status, its plants and storage locations in the companies the caller may
+// act in, and its alternative units. Filtered by number, plant, status, material type and material
+// group. Sortable by: `number`.
+//
+// GET /v1/materials
+func (UnimplementedHandler) ListMaterials(ctx context.Context, params ListMaterialsParams) (r ListMaterialsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -9805,6 +9854,24 @@ func (UnimplementedHandler) UpdateInternalOrderSettlementRule(ctx context.Contex
 //
 // PATCH /v1/legal-entities/{id}
 func (UnimplementedHandler) UpdateLegalEntity(ctx context.Context, req *LegalEntityUpdate, params UpdateLegalEntityParams) (r UpdateLegalEntityRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateMaterial implements updateMaterial operation.
+//
+// Changes a material's description, material group, status, plants or alternative units at once, with
+// the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC
+// 7396): absent fields are unchanged. The number, the base unit and the material type do not change.
+// `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value).
+// `plants` replaces the material's plants in the companies the caller may act in, each with its
+// storage locations, and leaves those of other companies as they are; `alternative_units` replaces its
+// alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A
+// change that would leave the material as it is is refused (422 `materials.nothing_to_change`). An
+// audit record with the values before and after and MaterialChanged (`changed`) are written with it.
+// Human-only (`x-agent: false`).
+//
+// PATCH /v1/materials/{id}
+func (UnimplementedHandler) UpdateMaterial(ctx context.Context, req *MaterialUpdate, params UpdateMaterialParams) (r UpdateMaterialRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

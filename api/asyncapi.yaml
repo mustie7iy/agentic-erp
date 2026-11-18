@@ -97,6 +97,7 @@ info:
     - name: revenue
     - name: credit
     - name: grc
+    - name: materials
     - name: analytics
     - name: payments
     - name: workflow
@@ -521,6 +522,14 @@ channels:
     messages:
       LeaseContractChanged: {$ref: '#/components/messages/LeaseContractChanged'}
       LeaseRunPosted: {$ref: '#/components/messages/LeaseRunPosted'}
+  materials:
+    address: 'erp.{cell}.materials.{tenant}.{event}'
+    title: Material master events
+    description: Materials created and changed (ADR-0082 §4).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      MaterialChanged: {$ref: '#/components/messages/MaterialChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -866,6 +875,12 @@ operations:
     messages:
       - $ref: '#/channels/leases/messages/LeaseContractChanged'
       - $ref: '#/channels/leases/messages/LeaseRunPosted'
+  publishMaterialsEvents:
+    action: send
+    title: Material master publishes
+    channel: {$ref: '#/channels/materials'}
+    messages:
+      - $ref: '#/channels/materials/messages/MaterialChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -4744,6 +4759,32 @@ components:
         - name: activated
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001202, source: /erp/eu-1/leases, type: com.example.erp.leases.lease_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001211, time: '2026-12-01T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {lease_contract_id: 0192a000-0000-7000-8000-000000001211, document_number: LC000001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', lessor_id: 0192a000-0000-7000-8000-000000000f55, lessor_number: BP100055, commencement_date: '2026-12-01', term_months: 36, payment_amount: {amount: '5000.00', currency: CAD}, payment_frequency: monthly, payment_timing: advance, payment_count: 36, status: active, status_before: draft, lease_liability: {amount: '159117.80', currency: CAD}, right_of_use_amount: {amount: '164117.80', currency: CAD}, journal_entry_id: 0192a000-0000-7000-8000-000000001221, journal_entry_year: 2026, journal_entry_number: '100000123', version: 2}
+    MaterialChanged:
+      name: MaterialChanged
+      title: Material changed
+      summary: A material was created or changed.
+      description: |
+        Emitted at each change of a material (ADR-0082 §4, S1a): when a
+        person creates it (`change` `created`, status_before null) and when
+        a change is applied (`changed`). It carries the material's number,
+        description, base unit, type, group and status, its plants with
+        their companies and storage locations, by id and code, and its
+        alternative units with their conversions, whatever companies the
+        person who changed it may act in.
+        `GET /v1/materials/{id}` returns the material at `version` or
+        later. Not offered to webhooks until a consumer asks. Subject is
+        the material id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.materials.material_changed.v1}
+      payload: {$ref: '#/components/schemas/MaterialChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001301, source: /erp/eu-1/materials, type: com.example.erp.materials.material_changed.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {material_id: 0192a000-0000-7000-8000-000000001311, number: MA1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', description: Machined bracket M10, base_unit: EA, material_type: trading_good, material_group: BRACKETS, status: active, status_before: null, plants: [{plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', storage_location_ids: [0192a000-0000-7000-8000-000000001322]}], alternative_units: [{unit: BOX, numerator: 20, denominator: 1}], change: created, version: 1}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -6056,6 +6097,44 @@ components:
         journal_entry_year: {type: [integer, 'null'], description: "The entry's fiscal year; null while the contract is a draft."}
         journal_entry_number: {type: [string, 'null'], description: "The entry's document number; null while the contract is a draft."}
         version: {type: integer, description: "The contract's version after the change."}
+    MaterialChangedV1:
+      type: object
+      required: [material_id, number, legal_entity_id, legal_entity_code, description, base_unit, material_type, material_group, status, status_before, plants, alternative_units, change, version]
+      properties:
+        material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
+        number: {type: string, description: "The material's number, unique in the tenant."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose material range numbered it.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        description: {type: string, description: What the material is.}
+        base_unit: {type: string, description: The base unit of measure.}
+        material_type: {type: string, description: 'The material type. Open enum: raw_material, semi_finished, finished_good, trading_good, non_stock, service.'}
+        material_group: {type: string, description: The material group.}
+        status: {type: string, description: "The material's status after the change. Open enum: active, blocked."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        plants:
+          type: array
+          description: Its plants, by plant id.
+          items:
+            type: object
+            required: [plant_id, plant_code, legal_entity_id, legal_entity_code, storage_location_ids]
+            properties:
+              plant_id: {$ref: '#/components/schemas/Uuid', description: 'The plant: `tenancy.org_unit.id`.'}
+              plant_code: {type: string, description: "The plant's code."}
+              legal_entity_id: {$ref: '#/components/schemas/Uuid', description: "The plant's company."}
+              legal_entity_code: {type: string, description: "That company's code."}
+              storage_location_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: "Its storage locations there: `tenancy.org_unit.id`s."}
+        alternative_units:
+          type: array
+          description: Its alternative units, by unit code.
+          items:
+            type: object
+            required: [unit, numerator, denominator]
+            properties:
+              unit: {type: string, description: The alternative unit's code.}
+              numerator: {type: integer, description: Base units per `denominator` of the alternative unit.}
+              denominator: {type: integer, description: Alternative units the `numerator` base units are.}
+        change: {type: string, description: 'What happened. Open enum: created, changed.'}
+        version: {type: integer, description: "The material's version after the change."}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]

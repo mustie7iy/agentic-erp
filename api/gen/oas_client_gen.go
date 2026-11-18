@@ -1863,6 +1863,29 @@ type Invoker interface {
 	//
 	// POST /v1/legal-entities
 	CreateLegalEntity(ctx context.Context, request *LegalEntityCreate, params CreateLegalEntityParams) (CreateLegalEntityRes, error)
+	// CreateMaterial invokes createMaterial operation.
+	//
+	// Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit
+	// of measure, material type and material group, extended to plants and their storage locations and
+	// given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in
+	// (422 `request.reference_not_found`); the material is numbered from its `material` number range of
+	// the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number
+	// is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The
+	// base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the
+	// type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active
+	// org unit of kind `plant` in a company the caller may act in, given once (422
+	// `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org
+	// unit of kind `storage_location` under that plant, given once (422
+	// `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit
+	// is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
+	// `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
+	// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
+	// the material type do not change afterwards. Created `active`. Audited, and published as
+	// MaterialChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/materials
+	CreateMaterial(ctx context.Context, request *MaterialCreate, params CreateMaterialParams) (CreateMaterialRes, error)
 	// CreateMemoRecord invokes createMemoRecord operation.
 	//
 	// Creates an `active` memo record (ADR-0051 §7, T53d): an expected receipt (positive amount) or
@@ -3913,6 +3936,14 @@ type Invoker interface {
 	//
 	// GET /v1/match-results/{id}
 	GetMatchResult(ctx context.Context, params GetMatchResultParams) (GetMatchResultRes, error)
+	// GetMaterial invokes getMaterial operation.
+	//
+	// One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description,
+	// base unit, type, group and status, its plants and their storage locations in the companies the
+	// caller may act in, each with its code and name, and its alternative units with their conversions.
+	//
+	// GET /v1/materials/{id}
+	GetMaterial(ctx context.Context, params GetMaterialParams) (GetMaterialRes, error)
 	// GetMemoRecord invokes getMemoRecord operation.
 	//
 	// One memo record, with its status as of the read date: its legal entity's date at the read in its
@@ -5517,6 +5548,15 @@ type Invoker interface {
 	//
 	// GET /v1/supplier-invoices/{id}/match-results
 	ListMatchResults(ctx context.Context, params ListMatchResultsParams) (ListMatchResultsRes, error)
+	// ListMaterials invokes listMaterials operation.
+	//
+	// The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
+	// base unit, type, group and status, its plants and storage locations in the companies the caller may
+	// act in, and its alternative units. Filtered by number, plant, status, material type and material
+	// group. Sortable by: `number`.
+	//
+	// GET /v1/materials
+	ListMaterials(ctx context.Context, params ListMaterialsParams) (ListMaterialsRes, error)
 	// ListMemoRecords invokes listMemoRecords operation.
 	//
 	// The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts
@@ -8093,6 +8133,21 @@ type Invoker interface {
 	//
 	// PATCH /v1/legal-entities/{id}
 	UpdateLegalEntity(ctx context.Context, request *LegalEntityUpdate, params UpdateLegalEntityParams) (UpdateLegalEntityRes, error)
+	// UpdateMaterial invokes updateMaterial operation.
+	//
+	// Changes a material's description, material group, status, plants or alternative units at once, with
+	// the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC
+	// 7396): absent fields are unchanged. The number, the base unit and the material type do not change.
+	// `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value).
+	// `plants` replaces the material's plants in the companies the caller may act in, each with its
+	// storage locations, and leaves those of other companies as they are; `alternative_units` replaces its
+	// alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A
+	// change that would leave the material as it is is refused (422 `materials.nothing_to_change`). An
+	// audit record with the values before and after and MaterialChanged (`changed`) are written with it.
+	// Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/materials/{id}
+	UpdateMaterial(ctx context.Context, request *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error)
 	// UpdateMemoRecord invokes updateMemoRecord operation.
 	//
 	// Changes a memo record that is `proposed`, `active` or `expired` (409 `cash.memo_record_closed`
@@ -24275,6 +24330,153 @@ func (c *Client) sendCreateLegalEntity(ctx context.Context, request *LegalEntity
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateLegalEntityResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateMaterial invokes createMaterial operation.
+//
+// Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit
+// of measure, material type and material group, extended to plants and their storage locations and
+// given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in
+// (422 `request.reference_not_found`); the material is numbered from its `material` number range of
+// the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number
+// is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The
+// base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the
+// type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active
+// org unit of kind `plant` in a company the caller may act in, given once (422
+// `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org
+// unit of kind `storage_location` under that plant, given once (422
+// `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit
+// is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
+// `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
+// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
+// the material type do not change afterwards. Created `active`. Audited, and published as
+// MaterialChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/materials
+func (c *Client) CreateMaterial(ctx context.Context, request *MaterialCreate, params CreateMaterialParams) (CreateMaterialRes, error) {
+	res, err := c.sendCreateMaterial(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateMaterial(ctx context.Context, request *MaterialCreate, params CreateMaterialParams) (res CreateMaterialRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createMaterial"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/materials"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateMaterialOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/materials"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateMaterialRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateMaterialOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateMaterialResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -45937,6 +46139,139 @@ func (c *Client) sendGetMatchResult(ctx context.Context, params GetMatchResultPa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetMatchResultResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetMaterial invokes getMaterial operation.
+//
+// One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description,
+// base unit, type, group and status, its plants and their storage locations in the companies the
+// caller may act in, each with its code and name, and its alternative units with their conversions.
+//
+// GET /v1/materials/{id}
+func (c *Client) GetMaterial(ctx context.Context, params GetMaterialParams) (GetMaterialRes, error) {
+	res, err := c.sendGetMaterial(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetMaterial(ctx context.Context, params GetMaterialParams) (res GetMaterialRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getMaterial"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/materials/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetMaterialOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/materials/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetMaterialOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetMaterialResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -76216,6 +76551,262 @@ func (c *Client) sendListMatchResults(ctx context.Context, params ListMatchResul
 
 	stage = "DecodeResponse"
 	result, err := decodeListMatchResultsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListMaterials invokes listMaterials operation.
+//
+// The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
+// base unit, type, group and status, its plants and storage locations in the companies the caller may
+// act in, and its alternative units. Filtered by number, plant, status, material type and material
+// group. Sortable by: `number`.
+//
+// GET /v1/materials
+func (c *Client) ListMaterials(ctx context.Context, params ListMaterialsParams) (ListMaterialsRes, error) {
+	res, err := c.sendListMaterials(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListMaterials(ctx context.Context, params ListMaterialsParams) (res ListMaterialsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listMaterials"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/materials"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListMaterialsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/materials"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Number.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "material_type" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_type",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialType.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "material_group" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_group",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialGroup.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListMaterialsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListMaterialsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -110998,6 +111589,174 @@ func (c *Client) sendUpdateLegalEntity(ctx context.Context, request *LegalEntity
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateLegalEntityResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateMaterial invokes updateMaterial operation.
+//
+// Changes a material's description, material group, status, plants or alternative units at once, with
+// the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC
+// 7396): absent fields are unchanged. The number, the base unit and the material type do not change.
+// `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value).
+// `plants` replaces the material's plants in the companies the caller may act in, each with its
+// storage locations, and leaves those of other companies as they are; `alternative_units` replaces its
+// alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A
+// change that would leave the material as it is is refused (422 `materials.nothing_to_change`). An
+// audit record with the values before and after and MaterialChanged (`changed`) are written with it.
+// Human-only (`x-agent: false`).
+//
+// PATCH /v1/materials/{id}
+func (c *Client) UpdateMaterial(ctx context.Context, request *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error) {
+	res, err := c.sendUpdateMaterial(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateMaterial(ctx context.Context, request *MaterialUpdate, params UpdateMaterialParams) (res UpdateMaterialRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateMaterial"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/materials/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateMaterialOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/materials/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateMaterialRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateMaterialOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateMaterialResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

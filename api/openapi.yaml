@@ -69,6 +69,8 @@ tags:
     description: "Governance, risk and compliance (ADR-0078): the tenant's control library, the results of testing its controls, the control matrix of what enforces each control, and the risk register with the ratings of its risks."
   - name: leases
     description: "Lease accounting as lessee (ADR-0073): lease contracts with their payment schedules, and the lease runs that post their interest and depreciation."
+  - name: materials
+    description: "The material master (ADR-0082): materials with their plants, storage locations and alternative units of measure."
   - name: records
     description: "Records management (ADR-0079): retention rules' status per fiscal year, archiving runs and the personal data inventory."
   - name: processmining
@@ -22420,6 +22422,245 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/materials:
+    get:
+      operationId: listMaterials
+      tags:
+        - materials
+      summary: List materials
+      description: "The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description, base unit, type, group and status, its plants and storage locations in the companies the caller may act in, and its alternative units. Filtered by number, plant, status, material type and material group. Sortable by: `number`."
+      x-permission: materials.material.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: number
+          in: query
+          required: false
+          description: Only the material with this number.
+          schema:
+            type: string
+            maxLength: 40
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the materials extended to this plant (an org unit of kind `plant`).
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only materials in this status. A value that is no status matches none.
+          schema:
+            type: string
+            maxLength: 20
+            description: "Material status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - blocked
+        - name: material_type
+          in: query
+          required: false
+          description: Only materials of this type. A value that is no type matches none.
+          schema:
+            type: string
+            maxLength: 20
+            description: "Material type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [raw_material, semi_finished, finished_good, trading_good, non_stock, service]
+        - name: material_group
+          in: query
+          required: false
+          description: Only materials of this material group.
+          schema:
+            type: string
+            maxLength: 9
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of materials.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createMaterial
+      tags:
+        - materials
+      summary: Create a material
+      description: "Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit of measure, material type and material group, extended to plants and their storage locations and given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in (422 `request.reference_not_found`); the material is numbered from its `material` number range of the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active org unit of kind `plant` in a company the caller may act in, given once (422 `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org unit of kind `storage_location` under that plant, given once (422 `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit is not the base unit (422 `materials.base_unit_conversion`) and is given once (422 `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and the material type do not change afterwards. Created `active`. Audited, and published as MaterialChanged. A retry with the same `Idempotency-Key` answers the material created. Human-only (`x-agent: false`)."
+      x-permission: materials.material.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - materials.base_unit_conversion
+        - materials.duplicate_plant
+        - materials.duplicate_storage_location
+        - materials.duplicate_unit
+        - materials.number_taken
+        - materials.plant_invalid
+        - materials.storage_location_invalid
+        - materials.unknown_material_type
+        - materials.unknown_unit
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The material to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialCreate"
+            examples:
+              bracket:
+                summary: A machined bracket kept in one plant, bought by the box of 20
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  description: Machined bracket M10
+                  base_unit: EA
+                  material_type: trading_good
+                  material_group: BRACKETS
+                  plants:
+                    - plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                      storage_location_ids: ["01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"]
+                  alternative_units:
+                    - {unit: BOX, numerator: 20, denominator: 1}
+      responses:
+        "201":
+          description: "Created; the new material."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/materials/{id}":
+    get:
+      operationId: getMaterial
+      tags:
+        - materials
+      summary: Get a material
+      description: "One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description, base unit, type, group and status, its plants and their storage locations in the companies the caller may act in, each with its code and name, and its alternative units with their conversions."
+      x-permission: materials.material.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The material.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateMaterial
+      tags:
+        - materials
+      summary: Change a material
+      description: "Changes a material's description, material group, status, plants or alternative units at once, with the caller's version of it (`If-Match`; 412 when another change came first). JSON Merge Patch (RFC 7396): absent fields are unchanged. The number, the base unit and the material type do not change. `status` moves between `active` and `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's plants in the companies the caller may act in, each with its storage locations, and leaves those of other companies as they are; `alternative_units` replaces its alternative units, an empty list removing them; each is checked as `createMaterial` checks it. A change that would leave the material as it is is refused (422 `materials.nothing_to_change`). An audit record with the values before and after and MaterialChanged (`changed`) are written with it. Human-only (`x-agent: false`)."
+      x-permission: materials.material.write
+      x-agent: false
+      x-problem-codes:
+        - materials.base_unit_conversion
+        - materials.duplicate_plant
+        - materials.duplicate_storage_location
+        - materials.duplicate_unit
+        - materials.nothing_to_change
+        - materials.number_taken
+        - materials.plant_invalid
+        - materials.storage_location_invalid
+        - materials.unknown_status
+        - materials.unknown_unit
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the material.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/MaterialUpdate"
+      responses:
+        "200":
+          description: "Updated; the material after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/revenue-contracts/{id}/schedule":
@@ -58516,6 +58757,177 @@ components:
           type: array
           items: {$ref: "#/components/schemas/LeaseContract"}
           description: The lease contracts on this page, without their payments.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    MaterialPlantInput:
+      type: object
+      description: "A plant a material is extended to, with the storage locations it is kept in there."
+      required: [plant_id]
+      additionalProperties: false
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant: an active org unit of kind `plant` in a company the caller may act in (`GET /v1/org-units/{id}`)."}
+        storage_location_ids:
+          type: array
+          maxItems: 100
+          items: {type: string, format: uuid}
+          description: "The plant's storage locations the material is kept in: active org units of kind `storage_location` under the plant, each once; none when absent."
+    MaterialUnitInput:
+      type: object
+      description: "An alternative unit of measure of a material and its exact conversion: one of it is `numerator` divided by `denominator` base units (SAP MARM's UMREZ and UMREN)."
+      required: [unit, numerator, denominator]
+      additionalProperties: false
+      properties:
+        unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "The alternative unit: a unit of measure other than the base unit."}
+        numerator: {type: integer, format: int32, minimum: 1, maximum: 1000000, description: "Base units per `denominator` of the alternative unit."}
+        denominator: {type: integer, format: int32, minimum: 1, maximum: 1000000, description: "Alternative units the `numerator` base units are."}
+    MaterialCreate:
+      type: object
+      description: "A material to create (ADR-0082 §4)."
+      required: [legal_entity_id, description, base_unit, material_type, material_group]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose `material` number range numbers the material, one the caller may act in. The material itself is the tenant's."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is, as people find it."}
+        base_unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "The unit stock and quantities of the material are kept in; it does not change."}
+        material_type:
+          type: string
+          maxLength: 20
+          x-extensible-enum: [raw_material, semi_finished, finished_good, trading_good, non_stock, service]
+          description: "What kind of material it is (SAP's standard material types ROH, HALB, FERT, HAWA, NLAG and DIEN); it does not change. Open enumeration: values may be added within /v1."
+        material_group: {type: string, pattern: "^[A-Z0-9_-]{1,9}$", description: "The tenant's code grouping like materials, 1 to 9 capitals, digits, `-` or `_`."}
+        plants:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/MaterialPlantInput"}
+          description: "The plants the material is extended to, each once; none when absent."
+        alternative_units:
+          type: array
+          maxItems: 20
+          items: {$ref: "#/components/schemas/MaterialUnitInput"}
+          description: "Its alternative units of measure, each once; none when absent."
+    MaterialUpdate:
+      type: object
+      description: "Merge patch of a material: its description, material group, status, plants or alternative units. The number, the base unit and the material type do not change."
+      additionalProperties: false
+      properties:
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the material is."}
+        material_group: {type: string, pattern: "^[A-Z0-9_-]{1,9}$", description: "The material group."}
+        status:
+          type: string
+          maxLength: 20
+          x-extensible-enum: [active, blocked]
+          description: "`active` or `blocked`. Open enumeration: values may be added within /v1."
+        plants:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/MaterialPlantInput"}
+          description: "The material's plants in the companies the caller may act in, replacing those it has there; plants of other companies stay."
+        alternative_units:
+          type: array
+          maxItems: 20
+          items: {$ref: "#/components/schemas/MaterialUnitInput"}
+          description: "The material's alternative units, replacing those it has; an empty list removes them."
+      examples:
+        - material_group: FASTENERS
+    MaterialStorageLocation:
+      type: object
+      description: "A storage location a material is kept in at a plant."
+      required: [storage_location_id, code, name]
+      properties:
+        storage_location_id: {type: string, format: uuid, description: "The storage location (`GET /v1/org-units/{id}`).", readOnly: true}
+        code: {type: string, description: "The storage location's code.", readOnly: true}
+        name: {type: string, description: "The storage location's name, as it is now.", readOnly: true}
+    MaterialPlant:
+      type: object
+      description: "A plant a material is extended to (SAP MARC), with its storage locations (MARD)."
+      required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, storage_locations]
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant (`GET /v1/org-units/{id}`).", readOnly: true}
+        plant_code: {type: string, description: "The plant's code.", readOnly: true}
+        plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        storage_locations:
+          type: array
+          items: {$ref: "#/components/schemas/MaterialStorageLocation"}
+          description: "Its storage locations, by code."
+          readOnly: true
+    MaterialUnit:
+      type: object
+      description: "An alternative unit of measure of a material: one of it is `numerator` divided by `denominator` base units."
+      required: [unit, unit_name, numerator, denominator]
+      properties:
+        unit: {type: string, description: "The alternative unit's code.", readOnly: true}
+        unit_name: {type: string, description: "The unit's name.", readOnly: true}
+        numerator: {type: integer, format: int32, description: "Base units per `denominator` of the alternative unit.", readOnly: true}
+        denominator: {type: integer, format: int32, description: "Alternative units the `numerator` base units are.", readOnly: true}
+    Material:
+      description: "A material of the tenant's material master (materials, ADR-0082 §4). Its `version` moves with every change."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [number, legal_entity_id, company_code, description, base_unit, base_unit_name, material_type, material_group, status, plants, alternative_units]
+          properties:
+            number: {type: string, description: "The material's number, unique in the tenant, from the `material` number range of the company that created it.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company whose range numbered the material.", readOnly: true}
+            company_code: {type: string, description: "That company's code.", readOnly: true}
+            description: {type: string, description: "What the material is."}
+            base_unit: {type: string, description: "The base unit of measure.", readOnly: true}
+            base_unit_name: {type: string, description: "The base unit's name.", readOnly: true}
+            material_type:
+              type: string
+              x-extensible-enum: [raw_material, semi_finished, finished_good, trading_good, non_stock, service]
+              description: "The material type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            material_group: {type: string, description: "The material group."}
+            status:
+              type: string
+              x-extensible-enum: [active, blocked]
+              description: "`active`: usable. `blocked`: kept, but not to be used in new documents. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            plants:
+              type: array
+              items: {$ref: "#/components/schemas/MaterialPlant"}
+              description: "Its plants in the companies the caller may act in, by plant code."
+              readOnly: true
+            alternative_units:
+              type: array
+              items: {$ref: "#/components/schemas/MaterialUnit"}
+              description: "Its alternative units, by unit code."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          version: 1
+          created_at: "2026-11-20T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-20T10:00:01Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          number: MA000001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          description: Machined bracket M10
+          base_unit: EA
+          base_unit_name: Each
+          material_type: trading_good
+          material_group: BRACKETS
+          status: active
+          plants:
+            - plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+              plant_code: P100
+              plant_name: Toronto plant
+              legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+              company_code: "3000"
+              storage_locations:
+                - {storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62", code: SL01, name: Main store}
+          alternative_units:
+            - {unit: BOX, unit_name: Box, numerator: 20, denominator: 1}
+    MaterialPage:
+      type: object
+      description: One page of materials.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Material"}
+          description: The materials on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     ReceivablesAgingBucket:
       type: object

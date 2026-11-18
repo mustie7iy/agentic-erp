@@ -3345,8 +3345,9 @@ line or reservation. An agent's budget is identity's
 - financial effects only through `ledger` postings (`source_context`,
   `source_document_id` on the journal entry);
 - partners via `partner` roles (`customer` joins `supplier`);
-- a shared `material` master in a future `product` context, referenced by id
-  from procurement, inventory, sales and manufacturing;
+- a shared `material` master, referenced by id from procurement, inventory,
+  sales and manufacturing: the `materials` context (§3.34, ADR-0082, which
+  names it `materials` rather than `product`);
 - controlling dimensions (cost center, profit center, internal order, WBS
   element) added to `journal_line` as nullable `uuid` columns, so ledger and
   controlling stay one table, as in SAP's Universal Journal.
@@ -5983,3 +5984,82 @@ erDiagram
   (`LeaseContractChanged`, `LeaseRunPosted`).
 - Permissions `leases.contract.read`, `.write` and `.activate`, and
   `leases.run.post`.
+
+## 3.34 Material master (`materials`)
+
+ADR-0082, S1a. The material master: it reads tenancy's companies and org
+units, the configuration's number ranges and company dates and the
+ledger's fiscal calendar through its ports and keeps no foreign key out of
+its schema but `ref`'s (02 §2.1). Plants and storage locations are
+tenancy's org units (§3.3). S1a (migration 000363) builds the schema with
+its outbox and inbox, the material, its plants, storage locations and
+alternative units. Nothing is deleted: a plant, storage location or unit
+taken off a material is marked removed and given back by clearing the
+mark.
+
+```mermaid
+erDiagram
+  material ||--o{ plant_data : "extended to"
+  plant_data ||--o{ storage_location_data : "kept in"
+  material ||--o{ unit_conversion : "alternative units"
+  material { uuid id PK
+    text number "material range of its company, once in the tenant"
+    uuid legal_entity_id "tenancy: the numbering company"
+    text description "1 to 200 characters"
+    text base_uom_code "ref, fixed"
+    text material_type "fixed"
+    text material_group "1 to 9 of A-Z 0-9 - _"
+    text status "active, blocked"
+    int version }
+  plant_data { uuid material_id PK
+    uuid plant_id PK "tenancy: a plant"
+    uuid legal_entity_id "tenancy: the plant's company"
+    timestamptz removed_at }
+  storage_location_data { uuid material_id PK
+    uuid storage_location_id PK "tenancy: under the plant"
+    uuid plant_id FK
+    timestamptz removed_at }
+  unit_conversion { uuid material_id PK
+    text uom_code PK "ref, not the base unit"
+    int numerator "1 to 1000000"
+    int denominator "1 to 1000000"
+    timestamptz removed_at }
+```
+
+- `materials.material`: a material (SAP MARA with MAKT's one
+  description). Its number is 1 to 40 characters
+  (`material_number_check`), once in the tenant (`material_number_once`,
+  409 `materials.number_taken`), drawn from the `material` range of
+  `legal_entity_id`; the description is 1 to 200 characters and not blank
+  (`material_description_check`); the base unit is a unit of measure
+  (`material_base_uom_code_fkey`); the type is `raw_material`,
+  `semi_finished`, `finished_good`, `trading_good`, `non_stock` or
+  `service` (`material_type_check`); the group is 1 to 9 capitals, digits,
+  `-` or `_` (`material_group_check`); the status is `active` or
+  `blocked` (`material_status_check`) and the version at least 1
+  (`material_version_check`). The number, company, base unit and type do
+  not change (`material_fixed`, a trigger). The list reads by number
+  (`material_number_once`). The application creates materials and changes
+  their description, group, status and version; it deletes none.
+- `materials.plant_data`: the material at a plant (MARC) of a material
+  that exists (`plant_data_material_fkey`), once (`plant_data_pkey`), with
+  the plant's company; a plant's materials are read by
+  `plant_data_by_plant`. `removed_at` and `removed_by` are set together or
+  not at all (`plant_data_removed_check`); they are the only columns the
+  application updates.
+- `materials.storage_location_data`: the material at a storage location
+  (MARD's key; the stock is the inventory context's) of one of its plants
+  (`storage_location_data_plant_fkey`), once
+  (`storage_location_data_pkey`), removed as a plant is
+  (`storage_location_data_removed_check`).
+- `materials.unit_conversion`: an alternative unit (MARM) of a material
+  that exists (`unit_conversion_material_fkey`), a unit of measure
+  (`unit_conversion_uom_code_fkey`) other than its base unit
+  (`unit_conversion_not_base`, a trigger), once (`unit_conversion_pkey`):
+  one `uom_code` is `numerator` / `denominator` base units, each 1 to
+  1,000,000 (`unit_conversion_numerator_check`,
+  `unit_conversion_denominator_check`). The application updates the
+  factors and the removal mark (`unit_conversion_removed_check`) alone.
+- `materials.outbox`, `materials.inbox`: the context's events
+  (`MaterialChanged`).
+- Permissions `materials.material.read` and `.write`.

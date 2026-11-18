@@ -59,7 +59,7 @@ func Years() []int {
 // DocumentTypes get a number range per company and year.
 var DocumentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_kr": "", "journal_we": "", "journal_kg": "", "requisition": "PR", "purchase_order": "PO",
 	"contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "partner_change": "", "payment_run": "PR", "journal_zp": "",
-	"journal_re": "", "journal_kz": "", "journal_ob": "", "down_payment_request": "DP", "customer_invoice": "CI", "rfq": "RQ", "quotation": "QT", "sales_order": "SO", "billing_document": "BD", "returns_order": "RO", "credit_memo_request": "CR", "lease_contract": "LC", "expense_report": "ER"}
+	"journal_re": "", "journal_kz": "", "journal_ob": "", "down_payment_request": "DP", "customer_invoice": "CI", "rfq": "RQ", "quotation": "QT", "sales_order": "SO", "billing_document": "BD", "returns_order": "RO", "credit_memo_request": "CR", "lease_contract": "LC", "expense_report": "ER", "material": "MA"}
 
 // Document is the prototype's configuration (companies 1000 in USD and
 // 2000 in EUR) with number ranges for every document type in Years.
@@ -86,13 +86,18 @@ func Document(tb testing.TB) *config.Config {
 // yearRanges are a company's number ranges for every document type in fiscal
 // year y: 100000 to 999999 in 2026, and above them in a later year but
 // for journal entries, whose numbers are per fiscal year, as a range may
-// not repeat another year's numbers (config.RangeRepeats).
+// not repeat another year's numbers (config.RangeRepeats); a material's
+// prefix names the company, as a range may not repeat another company's
+// material numbers either.
 func yearRanges(company string, y int) []config.NumberRange {
 	var out []config.NumberRange
 	for dt, prefix := range DocumentTypes {
 		first, last := int64(100000), int64(999999)
 		if y != 2026 && !config.NumberedPerYear(dt) {
 			first, last = 1000000, 1999999
+		}
+		if config.NumberedPerTenant(dt) { // unique in the tenant: each company's numbers apart (ADR-0082 §6)
+			prefix += company + "-"
 		}
 		out = append(out, config.NumberRange{Company: company, DocumentType: dt, FiscalYear: y, Prefix: prefix, First: first, Last: last})
 	}

@@ -594,6 +594,43 @@ func TestDirectory(t *testing.T) {
 		_, _, err := tenancy.Directory{}.OrgUnit(ctx, uuid.New())
 		return err
 	})
+	orgUnits(t, ten, c, de["id"].(string), uuid.MustParse(plant["id"].(string)))
+}
+
+// orgUnits: the org units by id in one read, each with its parent, an id
+// naming none left out (ADR-0082 §4: a material's plants and storage
+// locations).
+func orgUnits(t *testing.T, ten pgtest.Tenant, c client, le string, plant uuid.UUID) {
+	t.Helper()
+	loc, _ := c.Must(201, "POST", "/v1/org-units", fmt.Sprintf(`{"legal_entity_id": %q, "kind": "storage_location", "code": "S1", "name": "Store", "parent_id": %q}`,
+		le, plant), "")
+	store := uuid.MustParse(loc["id"].(string))
+	err := apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
+		units, err := tenancy.Directory{}.OrgUnits(ctx, []uuid.UUID{plant, store, uuid.New()})
+		if err != nil {
+			return err
+		}
+		if len(units) != 2 {
+			t.Errorf("org units: got %d, want the plant and the storage location", len(units))
+		}
+		if u := units[plant]; u.Kind != "plant" || u.ParentID != nil {
+			t.Errorf("plant: got kind %s, parent %v, want a plant at the top", u.Kind, u.ParentID)
+		}
+		if u := units[store]; u.Code != "S1" || u.ParentID == nil || *u.ParentID != plant {
+			t.Errorf("storage location: got code %s, parent %v, want S1 under the plant", u.Code, u.ParentID)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (tenancy.Directory{}).OrgUnits(context.Background(), nil); err == nil {
+		t.Error("org units outside a request: got nil error, want an error")
+	}
+	apitest.EveryFailure(t, ten, ten.Human, "org units", func(ctx context.Context) error {
+		_, err := tenancy.Directory{}.OrgUnits(ctx, []uuid.UUID{plant})
+		return err
+	})
 }
 
 // TestFailures calls every handler outside a unit of work and with each of

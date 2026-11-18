@@ -5235,9 +5235,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "A master data specialist creates a material (number from the company's material range, description, base unit, material type, material group, status), extends it to plants and storage locations, gives it alternative units with exact integer conversions, and reads, lists and changes it at its version (POST, GET, PATCH /v1/materials; MaterialChanged)",
-      "r": "S1a · docs/design/plan-supply-chain.md §S1a · ADR-0082",
+      "r": "S1a · docs/design/plan-supply-chain.md §S1a · ADR-0082 and As built · db/migrations/000363 · internal/materials · materials.material, .plant_data, .storage_location_data, .unit_conversion · POST /v1/materials · GET /v1/materials · GET /v1/materials/{id} · PATCH /v1/materials/{id} · MaterialChanged · materials.material.read, .write · config.NumberedPerTenant · tenancy.Directory.OrgUnits · walkthrough step_material",
       "src": "po:2026-11-17",
       "c": []
      },

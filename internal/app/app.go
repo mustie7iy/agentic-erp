@@ -48,6 +48,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/leases"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
@@ -102,6 +103,7 @@ type (
 	recordsAPI     = records.Endpoints
 	miningAPI      = processmining.Endpoints
 	leasesAPI      = leases.Endpoints
+	materialsAPI   = materials.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -139,6 +141,7 @@ type handler struct {
 	*recordsAPI
 	*miningAPI
 	*leasesAPI
+	*materialsAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -290,6 +293,7 @@ func New(cfg Config) (http.Handler, error) {
 		recordsAPI:     Records(cfg),
 		miningAPI:      ProcessMining(cfg),
 		leasesAPI:      Leases(cfg),
+		materialsAPI:   Materials(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       Audit(cfg),
 		integrationAPI: Integration(cfg),

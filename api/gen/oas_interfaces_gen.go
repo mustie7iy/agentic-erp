@@ -397,6 +397,10 @@ type CreateLegalEntityRes interface {
 	createLegalEntityRes()
 }
 
+type CreateMaterialRes interface {
+	createMaterialRes()
+}
+
 type CreateMemoRecordRes interface {
 	createMemoRecordRes()
 }
@@ -971,6 +975,10 @@ type GetMarginReportRes interface {
 
 type GetMatchResultRes interface {
 	getMatchResultRes()
+}
+
+type GetMaterialRes interface {
+	getMaterialRes()
 }
 
 type GetMemoRecordRes interface {
@@ -1571,6 +1579,10 @@ type ListLiquidityForecastFlowsRes interface {
 
 type ListMatchResultsRes interface {
 	listMatchResultsRes()
+}
+
+type ListMaterialsRes interface {
+	listMaterialsRes()
 }
 
 type ListMemoRecordsRes interface {
@@ -2307,6 +2319,10 @@ type UpdateInternalOrderSettlementRuleRes interface {
 
 type UpdateLegalEntityRes interface {
 	updateLegalEntityRes()
+}
+
+type UpdateMaterialRes interface {
+	updateMaterialRes()
 }
 
 type UpdateMemoRecordRes interface {

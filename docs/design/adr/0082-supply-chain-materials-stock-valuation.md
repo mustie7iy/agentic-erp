@@ -212,3 +212,47 @@ create with such a match is refused (409) unless the request confirms it.
 - **One context for materials and stock.** Rejected: the material master
   is read by procurement and sales, which must not depend on stock
   postings and the ledger they bring.
+
+## As built
+
+### S1a (2026-11-17)
+
+- Migration 000363: schema `materials` with its outbox and inbox,
+  `materials.material`, `.plant_data`, `.storage_location_data` and
+  `.unit_conversion` with RLS, `tenant_id` first, the rules of 03
+  §3.34 with schema tests (`db/materials_test.go`, the triggers also as
+  the owner); the permissions `materials.material.read` and `.write`.
+  `materials` is in `outbox.Contexts` and in `internal/layout`, importing
+  `config` and `tenancy` only.
+- **Nothing is deleted** (000011: no delete grant anywhere). A plant,
+  storage location or unit a change takes off a material is marked
+  `removed_at`/`removed_by`, the only columns of those rows the
+  application updates (with a unit's factors); giving it back clears the
+  mark. Decided by default from the platform's rule.
+- `POST /v1/materials`, `GET /v1/materials` (number, plant, status, type,
+  group; by number), `GET /v1/materials/{id}`, `PATCH /v1/materials/{id}`
+  (merge patch, `If-Match`; description, group, status `active` or
+  `blocked`, plants and units as whole lists). Writes are human-only
+  (`x-agent: false`), the safer default until an agent needs them.
+- **Plants by company access.** A material is the tenant's, readable by
+  anyone with `materials.material.read`; its plants are shown, and
+  replaced by a change, only in the companies the caller may act in, as
+  a business partner's company data is (`partner.visible`). A plant of a
+  company the caller may not act in stays as it is.
+- **Number range.** `config.NumberedPerTenant` names `material`;
+  `config.RangeRepeats` refuses a `material` range that can issue
+  another company's or year's material numbers. The fixture gives each
+  company a prefix of its own (`MA1000-`, `MA2000-`); the walkthrough's
+  pilot settings add Maple's `MA` range, and step 40's copy of Maple's
+  ranges to company 1000 leaves it out.
+- **Base unit and type** are absent from the change's contract (400) and
+  fixed by `material_fixed` as well. A change that would leave the
+  material as it is is 422 `materials.nothing_to_change`.
+- `MaterialChanged` (`created`, `changed`) names the numbering company and
+  every plant by id and code, whatever companies the person who changed it
+  may act in; the audit record of a change names the fields changed with
+  their values before and after.
+- tenancy's published API gains `Unit.ParentID` and `Directory.OrgUnits`
+  (the org units by id in one read), so a page of materials reads its
+  plants and storage locations once.
+- Walkthrough step 116, `step_material`.
