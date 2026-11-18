@@ -91246,6 +91246,13 @@ type ReceivablesAging struct {
 	CompanyName string `json:"company_name"`
 	// The date the items are aged on.
 	KeyDate time.Time `json:"key_date"`
+	// Which items are aged: `now`, those open now; `key_date`, those open on the key date. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	OpenOn string `json:"open_on"`
+	// The date an item's days are counted from: its net due date or its document date. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	AgingBasis string `json:"aging_basis"`
 	// The company's local currency (ISO 4217), every amount's.
 	Currency string `json:"currency"`
 	// The overdue buckets' last days, as asked for or the default.
@@ -91275,6 +91282,16 @@ func (s *ReceivablesAging) GetCompanyName() string {
 // GetKeyDate returns the value of KeyDate.
 func (s *ReceivablesAging) GetKeyDate() time.Time {
 	return s.KeyDate
+}
+
+// GetOpenOn returns the value of OpenOn.
+func (s *ReceivablesAging) GetOpenOn() string {
+	return s.OpenOn
+}
+
+// GetAgingBasis returns the value of AgingBasis.
+func (s *ReceivablesAging) GetAgingBasis() string {
+	return s.AgingBasis
 }
 
 // GetCurrency returns the value of Currency.
@@ -91322,6 +91339,16 @@ func (s *ReceivablesAging) SetKeyDate(val time.Time) {
 	s.KeyDate = val
 }
 
+// SetOpenOn sets the value of OpenOn.
+func (s *ReceivablesAging) SetOpenOn(val string) {
+	s.OpenOn = val
+}
+
+// SetAgingBasis sets the value of AgingBasis.
+func (s *ReceivablesAging) SetAgingBasis(val string) {
+	s.AgingBasis = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *ReceivablesAging) SetCurrency(val string) {
 	s.Currency = val
@@ -91354,14 +91381,15 @@ func (*ReceivablesAging) getReceivablesAgingRes() {}
 // Ref: #/components/schemas/ReceivablesAgingBucket
 type ReceivablesAgingBucket struct {
 	// `not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net
-	// due date (the last overdue bucket without `days_to`); `no_due_date`: always empty, since an item
-	// posted without payment terms is due on its document date (until 2026-11-12 it was counted here).
-	// Open enumeration: clients must accept and preserve values not listed here; values may be added
-	// within /v1.
+	// due date, or past the document date with `aging_basis` `document_date` (the last overdue bucket
+	// without `days_to`); `no_due_date`: always empty, since an item posted without payment terms is due
+	// on its document date (until 2026-11-12 it was counted here). Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
 	Bucket string `json:"bucket"`
-	// An overdue bucket's first day past the net due date.
+	// An overdue bucket's first day past the net due date (the document date, by `aging_basis`).
 	DaysFrom OptInt32 `json:"days_from"`
-	// An overdue bucket's last day past the net due date; absent on the last overdue bucket.
+	// An overdue bucket's last day past the net due date (the document date, by `aging_basis`); absent on
+	// the last overdue bucket.
 	DaysTo OptInt32 `json:"days_to"`
 	// How many open items the bucket holds.
 	ItemCount int64 `json:"item_count"`

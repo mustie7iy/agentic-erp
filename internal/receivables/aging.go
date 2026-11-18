@@ -2,6 +2,7 @@ package receivables
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -32,6 +33,13 @@ import (
 // product owner 2026-11-12), so every item has a due date and the report's
 // last bucket, no_due_date, is always empty: it is still given, since
 // taking a value out of the response would break its consumers.
+//
+// Two variants (T75l): the items open on the key date rather than now
+// (open_on key_date, ledger.OpenItems.ReceivableOn: the report as it
+// stood that day, an item paid since aged as open), and the days counted
+// from each item's document date rather than its net due date
+// (aging_basis document_date), as if every item were due the day it is
+// dated.
 
 // The key date's years: the contract's range of fiscal years, so a date
 // no period can hold is refused (422) rather than aged. The bound is not
@@ -45,6 +53,8 @@ const minKeyYear, maxKeyYear = 1900, 2999
 // OpenItems reads a company's open customer items (ledger context).
 type OpenItems interface {
 	Receivable(ctx context.Context, legalEntity uuid.UUID, customers []uuid.UUID) ([]ledger.ReceivableItem, error)
+	// ReceivableOn reads the customer items open on a date (T75l).
+	ReceivableOn(ctx context.Context, legalEntity uuid.UUID, customers []uuid.UUID, on time.Time) ([]ledger.ReceivableItem, error)
 	// Closed names the lines no longer open, without a lock (T75g: a
 	// payment's credit on account).
 	Closed(ctx context.Context, refs []ledger.ItemRef) (map[ledger.ItemRef]bool, error)
@@ -78,12 +88,31 @@ type aged struct {
 	buckets  []agingSum
 }
 
+// The values of open_on and aging_basis (T75l), the first of each the
+// default.
+const (
+	openNow           = "now"
+	openOnKeyDate     = "key_date"
+	basisNetDueDate   = "net_due_date"
+	basisDocumentDate = "document_date"
+)
+
+// daysPast is how many days past the date the basis names the item is on
+// the key date: its net due date (ledger.ReceivableItem.DaysOverdue) or
+// its document date.
+func daysPast(it ledger.ReceivableItem, key time.Time, basis string) int {
+	if basis == basisDocumentDate {
+		return ledger.DaysPast(key, it.DocumentDate)
+	}
+	return it.DaysOverdue(key)
+}
+
 // age sums the items per customer and in total on the key date, each item
-// in exactly one bucket by its net due date (ledger.AgingBucket). The
-// items come ordered by customer, as ledger.OpenItems.Receivable returns
-// them, and the customers keep that order. Sums out of range are refused
-// (422 receivables.amount_too_large).
-func age(items []ledger.ReceivableItem, key time.Time, days []int32) ([]aged, aged, error) {
+// in exactly one bucket by its days past the date the basis names
+// (ledger.AgingBucket). The items come ordered by customer, as
+// ledger.OpenItems.Receivable returns them, and the customers keep that
+// order. Sums out of range are refused (422 receivables.amount_too_large).
+func age(items []ledger.ReceivableItem, key time.Time, days []int32, basis string) ([]aged, aged, error) {
 	slots := len(days) + 3 // not due, an overdue bucket per day and one past the last, no due date (always empty)
 	totals := aged{buckets: make([]agingSum, slots)}
 	var rows []aged
@@ -91,7 +120,7 @@ func age(items []ledger.ReceivableItem, key time.Time, days []int32) ([]aged, ag
 		if len(rows) == 0 || rows[len(rows)-1].customer != it.PartnerID {
 			rows = append(rows, aged{customer: it.PartnerID, buckets: make([]agingSum, slots)})
 		}
-		slot := ledger.AgingBucket(it.DaysOverdue(key), true, days) // a customer item always has a due date
+		slot := ledger.AgingBucket(daysPast(it, key, basis), true, days) // a customer item always has a due date and a document date
 		row := &rows[len(rows)-1]
 		for _, s := range []*agingSum{&row.total, &row.buckets[slot], &totals.total, &totals.buckets[slot]} {
 			if err := s.add(it.AmountLC); err != nil { // money.Sum's only error is the range
@@ -108,13 +137,17 @@ type agingCursor struct {
 }
 
 // AgingQuery asks for the aging: the company, the key date, the buckets'
-// last days (the default without any), one customer or every one, and the
+// last days (the default without any), one customer or every one, the
+// items open now or on the key date (OpenOn, "" for the default) and the
+// date their days are counted from (Basis, "" for the default), and the
 // page: its size (PageSizeSet false for the default) and token.
 type AgingQuery struct {
 	LegalEntity uuid.UUID
 	KeyDate     time.Time
 	Days        []int32
 	Customer    *uuid.UUID
+	OpenOn      string
+	Basis       string
 	PageSize    int32
 	PageSizeSet bool
 	PageToken   *string
@@ -123,10 +156,13 @@ type AgingQuery struct {
 // Aging is the aging of a company's customer open items on a key date: a
 // page of customers, each named, the totals of them all, the token of the
 // next page ("" for none), and the buckets' days and the company's
-// currency exponent the amounts are shown with.
+// currency exponent the amounts are shown with, and the items it ages
+// (OpenOn) and the date their days are counted from (Basis).
 type Aging struct {
 	Company   tenancy.Entity
 	KeyDate   time.Time
+	OpenOn    string
+	Basis     string
 	Days      []int32
 	Exponent  int
 	Totals    aged
@@ -147,6 +183,8 @@ type agingRequest struct {
 	key      time.Time
 	days     []int32
 	customer *uuid.UUID
+	openOn   string
+	basis    string
 	size     int
 	scope    string
 	after    *uuid.UUID
@@ -154,20 +192,30 @@ type agingRequest struct {
 
 // agingRequest checks the request: a company the caller may act in, a key
 // date in the years 1900 to 2999 (422 receivables.key_date_out_of_range
-// naming key_date), ascending bucket days (the default without any), a
-// page size and a page token of this report with these parameters.
+// naming key_date), ascending bucket days (the default without any),
+// open_on and aging_basis among the contract's values (400
+// request.invalid_parameter naming the field), a page size and a page
+// token of this report with these parameters.
 func (e *Endpoints) agingRequest(ctx context.Context, q AgingQuery) (agingRequest, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return agingRequest{}, fmt.Errorf("receivables: company access for the aging: %w", err)
 	}
-	r := agingRequest{key: q.KeyDate, customer: q.Customer}
+	r := agingRequest{key: q.KeyDate, customer: q.Customer, openOn: cmp.Or(q.OpenOn, openNow), basis: cmp.Or(q.Basis, basisNetDueDate)}
 	if r.le, err = tenancy.Accessible(ctx, e.LegalEntities, access, q.LegalEntity, "legal_entity_id"); err != nil {
 		return agingRequest{}, fmt.Errorf("receivables: legal entity of the aging: %w", err)
 	}
 	if y := r.key.Year(); y < minKeyYear || y > maxKeyYear {
 		return agingRequest{}, problem.Invalid("receivables.key_date_out_of_range", "key_date",
 			fmt.Sprintf("The key date is in the years %d to %d.", minKeyYear, maxKeyYear))
+	}
+	if r.openOn != openNow && r.openOn != openOnKeyDate {
+		return agingRequest{}, problem.BadRequest("request.invalid_parameter", "Parameter open_on is now or key_date.",
+			problem.FieldError{Field: "open_on", Code: "invalid", Message: "now or key_date"})
+	}
+	if r.basis != basisNetDueDate && r.basis != basisDocumentDate {
+		return agingRequest{}, problem.BadRequest("request.invalid_parameter", "Parameter aging_basis is net_due_date or document_date.",
+			problem.FieldError{Field: "aging_basis", Code: "invalid", Message: "net_due_date or document_date"})
 	}
 	if r.days, err = ledger.AgingDays(q.Days); err != nil {
 		return agingRequest{}, fmt.Errorf("receivables: buckets of the aging: %w", err)
@@ -179,7 +227,7 @@ func (e *Endpoints) agingRequest(ctx context.Context, q AgingQuery) (agingReques
 	if r.customer != nil {
 		only = r.customer.String()
 	}
-	r.scope = fmt.Sprintf("getReceivablesAging|%s|%s|%v|%s", r.le.ID, r.key.Format(time.DateOnly), r.days, only)
+	r.scope = fmt.Sprintf("getReceivablesAging|%s|%s|%v|%s|%s|%s", r.le.ID, r.key.Format(time.DateOnly), r.days, only, r.openOn, r.basis)
 	if q.PageToken != nil {
 		var c agingCursor
 		if err := e.Pages.Decode(r.scope, *q.PageToken, &c); err != nil {
@@ -209,11 +257,11 @@ func (e *Endpoints) Aging(ctx context.Context, q AgingQuery) (Aging, error) {
 	if r.customer != nil {
 		customers = []uuid.UUID{*r.customer}
 	}
-	items, err := e.OpenItems.Receivable(ctx, r.le.ID, customers)
+	items, err := e.agedItems(ctx, r, customers)
 	if err != nil {
 		return Aging{}, fmt.Errorf("receivables: open customer items of company %s: %w", r.le.Code, err)
 	}
-	rows, totals, err := age(items, r.key, r.days)
+	rows, totals, err := age(items, r.key, r.days, r.basis)
 	if err != nil {
 		return Aging{}, err
 	}
@@ -226,12 +274,21 @@ func (e *Endpoints) Aging(ctx context.Context, q AgingQuery) (Aging, error) {
 	if err != nil {
 		return Aging{}, fmt.Errorf("receivables: customers of the aging of company %s: %w", r.le.Code, err)
 	}
-	out := Aging{Company: r.le, KeyDate: r.key, Days: r.days, Exponent: exp, Totals: totals, Customers: len(rows), Next: next,
+	out := Aging{Company: r.le, KeyDate: r.key, OpenOn: r.openOn, Basis: r.basis, Days: r.days, Exponent: exp, Totals: totals, Customers: len(rows), Next: next,
 		Page: make([]agedCustomer, len(page))}
 	for i, row := range page {
 		out.Page[i] = agedCustomer{aged: row, Named: names[row.customer]}
 	}
 	return out, nil
+}
+
+// agedItems are the customer items the request ages: those open now, or
+// those open on the key date (T75l).
+func (e *Endpoints) agedItems(ctx context.Context, r agingRequest, customers []uuid.UUID) ([]ledger.ReceivableItem, error) {
+	if r.openOn == openOnKeyDate {
+		return e.OpenItems.ReceivableOn(ctx, r.le.ID, customers, r.key)
+	}
+	return e.OpenItems.Receivable(ctx, r.le.ID, customers)
 }
 
 // agingPage is the page of customers after the request's cursor, in the

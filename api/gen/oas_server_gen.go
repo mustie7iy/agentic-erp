@@ -4512,25 +4512,34 @@ type Handler interface {
 	//
 	// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
 	// key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on
-	// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
-	// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
-	// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
-	// one bucket by its net due date: the baseline date plus the net days of the payment terms it was
-	// posted with, as `GET /v1/open-items` ages it with `aging_key_date`, or, for an item posted without
-	// payment terms (a manual or migrated entry's), its document date, where that list shows it as
-	// `no_due_date`. An item is `not_due` when due on the key date or later, else in the `overdue` bucket
-	// holding its days past the due date, so an item without terms is overdue from the day after its
-	// document date; a credit item ages the same way, with or without terms. `aging_days` are the overdue
-	// buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to 60, 61 to 90 and more than 90
-	// days); every bucket is given, an empty one with no items and an amount of 0, in the order not due,
-	// overdue by days, no due date; `no_due_date` is always empty, since every item has a due date, and is
-	// kept so that the response keeps its shape. Amounts are in the company's local currency (`currency`),
-	// as the items were booked, a debit positive: a credit item (a credit memo, a payment on the account)
-	// is negative and reduces its customer's bucket and total. `totals` are those of every customer the
-	// request selects, on every page, and equal the open items of the company's customer reconciliation
-	// accounts. `items` is one row per customer with open items, by customer id, in cursor pages;
-	// `customer_id` selects one customer. The company must be one the caller may act in. The key date is
-	// in the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`).
+	// read from the ledger's customer items of the leading ledger: invoices, credit memos, and the
+	// customer items manual and migrated entries posted, special G/L items included. With `open_on` `now`
+	// (the default) they are the items open now, cleared items and reversed entries left out, whatever
+	// their dates; with `open_on` `key_date` (T75l) they are the items open on the key date, as the report
+	// stood that day: posted on or before it and neither cleared by then (by a clearing dated on or before
+	// it; a clearing that was reset counts only until the reversal of its clearing entry, by that
+	// reversal's posting date) nor reversed by then (by a reversal posted on or before it), so an item
+	// paid or cleared after the key date is aged as open and one posted after it is left out. With
+	// `aging_basis` `net_due_date` (the default) each item falls in exactly one bucket by its net due
+	// date: the baseline date plus the net days of the payment terms it was posted with, as
+	// `GET /v1/open-items` ages it with `aging_key_date`, or, for an item posted without payment terms (a
+	// manual or migrated entry's), its document date, where that list shows it as `no_due_date`. An item
+	// is `not_due` when due on the key date or later, else in the `overdue` bucket holding its days past
+	// the due date, so an item without terms is overdue from the day after its document date; a credit
+	// item ages the same way, with or without terms. With `aging_basis` `document_date` (T75l) each item
+	// is aged by its document date instead, as if due that day: `not_due` when dated on the key date or
+	// later, else in the `overdue` bucket holding its days past its document date, its terms aside.
+	// `aging_days` are the overdue buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to
+	// 60, 61 to 90 and more than 90 days); every bucket is given, an empty one with no items and an amount
+	// of 0, in the order not due, overdue by days, no due date; `no_due_date` is always empty, since every
+	// item has a due date, and is kept so that the response keeps its shape. Amounts are in the company's
+	// local currency (`currency`), as the items were booked, a debit positive: a credit item (a credit
+	// memo, a payment on the account) is negative and reduces its customer's bucket and total. `totals`
+	// are those of every customer the request selects, on every page, and equal the open items of the
+	// company's customer reconciliation accounts. `items` is one row per customer with open items, by
+	// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
+	// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
+	// naming `key_date`).
 	//
 	// GET /v1/receivables-aging
 	GetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (GetReceivablesAgingRes, error)

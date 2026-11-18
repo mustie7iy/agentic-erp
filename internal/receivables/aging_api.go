@@ -15,13 +15,13 @@ import (
 // customers and the totals of them all.
 func (e *Endpoints) GetReceivablesAging(ctx context.Context, params gen.GetReceivablesAgingParams) (gen.GetReceivablesAgingRes, error) {
 	a, err := e.Aging(ctx, AgingQuery{LegalEntity: params.LegalEntityID, KeyDate: params.KeyDate, Days: params.AgingDays,
-		Customer: apitypes.Ptr[uuid.UUID](params.CustomerID), PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set,
+		Customer: apitypes.Ptr[uuid.UUID](params.CustomerID), OpenOn: params.OpenOn.Value, Basis: params.AgingBasis.Value, PageSize: params.PageSize.Value, PageSizeSet: params.PageSize.Set,
 		PageToken: apitypes.Ptr[string](params.PageToken)})
 	if err != nil {
 		return nil, err
 	}
 	le := a.Company
-	out := gen.ReceivablesAging{LegalEntityID: le.ID, CompanyCode: le.Code, CompanyName: le.Name, KeyDate: a.KeyDate, Currency: le.LocalCurrency,
+	out := gen.ReceivablesAging{LegalEntityID: le.ID, CompanyCode: le.Code, CompanyName: le.Name, KeyDate: a.KeyDate, OpenOn: a.OpenOn, AgingBasis: a.Basis, Currency: le.LocalCurrency,
 		AgingDays: a.Days, Totals: gen.ReceivablesAgingTotals{CustomerCount: int64(a.Customers), ItemCount: a.Totals.total.count,
 			Amount: apitypes.Money(a.Totals.total.amount, le.LocalCurrency, a.Exponent), Buckets: agingBuckets(a.Totals, a)},
 		Items: make([]gen.ReceivablesAgingCustomer, len(a.Page))}

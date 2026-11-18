@@ -24,6 +24,30 @@ import (
 func TestReceivablesAgingBudget(t *testing.T) {
 	nfr.Measure(t)
 	e := setup(t)
+	seedAging(t, e, false)
+	measureAging(t, e, "AR aging over 100,000 open items of 2,000 customers, first and second page", "")
+}
+
+// TestReceivablesAgingOnKeyDateBudget measures the AR aging as at a key
+// date (T75l, open_on key_date) against the same budget, p95 3 s, over
+// the same 100,000 items, half of them cleared after the key date: open
+// on it, so every item is aged and half of them are looked up in their
+// clearings. ledger.OpenItems.ReceivableOn reads every customer line
+// posted by the key date, cleared or not, which ReceivableOn's exists
+// checks then keep or leave out.
+func TestReceivablesAgingOnKeyDateBudget(t *testing.T) {
+	nfr.Measure(t)
+	e := setup(t)
+	seedAging(t, e, true)
+	measureAging(t, e, "AR aging as at the key date over 100,000 items of 2,000 customers, half cleared after it, first and second page", "&open_on=key_date")
+}
+
+// seedAging writes 100,000 customer items of 2,000 customers into the
+// journal, half with payment terms, their due dates spread over 300 days;
+// with cleared, every second item is cleared on 15 July, after the key
+// date the budgets age on, by a clearing of a thousand items.
+func seedAging(t *testing.T, e env, cleared bool) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute) // seeding 100,000 entries, on a loaded machine too
 	defer cancel()
 	admin := pgtest.Admin(t)
@@ -36,6 +60,8 @@ func TestReceivablesAgingBudget(t *testing.T) {
 	// The items are written straight into the journal, balanced, without
 	// the row checks a posting runs (as TestOpenItemsAgingBudget seeds
 	// them): the customers are ids alone, so the page's rows name none.
+	// Every column a trigger would fill is given (session_replication_role
+	// replica runs none).
 	exec(`SET session_replication_role = replica`)
 	exec(`WITH s AS (
 			SELECT n, gen_random_uuid() AS entry, md5('c' || (n % 2000))::uuid AS partner FROM generate_series(1, 100000) n
@@ -54,9 +80,29 @@ func TestReceivablesAgingBudget(t *testing.T) {
 		SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, 'NT30', DATE '2026-01-01' + (abs(hashtext(l.journal_entry_id::text)) % 300), 30
 		FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2 AND abs(hashtext(l.journal_entry_id::text)) % 2 = 0`,
 		e.Tenant.ID, e.receivable)
+	if cleared {
+		exec(`WITH l AS (
+				SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, row_number() OVER (ORDER BY l.journal_entry_id) AS n
+				FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2
+			), c AS (
+				SELECT (n - 1) / 1000 AS batch, min(journal_entry_id::text)::uuid AS entry, md5('k' || ((n - 1) / 1000))::uuid AS id FROM l WHERE n % 2 = 0 GROUP BY 1
+			), k AS (
+				INSERT INTO ledger.clearing (tenant_id, id, legal_entity_id, clearing_date, clearing_entry_year, clearing_entry_id, created_by)
+				SELECT $1, id, $3, '2026-07-15', 2026, entry, $4 FROM c
+			) INSERT INTO ledger.clearing_item (tenant_id, fiscal_year, journal_entry_id, line_no, clearing_id)
+			SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, c.id FROM l JOIN c ON c.batch = (l.n - 1) / 1000 WHERE l.n % 2 = 0`,
+			e.Tenant.ID, e.receivable, e.DE, e.Tenant.Human.ID)
+	}
 	exec(`RESET session_replication_role`)
-	exec(`ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms`)
-	path := "/v1/receivables-aging?legal_entity_id=" + e.DE.String() + "&key_date=2026-06-30&page_size=100"
+	exec(`ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms, ledger.clearing, ledger.clearing_item`)
+}
+
+// measureAging reads the aging on 30 June twenty times, the first page and
+// the second in turn, with the query's variant, and holds its p95 to the
+// budget.
+func measureAging(t *testing.T, e env, what, query string) {
+	t.Helper()
+	path := "/v1/receivables-aging?legal_entity_id=" + e.DE.String() + "&key_date=2026-06-30&page_size=100" + query
 	var times []time.Duration
 	next := ""
 	for i := range 20 {
@@ -75,8 +121,8 @@ func TestReceivablesAgingBudget(t *testing.T) {
 	}
 	slices.Sort(times)
 	p95 := times[len(times)*95/100]
-	t.Logf("AR aging over 100,000 open items of 2,000 customers, first and second page: median %v, p95 %v", times[len(times)/2], p95)
+	t.Logf("%s: median %v, p95 %v", what, times[len(times)/2], p95)
 	if budget := nfr.Budget(3 * time.Second); p95 > budget {
-		t.Fatalf("AR aging p95 %v exceeds the %v budget (3 s scaled by ERP_BUDGET_SCALE)", p95, budget)
+		t.Fatalf("%s: p95 %v exceeds the %v budget (3 s scaled by ERP_BUDGET_SCALE)", what, p95, budget)
 	}
 }

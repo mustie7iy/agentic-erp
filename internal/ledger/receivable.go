@@ -76,8 +76,17 @@ func (r ReceivableItem) NetDueDate() time.Time {
 // zone: a company's date (config.CompanyDay) or a key date a request
 // names.
 func (r ReceivableItem) DaysOverdue(on time.Time) int {
-	day := time.Date(on.Year(), on.Month(), on.Day(), 0, 0, 0, 0, time.UTC) // due dates are dates, read at midnight UTC
-	return max(int(day.Sub(r.NetDueDate()).Hours()/24), 0)
+	return DaysPast(on, r.NetDueDate())
+}
+
+// DaysPast is how many days the date on is past date, 0 when it is not:
+// only on's calendar date counts, as DaysOverdue counts it, and date is a
+// date read at midnight UTC (a due date, a document date). The AR aging
+// by document date (T75l) counts an item's days from its document date
+// with it.
+func DaysPast(on, date time.Time) int {
+	day := time.Date(on.Year(), on.Month(), on.Day(), 0, 0, 0, 0, time.UTC) // dates are read at midnight UTC
+	return max(int(day.Sub(date).Hours()/24), 0)
 }
 
 // Receivable returns the legal entity's open customer items, of the

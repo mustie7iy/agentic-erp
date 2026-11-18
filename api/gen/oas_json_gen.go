@@ -224574,6 +224574,14 @@ func (s *ReceivablesAging) encodeFields(e *jx.Encoder) {
 		json.EncodeDate(e, s.KeyDate)
 	}
 	{
+		e.FieldStart("open_on")
+		e.Str(s.OpenOn)
+	}
+	{
+		e.FieldStart("aging_basis")
+		e.Str(s.AgingBasis)
+	}
+	{
 		e.FieldStart("currency")
 		e.Str(s.Currency)
 	}
@@ -224605,16 +224613,18 @@ func (s *ReceivablesAging) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfReceivablesAging = [9]string{
-	0: "legal_entity_id",
-	1: "company_code",
-	2: "company_name",
-	3: "key_date",
-	4: "currency",
-	5: "aging_days",
-	6: "totals",
-	7: "items",
-	8: "next_page_token",
+var jsonFieldsNameOfReceivablesAging = [11]string{
+	0:  "legal_entity_id",
+	1:  "company_code",
+	2:  "company_name",
+	3:  "key_date",
+	4:  "open_on",
+	5:  "aging_basis",
+	6:  "currency",
+	7:  "aging_days",
+	8:  "totals",
+	9:  "items",
+	10: "next_page_token",
 }
 
 // Decode decodes ReceivablesAging from json.
@@ -224674,8 +224684,32 @@ func (s *ReceivablesAging) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"key_date\"")
 			}
-		case "currency":
+		case "open_on":
 			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.OpenOn = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"open_on\"")
+			}
+		case "aging_basis":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.AgingBasis = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"aging_basis\"")
+			}
+		case "currency":
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.Currency = string(v)
@@ -224687,7 +224721,7 @@ func (s *ReceivablesAging) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"currency\"")
 			}
 		case "aging_days":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				s.AgingDays = make([]int32, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -224707,7 +224741,7 @@ func (s *ReceivablesAging) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"aging_days\"")
 			}
 		case "totals":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				if err := s.Totals.Decode(d); err != nil {
 					return err
@@ -224717,7 +224751,7 @@ func (s *ReceivablesAging) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"totals\"")
 			}
 		case "items":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				s.Items = make([]ReceivablesAgingCustomer, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -224755,7 +224789,7 @@ func (s *ReceivablesAging) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000000,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
