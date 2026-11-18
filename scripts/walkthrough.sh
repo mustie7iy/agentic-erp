@@ -13741,6 +13741,56 @@ step_price_groups() {
   passed
 }
 
+# step_credit_limit_validity is T77c (ADR-0066, As built T77c): Ruth
+# plans the next review of Northwind's limit in a month and lets it end in
+# a year; the worklist by the review date lists it, by the day before it
+# does not. She ends the limit yesterday: on Maple's day it is not used,
+# so the exposure shows no limit, naming it all the same, and an amount
+# far above it is within; a validity starting after it ends is refused.
+# She opens its end again and the limit is used as before. The step
+# leaves the limit's amount as it found it.
+step_credit_limit_validity() {
+  heading "Step 130 — Credit limit validity and reviews: a limit's next review and end of validity set, the worklist of limits due by a day, a limit not used outside its validity on the company's day, a validity ending before it starts refused"
+  local customer=$CUSTOMER id day review end yesterday amount
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ruth
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  id=$(field '.items[0].id') amount=$(field '.items[0].limit.amount')
+  [ -n "$id" ] || fail "step 59's credit limit is not there"
+  day=$(company_day)
+  review=$(date_add "$day" 30) end=$(date_add "$day" 365) yesterday=$(date_add "$day" -1)
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth plans the next review of Northwind's limit for $review and lets the limit run until $end, a year from"
+  say "today; a limit is used on Maple's days within its validity, both ends included (T77c):"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), valid to \(.valid_to), next review \(.next_review_on)"' \
+    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"next_review_on\": \"$review\", \"valid_to\": \"$end\"}"
+  expect "the limit's dates" "$(field '"\(.limit.amount) \(.valid_from // "open") \(.valid_to) \(.next_review_on)"')" "$amount open $end $review"
+  say "Her worklist of limits due for review or expiring lists it by the review date, and not by the day before:"
+  api 200 '"due by '"$review"': \([.items[] | "\(.customer_number) \(.customer_name), review \(.next_review_on // "none"), valid to \(.valid_to // "open")"] | join("; "))"' \
+    listCreditLimits -p "legal_entity_id=$LE" -p "due_by=$review"
+  expect "Northwind on the worklist by its review date" "$(field "[.items[] | select(.id == \"$id\")] | length")" 1
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "due_by=$(date_add "$review" -1)"
+  expect "Northwind not on the worklist the day before" "$(field "[.items[] | select(.id == \"$id\")] | length")" 0
+  say "Northwind's agreement ended yesterday, so Ruth ends the limit on $yesterday. On Maple's day it is not used: the"
+  say "exposure shows no limit, naming the limit all the same, and the customer is treated as one without a limit:"
+  QUIET=1 api 200 '' updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"valid_to\": \"$yesterday\"}"
+  api 200 '"on \(.day): limit set: \(.has_limit) (credit limit \(.credit_limit_id)); 1000000.00 within: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=1000000.00
+  expect "no limit used outside its validity" "$(field '"\(.has_limit) \(.credit_limit_id) \(has("limit")) \(has("available")) \(.is_within_limit)"')" "false $id false false true"
+  expect_today "the day judged on" "$(field .day)" "$day"
+  say "A validity that starts after it ends is refused:"
+  refused 422 credit.invalid_validity updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"valid_from\": \"$day\"}"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth opens the limit's end again, and it is used once more:"
+  QUIET=1 api 200 '' updateCreditLimit -p "id=$id" -if-match "$ETAG" -body '{"valid_to": null}'
+  api 200 '"on \(.day): limit \(.limit.amount) \(.limit.currency), available \(.available.amount); within the limit: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the limit used again" "$(field '"\(.has_limit) \(.limit.amount)"')" "true $amount"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=credit.credit_limit -p "object_id=$id"
+  expect "the dates' changes audited" "$(field "[.items[] | select(.action == \"credit.credit_limit.change\" and .detail.valid_to_before == \"$yesterday\")] | length")" 1
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -15771,7 +15821,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_debit_memo step_memo_reversal step_price_scales step_price_groups step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_close'
 
 main() {
   stop_unseen

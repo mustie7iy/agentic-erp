@@ -29,8 +29,10 @@ func TestCreditPermissions(t *testing.T) {
 
 // TestCreditLimitRules (T77a, migration 000279; ADR-0066 §2): a credit
 // limit is an amount of zero or more in a known currency, one per
-// customer and company; a change sets its amount with its version and
-// who changed it, and nothing else of it; no limit is deleted.
+// customer and company; a change sets its amount, its validity (ending on
+// its first day or later) and its review date with its version and who
+// changed it, and nothing else of it; no limit is deleted (T77c,
+// migration 000390).
 func TestCreditLimitRules(t *testing.T) {
 	need(t)
 	const limit = `INSERT INTO credit.credit_limit (tenant_id, id, legal_entity_id, customer_id, customer_number, currency, amount, created_by, updated_by)
@@ -89,6 +91,16 @@ func TestCreditLimitRules(t *testing.T) {
 		{"the company changed", func(s scene) []stmt {
 			return []stmt{set(s), step(`UPDATE credit.credit_limit SET legal_entity_id = gen_random_uuid() WHERE id = $1`, s.limit)}
 		}, "permission denied"},
+		{"a validity and a review date set (T77c, 000390)", func(s scene) []stmt {
+			return []stmt{set(s), step(`UPDATE credit.credit_limit SET valid_from = '2027-01-01', valid_to = '2027-12-31', next_review_on = '2027-10-01',
+				version = version + 1, updated_by = $1 WHERE id = $2`, s.tenant, s.limit)}
+		}, ""},
+		{"a validity of one day", func(s scene) []stmt {
+			return []stmt{set(s), step(`UPDATE credit.credit_limit SET valid_from = '2027-01-01', valid_to = '2027-01-01', version = version + 1 WHERE id = $1`, s.limit)}
+		}, ""},
+		{"a validity ending before it starts", func(s scene) []stmt {
+			return []stmt{set(s), step(`UPDATE credit.credit_limit SET valid_from = '2027-01-02', valid_to = '2027-01-01', version = version + 1 WHERE id = $1`, s.limit)}
+		}, "credit_limit_validity_check"},
 		{"a limit deleted", func(s scene) []stmt {
 			return []stmt{set(s), step(`DELETE FROM credit.credit_limit`)}
 		}, "permission denied"},

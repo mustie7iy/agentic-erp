@@ -5035,7 +5035,9 @@ check a sales order's confirmation asks reads the limit's row
 `FOR UPDATE` under an advisory lock on the customer in the company,
 which setting a limit takes too, so two orders of one customer are
 checked one after the other (ADR-0066, As built T77b). T77b adds no table and no column
-here.
+here. T77c (migration 000390) gives a limit a validity and a next review
+date; the check uses a limit only on the company's days within its
+validity.
 
 ```mermaid
 erDiagram
@@ -5045,6 +5047,9 @@ erDiagram
     text customer_number "the partner's, fixed"
     char currency "the company's"
     bigint amount "in currency, 0 or more"
+    date valid_from "T77c, null: no start"
+    date valid_to "T77c, null: no end"
+    date next_review_on "T77c, null: none"
     int version }
 ```
 
@@ -5057,9 +5062,17 @@ erDiagram
   limits are listed (`credit_limit_by_customer_number`). A change sets
   the amount with the next version (`platform.touch`, which also moves
   `updated_at`): the application is granted the update of `amount`,
-  `version` and `updated_by` alone, so a limit's customer, company and
-  currency stay, and it is granted no delete. A customer without a row
-  has no limit and is not restricted; a limit of zero is a limit.
+  `valid_from`, `valid_to`, `next_review_on` (T77c), `version` and
+  `updated_by` alone, so a limit's customer, company and currency stay,
+  and it is granted no delete. A customer without a row has no limit and
+  is not restricted; a limit of zero is a limit. Its validity runs from
+  `valid_from` to `valid_to`, both included and either open
+  (`credit_limit_validity_check`: it ends on its first day or later); on
+  another of the company's days the customer is treated as one without a
+  limit. `next_review_on` is the day its next review is planned for: the
+  worklist (`GET /v1/credit-limits?due_by=`) lists the limits whose review
+  or end is due by a day, a filter of the tenant's few limits beside the
+  list's index, which needs no index of its own.
 - `credit.outbox`, `credit.inbox`: the context's events
   (`CreditLimitChanged`).
 - Permissions `credit.limit.read` (limits and the exposure) and

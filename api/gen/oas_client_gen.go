@@ -1490,8 +1490,12 @@ type Invoker interface {
 	//
 	// Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
 	// one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
-	// holds at once: there is no approval of it and no validity period. The customer is a business partner
-	// with the customer role and customer data in the company (422 `request.reference_not_found` naming
+	// holds at once: there is no approval of it. It may be given a validity, `valid_from` to `valid_to`,
+	// both included and either open (T77c): the credit check and `getCreditExposure` use it only on the
+	// company's days within it; a validity ending before it starts is refused (422
+	// `credit.invalid_validity`, naming `valid_to`). `next_review_on` plans its next review, which the
+	// worklist `listCreditLimits?due_by=` lists it by. The customer is a business partner with the
+	// customer role and customer data in the company (422 `request.reference_not_found` naming
 	// `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
 	// per company: a second is refused (409 `credit.limit_exists`), and the first is found with
 	// `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
@@ -3706,25 +3710,26 @@ type Invoker interface {
 	// yet posted as a customer invoice, at its net value plus the output tax its items' tax codes give on
 	// the order's date, converted into the company's currency at the average rate valid on the order's
 	// date when the order is in another; what is posted as an invoice counts as an open item from then on,
-	// never twice. `exposure` is the two together. With a credit limit set for the customer in the company
-	// (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when
-	// the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency;
-	// without it nothing is added. `is_within_limit` says whether the exposure and the amount together are
-	// no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit`
-	// and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks
-	// nothing: what a consumer does with the answer is its own; confirming a sales order makes the same
-	// check on the order's gross value and blocks the order when it is not within the limit
-	// (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read
-	// snapshot) and stores nothing. Any business partner can be asked about; one without open items or
-	// orders in the company has an exposure of zero. An open order whose value cannot be calculated
-	// refuses the read rather than being left out: one whose tax code is no longer an output tax code on
-	// the order's date (422 `sales.unknown_tax_code`), one in another currency without a rate into the
-	// company's on its date (422 `ledger.no_exchange_rate`), one too large for an amount (422
-	// `sales.amount_too_large`). An amount below zero is refused (422 `credit.invalid_amount`, naming
-	// `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`.
-	// Open items and orders that add up, alone or with the limit or the amount, to more than an amount
-	// holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is
-	// 404, as a business partner that does not exist.
+	// never twice. `exposure` is the two together. With a credit limit of the customer in the company that
+	// is valid on the company's day (`day`, in its time zone; T77c), `has_limit` is true, `limit` is the
+	// limit and `available` the limit less the exposure, negative when the exposure exceeds it. `amount`
+	// is an amount to check, zero or more, in the company's currency; without it nothing is added.
+	// `is_within_limit` says whether the exposure and the amount together are no more than the limit. A
+	// customer without a limit is not restricted: `has_limit` is false, `limit` and `available` are absent
+	// and `is_within_limit` is true; so is a customer whose limit is not valid on `day`, which
+	// `credit_limit_id` still names. The check changes nothing and blocks nothing: what a consumer does
+	// with the answer is its own; confirming a sales order makes the same check on the order's gross value
+	// and blocks the order when it is not within the limit (`confirmSalesOrder`). It is computed at the
+	// read from one database state (a repeatable-read snapshot) and stores nothing. Any business partner
+	// can be asked about; one without open items or orders in the company has an exposure of zero. An open
+	// order whose value cannot be calculated refuses the read rather than being left out: one whose tax
+	// code is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), one in
+	// another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`), one
+	// too large for an amount (422 `sales.amount_too_large`). An amount below zero is refused (422
+	// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
+	// is 400 `request.invalid_amount`. Open items and orders that add up, alone or with the limit or the
+	// amount, to more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity
+	// the caller cannot act in is 404, as a business partner that does not exist.
 	//
 	// GET /v1/credit-exposure
 	GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (GetCreditExposureRes, error)
@@ -5473,9 +5478,10 @@ type Invoker interface {
 	// ListCreditLimits invokes listCreditLimits operation.
 	//
 	// The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
-	// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the
-	// limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number`
-	// (default).
+	// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, the
+	// limit in the company's currency, its validity and its next review date. Filtered by company and
+	// customer, and by `due_by`, the worklist of limits due for review or expiring (T77c). Sortable by:
+	// `customer_number` (default).
 	//
 	// GET /v1/credit-limits
 	ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (ListCreditLimitsRes, error)
@@ -8585,14 +8591,16 @@ type Invoker interface {
 	UpdateCostCenter(ctx context.Context, request *CenterTextsUpdate, params UpdateCostCenterParams) (UpdateCostCenterRes, error)
 	// UpdateCreditLimit invokes updateCreditLimit operation.
 	//
-	// Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another
-	// change came first): the new limit holds at once, in the limit's currency, zero or more (422
-	// `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`).
-	// The customer, the company and the currency of a limit do not change. A change to the amount the
-	// limit already has is refused (422 `credit.nothing_to_change`). The audit record and
-	// CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field
-	// that changes. A limit of a company the caller may not act in is not found (404). Human-only
-	// (`x-agent: false`).
+	// Changes the amount, the validity or the next review date of a credit limit, with the caller's
+	// version of it (`If-Match`; 412 when another change came first): the change holds at once. The amount
+	// is in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`,
+	// `credit.invalid_amount` naming `limit.amount`); `valid_from`, `valid_to` and `next_review_on` are
+	// days, `null` clearing them (T77c), and a validity ending before it starts is refused (422
+	// `credit.invalid_validity`, naming `valid_to`). The customer, the company and the currency of a limit
+	// do not change. A change that leaves the limit as it is is refused (422 `credit.nothing_to_change`).
+	// The audit record carries what changed before and after, and CreditLimitChanged the limit after and
+	// its amount before. JSON Merge Patch (RFC 7396): absent fields stay. A limit of a company the caller
+	// may not act in is not found (404). Human-only (`x-agent: false`).
 	//
 	// PATCH /v1/credit-limits/{id}
 	UpdateCreditLimit(ctx context.Context, request *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (UpdateCreditLimitRes, error)
@@ -22587,8 +22595,12 @@ func (c *Client) sendCreateCostCenter(ctx context.Context, request *CostCenterCr
 //
 // Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
 // one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
-// holds at once: there is no approval of it and no validity period. The customer is a business partner
-// with the customer role and customer data in the company (422 `request.reference_not_found` naming
+// holds at once: there is no approval of it. It may be given a validity, `valid_from` to `valid_to`,
+// both included and either open (T77c): the credit check and `getCreditExposure` use it only on the
+// company's days within it; a validity ending before it starts is refused (422
+// `credit.invalid_validity`, naming `valid_to`). `next_review_on` plans its next review, which the
+// worklist `listCreditLimits?due_by=` lists it by. The customer is a business partner with the
+// customer role and customer data in the company (422 `request.reference_not_found` naming
 // `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
 // per company: a second is refused (409 `credit.limit_exists`), and the first is found with
 // `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
@@ -42981,25 +42993,26 @@ func (c *Client) sendGetCostCenter(ctx context.Context, params GetCostCenterPara
 // yet posted as a customer invoice, at its net value plus the output tax its items' tax codes give on
 // the order's date, converted into the company's currency at the average rate valid on the order's
 // date when the order is in another; what is posted as an invoice counts as an open item from then on,
-// never twice. `exposure` is the two together. With a credit limit set for the customer in the company
-// (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when
-// the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency;
-// without it nothing is added. `is_within_limit` says whether the exposure and the amount together are
-// no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit`
-// and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks
-// nothing: what a consumer does with the answer is its own; confirming a sales order makes the same
-// check on the order's gross value and blocks the order when it is not within the limit
-// (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read
-// snapshot) and stores nothing. Any business partner can be asked about; one without open items or
-// orders in the company has an exposure of zero. An open order whose value cannot be calculated
-// refuses the read rather than being left out: one whose tax code is no longer an output tax code on
-// the order's date (422 `sales.unknown_tax_code`), one in another currency without a rate into the
-// company's on its date (422 `ledger.no_exchange_rate`), one too large for an amount (422
-// `sales.amount_too_large`). An amount below zero is refused (422 `credit.invalid_amount`, naming
-// `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`.
-// Open items and orders that add up, alone or with the limit or the amount, to more than an amount
-// holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is
-// 404, as a business partner that does not exist.
+// never twice. `exposure` is the two together. With a credit limit of the customer in the company that
+// is valid on the company's day (`day`, in its time zone; T77c), `has_limit` is true, `limit` is the
+// limit and `available` the limit less the exposure, negative when the exposure exceeds it. `amount`
+// is an amount to check, zero or more, in the company's currency; without it nothing is added.
+// `is_within_limit` says whether the exposure and the amount together are no more than the limit. A
+// customer without a limit is not restricted: `has_limit` is false, `limit` and `available` are absent
+// and `is_within_limit` is true; so is a customer whose limit is not valid on `day`, which
+// `credit_limit_id` still names. The check changes nothing and blocks nothing: what a consumer does
+// with the answer is its own; confirming a sales order makes the same check on the order's gross value
+// and blocks the order when it is not within the limit (`confirmSalesOrder`). It is computed at the
+// read from one database state (a repeatable-read snapshot) and stores nothing. Any business partner
+// can be asked about; one without open items or orders in the company has an exposure of zero. An open
+// order whose value cannot be calculated refuses the read rather than being left out: one whose tax
+// code is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), one in
+// another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`), one
+// too large for an amount (422 `sales.amount_too_large`). An amount below zero is refused (422
+// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
+// is 400 `request.invalid_amount`. Open items and orders that add up, alone or with the limit or the
+// amount, to more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity
+// the caller cannot act in is 404, as a business partner that does not exist.
 //
 // GET /v1/credit-exposure
 func (c *Client) GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (GetCreditExposureRes, error) {
@@ -70430,9 +70443,10 @@ func (c *Client) sendListCountryPacks(ctx context.Context, params ListCountryPac
 // ListCreditLimits invokes listCreditLimits operation.
 //
 // The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
-// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the
-// limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number`
-// (default).
+// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, the
+// limit in the company's currency, its validity and its next review date. Filtered by company and
+// customer, and by `due_by`, the worklist of limits due for review or expiring (T77c). Sortable by:
+// `customer_number` (default).
 //
 // GET /v1/credit-limits
 func (c *Client) ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (ListCreditLimitsRes, error) {
@@ -70511,6 +70525,23 @@ func (c *Client) sendListCreditLimits(ctx context.Context, params ListCreditLimi
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.CustomerID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "due_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "due_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DueBy.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
 			}
 			return nil
 		}); err != nil {
@@ -116614,14 +116645,16 @@ func (c *Client) sendUpdateCostCenter(ctx context.Context, request *CenterTextsU
 
 // UpdateCreditLimit invokes updateCreditLimit operation.
 //
-// Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another
-// change came first): the new limit holds at once, in the limit's currency, zero or more (422
-// `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`).
-// The customer, the company and the currency of a limit do not change. A change to the amount the
-// limit already has is refused (422 `credit.nothing_to_change`). The audit record and
-// CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field
-// that changes. A limit of a company the caller may not act in is not found (404). Human-only
-// (`x-agent: false`).
+// Changes the amount, the validity or the next review date of a credit limit, with the caller's
+// version of it (`If-Match`; 412 when another change came first): the change holds at once. The amount
+// is in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`,
+// `credit.invalid_amount` naming `limit.amount`); `valid_from`, `valid_to` and `next_review_on` are
+// days, `null` clearing them (T77c), and a validity ending before it starts is refused (422
+// `credit.invalid_validity`, naming `valid_to`). The customer, the company and the currency of a limit
+// do not change. A change that leaves the limit as it is is refused (422 `credit.nothing_to_change`).
+// The audit record carries what changed before and after, and CreditLimitChanged the limit after and
+// its amount before. JSON Merge Patch (RFC 7396): absent fields stay. A limit of a company the caller
+// may not act in is not found (404). Human-only (`x-agent: false`).
 //
 // PATCH /v1/credit-limits/{id}
 func (c *Client) UpdateCreditLimit(ctx context.Context, request *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (UpdateCreditLimitRes, error) {

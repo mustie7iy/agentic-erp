@@ -92546,6 +92546,10 @@ func (s *CreditExposure) encodeFields(e *jx.Encoder) {
 		e.Str(s.Currency)
 	}
 	{
+		e.FieldStart("day")
+		json.EncodeDate(e, s.Day)
+	}
+	{
 		e.FieldStart("open_item_count")
 		e.Int32(s.OpenItemCount)
 	}
@@ -92599,7 +92603,7 @@ func (s *CreditExposure) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCreditExposure = [18]string{
+var jsonFieldsNameOfCreditExposure = [19]string{
 	0:  "legal_entity_id",
 	1:  "company_code",
 	2:  "company_name",
@@ -92607,17 +92611,18 @@ var jsonFieldsNameOfCreditExposure = [18]string{
 	4:  "customer_number",
 	5:  "customer_name",
 	6:  "currency",
-	7:  "open_item_count",
-	8:  "open_items",
-	9:  "open_order_count",
-	10: "open_orders",
-	11: "exposure",
-	12: "has_limit",
-	13: "credit_limit_id",
-	14: "limit",
-	15: "available",
-	16: "amount",
-	17: "is_within_limit",
+	7:  "day",
+	8:  "open_item_count",
+	9:  "open_items",
+	10: "open_order_count",
+	11: "open_orders",
+	12: "exposure",
+	13: "has_limit",
+	14: "credit_limit_id",
+	15: "limit",
+	16: "available",
+	17: "amount",
+	18: "is_within_limit",
 }
 
 // Decode decodes CreditExposure from json.
@@ -92713,8 +92718,20 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"currency\"")
 			}
-		case "open_item_count":
+		case "day":
 			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.Day = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"day\"")
+			}
+		case "open_item_count":
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int32()
 				s.OpenItemCount = int32(v)
@@ -92726,7 +92743,7 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"open_item_count\"")
 			}
 		case "open_items":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				if err := s.OpenItems.Decode(d); err != nil {
 					return err
@@ -92736,7 +92753,7 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"open_items\"")
 			}
 		case "open_order_count":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := d.Int32()
 				s.OpenOrderCount = int32(v)
@@ -92748,7 +92765,7 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"open_order_count\"")
 			}
 		case "open_orders":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				if err := s.OpenOrders.Decode(d); err != nil {
 					return err
@@ -92758,7 +92775,7 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"open_orders\"")
 			}
 		case "exposure":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				if err := s.Exposure.Decode(d); err != nil {
 					return err
@@ -92768,7 +92785,7 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"exposure\"")
 			}
 		case "has_limit":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Bool()
 				s.HasLimit = bool(v)
@@ -92820,7 +92837,7 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
 		case "is_within_limit":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := d.Bool()
 				s.IsWithinLimit = bool(v)
@@ -92842,8 +92859,8 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11111111,
-		0b00011111,
-		0b00000010,
+		0b00111111,
+		0b00000100,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -96099,9 +96116,27 @@ func (s *CustomerCreditLimit) encodeFields(e *jx.Encoder) {
 		e.FieldStart("limit")
 		s.Limit.Encode(e)
 	}
+	{
+		if s.ValidFrom.Set {
+			e.FieldStart("valid_from")
+			s.ValidFrom.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.ValidTo.Set {
+			e.FieldStart("valid_to")
+			s.ValidTo.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.NextReviewOn.Set {
+			e.FieldStart("next_review_on")
+			s.NextReviewOn.Encode(e, json.EncodeDate)
+		}
+	}
 }
 
-var jsonFieldsNameOfCustomerCreditLimit = [13]string{
+var jsonFieldsNameOfCustomerCreditLimit = [16]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -96115,6 +96150,9 @@ var jsonFieldsNameOfCustomerCreditLimit = [13]string{
 	10: "customer_number",
 	11: "customer_name",
 	12: "limit",
+	13: "valid_from",
+	14: "valid_to",
+	15: "next_review_on",
 }
 
 // Decode decodes CustomerCreditLimit from json.
@@ -96278,6 +96316,36 @@ func (s *CustomerCreditLimit) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"limit\"")
 			}
+		case "valid_from":
+			if err := func() error {
+				s.ValidFrom.Reset()
+				if err := s.ValidFrom.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_from\"")
+			}
+		case "valid_to":
+			if err := func() error {
+				s.ValidTo.Reset()
+				if err := s.ValidTo.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_to\"")
+			}
+		case "next_review_on":
+			if err := func() error {
+				s.NextReviewOn.Reset()
+				if err := s.NextReviewOn.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_review_on\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -96356,12 +96424,33 @@ func (s *CustomerCreditLimitCreate) encodeFields(e *jx.Encoder) {
 		e.FieldStart("limit")
 		s.Limit.Encode(e)
 	}
+	{
+		if s.ValidFrom.Set {
+			e.FieldStart("valid_from")
+			s.ValidFrom.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.ValidTo.Set {
+			e.FieldStart("valid_to")
+			s.ValidTo.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.NextReviewOn.Set {
+			e.FieldStart("next_review_on")
+			s.NextReviewOn.Encode(e, json.EncodeDate)
+		}
+	}
 }
 
-var jsonFieldsNameOfCustomerCreditLimitCreate = [3]string{
+var jsonFieldsNameOfCustomerCreditLimitCreate = [6]string{
 	0: "legal_entity_id",
 	1: "customer_id",
 	2: "limit",
+	3: "valid_from",
+	4: "valid_to",
+	5: "next_review_on",
 }
 
 // Decode decodes CustomerCreditLimitCreate from json.
@@ -96406,6 +96495,36 @@ func (s *CustomerCreditLimitCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"limit\"")
+			}
+		case "valid_from":
+			if err := func() error {
+				s.ValidFrom.Reset()
+				if err := s.ValidFrom.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_from\"")
+			}
+		case "valid_to":
+			if err := func() error {
+				s.ValidTo.Reset()
+				if err := s.ValidTo.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_to\"")
+			}
+		case "next_review_on":
+			if err := func() error {
+				s.NextReviewOn.Reset()
+				if err := s.NextReviewOn.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_review_on\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -96596,13 +96715,36 @@ func (s *CustomerCreditLimitUpdate) Encode(e *jx.Encoder) {
 // encodeFields encodes fields.
 func (s *CustomerCreditLimitUpdate) encodeFields(e *jx.Encoder) {
 	{
-		e.FieldStart("limit")
-		s.Limit.Encode(e)
+		if s.Limit.Set {
+			e.FieldStart("limit")
+			s.Limit.Encode(e)
+		}
+	}
+	{
+		if s.ValidFrom.Set {
+			e.FieldStart("valid_from")
+			s.ValidFrom.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.ValidTo.Set {
+			e.FieldStart("valid_to")
+			s.ValidTo.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.NextReviewOn.Set {
+			e.FieldStart("next_review_on")
+			s.NextReviewOn.Encode(e, json.EncodeDate)
+		}
 	}
 }
 
-var jsonFieldsNameOfCustomerCreditLimitUpdate = [1]string{
+var jsonFieldsNameOfCustomerCreditLimitUpdate = [4]string{
 	0: "limit",
+	1: "valid_from",
+	2: "valid_to",
+	3: "next_review_on",
 }
 
 // Decode decodes CustomerCreditLimitUpdate from json.
@@ -96610,19 +96752,50 @@ func (s *CustomerCreditLimitUpdate) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode CustomerCreditLimitUpdate to nil")
 	}
-	var requiredBitSet [1]uint8
+	var propertiesCount int
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		propertiesCount++
 		switch string(k) {
 		case "limit":
-			requiredBitSet[0] |= 1 << 0
 			if err := func() error {
+				s.Limit.Reset()
 				if err := s.Limit.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"limit\"")
+			}
+		case "valid_from":
+			if err := func() error {
+				s.ValidFrom.Reset()
+				if err := s.ValidFrom.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_from\"")
+			}
+		case "valid_to":
+			if err := func() error {
+				s.ValidTo.Reset()
+				if err := s.ValidTo.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_to\"")
+			}
+		case "next_review_on":
+			if err := func() error {
+				s.NextReviewOn.Reset()
+				if err := s.NextReviewOn.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_review_on\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -96631,37 +96804,14 @@ func (s *CustomerCreditLimitUpdate) Decode(d *jx.Decoder) error {
 	}); err != nil {
 		return errors.Wrap(err, "decode CustomerCreditLimitUpdate")
 	}
-	// Validate required fields.
-	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b00000001,
-	} {
-		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
-			// Mask only required fields and check equality to mask using XOR.
-			//
-			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
-			// Bits of fields which would be set are actually bits of missed fields.
-			missed := bits.OnesCount8(result)
-			for bitN := 0; bitN < missed; bitN++ {
-				bitIdx := bits.TrailingZeros8(result)
-				fieldIdx := i*8 + bitIdx
-				var name string
-				if fieldIdx < len(jsonFieldsNameOfCustomerCreditLimitUpdate) {
-					name = jsonFieldsNameOfCustomerCreditLimitUpdate[fieldIdx]
-				} else {
-					name = strconv.Itoa(fieldIdx)
-				}
-				failures = append(failures, validate.FieldError{
-					Name:  name,
-					Error: validate.ErrFieldRequired,
-				})
-				// Reset bit.
-				result &^= 1 << bitIdx
-			}
-		}
-	}
-	if len(failures) > 0 {
-		return &validate.Error{Fields: failures}
+	// Validate properties count.
+	if err := (validate.Object{
+		MinProperties:    1,
+		MinPropertiesSet: true,
+		MaxProperties:    0,
+		MaxPropertiesSet: false,
+	}).ValidateProperties(propertiesCount); err != nil {
+		return errors.Wrap(err, "object")
 	}
 
 	return nil

@@ -20568,7 +20568,7 @@ paths:
       tags:
         - credit
       summary: Get a customer's credit exposure and check an amount against its limit
-      description: "A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066 §3-§4, T77a, T77b). The exposure has two parts, each given beside their sum. `open_items` is what the customer's open items add up to: the items open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, in the company's currency as they were booked; credit items (a credit memo, a payment on account) reduce it, so it is negative when the customer's credits exceed what it owes. `open_orders` is the value of the customer's confirmed sales orders not yet billed: of each order of the company that is confirmed and not blocked for credit, the part not yet posted as a customer invoice, at its net value plus the output tax its items' tax codes give on the order's date, converted into the company's currency at the average rate valid on the order's date when the order is in another; what is posted as an invoice counts as an open item from then on, never twice. `exposure` is the two together. With a credit limit set for the customer in the company (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it nothing is added. `is_within_limit` says whether the exposure and the amount together are no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing: what a consumer does with the answer is its own; confirming a sales order makes the same check on the order's gross value and blocks the order when it is not within the limit (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one without open items or orders in the company has an exposure of zero. An open order whose value cannot be calculated refuses the read rather than being left out: one whose tax code is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), one in another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`), one too large for an amount (422 `sales.amount_too_large`). An amount below zero is refused (422 `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`. Open items and orders that add up, alone or with the limit or the amount, to more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is 404, as a business partner that does not exist."
+      description: "A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066 §3-§4, T77a, T77b). The exposure has two parts, each given beside their sum. `open_items` is what the customer's open items add up to: the items open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, in the company's currency as they were booked; credit items (a credit memo, a payment on account) reduce it, so it is negative when the customer's credits exceed what it owes. `open_orders` is the value of the customer's confirmed sales orders not yet billed: of each order of the company that is confirmed and not blocked for credit, the part not yet posted as a customer invoice, at its net value plus the output tax its items' tax codes give on the order's date, converted into the company's currency at the average rate valid on the order's date when the order is in another; what is posted as an invoice counts as an open item from then on, never twice. `exposure` is the two together. With a credit limit of the customer in the company that is valid on the company's day (`day`, in its time zone; T77c), `has_limit` is true, `limit` is the limit and `available` the limit less the exposure, negative when the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it nothing is added. `is_within_limit` says whether the exposure and the amount together are no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and `available` are absent and `is_within_limit` is true; so is a customer whose limit is not valid on `day`, which `credit_limit_id` still names. The check changes nothing and blocks nothing: what a consumer does with the answer is its own; confirming a sales order makes the same check on the order's gross value and blocks the order when it is not within the limit (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one without open items or orders in the company has an exposure of zero. An open order whose value cannot be calculated refuses the read rather than being left out: one whose tax code is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), one in another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`), one too large for an amount (422 `sales.amount_too_large`). An amount below zero is refused (422 `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`. Open items and orders that add up, alone or with the limit or the amount, to more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is 404, as a business partner that does not exist."
       x-permission: credit.limit.read
       x-snapshot: true
       x-problem-codes:
@@ -20627,7 +20627,7 @@ paths:
       tags:
         - credit
       summary: List credit limits
-      description: "The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number` (default)."
+      description: "The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as `getCreditLimit` gives it: with its company's code and name, its customer's number and name, the limit in the company's currency, its validity and its next review date. Filtered by company and customer, and by `due_by`, the worklist of limits due for review or expiring (T77c). Sortable by: `customer_number` (default)."
       x-permission: credit.limit.read
       x-problem-codes:
         - request.invalid_order_by
@@ -20642,6 +20642,13 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: due_by
+          in: query
+          required: false
+          description: "The worklist (T77c): only the limits whose next review date (`next_review_on`) or end of validity (`valid_to`) is on or before this day, those already past it included."
+          schema:
+            type: string
+            format: date
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -20665,13 +20672,14 @@ paths:
       tags:
         - credit
       summary: Set a customer's credit limit
-      description: "Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it, one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit holds at once: there is no approval of it and no validity period. The customer is a business partner with the customer role and customer data in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit per company: a second is refused (409 `credit.limit_exists`), and the first is found with `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`). Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount against. An audit record and CreditLimitChanged are written with it. A retry with the same `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`)."
+      description: "Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it, one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit holds at once: there is no approval of it. It may be given a validity, `valid_from` to `valid_to`, both included and either open (T77c): the credit check and `getCreditExposure` use it only on the company's days within it; a validity ending before it starts is refused (422 `credit.invalid_validity`, naming `valid_to`). `next_review_on` plans its next review, which the worklist `listCreditLimits?due_by=` lists it by. The customer is a business partner with the customer role and customer data in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit per company: a second is refused (409 `credit.limit_exists`), and the first is found with `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`). Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount against. An audit record and CreditLimitChanged are written with it. A retry with the same `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`)."
       x-permission: credit.limit.write
       x-agent: false
       x-problem-codes:
         - credit.currency_mismatch
         - credit.customer_not_set_up
         - credit.invalid_amount
+        - credit.invalid_validity
         - credit.limit_exists
         - request.invalid_amount
       parameters:
@@ -20690,6 +20698,15 @@ paths:
                   legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
                   customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
                   limit: {amount: "5000.00", currency: CAD}
+              limit_for_a_year:
+                summary: A limit valid for the year, reviewed in the autumn
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  limit: {amount: "5000.00", currency: CAD}
+                  valid_from: "2027-01-01"
+                  valid_to: "2027-12-31"
+                  next_review_on: "2027-10-01"
       responses:
         "201":
           description: "Created; the credit limit."
@@ -20754,12 +20771,13 @@ paths:
       tags:
         - credit
       summary: Change a credit limit
-      description: "Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another change came first): the new limit holds at once, in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`). The customer, the company and the currency of a limit do not change. A change to the amount the limit already has is refused (422 `credit.nothing_to_change`). The audit record and CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field that changes. A limit of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      description: "Changes the amount, the validity or the next review date of a credit limit, with the caller's version of it (`If-Match`; 412 when another change came first): the change holds at once. The amount is in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`); `valid_from`, `valid_to` and `next_review_on` are days, `null` clearing them (T77c), and a validity ending before it starts is refused (422 `credit.invalid_validity`, naming `valid_to`). The customer, the company and the currency of a limit do not change. A change that leaves the limit as it is is refused (422 `credit.nothing_to_change`). The audit record carries what changed before and after, and CreditLimitChanged the limit after and its amount before. JSON Merge Patch (RFC 7396): absent fields stay. A limit of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
       x-permission: credit.limit.write
       x-agent: false
       x-problem-codes:
         - credit.currency_mismatch
         - credit.invalid_amount
+        - credit.invalid_validity
         - credit.limit_exists
         - credit.nothing_to_change
         - request.invalid_amount
@@ -59453,15 +59471,23 @@ components:
         legal_entity_id: {type: string, format: uuid, description: "The company the limit holds in: a legal entity the caller may act in."}
         customer_id: {type: string, format: uuid, description: "The customer: a business partner with the customer role and customer data in the company."}
         limit: {$ref: "#/components/schemas/Money", description: "The most the customer may owe the company, in the company's currency; zero or more."}
+        valid_from: {type: string, format: date, description: "The company's first day the limit is used on (T77c). Absent: used from the start."}
+        valid_to: {type: string, format: date, description: "The company's last day the limit is used on, `valid_from` or later (422 `credit.invalid_validity`). Absent: no end."}
+        next_review_on: {type: string, format: date, description: "The day the limit's next review is planned for, which the worklist lists it by (`listCreditLimits?due_by=`). Absent: none is planned."}
     CustomerCreditLimitUpdate:
       type: object
-      description: "Merge patch of a credit limit: its amount."
-      required: [limit]
+      description: "Merge patch of a credit limit: its amount, its validity or its next review date; what is absent stays."
+      minProperties: 1
       additionalProperties: false
       properties:
         limit: {$ref: "#/components/schemas/Money", description: "The new limit, in the limit's currency; zero or more."}
+        valid_from: {type: [string, "null"], format: date, description: "The company's first day the limit is used on; `null`: from the start."}
+        valid_to: {type: [string, "null"], format: date, description: "The company's last day the limit is used on, `valid_from` or later; `null`: no end."}
+        next_review_on: {type: [string, "null"], format: date, description: "The day the next review is planned for; `null`: none."}
       examples:
         - limit: {amount: "7500.00", currency: CAD}
+        - next_review_on: "2027-04-01"
+          valid_to: "2027-06-30"
     CustomerCreditLimit:
       description: "A customer's credit limit in a company (credit, ADR-0066 §2): the most the customer may owe it."
       allOf:
@@ -59476,6 +59502,9 @@ components:
             customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
             customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
             limit: {$ref: "#/components/schemas/Money", description: "The limit, in the company's currency."}
+            valid_from: {type: string, format: date, description: "The company's first day the limit is used on (T77c); absent: from the start.", readOnly: true}
+            valid_to: {type: string, format: date, description: "The company's last day the limit is used on; absent: no end. On another day the customer is treated as one without a limit.", readOnly: true}
+            next_review_on: {type: string, format: date, description: "The day the limit's next review is planned for; absent: none is planned.", readOnly: true}
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
           version: 1
@@ -59490,6 +59519,8 @@ components:
           customer_number: BP100042
           customer_name: Northwind Traders
           limit: {amount: "5000.00", currency: CAD}
+          valid_to: "2027-12-31"
+          next_review_on: "2027-10-01"
     CustomerCreditLimitPage:
       type: object
       description: One page of credit limits.
@@ -59503,7 +59534,7 @@ components:
     CreditExposure:
       type: object
       description: "A customer's credit exposure in a company and the check of an amount against its credit limit (credit, ADR-0066 §3-§4). Every amount is in the company's currency."
-      required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, currency, open_item_count, open_items, open_order_count, open_orders, exposure, has_limit, is_within_limit]
+      required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, currency, day, open_item_count, open_items, open_order_count, open_orders, exposure, has_limit, is_within_limit]
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
         company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -59512,15 +59543,16 @@ components:
         customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
         customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
         currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of every amount.", readOnly: true}
+        day: {type: string, format: date, description: "The company's day, in its time zone, that the limit's validity is judged on (T77c): today.", readOnly: true}
         open_item_count: {type: integer, format: int32, minimum: 0, description: "The customer's open items in the company (`GET /v1/open-items?legal_entity_id=&partner_id=`), which `open_items` adds up.", readOnly: true}
         open_items: {$ref: "#/components/schemas/Money", description: "What the customer's open items add up to, as they were booked, credit items netted; negative when its credits exceed what it owes."}
         open_order_count: {type: integer, format: int32, minimum: 0, description: "The customer's confirmed sales orders in the company with a part not yet billed (`GET /v1/sales-orders?legal_entity_id=&customer_id=&status=confirmed`), those blocked for credit left out, which `open_orders` adds up.", readOnly: true}
         open_orders: {$ref: "#/components/schemas/Money", description: "The value of the customer's confirmed sales orders not yet billed: of each order that is not blocked for credit, the part not yet posted as a customer invoice, net plus the output tax on the order's date, in the company's currency (an order in another currency at the average rate valid on its date)."}
         exposure: {$ref: "#/components/schemas/Money", description: "The exposure: `open_items` and `open_orders` together; negative when the customer's credits exceed what it owes and has ordered."}
-        has_limit: {type: boolean, description: "Whether a credit limit is set for the customer in the company. False: no limit is set, and the customer is not restricted.", readOnly: true}
-        credit_limit_id: {type: string, format: uuid, description: "The credit limit (`GET /v1/credit-limits/{id}`); absent when none is set.", readOnly: true}
-        limit: {$ref: "#/components/schemas/Money", description: "The credit limit; absent when none is set."}
-        available: {$ref: "#/components/schemas/Money", description: "The limit less the exposure: what the customer may still come to owe; negative when the exposure exceeds the limit. Absent when no limit is set."}
+        has_limit: {type: boolean, description: "Whether the customer has a credit limit in the company that is valid on `day`. False: none is, and the customer is not restricted.", readOnly: true}
+        credit_limit_id: {type: string, format: uuid, description: "The customer's credit limit in the company (`GET /v1/credit-limits/{id}`), valid on `day` or not; absent when none is set.", readOnly: true}
+        limit: {$ref: "#/components/schemas/Money", description: "The credit limit; absent when none is valid on `day`."}
+        available: {$ref: "#/components/schemas/Money", description: "The limit less the exposure: what the customer may still come to owe; negative when the exposure exceeds the limit. Absent when no limit is valid on `day`."}
         amount: {$ref: "#/components/schemas/Money", description: "The amount checked, as the request gave it; absent when it gave none."}
         is_within_limit: {type: boolean, description: "Whether the exposure and the amount checked together are no more than the limit; the exposure alone when no amount was given. Always true when no limit is set.", readOnly: true}
       examples:
@@ -59531,6 +59563,7 @@ components:
           customer_number: BP100042
           customer_name: Northwind Traders
           currency: CAD
+          day: "2026-11-18"
           open_item_count: 2
           open_items: {amount: "1470.00", currency: CAD}
           open_order_count: 1

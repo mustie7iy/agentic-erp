@@ -206,7 +206,8 @@ func TestCheckHoldsTheCustomer(t *testing.T) {
 		var id uuid.UUID
 		pgtest.Scan(t, `SELECT id FROM credit.credit_limit WHERE tenant_id = $1 AND customer_id = $2`, []any{e.Tenant.ID, e.north}, &id)
 		change := func(ctx context.Context) error {
-			_, err := h.ChangeLimit(ctx, id, func(int32) error { return nil }, "600.00", "EUR")
+			raised := "600.00"
+			_, err := h.ChangeLimit(ctx, id, func(int32) error { return nil }, credit.LimitChange{Amount: &raised, Currency: "EUR"})
 			return err
 		}
 		checked, changed := apitest.Serialized(t, e.Tenant, e.Tenant.Human, check, change)

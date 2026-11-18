@@ -35770,6 +35770,8 @@ type CreditExposure struct {
 	CustomerName string `json:"customer_name"`
 	// The company's currency (ISO 4217), the currency of every amount.
 	Currency string `json:"currency"`
+	// The company's day, in its time zone, that the limit's validity is judged on (T77c): today.
+	Day time.Time `json:"day"`
 	// The customer's open items in the company (`GET /v1/open-items?legal_entity_id=&partner_id=`), which
 	// `open_items` adds up.
 	OpenItemCount int32 `json:"open_item_count"`
@@ -35788,15 +35790,16 @@ type CreditExposure struct {
 	// The exposure: `open_items` and `open_orders` together; negative when the customer's credits exceed
 	// what it owes and has ordered.
 	Exposure Money `json:"exposure"`
-	// Whether a credit limit is set for the customer in the company. False: no limit is set, and the
-	// customer is not restricted.
+	// Whether the customer has a credit limit in the company that is valid on `day`. False: none is, and
+	// the customer is not restricted.
 	HasLimit bool `json:"has_limit"`
-	// The credit limit (`GET /v1/credit-limits/{id}`); absent when none is set.
+	// The customer's credit limit in the company (`GET /v1/credit-limits/{id}`), valid on `day` or not;
+	// absent when none is set.
 	CreditLimitID OptUUID `json:"credit_limit_id"`
-	// The credit limit; absent when none is set.
+	// The credit limit; absent when none is valid on `day`.
 	Limit OptMoney `json:"limit"`
 	// The limit less the exposure: what the customer may still come to owe; negative when the exposure
-	// exceeds the limit. Absent when no limit is set.
+	// exceeds the limit. Absent when no limit is valid on `day`.
 	Available OptMoney `json:"available"`
 	// The amount checked, as the request gave it; absent when it gave none.
 	Amount OptMoney `json:"amount"`
@@ -35838,6 +35841,11 @@ func (s *CreditExposure) GetCustomerName() string {
 // GetCurrency returns the value of Currency.
 func (s *CreditExposure) GetCurrency() string {
 	return s.Currency
+}
+
+// GetDay returns the value of Day.
+func (s *CreditExposure) GetDay() time.Time {
+	return s.Day
 }
 
 // GetOpenItemCount returns the value of OpenItemCount.
@@ -35928,6 +35936,11 @@ func (s *CreditExposure) SetCustomerName(val string) {
 // SetCurrency sets the value of Currency.
 func (s *CreditExposure) SetCurrency(val string) {
 	s.Currency = val
+}
+
+// SetDay sets the value of Day.
+func (s *CreditExposure) SetDay(val time.Time) {
+	s.Day = val
 }
 
 // SetOpenItemCount sets the value of OpenItemCount.
@@ -37604,6 +37617,13 @@ type CustomerCreditLimit struct {
 	CustomerName string `json:"customer_name"`
 	// The limit, in the company's currency.
 	Limit Money `json:"limit"`
+	// The company's first day the limit is used on (T77c); absent: from the start.
+	ValidFrom OptDate `json:"valid_from"`
+	// The company's last day the limit is used on; absent: no end. On another day the customer is treated
+	// as one without a limit.
+	ValidTo OptDate `json:"valid_to"`
+	// The day the limit's next review is planned for; absent: none is planned.
+	NextReviewOn OptDate `json:"next_review_on"`
 }
 
 // GetID returns the value of ID.
@@ -37671,6 +37691,21 @@ func (s *CustomerCreditLimit) GetLimit() Money {
 	return s.Limit
 }
 
+// GetValidFrom returns the value of ValidFrom.
+func (s *CustomerCreditLimit) GetValidFrom() OptDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CustomerCreditLimit) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetNextReviewOn returns the value of NextReviewOn.
+func (s *CustomerCreditLimit) GetNextReviewOn() OptDate {
+	return s.NextReviewOn
+}
+
 // SetID sets the value of ID.
 func (s *CustomerCreditLimit) SetID(val uuid.UUID) {
 	s.ID = val
@@ -37736,6 +37771,21 @@ func (s *CustomerCreditLimit) SetLimit(val Money) {
 	s.Limit = val
 }
 
+// SetValidFrom sets the value of ValidFrom.
+func (s *CustomerCreditLimit) SetValidFrom(val OptDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CustomerCreditLimit) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetNextReviewOn sets the value of NextReviewOn.
+func (s *CustomerCreditLimit) SetNextReviewOn(val OptDate) {
+	s.NextReviewOn = val
+}
+
 // Set a customer's credit limit in a company.
 // Ref: #/components/schemas/CustomerCreditLimitCreate
 type CustomerCreditLimitCreate struct {
@@ -37745,6 +37795,14 @@ type CustomerCreditLimitCreate struct {
 	CustomerID uuid.UUID `json:"customer_id"`
 	// The most the customer may owe the company, in the company's currency; zero or more.
 	Limit Money `json:"limit"`
+	// The company's first day the limit is used on (T77c). Absent: used from the start.
+	ValidFrom OptDate `json:"valid_from"`
+	// The company's last day the limit is used on, `valid_from` or later (422 `credit.invalid_validity`).
+	// Absent: no end.
+	ValidTo OptDate `json:"valid_to"`
+	// The day the limit's next review is planned for, which the worklist lists it by
+	// (`listCreditLimits?due_by=`). Absent: none is planned.
+	NextReviewOn OptDate `json:"next_review_on"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -37762,6 +37820,21 @@ func (s *CustomerCreditLimitCreate) GetLimit() Money {
 	return s.Limit
 }
 
+// GetValidFrom returns the value of ValidFrom.
+func (s *CustomerCreditLimitCreate) GetValidFrom() OptDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CustomerCreditLimitCreate) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetNextReviewOn returns the value of NextReviewOn.
+func (s *CustomerCreditLimitCreate) GetNextReviewOn() OptDate {
+	return s.NextReviewOn
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *CustomerCreditLimitCreate) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -37775,6 +37848,21 @@ func (s *CustomerCreditLimitCreate) SetCustomerID(val uuid.UUID) {
 // SetLimit sets the value of Limit.
 func (s *CustomerCreditLimitCreate) SetLimit(val Money) {
 	s.Limit = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CustomerCreditLimitCreate) SetValidFrom(val OptDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CustomerCreditLimitCreate) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetNextReviewOn sets the value of NextReviewOn.
+func (s *CustomerCreditLimitCreate) SetNextReviewOn(val OptDate) {
+	s.NextReviewOn = val
 }
 
 // CustomerCreditLimitHeaders wraps CustomerCreditLimit with response headers.
@@ -37858,21 +37946,58 @@ func (s *CustomerCreditLimitPage) SetNextPageToken(val OptString) {
 
 func (*CustomerCreditLimitPage) listCreditLimitsRes() {}
 
-// Merge patch of a credit limit: its amount.
+// Merge patch of a credit limit: its amount, its validity or its next review date; what is absent
+// stays.
 // Ref: #/components/schemas/CustomerCreditLimitUpdate
 type CustomerCreditLimitUpdate struct {
 	// The new limit, in the limit's currency; zero or more.
-	Limit Money `json:"limit"`
+	Limit OptMoney `json:"limit"`
+	// The company's first day the limit is used on; `null`: from the start.
+	ValidFrom OptNilDate `json:"valid_from"`
+	// The company's last day the limit is used on, `valid_from` or later; `null`: no end.
+	ValidTo OptNilDate `json:"valid_to"`
+	// The day the next review is planned for; `null`: none.
+	NextReviewOn OptNilDate `json:"next_review_on"`
 }
 
 // GetLimit returns the value of Limit.
-func (s *CustomerCreditLimitUpdate) GetLimit() Money {
+func (s *CustomerCreditLimitUpdate) GetLimit() OptMoney {
 	return s.Limit
 }
 
+// GetValidFrom returns the value of ValidFrom.
+func (s *CustomerCreditLimitUpdate) GetValidFrom() OptNilDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CustomerCreditLimitUpdate) GetValidTo() OptNilDate {
+	return s.ValidTo
+}
+
+// GetNextReviewOn returns the value of NextReviewOn.
+func (s *CustomerCreditLimitUpdate) GetNextReviewOn() OptNilDate {
+	return s.NextReviewOn
+}
+
 // SetLimit sets the value of Limit.
-func (s *CustomerCreditLimitUpdate) SetLimit(val Money) {
+func (s *CustomerCreditLimitUpdate) SetLimit(val OptMoney) {
 	s.Limit = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CustomerCreditLimitUpdate) SetValidFrom(val OptNilDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CustomerCreditLimitUpdate) SetValidTo(val OptNilDate) {
+	s.ValidTo = val
+}
+
+// SetNextReviewOn sets the value of NextReviewOn.
+func (s *CustomerCreditLimitUpdate) SetNextReviewOn(val OptNilDate) {
+	s.NextReviewOn = val
 }
 
 // Merged schema.

@@ -396,3 +396,57 @@ The check that blocked nothing now blocks a sales order
   when an order changes, automatic release on payment, rejecting a
   blocked order, a worklist of blocked orders, approval of a release
   above an amount, group limits, risk classes.
+
+### T77c Credit limit validity and reviews (migration 000390)
+
+A limit gains a validity and a next review date
+(`docs/design/plan-depth-3.md` §T77c); §2's "no validity period and no
+review date" reads with these changes. Decided by default, from SAP
+S/4HANA credit management's shape (a limit with a "valid to" date and a
+date of its next check; stated from memory) and the ADRs:
+
+- **Validity.** `valid_from` and `valid_to`, the company's first and last
+  day the limit is used on, both included and either open (`null`: no
+  start, no end). Every limit set before has both open, which is what the
+  migration's nullable columns give it. A validity ending before it
+  starts is refused (422 `credit.invalid_validity` naming `valid_to`;
+  `credit_limit_validity_check`). The dates are set with the limit and
+  changed by its merge patch, `null` clearing one; `limit` is no longer
+  required in the patch, which needs one field at least.
+- **Judged on the company's day.** The check at an order's confirmation
+  (`Check`) and `GET /v1/credit-exposure` use a limit only when the
+  company's day, in its time zone (`config.EntityDay` /
+  `config.DocumentDay` with the context's clock), is within its
+  validity. The exposure gives that day as `day`. The check reads the day
+  only for a customer with a limit, after the customer's key and the
+  limit's row are held, as before.
+- **No valid limit is no limit.** Outside its validity the customer is
+  treated as one without a limit: not restricted, `has_limit` false, no
+  `limit` and no `available`, `is_within_limit` true (ADR-0066 §4's rule
+  for a customer without a limit, which is the tenant's rule: no company
+  setting changes it). `credit_limit_id` names the limit all the same, so
+  a consumer knows a limit exists. Listed for the product owner: an
+  expired limit then restricts nothing, as no limit does, rather than
+  reading as zero.
+- **Reviews.** `next_review_on` is the day the limit's next review is
+  planned for; a review is recorded by changing the limit (its amount or
+  dates), the new review date with it. The worklist is
+  `GET /v1/credit-limits?due_by=`: the limits whose next review or end of
+  validity is on or before the day, those already past it included, by
+  customer number as the list is. No index: it filters the tenant's
+  limits, one per customer and company, beside the list's index by
+  customer number, and is no report read (no budget test, as T77a's
+  list).
+- **Records.** The audit records carry the dates after and, for a
+  change, before (`valid_from_before`, `valid_to_before`,
+  `next_review_on_before`); `CreditLimitChanged` carries the dates after
+  and is published for a change of the dates alone too.
+- **Imports.** `credit` reads the configuration for the company's time
+  zone alone (`Endpoints.Settings`, `config.Documents`); §1's "it does not
+  read the configuration" reads "only for the company's day". The layout
+  test lists `config` among its imports; no dependency direction changed.
+- **Tests.** `internal/credit/validity_test.go` (the dates and their
+  merge patch, the worklist, the company's day in Auckland's zone ahead
+  of UTC's at both ends of a validity, through the check and the
+  exposure), `db/credit_test.go`; walkthrough
+  `step_credit_limit_validity`.

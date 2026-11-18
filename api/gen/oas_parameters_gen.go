@@ -63758,6 +63758,9 @@ type ListCreditLimitsParams struct {
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
 	// Only the limits of this customer.
 	CustomerID OptUUID `json:",omitempty,omitzero"`
+	// The worklist (T77c): only the limits whose next review date (`next_review_on`) or end of validity
+	// (`valid_to`) is on or before this day, those already past it included.
+	DueBy OptDate `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -63785,6 +63788,15 @@ func unpackListCreditLimitsParams(packed middleware.Parameters) (params ListCred
 		}
 		if v, ok := packed[key]; ok {
 			params.CustomerID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "due_by",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.DueBy = v.(OptDate)
 		}
 	}
 	{
@@ -63897,6 +63909,47 @@ func decodeListCreditLimitsParams(args [0]string, argsEscaped bool, r *http.Requ
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "customer_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: due_by.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "due_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotDueByVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDate(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotDueByVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.DueBy.SetTo(paramsDotDueByVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "due_by",
 			In:   "query",
 			Err:  err,
 		}

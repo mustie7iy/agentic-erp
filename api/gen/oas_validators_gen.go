@@ -31394,8 +31394,15 @@ func (s *CustomerCreditLimitUpdate) Validate() error {
 
 	var failures []validate.FieldError
 	if err := func() error {
-		if err := s.Limit.Validate(); err != nil {
-			return err
+		if value, ok := s.Limit.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
 		}
 		return nil
 	}(); err != nil {

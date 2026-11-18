@@ -46,7 +46,14 @@ func receivables(doc *config.Config) {
 
 func setup(t *testing.T) env {
 	t.Helper()
-	f := fixture.NewWith(t, nil, receivables, perms...)
+	return setupWith(t, receivables)
+}
+
+// setupWith is setup with the configuration extended as extend says,
+// which adds the receivables account.
+func setupWith(t *testing.T, extend func(*config.Config)) env {
+	t.Helper()
+	f := fixture.NewWith(t, nil, extend, perms...)
 	e := env{Env: f, receivable: f.Account(t, "2000", "120000"), revenue: f.Account(t, "2000", "400000")}
 	// Numbered against their names' order, so the limits' order by number is seen.
 	e.north = e.partner(t, "BP70000002", "Northwind Traders", "customer")
@@ -219,8 +226,8 @@ func TestSetAndRead(t *testing.T) {
 			t.Errorf("replay: got limit %v, want the first answer's %s", got, id)
 		}
 	})
-	wantAudit := fmt.Sprintf(`credit.credit_limit.create {"limit": {"amount": "500.00", "currency": "EUR"}, "customer_id": %q, "limit_before": null, `+
-		`"customer_number": "BP70000002", "legal_entity_id": %q}`, e.north, e.DE)
+	wantAudit := fmt.Sprintf(`credit.credit_limit.create {"limit": {"amount": "500.00", "currency": "EUR"}, "valid_to": null, "valid_from": null, `+
+		`"customer_id": %q, "limit_before": null, "next_review_on": null, "customer_number": "BP70000002", "legal_entity_id": %q}`, e.north, e.DE)
 	if a := e.audited(t, id); len(a) != 1 || a[0] != wantAudit {
 		t.Errorf("audit records: got %q, want one: %s", a, wantAudit)
 	}
@@ -229,7 +236,8 @@ func TestSetAndRead(t *testing.T) {
 		t.Fatalf("CreditLimitChanged events: got %d, want 1", len(events))
 	}
 	want := map[string]any{"credit_limit_id": id, "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "customer_id": e.north.String(),
-		"customer_number": "BP70000002", "limit": map[string]any{"amount": "500.00", "currency": "EUR"}, "limit_before": nil, "version": float64(1)}
+		"customer_number": "BP70000002", "limit": map[string]any{"amount": "500.00", "currency": "EUR"}, "limit_before": nil, "next_review_on": nil,
+		"valid_from": nil, "valid_to": nil, "version": float64(1)}
 	if a, b := mustJSON(t, events[0]), mustJSON(t, want); a != b {
 		t.Errorf("event payload: got %s, want %s", a, b)
 	}
@@ -288,8 +296,9 @@ func TestChange(t *testing.T) {
 	if len(audits) != 3 {
 		t.Fatalf("audit records: got %q, want 3: the limit set and changed twice; the refused changes record nothing", audits)
 	}
-	wantAudit := fmt.Sprintf(`credit.credit_limit.change {"limit": {"amount": "750.00", "currency": "EUR"}, "customer_id": %q, `+
-		`"limit_before": {"amount": "500.00", "currency": "EUR"}, "customer_number": "BP70000002", "legal_entity_id": %q}`, e.north, e.DE)
+	wantAudit := fmt.Sprintf(`credit.credit_limit.change {"limit": {"amount": "750.00", "currency": "EUR"}, "valid_to": null, "valid_from": null, `+
+		`"customer_id": %q, "limit_before": {"amount": "500.00", "currency": "EUR"}, "next_review_on": null, "customer_number": "BP70000002", `+
+		`"legal_entity_id": %q, "valid_to_before": null, "valid_from_before": null, "next_review_on_before": null}`, e.north, e.DE)
 	if audits[1] != wantAudit {
 		t.Errorf("the first change's audit record: got %s, want %s", audits[1], wantAudit)
 	}

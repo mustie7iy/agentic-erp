@@ -44,7 +44,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"update": func(ctx context.Context) error {
-			_, err := h.UpdateCreditLimit(ctx, &gen.CustomerCreditLimitUpdate{Limit: gen.Money{Amount: "750.00", Currency: "EUR"}},
+			_, err := h.UpdateCreditLimit(ctx, &gen.CustomerCreditLimitUpdate{Limit: gen.NewOptMoney(gen.Money{Amount: "750.00", Currency: "EUR"})},
 				gen.UpdateCreditLimitParams{ID: id, IfMatch: `"1"`})
 			return err
 		},

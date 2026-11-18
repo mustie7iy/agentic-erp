@@ -2939,9 +2939,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit manager gives a customer's credit limit a validity (from, to) and a next review date; the credit check and the exposure use the limit only on the company's days it is valid; a worklist of the limits due for review or expiring by a date (GET /v1/credit-limits?due_by=)",
-        "r": "T77c · docs/design/plan-depth-3.md §T77c · ADR-0066 and As built T77c",
+        "r": "T77c · docs/design/plan-depth-3.md §T77c · db/migrations/000390 · valid_from, valid_to, next_review_on on POST/PATCH /v1/credit-limits · GET /v1/credit-limits?due_by= · GET /v1/credit-exposure day · credit.invalid_validity · TestValidityAndReview, TestWorklist, TestValidOnTheCompanysDay · walkthrough step_credit_limit_validity · ADR-0066 and As built T77c",
         "src": "split:T77a · adr:ADR-0066",
         "c": []
        },

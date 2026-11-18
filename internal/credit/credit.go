@@ -24,10 +24,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -81,7 +83,10 @@ type OpenOrders interface {
 	OpenOrders(ctx context.Context, legalEntity, customer uuid.UUID) (orders int32, gross money.Minor, err error)
 }
 
-// Endpoints implements the credit part of the generated API.
+// Endpoints implements the credit part of the generated API. Settings is
+// the active configuration, read for a company's time zone alone: a
+// limit's validity is judged on the company's day (config.DocumentDay,
+// T77c). Now is the clock; nil is the system's.
 type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
@@ -89,11 +94,15 @@ type Endpoints struct {
 	Customers     Customers
 	Partners      Partners
 	Orders        OpenOrders
+	Settings      config.Documents
+	Now           func() time.Time
 }
 
 // Limit is a row of credit.credit_limit: the most a customer may owe a
 // company. Amount is minor units of Currency, the company's, whose
-// minor-unit digits are Exponent.
+// minor-unit digits are Exponent. ValidFrom and ValidTo are the
+// company's first and last day it is used on, nil when open; NextReview
+// is the day its next review is planned for, nil when none is (T77c).
 type Limit struct {
 	ID             uuid.UUID
 	LegalEntityID  uuid.UUID
@@ -102,6 +111,9 @@ type Limit struct {
 	Currency       string
 	Exponent       int
 	Amount         money.Minor
+	ValidFrom      *time.Time
+	ValidTo        *time.Time
+	NextReview     *time.Time
 	Version        int32
 	CreatedAt      time.Time
 	CreatedBy      uuid.UUID
@@ -110,14 +122,34 @@ type Limit struct {
 }
 
 const limitSelect = `SELECT l.id, l.legal_entity_id, l.customer_id, l.customer_number, l.currency, c.exponent, l.amount,
-		l.version, l.created_at, l.created_by, l.updated_at, l.updated_by
+		l.valid_from, l.valid_to, l.next_review_on, l.version, l.created_at, l.created_by, l.updated_at, l.updated_by
 	FROM credit.credit_limit l JOIN ref.currency c ON c.code = l.currency`
 
 func scanLimit(row pgx.Row) (Limit, error) {
 	var l Limit
 	err := row.Scan(&l.ID, &l.LegalEntityID, &l.CustomerID, &l.CustomerNumber, &l.Currency, &l.Exponent, &l.Amount,
-		&l.Version, &l.CreatedAt, &l.CreatedBy, &l.UpdatedAt, &l.UpdatedBy)
+		&l.ValidFrom, &l.ValidTo, &l.NextReview, &l.Version, &l.CreatedAt, &l.CreatedBy, &l.UpdatedAt, &l.UpdatedBy)
 	return l, errs.Wrapf(err, "scan credit limit")
+}
+
+// ValidOn says whether the limit is used on the company's day: the day is
+// within its validity, both ends included, an open end holding every day
+// on its side (T77c).
+func (l Limit) ValidOn(day time.Time) bool {
+	return (l.ValidFrom == nil || !day.Before(*l.ValidFrom)) && (l.ValidTo == nil || !day.After(*l.ValidTo))
+}
+
+// day is the legal entity's day now, in its company's time zone
+// (config.EntityDay): the day a limit's validity is judged on.
+func (e *Endpoints) day(ctx context.Context, legalEntity uuid.UUID) (time.Time, error) {
+	d, err := config.EntityDay(ctx, e.Settings, func(ctx context.Context, id uuid.UUID) (string, bool, error) {
+		le, ok, err := e.LegalEntities.Entity(ctx, id)
+		return le.Code, ok, err
+	}, legalEntity, clock.Now(e.Now))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("credit: the day of legal entity %s: %w", legalEntity, err)
+	}
+	return d.Date, nil
 }
 
 // limit reads a credit limit of a legal entity the caller may act in,
