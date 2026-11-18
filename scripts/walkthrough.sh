@@ -12639,14 +12639,19 @@ step_billing_cancellation() {
 # Priya approves it; he then asks Tyrell and step 3's DP_SUPPLIER to
 # quote for it by an RFQ created from the requisition, which takes its
 # items, quantities, accounts and need date. The requisition is in
-# sourcing, naming the RFQ, until an award orders it. Then (T82f) both
-# suppliers quote; Ben awards the dearer one, which can deliver by the
+# sourcing, naming the RFQ, until an award orders it. One supplier quotes
+# far above the estimate and Ben closes the RFQ without an award (T82g):
+# the requisition is approved again, and he asks again by a second RFQ
+# from it. Then (T82f) both suppliers quote; Ben awards the dearer one, which can deliver by the
 # need date, to a purchase order with his reason: the order carries the
-# quoted prices, the need date and the requisition, which is ordered.
+# quoted prices, the need date and the requisition, which is ordered. Last
+# (T82h), Tyrell cannot deliver after all and Ben cancels the order: the
+# requisition is approved again, the RFQ shows the order cancelled, and
+# the order's case in the event log shows the requisition's sourcing.
 step_rfq_requisition() {
-  heading "Step 115 — An RFQ from a requisition: an approved requisition's items, quantities and need date taken into an RFQ; the requisition in sourcing, naming the RFQ; awarded with a reason to the dearer quotation as a purchase order naming the requisition, which is ordered"
+  heading "Step 115 — An RFQ from a requisition: an approved requisition's items, quantities and need date taken into an RFQ; the requisition in sourcing, naming the RFQ; the RFQ closed without an award and the requisition approved again; a second RFQ awarded with a reason to the dearer quotation as a purchase order naming the requisition, which is ordered; the order cancelled, the requisition approved again and the RFQ showing the order cancelled"
   as ben
-  local needed due expense req request rfq body valid tyrells award po
+  local needed due expense req request rfq first body valid tyrells award po activities
   accounts
   expense=$(account 6000)
   needed=$(date_add "$(company_day)" 21)
@@ -12679,12 +12684,36 @@ step_rfq_requisition() {
   say "Items are the requisition's; an RFQ from it sends none of its own:"
   refused 422 procurement.rfq_items_from_requisition createRfq -body "{\"legal_entity_id\": \"$LE\", \"requisition_id\": \"$req\", \"due_date\": \"$due\",
     \"items\": [{\"material_key\": \"X\", \"description\": \"X\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}], \"supplier_ids\": [\"$SUPPLIER\"]}"
-  say "Ben publishes the RFQ; it is the one RFQ of the requisition:"
+  say "Ben publishes the RFQ:"
   QUIET=1 api 200 '' getRfq -p "id=$rfq"
   api 200 '"RFQ \(.document_number): \(.status)"' publishRfq -p "id=$rfq" -if-match "$ETAG"
-  api 200 '.items[] | "  RFQ \(.document_number) from \(.requisition_document_number): \(.status)"' listRfqs -p "requisition_id=$req"
-  expect "the RFQs of the requisition" "$(field '[.items[].id] | join(" ")')" "$rfq"
   valid=$(date_add "$(company_day)" 30)
+  say "$DP_NAME answers first, far above the estimate: 420.00 a monitor and 260.00 a dock. Ben learns the docks are"
+  say "specified wrongly: he closes the RFQ without an award, with his reason (T82g), to ask again. The quotation is"
+  say "not awarded, and the requisition leaves sourcing, approved again:"
+  api 201 '"quotation \(.supplier_reference) of \(.supplier_number): total \(.total.amount) \(.total.currency)"' createSupplierQuotation -p "id=$rfq" \
+    -body "{\"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"CB-7781\", \"valid_until\": \"$valid\", \"items\": [
+      {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"420.00\", \"currency\": \"CAD\"}}, {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"260.00\", \"currency\": \"CAD\"}}]}"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  api 200 '"RFQ \(.document_number): \(.status), because: \(.closing_reason)"' closeRfq -p "id=$rfq" -if-match "$ETAG" \
+    -body '{"reason": "The docking stations were specified wrongly; asked for again"}'
+  first=$rfq
+  expect "the closed RFQ" "$(field '"\(.status) \(.closing_reason)"')" "closed The docking stations were specified wrongly; asked for again"
+  api 200 '.items[] | "  quotation \(.supplier_reference): \(.status)"' listSupplierQuotations -p "id=$rfq"
+  expect "its quotation" "$(field '[.items[].status] | join(" ")')" not_awarded
+  api 200 '"requisition \(.document_number): \(.status)"' getRequisition -p "id=$req"
+  expect "the requisition reopened" "$(field .status)" approved
+  say "A closed RFQ stays closed:"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  refused 409 procurement.invalid_status closeRfq -p "id=$rfq" -if-match "$ETAG" -body '{"reason": "Again"}'
+  say "Ben asks again from the same requisition, with the corrected docks, and publishes the new RFQ:"
+  api 201 '"RFQ \(.document_number) from requisition \(.requisition_document_number): \(.status)"' createRfq -body "$body"
+  rfq=$(field .id)
+  api 200 '"RFQ \(.document_number): \(.status)"' publishRfq -p "id=$rfq" -if-match "$ETAG"
+  api 200 '"requisition \(.document_number): \(.status), sourced by RFQ \(.rfq_document_number)"' getRequisition -p "id=$req"
+  expect "the requisition in sourcing again" "$(field '"\(.status) \(.rfq_id)"')" "in_sourcing $rfq"
+  api 200 '.items[] | "  RFQ \(.document_number) from \(.requisition_document_number): \(.status)"' listRfqs -p "requisition_id=$req" -p order_by=document_number
+  expect "the RFQs of the requisition" "$(field '[.items[] | "\(.id) \(.status)"] | join(", ")')" "$first closed, $rfq published"
   say "Both suppliers quote. $DP_NAME is cheaper, 300.00 a monitor and 170.00 a dock; Tyrell asks 310.00 and 175.00 but"
   say "is the one that can deliver by the need date:"
   api 201 '"quotation \(.supplier_reference) of \(.supplier_number): total \(.total.amount) \(.total.currency)"' createSupplierQuotation -p "id=$rfq" \
@@ -12720,6 +12749,21 @@ step_rfq_requisition() {
   QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
   api 200 '"purchase order \(.document_number): \(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
   expect "the released order" "$(field .status)" released
+  say "Tyrell writes that it cannot deliver by the need date after all. Nothing was received or invoiced, so Ben"
+  say "cancels the order (T82h): the requisition is approved again, to be sourced anew, and the RFQ shows that its"
+  say "award's order was cancelled, still naming it:"
+  api 200 '"purchase order \(.document_number): \(.status)"' cancelPurchaseOrder -p "id=$po" -if-match "$ETAG"
+  api 200 '"requisition \(.document_number): \(.status)"' getRequisition -p "id=$req"
+  expect "the requisition reopened" "$(field .status)" approved
+  api 200 '"RFQ \(.document_number): \(.status), purchase order \(.purchase_order_document_number), awarded because: \(.award_reason)"' getRfq -p "id=$rfq"
+  expect "the RFQ" "$(field '"\(.status) \(.purchase_order_id)"')" "order_cancelled $po"
+  as pia
+  say "Pia reads the cancelled order's case in the purchase-to-pay event log: the requisition's sourcing by the two RFQs"
+  say "and its reopening after each are activities of the case (T103c):"
+  activities=$(log_case "$(company_day)" "$(company_day)" "$po")
+  jq -r '.[] | "  \(.)"' <<<"$activities"
+  expect "the requisition's sourcing and reopening" "$(jq -r '[.[] | select(. == "Source requisition" or . == "Reopen requisition")] | join(", ")' <<<"$activities")" \
+    "Source requisition, Reopen requisition, Source requisition, Reopen requisition"
   passed
 }
 

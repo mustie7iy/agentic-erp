@@ -531,7 +531,12 @@ type Invoker interface {
 	//
 	// Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
 	// for its release approval is cancelled too, and its request withdrawn; so is an open order change of
-	// a released order.
+	// a released order. An order an RFQ's award created (`rfqs/{id}:award` with `award_to`
+	// `purchase_order`) moves that RFQ from `awarded` to `order_cancelled`, published as RfqChanged
+	// (`order_cancelled`); the RFQ still names the order (T82h). An order from a requisition moves it back
+	// to `approved`, to be sourced or ordered anew, published as RequisitionReopened (`cause`
+	// `purchase_order_cancelled`). Locks: the order, then its RFQ, then its requisition, in one
+	// transaction.
 	//
 	// POST /v1/purchase-orders/{id}:cancel
 	CancelPurchaseOrder(ctx context.Context, params CancelPurchaseOrderParams) (CancelPurchaseOrderRes, error)
@@ -561,6 +566,20 @@ type Invoker interface {
 	//
 	// POST /v1/revaluation-runs/{id}:cancel
 	CancelRevaluationRun(ctx context.Context, request *ReasonInput, params CancelRevaluationRunParams) (CancelRevaluationRunRes, error)
+	// CancelRfq invokes cancelRfq operation.
+	//
+	// Cancels a `draft` or `published` RFQ that is no longer needed, with a reason, at the version the
+	// caller read (`If-Match`), once (T82g, ADR-0069 As built): the RFQ is read under a row lock and
+	// becomes `cancelled`, keeping the reason as `closing_reason`; an RFQ awarded, cancelled or closed is
+	// refused (409 `procurement.invalid_status`), and of two requests one cancels it and the other meets
+	// another version (412). Its recorded quotations all become `not_awarded`; none is recorded or awarded
+	// after. A requisition the RFQ was created from leaves sourcing in the same transaction: it is
+	// `approved` again, available to a new RFQ, an order or its cancellation, and is published as
+	// RequisitionReopened (`cause` `rfq_cancelled`). A retry with the same `Idempotency-Key` answers the
+	// cancelled RFQ. Audited, and published as RfqChanged (`cancelled`, with the reason).
+	//
+	// POST /v1/rfqs/{id}:cancel
+	CancelRfq(ctx context.Context, request *RfqClosing, params CancelRfqParams) (CancelRfqRes, error)
 	// CancelSalesOrder invokes cancelSalesOrder operation.
 	//
 	// Cancels a `draft` or `confirmed` sales order of which nothing is delivered (ADR-0067, As built
@@ -780,6 +799,21 @@ type Invoker interface {
 	//
 	// POST /v1/purchase-orders/{id}:close
 	ClosePurchaseOrder(ctx context.Context, params ClosePurchaseOrderParams) (ClosePurchaseOrderRes, error)
+	// CloseRfq invokes closeRfq operation.
+	//
+	// Closes a `published` RFQ without an award, with a reason, when its quotations do not lead to one, at
+	// the version the caller read (`If-Match`), once (T82g, ADR-0069 As built): the RFQ is read under a
+	// row lock and becomes `closed`, keeping the reason as `closing_reason`; a draft is cancelled, not
+	// closed, and an RFQ awarded, cancelled or closed is refused (409 `procurement.invalid_status`), and
+	// of two requests one closes it and the other meets another version (412). Its recorded quotations all
+	// become `not_awarded`; none is recorded or awarded after. A requisition the RFQ was created from
+	// leaves sourcing in the same transaction: it is `approved` again, available to a new RFQ, an order or
+	// its cancellation, and is published as RequisitionReopened (`cause` `rfq_closed`). A retry with the
+	// same `Idempotency-Key` answers the closed RFQ. Audited, and published as RfqChanged (`closed`, with
+	// the reason).
+	//
+	// POST /v1/rfqs/{id}:close
+	CloseRfq(ctx context.Context, request *RfqClosing, params CloseRfqParams) (CloseRfqRes, error)
 	// CloseRisk invokes closeRisk operation.
 	//
 	// Closes an open risk for good (status `closed`), once (409 `grc.risk_closed` for a closed one), at
@@ -2444,10 +2478,10 @@ type Invoker interface {
 	// CreateSupplierQuotation invokes createSupplierQuotation operation.
 	//
 	// Records the quotation an invited supplier gave for a `published` RFQ (409
-	// `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069
-	// §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in
-	// the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ
-	// item's unit of measure. The supplier must be one the RFQ invites (422
+	// `procurement.invalid_status` for a draft or an awarded, cancelled or closed one), read under the
+	// RFQ's row lock (ADR-0069 §7): the supplier's reference, the date the quotation is valid until, and
+	// a price per RFQ item, in the RFQ's currency (422 `procurement.currency_mismatch`), positive, per
+	// `price_unit` of the RFQ item's unit of measure. The supplier must be one the RFQ invites (422
 	// `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409
 	// `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers
 	// what it answered. Each item names an item of the RFQ by `rfq_item_no` (422
@@ -6915,11 +6949,12 @@ type Invoker interface {
 	// Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
 	// lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
 	// after which quotations are recorded against it and nothing changes it until it is awarded
-	// (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be
-	// one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming
-	// `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its
-	// company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished,
-	// which names the suppliers invited by id and number.
+	// (`:award`), cancelled (`:cancel`) or closed without an award (`:close`). The RFQ is checked again as
+	// it was when created: every supplier invited must still be one an order could be placed with (422
+	// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
+	// date not before the legal entity's date today in its company's time zone (422
+	// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
+	// invited by id and number.
 	//
 	// POST /v1/rfqs/{id}:publish
 	PublishRfq(ctx context.Context, params PublishRfqParams) (PublishRfqRes, error)
@@ -14194,7 +14229,12 @@ func (c *Client) sendCancelParkedJournalEntry(ctx context.Context, request *Reas
 //
 // Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
 // for its release approval is cancelled too, and its request withdrawn; so is an open order change of
-// a released order.
+// a released order. An order an RFQ's award created (`rfqs/{id}:award` with `award_to`
+// `purchase_order`) moves that RFQ from `awarded` to `order_cancelled`, published as RfqChanged
+// (`order_cancelled`); the RFQ still names the order (T82h). An order from a requisition moves it back
+// to `approved`, to be sourced or ordered anew, published as RequisitionReopened (`cause`
+// `purchase_order_cancelled`). Locks: the order, then its RFQ, then its requisition, in one
+// transaction.
 //
 // POST /v1/purchase-orders/{id}:cancel
 func (c *Client) CancelPurchaseOrder(ctx context.Context, params CancelPurchaseOrderParams) (CancelPurchaseOrderRes, error) {
@@ -14843,6 +14883,174 @@ func (c *Client) sendCancelRevaluationRun(ctx context.Context, request *ReasonIn
 
 	stage = "DecodeResponse"
 	result, err := decodeCancelRevaluationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CancelRfq invokes cancelRfq operation.
+//
+// Cancels a `draft` or `published` RFQ that is no longer needed, with a reason, at the version the
+// caller read (`If-Match`), once (T82g, ADR-0069 As built): the RFQ is read under a row lock and
+// becomes `cancelled`, keeping the reason as `closing_reason`; an RFQ awarded, cancelled or closed is
+// refused (409 `procurement.invalid_status`), and of two requests one cancels it and the other meets
+// another version (412). Its recorded quotations all become `not_awarded`; none is recorded or awarded
+// after. A requisition the RFQ was created from leaves sourcing in the same transaction: it is
+// `approved` again, available to a new RFQ, an order or its cancellation, and is published as
+// RequisitionReopened (`cause` `rfq_cancelled`). A retry with the same `Idempotency-Key` answers the
+// cancelled RFQ. Audited, and published as RfqChanged (`cancelled`, with the reason).
+//
+// POST /v1/rfqs/{id}:cancel
+func (c *Client) CancelRfq(ctx context.Context, request *RfqClosing, params CancelRfqParams) (CancelRfqRes, error) {
+	res, err := c.sendCancelRfq(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCancelRfq(ctx context.Context, request *RfqClosing, params CancelRfqParams) (res CancelRfqRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelRfq"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/rfqs/{id}:cancel"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CancelRfqOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/rfqs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":cancel"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCancelRfqRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CancelRfqOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCancelRfqResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -16873,6 +17081,175 @@ func (c *Client) sendClosePurchaseOrder(ctx context.Context, params ClosePurchas
 
 	stage = "DecodeResponse"
 	result, err := decodeClosePurchaseOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CloseRfq invokes closeRfq operation.
+//
+// Closes a `published` RFQ without an award, with a reason, when its quotations do not lead to one, at
+// the version the caller read (`If-Match`), once (T82g, ADR-0069 As built): the RFQ is read under a
+// row lock and becomes `closed`, keeping the reason as `closing_reason`; a draft is cancelled, not
+// closed, and an RFQ awarded, cancelled or closed is refused (409 `procurement.invalid_status`), and
+// of two requests one closes it and the other meets another version (412). Its recorded quotations all
+// become `not_awarded`; none is recorded or awarded after. A requisition the RFQ was created from
+// leaves sourcing in the same transaction: it is `approved` again, available to a new RFQ, an order or
+// its cancellation, and is published as RequisitionReopened (`cause` `rfq_closed`). A retry with the
+// same `Idempotency-Key` answers the closed RFQ. Audited, and published as RfqChanged (`closed`, with
+// the reason).
+//
+// POST /v1/rfqs/{id}:close
+func (c *Client) CloseRfq(ctx context.Context, request *RfqClosing, params CloseRfqParams) (CloseRfqRes, error) {
+	res, err := c.sendCloseRfq(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCloseRfq(ctx context.Context, request *RfqClosing, params CloseRfqParams) (res CloseRfqRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("closeRfq"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/rfqs/{id}:close"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CloseRfqOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/rfqs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":close"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCloseRfqRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CloseRfqOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCloseRfqResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -29419,10 +29796,10 @@ func (c *Client) sendCreateSupplierInvoice(ctx context.Context, request *Supplie
 // CreateSupplierQuotation invokes createSupplierQuotation operation.
 //
 // Records the quotation an invited supplier gave for a `published` RFQ (409
-// `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069
-// §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in
-// the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ
-// item's unit of measure. The supplier must be one the RFQ invites (422
+// `procurement.invalid_status` for a draft or an awarded, cancelled or closed one), read under the
+// RFQ's row lock (ADR-0069 §7): the supplier's reference, the date the quotation is valid until, and
+// a price per RFQ item, in the RFQ's currency (422 `procurement.currency_mismatch`), positive, per
+// `price_unit` of the RFQ item's unit of measure. The supplier must be one the RFQ invites (422
 // `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409
 // `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers
 // what it answered. Each item names an item of the RFQ by `rfq_item_no` (422
@@ -97551,11 +97928,12 @@ func (c *Client) sendProposeVarianceComment(ctx context.Context, request *Varian
 // Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
 // lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
 // after which quotations are recorded against it and nothing changes it until it is awarded
-// (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be
-// one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming
-// `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its
-// company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished,
-// which names the suppliers invited by id and number.
+// (`:award`), cancelled (`:cancel`) or closed without an award (`:close`). The RFQ is checked again as
+// it was when created: every supplier invited must still be one an order could be placed with (422
+// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
+// date not before the legal entity's date today in its company's time zone (422
+// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
+// invited by id and number.
 //
 // POST /v1/rfqs/{id}:publish
 func (c *Client) PublishRfq(ctx context.Context, params PublishRfqParams) (PublishRfqRes, error) {

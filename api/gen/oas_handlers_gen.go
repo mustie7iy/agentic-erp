@@ -7302,7 +7302,12 @@ func (s *Server) handleCancelParkedJournalEntryRequest(args [1]string, argsEscap
 //
 // Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
 // for its release approval is cancelled too, and its request withdrawn; so is an open order change of
-// a released order.
+// a released order. An order an RFQ's award created (`rfqs/{id}:award` with `award_to`
+// `purchase_order`) moves that RFQ from `awarded` to `order_cancelled`, published as RfqChanged
+// (`order_cancelled`); the RFQ still names the order (T82h). An order from a requisition moves it back
+// to `approved`, to be sourced or ordered anew, published as RequisitionReopened (`cause`
+// `purchase_order_cancelled`). Locks: the order, then its RFQ, then its requisition, in one
+// transaction.
 //
 // POST /v1/purchase-orders/{id}:cancel
 func (s *Server) handleCancelPurchaseOrderRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -8099,6 +8104,224 @@ func (s *Server) handleCancelRevaluationRunRequest(args [1]string, argsEscaped b
 	}
 
 	if err := encodeCancelRevaluationRunResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleCancelRfqRequest handles cancelRfq operation.
+//
+// Cancels a `draft` or `published` RFQ that is no longer needed, with a reason, at the version the
+// caller read (`If-Match`), once (T82g, ADR-0069 As built): the RFQ is read under a row lock and
+// becomes `cancelled`, keeping the reason as `closing_reason`; an RFQ awarded, cancelled or closed is
+// refused (409 `procurement.invalid_status`), and of two requests one cancels it and the other meets
+// another version (412). Its recorded quotations all become `not_awarded`; none is recorded or awarded
+// after. A requisition the RFQ was created from leaves sourcing in the same transaction: it is
+// `approved` again, available to a new RFQ, an order or its cancellation, and is published as
+// RequisitionReopened (`cause` `rfq_cancelled`). A retry with the same `Idempotency-Key` answers the
+// cancelled RFQ. Audited, and published as RfqChanged (`cancelled`, with the reason).
+//
+// POST /v1/rfqs/{id}:cancel
+func (s *Server) handleCancelRfqRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelRfq"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/rfqs/{id}:cancel"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CancelRfqOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CancelRfqOperation,
+			ID:   "cancelRfq",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CancelRfqOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCancelRfqParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCancelRfqRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CancelRfqRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CancelRfqOperation,
+			OperationSummary: "Cancel a request for quotation",
+			OperationID:      "cancelRfq",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *RfqClosing
+			Params   = CancelRfqParams
+			Response = CancelRfqRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCancelRfqParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CancelRfq(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CancelRfq(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCancelRfqResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -10683,6 +10906,225 @@ func (s *Server) handleClosePurchaseOrderRequest(args [1]string, argsEscaped boo
 	}
 
 	if err := encodeClosePurchaseOrderResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleCloseRfqRequest handles closeRfq operation.
+//
+// Closes a `published` RFQ without an award, with a reason, when its quotations do not lead to one, at
+// the version the caller read (`If-Match`), once (T82g, ADR-0069 As built): the RFQ is read under a
+// row lock and becomes `closed`, keeping the reason as `closing_reason`; a draft is cancelled, not
+// closed, and an RFQ awarded, cancelled or closed is refused (409 `procurement.invalid_status`), and
+// of two requests one closes it and the other meets another version (412). Its recorded quotations all
+// become `not_awarded`; none is recorded or awarded after. A requisition the RFQ was created from
+// leaves sourcing in the same transaction: it is `approved` again, available to a new RFQ, an order or
+// its cancellation, and is published as RequisitionReopened (`cause` `rfq_closed`). A retry with the
+// same `Idempotency-Key` answers the closed RFQ. Audited, and published as RfqChanged (`closed`, with
+// the reason).
+//
+// POST /v1/rfqs/{id}:close
+func (s *Server) handleCloseRfqRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("closeRfq"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/rfqs/{id}:close"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CloseRfqOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CloseRfqOperation,
+			ID:   "closeRfq",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CloseRfqOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCloseRfqParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCloseRfqRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CloseRfqRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CloseRfqOperation,
+			OperationSummary: "Close a request for quotation without an award",
+			OperationID:      "closeRfq",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *RfqClosing
+			Params   = CloseRfqParams
+			Response = CloseRfqRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCloseRfqParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CloseRfq(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CloseRfq(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCloseRfqResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -28886,10 +29328,10 @@ func (s *Server) handleCreateSupplierInvoiceRequest(args [0]string, argsEscaped 
 // handleCreateSupplierQuotationRequest handles createSupplierQuotation operation.
 //
 // Records the quotation an invited supplier gave for a `published` RFQ (409
-// `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069
-// §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in
-// the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ
-// item's unit of measure. The supplier must be one the RFQ invites (422
+// `procurement.invalid_status` for a draft or an awarded, cancelled or closed one), read under the
+// RFQ's row lock (ADR-0069 §7): the supplier's reference, the date the quotation is valid until, and
+// a price per RFQ item, in the RFQ's currency (422 `procurement.currency_mismatch`), positive, per
+// `price_unit` of the RFQ item's unit of measure. The supplier must be one the RFQ invites (422
 // `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409
 // `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers
 // what it answered. Each item names an item of the RFQ by `rfq_item_no` (422
@@ -103815,11 +104257,12 @@ func (s *Server) handleProposeVarianceCommentRequest(args [0]string, argsEscaped
 // Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
 // lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
 // after which quotations are recorded against it and nothing changes it until it is awarded
-// (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be
-// one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming
-// `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its
-// company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished,
-// which names the suppliers invited by id and number.
+// (`:award`), cancelled (`:cancel`) or closed without an award (`:close`). The RFQ is checked again as
+// it was when created: every supplier invited must still be one an order could be placed with (422
+// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
+// date not before the legal entity's date today in its company's time zone (422
+// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
+// invited by id and number.
 //
 // POST /v1/rfqs/{id}:publish
 func (s *Server) handlePublishRfqRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

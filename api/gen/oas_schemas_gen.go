@@ -13296,6 +13296,8 @@ func (s *AwardRfqOKHeaders) SetResponse(val Rfq) {
 }
 
 func (*AwardRfqOKHeaders) awardRfqRes()   {}
+func (*AwardRfqOKHeaders) cancelRfqRes()  {}
+func (*AwardRfqOKHeaders) closeRfqRes()   {}
 func (*AwardRfqOKHeaders) publishRfqRes() {}
 
 type AwardRfqPreconditionFailed Problem
@@ -18725,6 +18727,30 @@ func (*CancelRevaluationRunPreconditionRequired) cancelRevaluationRunRes() {}
 type CancelRevaluationRunUnprocessableEntity Problem
 
 func (*CancelRevaluationRunUnprocessableEntity) cancelRevaluationRunRes() {}
+
+type CancelRfqBadRequest Problem
+
+func (*CancelRfqBadRequest) cancelRfqRes() {}
+
+type CancelRfqForbidden Problem
+
+func (*CancelRfqForbidden) cancelRfqRes() {}
+
+type CancelRfqNotFound Problem
+
+func (*CancelRfqNotFound) cancelRfqRes() {}
+
+type CancelRfqPreconditionFailed Problem
+
+func (*CancelRfqPreconditionFailed) cancelRfqRes() {}
+
+type CancelRfqPreconditionRequired Problem
+
+func (*CancelRfqPreconditionRequired) cancelRfqRes() {}
+
+type CancelRfqUnprocessableEntity Problem
+
+func (*CancelRfqUnprocessableEntity) cancelRfqRes() {}
 
 type CancelSalesOrderBadRequest Problem
 
@@ -25491,6 +25517,30 @@ type ClosePurchaseOrderUnprocessableEntity Problem
 
 func (*ClosePurchaseOrderUnprocessableEntity) closePurchaseOrderRes() {}
 
+type CloseRfqBadRequest Problem
+
+func (*CloseRfqBadRequest) closeRfqRes() {}
+
+type CloseRfqForbidden Problem
+
+func (*CloseRfqForbidden) closeRfqRes() {}
+
+type CloseRfqNotFound Problem
+
+func (*CloseRfqNotFound) closeRfqRes() {}
+
+type CloseRfqPreconditionFailed Problem
+
+func (*CloseRfqPreconditionFailed) closeRfqRes() {}
+
+type CloseRfqPreconditionRequired Problem
+
+func (*CloseRfqPreconditionRequired) closeRfqRes() {}
+
+type CloseRfqUnprocessableEntity Problem
+
+func (*CloseRfqUnprocessableEntity) closeRfqRes() {}
+
 type CloseRiskBadRequest Problem
 
 func (*CloseRiskBadRequest) closeRiskRes() {}
@@ -27196,6 +27246,7 @@ func (*ConflictHeaders) cancelPurchaseOrderChangeRes()             {}
 func (*ConflictHeaders) cancelPurchaseOrderRes()                   {}
 func (*ConflictHeaders) cancelRequisitionRes()                     {}
 func (*ConflictHeaders) cancelRevaluationRunRes()                  {}
+func (*ConflictHeaders) cancelRfqRes()                             {}
 func (*ConflictHeaders) cancelSalesOrderRes()                      {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) captureSalesOrderRes()                     {}
@@ -27208,6 +27259,7 @@ func (*ConflictHeaders) closeDisputeCaseRes()                      {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
 func (*ConflictHeaders) closeInternalOrderRes()                    {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
+func (*ConflictHeaders) closeRfqRes()                              {}
 func (*ConflictHeaders) closeRiskRes()                             {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
@@ -96077,13 +96129,17 @@ type Rfq struct {
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
+	// Why the RFQ was cancelled (`rfqs/{id}:cancel`) or closed without an award (`rfqs/{id}:close`), T82g;
+	// absent otherwise.
+	ClosingReason OptString `json:"closing_reason"`
 	// The draft contract the award created (`rfqs/{id}:award`), at `/v1/contracts/{contract_id}`; absent
 	// until the RFQ is awarded.
 	ContractID OptUUID `json:"contract_id"`
 	// That contract's document number; absent until the RFQ is awarded.
 	ContractDocumentNumber OptString `json:"contract_document_number"`
 	// The draft purchase order an award to a purchase order created (T82f), at
-	// `/v1/purchase-orders/{purchase_order_id}`; absent otherwise.
+	// `/v1/purchase-orders/{purchase_order_id}`; absent otherwise. When that order is cancelled the RFQ's
+	// status is `order_cancelled` (T82h): it still names the order, which no longer orders anything.
 	PurchaseOrderID OptUUID `json:"purchase_order_id"`
 	// That purchase order's document number; absent with it.
 	PurchaseOrderDocumentNumber OptString `json:"purchase_order_document_number"`
@@ -96164,6 +96220,11 @@ func (s *Rfq) GetDueDate() time.Time {
 // GetStatus returns the value of Status.
 func (s *Rfq) GetStatus() string {
 	return s.Status
+}
+
+// GetClosingReason returns the value of ClosingReason.
+func (s *Rfq) GetClosingReason() OptString {
+	return s.ClosingReason
 }
 
 // GetContractID returns the value of ContractID.
@@ -96274,6 +96335,11 @@ func (s *Rfq) SetDueDate(val time.Time) {
 // SetStatus sets the value of Status.
 func (s *Rfq) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetClosingReason sets the value of ClosingReason.
+func (s *Rfq) SetClosingReason(val OptString) {
+	s.ClosingReason = val
 }
 
 // SetContractID sets the value of ContractID.
@@ -96390,6 +96456,23 @@ func (s *RfqAward) SetValidTo(val OptDate) {
 
 // SetReason sets the value of Reason.
 func (s *RfqAward) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// Cancel an RFQ (`cancelRfq`) or close it without an award (`closeRfq`): why.
+// Ref: #/components/schemas/RfqClosing
+type RfqClosing struct {
+	// Why the RFQ is cancelled or closed without an award; kept on the RFQ (`closing_reason`).
+	Reason string `json:"reason"`
+}
+
+// GetReason returns the value of Reason.
+func (s *RfqClosing) GetReason() string {
+	return s.Reason
+}
+
+// SetReason sets the value of Reason.
+func (s *RfqClosing) SetReason(val string) {
 	s.Reason = val
 }
 
@@ -102414,6 +102497,7 @@ func (*ServiceUnavailableHeaders) cancelPurchaseOrderChangeRes()             {}
 func (*ServiceUnavailableHeaders) cancelPurchaseOrderRes()                   {}
 func (*ServiceUnavailableHeaders) cancelRequisitionRes()                     {}
 func (*ServiceUnavailableHeaders) cancelRevaluationRunRes()                  {}
+func (*ServiceUnavailableHeaders) cancelRfqRes()                             {}
 func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()                 {}
 func (*ServiceUnavailableHeaders) captureSalesOrderRes()                     {}
 func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()                {}
@@ -102423,6 +102507,7 @@ func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                     {}
 func (*ServiceUnavailableHeaders) closeInternalOrderRes()                    {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()                    {}
+func (*ServiceUnavailableHeaders) closeRfqRes()                              {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
 func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
 func (*ServiceUnavailableHeaders) copyPlanCategoryRes()                      {}
@@ -107555,6 +107640,7 @@ func (*TooManyRequestsHeaders) cancelPurchaseOrderChangeRes()             {}
 func (*TooManyRequestsHeaders) cancelPurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) cancelRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) cancelRevaluationRunRes()                  {}
+func (*TooManyRequestsHeaders) cancelRfqRes()                             {}
 func (*TooManyRequestsHeaders) cancelSalesOrderRes()                      {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) captureSalesOrderRes()                     {}
@@ -107567,6 +107653,7 @@ func (*TooManyRequestsHeaders) closeDisputeCaseRes()                      {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
 func (*TooManyRequestsHeaders) closeInternalOrderRes()                    {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
+func (*TooManyRequestsHeaders) closeRfqRes()                              {}
 func (*TooManyRequestsHeaders) closeRiskRes()                             {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
@@ -108463,6 +108550,7 @@ func (*UnauthorizedHeaders) cancelPurchaseOrderChangeRes()             {}
 func (*UnauthorizedHeaders) cancelPurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) cancelRequisitionRes()                     {}
 func (*UnauthorizedHeaders) cancelRevaluationRunRes()                  {}
+func (*UnauthorizedHeaders) cancelRfqRes()                             {}
 func (*UnauthorizedHeaders) cancelSalesOrderRes()                      {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) captureSalesOrderRes()                     {}
@@ -108475,6 +108563,7 @@ func (*UnauthorizedHeaders) closeDisputeCaseRes()                      {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
 func (*UnauthorizedHeaders) closeInternalOrderRes()                    {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
+func (*UnauthorizedHeaders) closeRfqRes()                              {}
 func (*UnauthorizedHeaders) closeRiskRes()                             {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}

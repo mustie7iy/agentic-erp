@@ -48,6 +48,8 @@ be computed on read, without storing anything.
    | Submit requisition | `procurement.requisition.pending_approval` | requisition |
    | Approve requisition | `procurement.requisition.approved` | requisition |
    | Reject requisition | `procurement.requisition.rejected` | requisition |
+   | Source requisition | `procurement.requisition.in_sourcing` | requisition |
+   | Reopen requisition | `procurement.requisition.reopened` | requisition |
    | Create purchase order | `procurement.purchase_order.create` | purchase order |
    | Submit purchase order | `procurement.purchase_order.submit` | purchase order |
    | Release purchase order | `procurement.purchase_order.release` | purchase order |
@@ -167,3 +169,22 @@ be computed on read, without storing anything.
   held for the missing receipt, Priya approves the exception, a payment run
   pays it, and the map then holds the service order's variant, without
   `Receive goods` and ended by `Pay invoice`, beside the first.
+
+## As built (T103c, the requisition's sourcing)
+
+- §3's table gains two activities of the requisition (review:batch78,
+  `plan-depth-2.md` §T82h): "Source requisition", from
+  `procurement.requisition.in_sourcing` (an RFQ created from it, T82e),
+  and "Reopen requisition", from `procurement.requisition.reopened` (its
+  RFQ cancelled or closed without an award, T82g, or its purchase order
+  cancelled, T82h). Before, a case sourced by an RFQ showed no step
+  between the requisition's approval and the order, and a cancelled
+  order's requisition showed a second "Approve requisition": its move
+  back was audited `procurement.requisition.approved`. Audit records
+  written before keep that action. The RFQ's own records are not
+  activities of the order's case (decided by default; its own activities
+  stay later). No migration, no new query: the activities are a parameter
+  of the case's events query.
+- Walkthrough `step_rfq_requisition` (step 115) reads the cancelled
+  award order's case, whose activities hold the requisition's sourcing
+  and reopening.

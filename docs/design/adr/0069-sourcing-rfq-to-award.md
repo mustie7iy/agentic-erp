@@ -542,3 +542,117 @@ replaced: an award to a quotation not ranked first now needs a reason.
   with the supplier's payment terms; the reason is required for any
   quotation not ranked first, for a contract as for an order; the link is
   kept once, on the RFQ (the order shows its requisition, not its RFQ).
+
+### T82g RFQ cancelled or closed without an award (migrations 000363, 000364)
+
+The first depth-2 variant (`plan-depth-2.md` §T82g, product owner
+2026-11-17). T82e's default 23 ("closing an RFQ without an award stays
+later") is replaced: an RFQ ends without an award, and its requisition
+leaves sourcing.
+
+- **API.** `POST /v1/rfqs/{id}:cancel` (a `draft` or `published` RFQ no
+  longer needed) and `POST /v1/rfqs/{id}:close` (a `published` RFQ whose
+  quotations do not lead to an award), each with a required `reason`
+  (`RfqClosing`, 1 to 500 characters; white space alone is 422
+  `request.validation_failed` naming `reason`), If-Match and
+  Idempotency-Key, by `procurement.rfq.manage`. Another status is 409
+  `procurement.invalid_status` (a draft to close, an RFQ awarded,
+  cancelled or closed). An RFQ shows `closing_reason` and the statuses
+  `cancelled` and `closed` (an open enumeration). Recording a quotation,
+  publishing and awarding refuse an ended RFQ by the existing status
+  rules (409).
+- **Behaviour.** `endRFQ` (`rfq_close.go`) reads the RFQ under its row
+  lock at the version read, sets every `recorded` quotation of it
+  `not_awarded`, moves the RFQ guarded by its status, and, for an RFQ from
+  a requisition, reopens the requisition (`reopen`): read under its row
+  lock, moved `in_sourcing` → `approved` by `moveRequisition` (what
+  `setStatus` now calls, with the audit action given apart from the
+  status), audited `procurement.requisition.reopened` and published as
+  `RequisitionReopened` (`previous_status`, `cause` `rfq_cancelled` or
+  `rfq_closed`, the RFQ by id and number). Locks: the RFQ, then the
+  requisition, as the award takes them; no path takes them the other way
+  round. A race of an award and a close of one RFQ lets one through and
+  answers the other 412 (`TestEndRFQRace`). The requisition keeps naming
+  the RFQ last created from it; once approved it is sourced by a new RFQ,
+  ordered or cancelled as any approved requisition.
+- **Schema.** `procurement.rfq.closing_reason` and the wider status check
+  (both added NOT VALID, validated by 000364). `check_rfq`: a draft is not
+  closed (`rfq_closed_from_published`); a published RFQ is cancelled or
+  closed only once no quotation of it is other than `not_awarded`
+  (`rfq_ended_without_award`); a cancelled or closed RFQ keeps its status,
+  reason and (absent) award (`rfq_stays_ended`); only a `draft` or
+  `published` RFQ counts as a requisition's open RFQ
+  (`rfq_one_open_per_requisition`, which counted every RFQ not awarded).
+  The revert refuses while an RFQ is cancelled or closed. Schema tests in
+  `db/rfq_close_test.go`.
+- **Events and audit.** `RfqChanged` (`cancelled`, `closed`) carries
+  `reason` (added within v1); `RequisitionReopened` is new, offered to
+  webhooks as the other requisition events are, without the RFQ's
+  free-text reason. Audit `procurement.rfq.cancel` and
+  `procurement.rfq.close` name the reason and the quotations not
+  awarded, by id.
+- **Code.** `internal/procurement/rfq_close.go` (`endRFQ`, `reopen`),
+  `moveRequisition` in `requisitions.go`, the handlers in `rfq_api.go`.
+- **Walkthrough.** `step_rfq_requisition` (step 115) extended: after the
+  RFQ from the requisition is published, `DP_SUPPLIER` quotes far above
+  the estimate and Ben closes the RFQ with his reason: it reads `closed`,
+  the quotation `not_awarded`, the requisition `approved`; closing it again
+  is refused; a second RFQ from the requisition goes on to the award.
+- **Defaults** (28-32, for the digest): two methods, `:cancel` and
+  `:close`, each with a reason kept as `closing_reason`; the quotations of
+  an ended RFQ become `not_awarded`; the requisition goes back to
+  `approved`, its approval standing; one event, `RequisitionReopened`, with
+  a `cause`, offered to webhooks; agents may cancel or close as they may
+  publish (a write, ADR-0036 level 2).
+
+### T82h An award's purchase order cancelled (migrations 000365, 000366)
+
+The two findings of the batch 78 review in this code (review:batch78,
+`plan-depth-2.md` §T82h): cancelling an order an award created moved its
+requisition back without an event, and left the RFQ naming the cancelled
+order as its award's result.
+
+- **API.** `POST /v1/purchase-orders/{id}:cancel` is unchanged in its
+  request and refusals. An RFQ shows the status `order_cancelled` (an
+  open enumeration) once its award's order is cancelled; it still names
+  the order (`purchase_order_id`, `purchase_order_document_number`) and
+  keeps `award_reason`.
+- **Behaviour.** `cancelOrder` calls `unsourced` (`rfq_close.go`) after
+  it cancels the order: the RFQ whose award created the order, if any, is
+  read under its row lock and moved `awarded` → `order_cancelled`
+  (guarded by its status, version bumped), audited
+  `procurement.rfq.order_cancelled` and published as `RfqChanged`
+  (`order_cancelled`); then the order's requisition, if any, is reopened
+  as T82g reopens one (`reopen`: `ordered` → `approved`, audited
+  `procurement.requisition.reopened`, `RequisitionReopened` with `cause`
+  `purchase_order_cancelled` and the order by id and number). This holds
+  for every order cancelled from a requisition, not only an award's: its
+  move back was audited `procurement.requisition.approved` with no event
+  before. The quotations' outcomes stay; the RFQ is not reopened (a new
+  RFQ sources the requisition again). Locks: the order, then the RFQ,
+  then the requisition. The award takes the RFQ, then the requisition,
+  and creates the order as a new row no other transaction holds, so no
+  path takes them the other way round.
+- **Schema.** `check_rfq`: an awarded RFQ becomes `order_cancelled` only
+  once the order it names is cancelled (`rfq_order_cancelled`), keeping
+  its document and reason (`rfq_stays_awarded`), and stays so
+  (`rfq_stays_ended`). The status check, `rfq_awarded_to_one_document`
+  (an `order_cancelled` RFQ names its order) and `rfq_award_reason_check`
+  are widened (NOT VALID, validated by 000366). The revert refuses while
+  an RFQ is `order_cancelled`. Schema tests in
+  `db/rfq_award_cancel_test.go`.
+- **Events and audit.** `RfqChanged` gains `purchase_order_id` and
+  `purchase_order_document_number` for an RFQ awarded to an order (added
+  within v1); `RequisitionReopened` gains the cause
+  `purchase_order_cancelled`, `previous_status` `ordered` and the order.
+  The event log's activities "Source requisition" and "Reopen
+  requisition" (ADR-0080 As built T103c) show the requisition's sourcing
+  in the order's case.
+- **Walkthrough.** `step_rfq_requisition` (step 115) extended: after the
+  release, Ben cancels the order; the requisition reads `approved`, the
+  RFQ `order_cancelled` naming the order, and the order's case in the
+  event log holds the requisition's two sourcings and reopenings.
+- **Defaults** (33-35, for the digest): every order cancelled from a
+  requisition publishes `RequisitionReopened`, not only an award's; the
+  RFQ keeps the cancelled order's id and number under the status
+  `order_cancelled` rather than dropping them; the RFQ is not reopened.
