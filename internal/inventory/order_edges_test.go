@@ -208,6 +208,16 @@ func TestOrderPorts(t *testing.T) {
 			}
 			return err
 		}, "inventory.amount_too_large"},
+		"a standard value beyond an amount": {func(ctx context.Context) error {
+			pin := e.material(t, "Dowel pin", "trading_good", true)
+			e.value(t, pin, e.p1, "standard", "1.00")
+			// A price no request gives: the stock of one is out of range at it.
+			pgtest.Exec(t, `UPDATE inventory.valuation SET price = 9000000000000000000, version = version + 1 WHERE material_id = $1`, pin)
+			other := in
+			other.Items = []inventory.OrderItem{{MaterialID: uuid.MustParse(pin), PlantID: e.p1, StorageLocationID: e.s1, Quantity: "2", Unit: "EA"}}
+			_, err := h.ReceiveForOrder(ctx, other, s.post)
+			return err
+		}, "inventory.amount_too_large"},
 		"no goods receipt": {func(ctx context.Context) error {
 			d := e.post(t, "561", e.item("1", "EA", nil))
 			_, err := h.ReverseForOrder(ctx, uuid.MustParse(d["id"].(string)), time.Now(), "GR2", s.post)

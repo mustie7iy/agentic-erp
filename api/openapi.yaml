@@ -11315,6 +11315,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.requisition_mismatch
@@ -11421,6 +11422,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.requisition_ordered
@@ -11864,6 +11866,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.supplier_not_usable
@@ -11970,6 +11973,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.supplier_not_usable
@@ -12105,6 +12109,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.requisition_ordered
@@ -12947,6 +12952,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.not_a_scheduling_agreement
@@ -13328,6 +13334,7 @@ paths:
         - procurement.invalid_quantity
         - procurement.invalid_renewal
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.invalid_validity
         - procurement.legal_entity_not_active
@@ -13612,6 +13619,28 @@ paths:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - inventory.amount_too_large
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -13673,6 +13702,8 @@ paths:
         - procurement.reason_required
         - procurement.return_exceeds_receipts
         - procurement.reversal_exceeds_receipts
+        - procurement.stock_item_not_valued
+        - procurement.stock_item_return
         - procurement.unit_mismatch
         - procurement.unknown_order_item
         - request.invalid_amount
@@ -13758,6 +13789,28 @@ paths:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - inventory.amount_too_large
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -13815,6 +13868,8 @@ paths:
         - procurement.return_exceeds_receipts
         - procurement.reversal_below_invoiced
         - procurement.reversal_exceeds_receipts
+        - procurement.stock_item_not_valued
+        - procurement.stock_item_return
         - procurement.unknown_order_item
         - request.invalid_amount
         - request.version_mismatch
@@ -14492,6 +14547,9 @@ paths:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - inventory.no_inventory_account
+        - inventory.no_valuation
+        - inventory.stock_value_below_zero
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -14978,6 +15036,7 @@ paths:
         - payables.invoice_cleared
         - payables.invoice_has_corrections
         - payables.invoice_in_payment_run
+        - payables.invoice_revalued_stock
         - payables.negative_amount
         - payables.order_not_found
         - payables.reversal_exceeds_invoiced
@@ -24289,6 +24348,7 @@ paths:
         - inventory.no_price
         - inventory.no_valuation
         - inventory.quantity_too_large
+        - inventory.reverse_goods_receipt
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -35503,6 +35563,28 @@ paths:
         - integration.legal_entity_not_active
         - integration.migration_failed
         - integration.secret_unavailable
+        - inventory.amount_too_large
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -35664,6 +35746,7 @@ paths:
         - procurement.invalid_org_unit
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.invalid_stock_item
         - procurement.invalid_tolerance
         - procurement.legal_entity_not_active
         - procurement.mixed_currencies
@@ -35676,6 +35759,8 @@ paths:
         - procurement.requisition_ordered
         - procurement.return_exceeds_receipts
         - procurement.reversal_exceeds_receipts
+        - procurement.stock_item_not_valued
+        - procurement.stock_item_return
         - procurement.supplier_not_usable
         - procurement.unit_mismatch
         - procurement.unknown_currency

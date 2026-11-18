@@ -13525,10 +13525,10 @@ step_stock_receipt() {
     getMaterialDocument -p "id=$(field .material_document_id)"
   expect "the receipt's values" "$(field '[.lines[] | "\(.amount.amount)/\(.price_difference.amount)"] | join(" ")')" "150.00/0.00 55.00/5.00"
   api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
-  say "The second part, 40 brackets, is counted wrong at 45; Ben posts it, sees it and reverses it (102), which takes"
+  say "The second part, 40 brackets, is counted wrong at 35; Ben posts it, sees it and reverses it (102), which takes"
   say "the stock and GR/IR back, once:"
   api 201 '"goods receipt \(.document_number): material document \(.material_document_number)"' postGoodsReceipt \
-    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"45\", \"unit\": \"EA\"}}]}"
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"35\", \"unit\": \"EA\"}}]}"
   second=$(field .id)
   api 200 '"reversal \(.document_number) (\(.movement_type)): material document \(.material_document_number)"' reverseGoodsReceipt -p "id=$second" -if-match "$ETAG" -body '{}'
   QUIET=1 api 200 '' getGoodsReceipt -p "id=$second"
