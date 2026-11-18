@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestRevenueFollowRules (T81e, migration 000363; ADR-0068, As built
+// TestRevenueFollowRules (T81e, migration 000367; ADR-0068, As built
 // T81e): a contract follows its sales order only with a kept change
 // numbered as its next, its status kept and, active, its shares still the
 // transaction price; a follow changes an obligation's order value,
@@ -164,7 +164,7 @@ func TestRevenueFollowRules(t *testing.T) {
 	}
 }
 
-// TestRevenueFollowRevert (T81e, migration 000363's down): the revert is
+// TestRevenueFollowRevert (T81e, migration 000367's down): the revert is
 // refused, before it changes anything, while a contract has followed its
 // order.
 func TestRevenueFollowRevert(t *testing.T) {

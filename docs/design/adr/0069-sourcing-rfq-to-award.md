@@ -543,7 +543,7 @@ replaced: an award to a quotation not ranked first now needs a reason.
   quotation not ranked first, for a contract as for an order; the link is
   kept once, on the RFQ (the order shows its requisition, not its RFQ).
 
-### T82g RFQ cancelled or closed without an award (migrations 000363, 000364)
+### T82g RFQ cancelled or closed without an award (migrations 000369, 000370)
 
 The first depth-2 variant (`plan-depth-2.md` §T82g, product owner
 2026-11-17). T82e's default 23 ("closing an RFQ without an award stays
@@ -576,7 +576,7 @@ leaves sourcing.
   the RFQ last created from it; once approved it is sourced by a new RFQ,
   ordered or cancelled as any approved requisition.
 - **Schema.** `procurement.rfq.closing_reason` and the wider status check
-  (both added NOT VALID, validated by 000364). `check_rfq`: a draft is not
+  (both added NOT VALID, validated by 000370). `check_rfq`: a draft is not
   closed (`rfq_closed_from_published`); a published RFQ is cancelled or
   closed only once no quotation of it is other than `not_awarded`
   (`rfq_ended_without_award`); a cancelled or closed RFQ keeps its status,
@@ -605,7 +605,7 @@ leaves sourcing.
   a `cause`, offered to webhooks; agents may cancel or close as they may
   publish (a write, ADR-0036 level 2).
 
-### T82h An award's purchase order cancelled (migrations 000365, 000366)
+### T82h An award's purchase order cancelled (migrations 000371, 000372)
 
 The two findings of the batch 78 review in this code (review:batch78,
 `plan-depth-2.md` §T82h): cancelling an order an award created moved its
@@ -638,7 +638,7 @@ order as its award's result.
   its document and reason (`rfq_stays_awarded`), and stays so
   (`rfq_stays_ended`). The status check, `rfq_awarded_to_one_document`
   (an `order_cancelled` RFQ names its order) and `rfq_award_reason_check`
-  are widened (NOT VALID, validated by 000366). The revert refuses while
+  are widened (NOT VALID, validated by 000372). The revert refuses while
   an RFQ is `order_cancelled`. Schema tests in
   `db/rfq_award_cancel_test.go`.
 - **Events and audit.** `RfqChanged` gains `purchase_order_id` and

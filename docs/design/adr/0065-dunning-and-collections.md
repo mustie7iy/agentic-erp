@@ -777,7 +777,7 @@ digest.
   is dunned again; the gasket's block released, once, the next run duns
   both.
 
-### T76f Promises to pay (migration 000363)
+### T76f Promises to pay (migration 000365)
 
 Decided by default under this ADR (`plan-depth-2.md` §T76f; SAP S/4HANA
 Collections Management's promise to pay as the reference; product owner
@@ -873,7 +873,7 @@ digest.
   the gasket and its promise reads kept; at the day after the pump's
   date the worklist counts its promise broken and a run duns the pump.
 
-### T76g Contacts with customers and resubmission dates (migration 000364)
+### T76g Contacts with customers and resubmission dates (migration 000366)
 
 Decided by default under this ADR (`plan-depth-2.md` §T76g; SAP S/4HANA
 Collections Management's customer contact and resubmission as the

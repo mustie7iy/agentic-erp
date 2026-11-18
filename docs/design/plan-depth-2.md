@@ -1,11 +1,14 @@
 # Depth plan 2: second variant slices (17 November 2026)
 
-**Status:** plan (product owner, 17 November 2026: development focus,
-variants continue after `plan-depth-1.md`). Each lane splits two named
-variants of its placeholder into slices in the form of
-`plan-breadth-week3.md` (Adds, Acceptance, Later) and builds them.
+**Status:** plan (product owner, 16–17 November 2026: breadth is built;
+the variants go on, pilot-relevant first). It follows
+`plan-depth-1.md`, whose rules it does not repeat: each lane splits two
+named variants of its placeholder into slices in the form of
+`plan-breadth-week3.md` (Adds, Acceptance, Later) and builds them, or,
+where its slice is a tracker leaf already, writes the leaf's section.
 `docs/tracker.json` stays the only plan (07 §7.5); each leaf's `r` names
-its section below. Each lane writes its own `## <lane>` section.
+its section below. Each lane writes its own `## <lane>` section; batch 79
+merged recv2, coll, rev and rfq2.
 
 ## recv2
 

@@ -11,7 +11,7 @@ import (
 )
 
 // TestCollectionsPermissions (T76a, migration 000273; T76c, 000278; T86a,
-// 000324; T76e, 000354; T76f, 000363; ADR-0065 §7): the dunning
+// 000324; T76e, 000354; T76f, 000365; ADR-0065 §7): the dunning
 // permissions, the worklist's (reading it and recording its work), the
 // dispute cases' and the dunning blocks' are seeded and are no approval
 // permissions.
@@ -721,7 +721,7 @@ const promiseToPay = `INSERT INTO collections.promise_to_pay (tenant_id, id, leg
 const promiseToPayItem = `INSERT INTO collections.promise_to_pay_item (tenant_id, promise_to_pay_id, fiscal_year, journal_entry_id, line_no,
 	document_number, net_due_date, currency, amount, amount_lc) VALUES ($1, $2, 2026, $3, 1, 'DR1', '2026-12-31', 'EUR', 10000, 10000)`
 
-// TestPromiseToPayRules (T76f, migration 000363): a promise names its
+// TestPromiseToPayRules (T76f, migration 000365): a promise names its
 // customer by number, promises an amount above zero in a known currency
 // by a date up to 2100-12-31, at version 1 or more; an item is named by
 // its journal line, once in its promise, with its document number and an
@@ -806,7 +806,7 @@ func TestPromiseToPayRules(t *testing.T) {
 	}
 }
 
-// TestPromiseToPayFixedForTheOwner (T76f, migration 000363): a promise and
+// TestPromiseToPayFixedForTheOwner (T76f, migration 000365): a promise and
 // its items are insert-only for every role, the tables' owner included:
 // the trigger, not the grant, keeps them.
 func TestPromiseToPayFixedForTheOwner(t *testing.T) {
@@ -843,7 +843,7 @@ const customerContact = `INSERT INTO collections.customer_contact (tenant_id, id
 	contact_name, outcome, note, resubmission_date, created_by, updated_by)
 	VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), 'BP1', now(), 'Dana', 'reached', 'Pays Friday', '2027-01-31', $1, $1)`
 
-// TestCustomerContactRules (T76g, migration 000364): a contact names its
+// TestCustomerContactRules (T76g, migration 000366): a contact names its
 // customer by number; its outcome is reached, not_reached or
 // left_message; its contact name and note are more than white space, at
 // most 200 and 2,000 characters, or absent; its resubmission date is up
@@ -903,7 +903,7 @@ func TestCustomerContactRules(t *testing.T) {
 	})
 }
 
-// TestCustomerContactFixedForTheOwner (T76g, migration 000364): a contact
+// TestCustomerContactFixedForTheOwner (T76g, migration 000366): a contact
 // is insert-only for every role, the table's owner included.
 func TestCustomerContactFixedForTheOwner(t *testing.T) {
 	need(t)

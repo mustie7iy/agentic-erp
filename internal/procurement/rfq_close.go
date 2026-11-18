@@ -50,7 +50,7 @@ var (
 // lock at the version the caller read, so of two requests the second
 // meets another version or finds it ended (409). Its recorded quotations
 // are not awarded first, since the database ends an RFQ only with none
-// left open (000363); then the RFQ moves, keeping the reason, and its
+// left open (000369); then the RFQ moves, keeping the reason, and its
 // requisition, if any, is reopened: the RFQ, then the requisition, as an
 // award takes them.
 func (e *Endpoints) endRFQ(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, how rfqEnding, reason string) (RFQ, error) {
@@ -131,7 +131,7 @@ func (e *Endpoints) unsourced(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 	case err != nil:
 		return fmt.Errorf("procurement: cancel purchase order %s: lock its RFQ: %w", o.ID, err)
 	default:
-		// Only an awarded RFQ names an order that is not cancelled (000365).
+		// Only an awarded RFQ names an order that is not cancelled (000371).
 		if _, err := tx.Exec(ctx, `UPDATE procurement.rfq SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1 AND status = $4`,
 			rfq, RFQOrderCancelled, p.ID, RFQAwarded); err != nil {
 			return fmt.Errorf("procurement: cancel purchase order %s: its RFQ %s: %w", o.ID, rfq, err)

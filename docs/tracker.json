@@ -2836,7 +2836,7 @@
        {
         "s": "D",
         "t": "A revenue contract follows a change of its sales order: changed quantities or prices update its obligations' order values and the transaction price's allocation, and a cancelled order ends the contract's obligations (split from the revenue contract variants placeholder after T78d).",
-        "r": "T81e · docs/design/plan-depth-2.md §T81e · db/migrations/000363 · revenue.contract_change · revenue.Consumer follows SalesOrderChanged · walkthrough step_revenue_follows_order · ADR-0068 As built T81e · split from docs/design/plan-breadth-week2.md §T81a, Later",
+        "r": "T81e · docs/design/plan-depth-2.md §T81e · db/migrations/000367 · revenue.contract_change · revenue.Consumer follows SalesOrderChanged · walkthrough step_revenue_follows_order · ADR-0068 As built T81e · split from docs/design/plan-breadth-week2.md §T81a, Later",
         "src": "split:T81a",
         "c": []
        },
@@ -2990,14 +2990,14 @@
        {
         "s": "D",
         "t": "A collections specialist records a customer's promise to pay an amount by a date for some of its open items; the promise reads open, kept or broken by the company's today, the worklist shows each customer's open and broken promises, and a dunning run holds the promised items back up to the promised date",
-        "r": "T76f · docs/design/plan-depth-2.md §T76f · db/migrations/000363 · collections.promise_to_pay, promise_to_pay_item · dunning_run.promised_items · POST /v1/promises-to-pay · GET /v1/promises-to-pay · GET /v1/promises-to-pay/{id} · collections.worklist.write · walkthrough step_promise_to_pay · ADR-0065 As built",
+        "r": "T76f · docs/design/plan-depth-2.md §T76f · db/migrations/000365 · collections.promise_to_pay, promise_to_pay_item · dunning_run.promised_items · POST /v1/promises-to-pay · GET /v1/promises-to-pay · GET /v1/promises-to-pay/{id} · collections.worklist.write · walkthrough step_promise_to_pay · ADR-0065 As built",
         "src": "split:T76c · po:2026-11-17",
         "c": []
        },
        {
         "s": "D",
         "t": "A collections specialist records a contact with a customer (when, whom, the outcome, a note) with an optional resubmission date; the worklist shows each customer's last contact and leaves a customer out until its resubmission date",
-        "r": "T76g · docs/design/plan-depth-2.md §T76g · db/migrations/000364 · collections.customer_contact · POST /v1/customer-contacts · GET /v1/customer-contacts · GET /v1/customer-contacts/{id} · resubmission_count · personal data inventory · walkthrough step_collection_contacts · TestCollectionWorklistBudget · ADR-0065 As built",
+        "r": "T76g · docs/design/plan-depth-2.md §T76g · db/migrations/000366 · collections.customer_contact · POST /v1/customer-contacts · GET /v1/customer-contacts · GET /v1/customer-contacts/{id} · resubmission_count · personal data inventory · walkthrough step_collection_contacts · TestCollectionWorklistBudget · ADR-0065 As built",
         "src": "split:T76c · po:2026-11-17",
         "c": []
        },
@@ -4574,7 +4574,7 @@
        {
         "s": "D",
         "t": "A buyer cancels or closes an RFQ without an award, with a reason: a requisition it was created from leaves sourcing (approved again, available to a new RFQ or an order), and the change is audited and published as an event (split from the RFQ variants placeholder).",
-        "r": "T82g · docs/design/plan-depth-2.md §T82g · split from docs/design/plan-breadth-week2.md §T82b, Later · migrations 000363, 000364 · internal/procurement/rfq_close.go · POST /v1/rfqs/{id}:cancel, :close · RequisitionReopened · ADR-0069 As built · walkthrough step_rfq_requisition",
+        "r": "T82g · docs/design/plan-depth-2.md §T82g · split from docs/design/plan-breadth-week2.md §T82b, Later · migrations 000369, 000370 · internal/procurement/rfq_close.go · POST /v1/rfqs/{id}:cancel, :close · RequisitionReopened · ADR-0069 As built · walkthrough step_rfq_requisition",
         "src": "split:T82b",
         "c": []
        },
@@ -4644,7 +4644,7 @@
        {
         "s": "D",
         "t": "Cancelling a purchase order created by an RFQ's award moves its requisition back without an event, and the RFQ still names the cancelled order as its award (found in the batch 78 rfq lane review).",
-        "r": "T82h · docs/design/plan-depth-2.md §T82h · migrations 000365, 000366 · internal/procurement/rfq_close.go (unsourced), purchase_orders.go cancelOrder · RFQ status order_cancelled · RequisitionReopened (purchase_order_cancelled) · T82f · ADR-0007 outbox · ADR-0069 As built · walkthrough step_rfq_requisition",
+        "r": "T82h · docs/design/plan-depth-2.md §T82h · migrations 000371, 000372 · internal/procurement/rfq_close.go (unsourced), purchase_orders.go cancelOrder · RFQ status order_cancelled · RequisitionReopened (purchase_order_cancelled) · T82f · ADR-0007 outbox · ADR-0069 As built · walkthrough step_rfq_requisition",
         "src": "review:batch78",
         "c": []
        }
@@ -4908,7 +4908,7 @@
        {
         "s": "D",
         "t": "A sales representative adds items to an open sales order, removes an item of which nothing is delivered or billed, and changes the order's payment term while nothing of it is billed, each in a numbered change; a confirmed order's revenue contract follows (POST /v1/sales-orders/{id}:change)",
-        "r": "T78e · docs/design/plan-depth-2.md §T78e · db/migrations/000364 · sales.sales_order_item.removed_in_change · POST /v1/sales-orders/{id}:change new_items, removed_items, payment_term_code · walkthrough step_sales_order_items · ADR-0067 As built T78e",
+        "r": "T78e · docs/design/plan-depth-2.md §T78e · db/migrations/000368 · sales.sales_order_item.removed_in_change · POST /v1/sales-orders/{id}:change new_items, removed_items, payment_term_code · walkthrough step_sales_order_items · ADR-0067 As built T78e",
         "src": "split:T78b · po:2026-11-17",
         "c": []
        },

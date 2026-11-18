@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestSalesOrderItemRules (T78e, migration 000364; ADR-0067, As built
+// TestSalesOrderItemRules (T78e, migration 000368; ADR-0067, As built
 // T78e): an item is added to an order before any change of it, or with
 // the order's next change kept, numbered after its highest, never to a
 // cancelled order; an item is removed only with the order's next change
@@ -130,7 +130,7 @@ func TestSalesOrderItemRules(t *testing.T) {
 	}
 }
 
-// TestSalesOrderItemRevert (T78e, migration 000364's down): the revert
+// TestSalesOrderItemRevert (T78e, migration 000368's down): the revert
 // is refused, before it changes anything, while an order has an item
 // removed by a change.
 func TestSalesOrderItemRevert(t *testing.T) {

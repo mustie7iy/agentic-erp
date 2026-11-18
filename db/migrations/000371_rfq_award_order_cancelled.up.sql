@@ -7,7 +7,7 @@
 -- the application (RequisitionReopened).
 -- Expand only: a status added to an open enumeration, which the previous
 -- version neither writes nor relies on (06 §6.4). The wider checks are
--- added NOT VALID and validated by 000366: every row already there holds
+-- added NOT VALID and validated by 000372: every row already there holds
 -- them.
 ALTER TABLE procurement.rfq
   DROP CONSTRAINT rfq_status_check,
@@ -21,7 +21,7 @@ ALTER TABLE procurement.rfq
   ADD CONSTRAINT rfq_award_reason_check CHECK (award_reason IS NULL OR (status IN ('awarded', 'order_cancelled') AND btrim(award_reason) <> ''
     AND length(award_reason) <= 500)) NOT VALID;
 
--- check_rfq as 000363 left it, and: an awarded RFQ becomes
+-- check_rfq as 000369 left it, and: an awarded RFQ becomes
 -- order_cancelled, keeping its award, only once the purchase order it
 -- names is cancelled, and stays so.
 CREATE OR REPLACE FUNCTION procurement.check_rfq() RETURNS trigger

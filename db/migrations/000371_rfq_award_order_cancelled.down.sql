@@ -1,27 +1,13 @@
--- An RFQ cancelled or closed without an award (T82g; ADR-0069 As built,
--- plan-depth-2 §T82g): a buyer cancels a draft or published RFQ that is
--- no longer needed, or closes a published one whose quotations do not
--- lead to an award, with a reason (closing_reason). Its quotations are all
--- not awarded first (T82d's outcome), and a requisition it was created
--- from is approved again by the application in the same transaction; an
--- RFQ cancelled or closed no longer counts as the requisition's open RFQ.
--- Expand only: a nullable column and statuses added to an open
--- enumeration, which the previous version neither writes nor relies on
--- (06 §6.4). The wider status check and the reason's check are added NOT
--- VALID and validated by 000364: every row already there holds them.
-ALTER TABLE procurement.rfq
-  ADD COLUMN closing_reason text,
-  DROP CONSTRAINT rfq_status_check,
-  ADD CONSTRAINT rfq_status_check CHECK (status IN ('draft', 'published', 'awarded', 'cancelled', 'closed')) NOT VALID,
-  -- A cancelled or closed RFQ keeps why, and no other RFQ has a reason
-  -- of this kind.
-  ADD CONSTRAINT rfq_closing_reason_check CHECK ((closing_reason IS NOT NULL) = (status IN ('cancelled', 'closed'))
-    AND (closing_reason IS NULL OR (btrim(closing_reason) <> '' AND length(closing_reason) <= 500))) NOT VALID;
-
--- check_rfq as 000361 left it, and: a draft or published RFQ is cancelled,
--- a published one closed, each only once every quotation of it is not
--- awarded, and it stays so with its reason; only a draft or published
--- RFQ is a requisition's open RFQ.
+-- The revert refuses while an RFQ's award's order was cancelled (the
+-- previous version knows no such status): the checks restored below would
+-- fail on it.
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM procurement.rfq WHERE status = 'order_cancelled') THEN
+    RAISE EXCEPTION 'RFQs whose award''s order was cancelled exist: 000371 cannot be reverted' USING ERRCODE = 'check_violation';
+  END IF;
+END $$;
+-- check_rfq as 000369 left it.
 CREATE OR REPLACE FUNCTION procurement.check_rfq() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -90,3 +76,12 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+ALTER TABLE procurement.rfq
+  DROP CONSTRAINT rfq_award_reason_check,
+  ADD CONSTRAINT rfq_award_reason_check CHECK (award_reason IS NULL OR (status = 'awarded' AND btrim(award_reason) <> ''
+    AND length(award_reason) <= 500)),
+  DROP CONSTRAINT rfq_awarded_to_one_document,
+  ADD CONSTRAINT rfq_awarded_to_one_document CHECK ((status = 'awarded') = (num_nonnulls(contract_id, purchase_order_id) = 1)
+    AND num_nonnulls(contract_id, purchase_order_id) <= 1),
+  DROP CONSTRAINT rfq_status_check,
+  ADD CONSTRAINT rfq_status_check CHECK (status IN ('draft', 'published', 'awarded', 'cancelled', 'closed'));

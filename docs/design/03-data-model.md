@@ -2082,14 +2082,14 @@ one quotation of an RFQ is awarded (`supplier_quotation_one_awarded`). The
 application may update a quotation's status, version and `updated_by`
 and nothing else of it. Permission `procurement.rfq.award`.
 
-An RFQ ends without an award (migration 000363, T82g, ADR-0069 As
+An RFQ ends without an award (migration 000369, T82g, ADR-0069 As
 built): a draft or published one is `cancelled`, a published one
 `closed`, each with `closing_reason` (`rfq_closing_reason_check`: exactly
 on those statuses, not blank, at most 500 characters), and only once each
 of its quotations is `not_awarded` (`rfq_lifecycle`); it stays so with
 its reason. Only a `draft` or `published` RFQ is its requisition's open
 RFQ, so a requisition whose RFQ ended is sourced again by a new one.
-When the purchase order an award created is cancelled (migration 000365,
+When the purchase order an award created is cancelled (migration 000371,
 T82h), the RFQ moves from `awarded` to `order_cancelled`, only once that
 order is cancelled (`rfq_lifecycle`), keeping `purchase_order_id` and its
 award reason (`rfq_awarded_to_one_document` and `rfq_award_reason_check`
@@ -4891,7 +4891,7 @@ erDiagram
   `dunning_run.blocked_items` lists the items a run left out for a block,
   a JSON list (`dunning_run_blocked_items_check`), empty by default,
   written with the run and not changed.
-- `collections.promise_to_pay` (T76f, migration 000363): a customer's
+- `collections.promise_to_pay` (T76f, migration 000365): a customer's
   promise to pay a company, by its number
   (`promise_to_pay_customer_number_check`), an amount above zero
   (`promise_to_pay_amount_positive`) in the company's currency, a known
@@ -4918,7 +4918,7 @@ erDiagram
   `dunning_run.promised_items` lists the items a run left out for a
   promise, a JSON list (`dunning_run_promised_items_check`), empty by
   default, written with the run and not changed.
-- `collections.customer_contact` (T76g, migration 000364): a
+- `collections.customer_contact` (T76g, migration 000366): a
   collector's contact with a customer, by its number
   (`customer_contact_customer_number_check`), at `contacted_at`, with an
   outcome of `reached`, `not_reached` or `left_message`
@@ -5293,7 +5293,7 @@ erDiagram
   cancelled once, while no item has anything delivered. A cancelled
   order changes no more. The application may also update
   `requested_delivery_date`, `net_amount`, `changes` and the
-  cancellation's three columns. T78e (migration 000364) lets it update
+  cancellation's three columns. T78e (migration 000368) lets it update
   `payment_term_code` too: only with `changes` moved to a kept change
   (`sales_order_payment_term_kept`) and while no billing document of the
   order stands that is not cancelled (`sales_order_payment_term_billed`),
@@ -5314,7 +5314,7 @@ erDiagram
   trigger `sales_order_item_change`, on an update that sets one of them,
   refuses an item with anything billed and an item of a cancelled order,
   for the tables' owner too; a quantity stays at least what is delivered
-  (`sales_order_item_quantities`). T78e (migration 000364) adds
+  (`sales_order_item_quantities`). T78e (migration 000368) adds
   `removed_in_change`, the change that removed the item: set only in the
   transaction that keeps the order's next change, which it names
   (`sales_order_item_removed_kept`), on an item with nothing delivered
@@ -5577,7 +5577,7 @@ T81d (migrations 000311 and 000312) adds the recognition run with its
 postings, which posts through the ledger's port with `source_context`
 `revenue` (the journal's source contexts gain it), and the account
 determination keys `contract_asset` and `contract_liability` (§3.7).
-T81e (migration 000363) has a contract follow its sales order's changes
+T81e (migration 000367) has a contract follow its sales order's changes
 and cancellation (§3.29, T78d), each follow kept as a numbered change.
 
 ```mermaid

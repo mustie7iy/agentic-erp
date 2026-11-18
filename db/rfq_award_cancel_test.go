@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// An award's purchase order cancelled (T82h, migration 000365): an awarded
+// An award's purchase order cancelled (T82h, migration 000371): an awarded
 // RFQ becomes order_cancelled, keeping its order and reason, only once
 // that order is cancelled, and stays so.
 
@@ -82,12 +82,12 @@ func TestRFQOrderCancelled(t *testing.T) {
 	}
 }
 
-// TestRFQOrderCancelledRevert (000365's down): the revert is refused while
+// TestRFQOrderCancelledRevert (000371's down): the revert is refused while
 // an RFQ's award's order was cancelled, which the previous version cannot
 // show.
 func TestRFQOrderCancelledRevert(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000365_rfq_award_order_cancelled").Down
+	down := migrationNamed(t, "000371_rfq_award_order_cancelled").Down
 	ctx := context.Background()
 	tx, err := testDB.Begin(ctx)
 	if err != nil {
@@ -101,5 +101,5 @@ func TestRFQOrderCancelledRevert(t *testing.T) {
 		step(`UPDATE procurement.rfq SET status = 'order_cancelled', purchase_order_id = $2 WHERE id = $1`, rfq, id()), step(`SET LOCAL session_replication_role = DEFAULT`)); err != nil {
 		t.Fatal(err)
 	}
-	failsWith(t, exec(tx, down), "000365 cannot be reverted")
+	failsWith(t, exec(tx, down), "000371 cannot be reverted")
 }

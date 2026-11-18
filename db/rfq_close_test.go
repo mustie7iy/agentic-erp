@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// RFQs ended without an award (T82g, migration 000363): a draft or
+// RFQs ended without an award (T82g, migration 000369): a draft or
 // published RFQ is cancelled, a published one closed, each with a reason
 // and only once its quotations are all not awarded; it stays so, and an
 // RFQ cancelled or closed is not its requisition's open RFQ.
@@ -108,11 +108,11 @@ func TestRFQEnded(t *testing.T) {
 	})
 }
 
-// TestRFQEndRevert (000363's down): the revert is refused while an RFQ is
+// TestRFQEndRevert (000369's down): the revert is refused while an RFQ is
 // cancelled or closed, which the previous version cannot show.
 func TestRFQEndRevert(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000363_rfq_cancel_close").Down
+	down := migrationNamed(t, "000369_rfq_cancel_close").Down
 	ctx := context.Background()
 	tx, err := testDB.Begin(ctx)
 	if err != nil {
@@ -123,5 +123,5 @@ func TestRFQEndRevert(t *testing.T) {
 	if err := all(tx, step(rfqSQL, tenant, rfq, "RQ1", tenant, "EUR", "draft", tenant), step(endSQL, rfq, "cancelled", "Not needed")); err != nil {
 		t.Fatal(err)
 	}
-	failsWith(t, exec(tx, down), "000363 cannot be reverted")
+	failsWith(t, exec(tx, down), "000369 cannot be reverted")
 }

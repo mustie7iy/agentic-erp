@@ -1821,7 +1821,7 @@ its own whose accounting document reverses the invoice) is the reference.
   analytical store's `sales_lines` (ADR-0044, the analytics context's
   extract) lists posted documents only, so a cancelled one leaves it.
 
-### T78e Sales order items added and removed, payment term changed (migration 000364)
+### T78e Sales order items added and removed, payment term changed (migration 000368)
 
 `docs/design/plan-depth-2.md` §T78e (product owner 2026-11-17). It lifts
 T78d's default (2) for adding and removing items and the payment term;
@@ -1837,7 +1837,7 @@ change documents) is the reference.
   (`credit.go`) and a delivery (`deliveries.go`) take; the open orders of
   credit exposure and the analytics extract's sales lines leave removed
   items out.
-- Migration 000364: `sales.sales_order_item.removed_in_change` with its
+- Migration 000368: `sales.sales_order_item.removed_in_change` with its
   rules, the insert rule for items added, the payment term's rule and
   grant, and on `sales.sales_order_change` the payment term before and
   after (03-data-model §3.29). Schema tests in `db/sales_items_test.go`.

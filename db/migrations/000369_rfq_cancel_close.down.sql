@@ -4,7 +4,7 @@
 DO $$
 BEGIN
   IF EXISTS (SELECT FROM procurement.rfq WHERE status IN ('cancelled', 'closed') OR closing_reason IS NOT NULL) THEN
-    RAISE EXCEPTION 'cancelled or closed RFQs exist: 000363 cannot be reverted' USING ERRCODE = 'check_violation';
+    RAISE EXCEPTION 'cancelled or closed RFQs exist: 000369 cannot be reverted' USING ERRCODE = 'check_violation';
   END IF;
 END $$;
 -- check_rfq as 000361 left it.

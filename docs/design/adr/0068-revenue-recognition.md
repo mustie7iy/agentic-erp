@@ -779,7 +779,7 @@ is answered by the product owner: yes.
   second run of the period is refused.
 - **Decided by default while building.** Defaults 11 to 16 above.
 
-### T81e Revenue contract follows its sales order (migration 000363)
+### T81e Revenue contract follows its sales order (migration 000367)
 
 `docs/design/plan-depth-2.md` §T81e (product owner 2026-11-17: the
 variants go on). It lifts default 5 above ("orders do not change in the
