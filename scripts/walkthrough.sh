@@ -13824,6 +13824,7 @@ step_credit_limit_validity() {
   expect "no limit used outside its validity" "$(field '"\(.has_limit) \(.credit_limit_id) \(has("limit")) \(has("available")) \(.is_within_limit)"')" "false $id false false true"
   expect_today "the day judged on" "$(field .day)" "$day"
   say "A validity that starts after it ends is refused:"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
   refused 422 credit.invalid_validity updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"valid_from\": \"$day\"}"
   QUIET=1 api 200 '' getCreditLimit -p "id=$id"
   say "Ruth opens the limit's end again, and it is used once more:"
