@@ -165,11 +165,14 @@ func TestAllocationRunReversal(t *testing.T) {
 	var attempts string
 	pgtest.Scan(t, `SELECT string_agg(attempt::text, ' ' ORDER BY attempt) FROM controlling.allocation_run WHERE tenant_id = $1`, []any{p.Tenant.ID}, &attempts)
 	want(t, "the runs' attempts", attempts, "1 2")
+	// June's run, a second run in force.
+	p.post(t, "2026-06-10", on(p.office, 500, &p.c.Admin), on(p.bank, -500, nil))
+	june, _ := p.Must(200, "POST", path+":run", settleBody(2026, 6), `"1"`)
 	t.Run("the runs listed, reversed or in force", func(t *testing.T) {
 		for name, c := range map[string]struct {
 			query string
 			want  int
-		}{"every run": {"", 2}, "reversed": {"?reversed=true", 1}, "in force": {"?reversed=false", 1}} {
+		}{"every run": {"", 3}, "reversed": {"?reversed=true", 1}, "in force": {"?reversed=false", 2}} {
 			t.Run(name, func(t *testing.T) {
 				page, _ := p.in(t).Must(200, "GET", "/v1/allocation-runs"+c.query, "", "")
 				want(t, "runs", len(apitest.List(t, page, "items")), c.want)
@@ -178,15 +181,12 @@ func TestAllocationRunReversal(t *testing.T) {
 		page, _ := p.Must(200, "GET", "/v1/allocation-runs?reversed=true", "", "")
 		want(t, "the reversed run listed", apitest.List(t, page, "items")[0].(map[string]any)["id"], run["id"])
 		// The filter is part of the cursor's scope: a page token read with it
-		// pages on with it, and is refused with another.
+		// pages on with it, and is refused with another value.
 		first, _ := p.Must(200, "GET", "/v1/allocation-runs?page_size=1&reversed=false", "", "")
-		token := first["next_page_token"]
-		if token != nil {
-			t.Fatalf("a first page of the runs in force: got a next page %v, want none", token)
-		}
-		all, _ := p.Must(200, "GET", "/v1/allocation-runs?page_size=1", "", "")
-		next := all["next_page_token"].(string)
-		p.Must(200, "GET", "/v1/allocation-runs?page_size=1&page_token="+next, "", "")
+		want(t, "the first run in force, the latest", apitest.List(t, first, "items")[0].(map[string]any)["id"], apitest.Object(t, june, "run")["id"])
+		next := first["next_page_token"].(string)
+		second, _ := p.Must(200, "GET", "/v1/allocation-runs?page_size=1&reversed=false&page_token="+next, "", "")
+		want(t, "the second run in force", apitest.List(t, second, "items")[0].(map[string]any)["id"], apitest.Object(t, again, "run")["id"])
 		p.Problem(400, "request.invalid_page_token", "GET", "/v1/allocation-runs?page_size=1&reversed=true&page_token="+next, "", "")
 	})
 	t.Run("a run into a closed period is not reversed", func(t *testing.T) {
