@@ -3649,8 +3649,22 @@
        },
        {
         "s": "T",
-        "t": "later: allocation cycle variants: shares from statistical key figures or actual or plan values, fixed amounts, several senders and segments, iterative cycles, simulating and reversing a run, plan allocations, overhead rates and activity allocation, receivers other than cost centers (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T60g, Later",
+        "t": "A controller posts a statistical key figure's values per cost center and period, and runs a cycle whose receivers' shares are the key figure's values of the period",
+        "r": "T60j · docs/design/plan-depth-3.md §T60j · ADR-0064 As built T60j · scripts/walkthrough.sh step_distribution",
+        "src": "split:T60g · adr:ADR-0064",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A controller charges receivers fixed amounts by an assessment cycle, and reverses an allocation run in its period so the cycle may run for it again",
+        "r": "T60k · docs/design/plan-depth-3.md §T60k · ADR-0064 As built T60k · scripts/walkthrough.sh step_assessment",
+        "src": "split:T60g · adr:ADR-0064",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: allocation cycle variants: shares from actual or plan values, fixed portions, fixed key figure values carried forward, several senders and segments, iterative cycles, simulating a run, plan allocations, overhead rates and activity allocation, receivers other than cost centers, fixed amounts on a distribution, reversing into a later period (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T60g, Later · docs/design/plan-depth-3.md §alloc, Later",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        }
