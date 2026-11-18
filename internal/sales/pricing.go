@@ -44,6 +44,9 @@ type Condition struct {
 	// empty for an entered price and for items priced before T80f.
 	Access     string  `json:"access,omitempty"`
 	PriceGroup *string `json:"price_group,omitempty"`
+	// PriceGroupName is the group's name when the item was priced, as
+	// Name is the condition type's.
+	PriceGroupName *string `json:"price_group_name,omitempty"`
 }
 
 // The steps of the access a record is found by (ADR-0067 §13), the most
@@ -217,7 +220,7 @@ func determined(ctx context.Context, tx pgx.Tx, doc document, field string, it I
 func conditioned(ctx context.Context, tx pgx.Tx, doc document, it ItemInput, p priced) (priced, error) {
 	first, unit, per := doc.procedure[0], p.UnitPrice, p.PriceUnit
 	p.Conditions = []Condition{{Type: first.Code, Name: first.Name, Kind: first.Kind, UnitPrice: &unit, PriceUnit: &per, Amount: p.Net, Scale: p.scale,
-		Access: p.found.access, PriceGroup: p.found.group}}
+		Access: p.found.access, PriceGroup: p.found.group, PriceGroupName: doc.groupName(p.found.group)}}
 	if it.ItemKey == nil || p.Source == Manual {
 		return p, nil
 	}
@@ -255,7 +258,7 @@ func discount(ctx context.Context, tx pgx.Tx, doc document, it ItemInput, step c
 	if err != nil {
 		return Condition{}, false, fmt.Errorf("sales: discount %s of item key %s: %w", step.Code, *it.ItemKey, err)
 	}
-	c := Condition{Type: step.Code, Name: step.Name, Kind: step.Kind, Access: how.access, PriceGroup: how.group}
+	c := Condition{Type: step.Code, Name: step.Name, Kind: step.Kind, Access: how.access, PriceGroup: how.group, PriceGroupName: doc.groupName(how.group)}
 	if basis != nil {
 		level, err := reached(ctx, tx, id, *basis, it.Quantity, net)
 		if err != nil {
@@ -274,13 +277,12 @@ func discount(ctx context.Context, tx pgx.Tx, doc document, it ItemInput, step c
 	return c, true, nil
 }
 
-// procedure is the tenant's pricing procedure from the active
-// configuration: its condition types in the order they apply, none for a
-// tenant without one (ADR-0067 §11).
-func (e *Endpoints) procedure(ctx context.Context) ([]config.ConditionType, error) {
-	cfg, _, err := e.Settings.Document(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("sales: pricing procedure: %w", err)
+// groupName is the name of the price group a record was found by, nil
+// for none: the document's customer's group, the only one validRecord
+// finds, named as the configuration named it when the document was made.
+func (doc document) groupName(group *string) *string {
+	if group == nil {
+		return nil
 	}
-	return cfg.Pricing.Steps(), nil
+	return doc.priceGroupName
 }

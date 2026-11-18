@@ -68,11 +68,13 @@ type document struct {
 	le         tenancy.Entity
 	customer   uuid.UUID
 	priceGroup *string
-	procedure  []config.ConditionType
-	currency   string
-	exp        int
-	date       time.Time
-	zone       *time.Location
+	// priceGroupName is the group's name in the active configuration.
+	priceGroupName *string
+	procedure      []config.ConditionType
+	currency       string
+	exp            int
+	date           time.Time
+	zone           *time.Location
 }
 
 // errTooLarge refuses a document whose amounts are out of range.

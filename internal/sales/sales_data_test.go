@@ -191,7 +191,7 @@ func accessed(t *testing.T, it map[string]any) string {
 		}
 		out[i] = fmt.Sprintf("%v %s %v", c["condition_type"], rate, c["access"])
 		if g, ok := c["price_group"]; ok {
-			out[i] += fmt.Sprintf(" %v", g)
+			out[i] += fmt.Sprintf(" %v %v", g, c["price_group_name"])
 		}
 	}
 	return strings.Join(out, "; ")
@@ -208,8 +208,8 @@ func TestPriceGroupRecords(t *testing.T) {
 	e.priced(t, rec{})
 	for name, made := range map[string]map[string]any{"price": price, "discount": discount} {
 		t.Run(name, func(t *testing.T) {
-			if made["price_group"] != "01" {
-				t.Errorf("price_group: got %v, want 01", made["price_group"])
+			if made["price_group"] != "01" || made["price_group_name"] != "Wholesale" {
+				t.Errorf("price group: got %v %v, want 01 Wholesale", made["price_group"], made["price_group_name"])
 			}
 			if _, has := made["customer_id"]; has {
 				t.Errorf("customer_id: got %v, want none", made["customer_id"])
@@ -267,8 +267,8 @@ func TestPriceGroupDetermination(t *testing.T) {
 		customer uuid.UUID
 		want     string
 	}{
-		{"the group's price and discount", wholesale, "PR00 9.00 EUR price_group 01; K007 5% price_group 01"},
-		{"the customer's own price before its group's", own, "PR00 8.00 EUR customer; K007 5% price_group 01"},
+		{"the group's price and discount", wholesale, "PR00 9.00 EUR price_group 01 Wholesale; K007 5% price_group 01 Wholesale"},
+		{"the customer's own price before its group's", own, "PR00 8.00 EUR customer; K007 5% price_group 01 Wholesale"},
 		{"sales data without a group", ungrouped, "PR00 9.50 EUR general; K007 2% general"},
 		{"no sales data", stranger, "PR00 9.50 EUR general; K007 2% general"},
 	}
@@ -282,13 +282,13 @@ func TestPriceGroupDetermination(t *testing.T) {
 	before, _ := e.Must(201, "POST", "/v1/quotations", e.body(wholesale, far, e.unpriced(line{})), "")
 	e.Must(200, "PATCH", "/v1/customer-sales-data/"+id, `{"price_group": "02"}`, `"1"`)
 	t.Run("a new item after the group changed", func(t *testing.T) {
-		if got, want := accessed(t, e.quotedItem(t, wholesale, e.unpriced(line{}))), "PR00 9.80 EUR price_group 02; K007 2% general"; got != want {
+		if got, want := accessed(t, e.quotedItem(t, wholesale, e.unpriced(line{}))), "PR00 9.80 EUR price_group 02 Retail; K007 2% general"; got != want {
 			t.Errorf("conditions: got %s, want %s", got, want)
 		}
 	})
 	t.Run("an item priced before the change", func(t *testing.T) {
 		read, _ := e.Must(200, "GET", "/v1/quotations/"+before["id"].(string), "", "")
-		if got, want := accessed(t, items(t, read)[0]), "PR00 9.00 EUR price_group 01; K007 5% price_group 01"; got != want {
+		if got, want := accessed(t, items(t, read)[0]), "PR00 9.00 EUR price_group 01 Wholesale; K007 5% price_group 01 Wholesale"; got != want {
 			t.Errorf("conditions: got %s, want %s", got, want)
 		}
 	})

@@ -231,15 +231,20 @@ func (e *Endpoints) document(ctx context.Context, tx pgx.Tx, le tenancy.Entity, 
 	if err != nil {
 		return document{}, err
 	}
-	steps, err := e.procedure(ctx)
+	cfg, _, err := e.Settings.Document(ctx)
 	if err != nil {
-		return document{}, err
+		return document{}, fmt.Errorf("sales: pricing procedure: %w", err)
 	}
 	group, err := customerGroup(ctx, tx, le.ID, customer)
 	if err != nil {
 		return document{}, err
 	}
-	return document{le: le, customer: customer, priceGroup: group, procedure: steps, currency: code, exp: exp, date: day.Date, zone: day.Zone}, nil
+	doc := document{le: le, customer: customer, priceGroup: group, procedure: cfg.Pricing.Steps(), currency: code, exp: exp, date: day.Date, zone: day.Zone}
+	if group != nil {
+		g, _ := cfg.Pricing.PriceGroup(*group) // a group is never removed once activated: a stored one is configured
+		doc.priceGroupName = &g.Name
+	}
+	return doc, nil
 }
 
 // MarkAccepted records that the customer accepted an open quotation,

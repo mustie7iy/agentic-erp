@@ -21707,6 +21707,7 @@ paths:
       description: "The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a customer's record, the customer's number and name. Filtered by company, item key, customer (the records for that customer; general ones have none), price group (T80f), condition type and `valid_on`, a day the record is valid on. Records are never changed: a new price is a new record with a later `valid_from`. Sortable by: `item_key`, `valid_from`."
       x-permission: sales.price.read
       x-problem-codes:
+        - config.not_bootstrapped
         - request.invalid_order_by
         - request.invalid_page_size
         - request.invalid_page_token
@@ -21895,7 +21896,8 @@ paths:
       summary: Get a sales price
       description: "One price record (ADR-0067 §10, §11, T80a, T80b), a price or a discount, with its company's code and name and, for a customer's record, the customer's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
       x-permission: sales.price.read
-      x-problem-codes: []
+      x-problem-codes:
+        - config.not_bootstrapped
       parameters:
         - $ref: "#/components/parameters/Id"
       responses:
@@ -58045,6 +58047,7 @@ components:
           description: "Which step of the access found the record (ADR-0067 §13, T80f): `customer`, the customer's own; `price_group`, its price group's; `general`, the record for every customer. Absent for an entered price and for items priced before T80f. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         price_group: {type: string, description: "The price group whose record was found, when `access` is `price_group`.", readOnly: true}
+        price_group_name: {type: string, description: "The price group's name when the item was priced, with `price_group`.", readOnly: true}
     SalesConditionScale:
       type: object
       description: "The scale level a sales item reached on the record its condition was found by (ADR-0067 §12): the highest level whose `from` the item's quantity or value reaches; level 0, below the first, is the record's own rate."
@@ -58522,6 +58525,7 @@ components:
             customer_number: {type: string, description: "The customer's business partner number; absent for a general price.", readOnly: true}
             customer_name: {type: string, description: "The customer's name, as it is now; absent for a general price.", readOnly: true}
             price_group: {type: string, description: "The customer price group the record is for (`pricing.price_groups` of the configuration); absent for a general record and a customer's.", readOnly: true}
+            price_group_name: {type: string, description: "The price group's name in the active configuration, with `price_group`.", readOnly: true}
             kind:
               type: string
               x-extensible-enum: [price, discount_percent]

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // Pricing is how the tenant prices sales items (ADR-0067 §11): its
@@ -107,9 +108,7 @@ func (v *validator) pricing(c *Config) {
 		} else if _, dup := kinds[t.Code]; dup {
 			v.err(p, "duplicate condition type code")
 		}
-		if n := strings.TrimSpace(t.Name); n == "" || len(t.Name) > 60 {
-			v.err(p+".name", "is required, at most 60 characters")
-		}
+		v.name(p, t.Name)
 		if t.Kind != ConditionPrice && t.Kind != ConditionDiscountPercent {
 			v.err(p+".kind", "must be %s or %s", ConditionPrice, ConditionDiscountPercent)
 		}
@@ -134,6 +133,14 @@ func (v *validator) pricing(c *Config) {
 	v.priceGroups(c.Pricing.PriceGroups)
 }
 
+// name checks the name of a condition type or a price group at path p:
+// not white space alone, at most 60 characters (runes, not bytes).
+func (v *validator) name(p, name string) {
+	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > 60 {
+		v.err(p+".name", "is required, at most 60 characters")
+	}
+}
+
 // priceGroups checks the customer price groups: each a code, unique, and
 // a name.
 func (v *validator) priceGroups(groups []PriceGroup) {
@@ -149,9 +156,7 @@ func (v *validator) priceGroups(groups []PriceGroup) {
 		} else if seen[g.Code] {
 			v.err(p, "duplicate price group code")
 		}
-		if n := strings.TrimSpace(g.Name); n == "" || len(g.Name) > 60 {
-			v.err(p+".name", "is required, at most 60 characters")
-		}
+		v.name(p, g.Name)
 		seen[g.Code] = true
 	}
 }

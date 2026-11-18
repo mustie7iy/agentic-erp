@@ -13177,7 +13177,7 @@ step_price_groups() {
   sales=$(account 4000)
   until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
   bracket="{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
-  conditions='"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[].conditions[] | "  \(.condition_type) \(.name): \(if .kind == "price" then "\(.unit_price.amount) per \(.price_unit)" else "\(.percent) percent" end), found by \(.access)\(if .price_group then " \(.price_group)" else "" end) = \(.amount.amount)")'
+  conditions='"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[].conditions[] | "  \(.condition_type) \(.name): \(if .kind == "price" then "\(.unit_price.amount) per \(.price_unit)" else "\(.percent) percent" end), found by \(.access)\(if .price_group then " \(.price_group) \(.price_group_name)" else "" end) = \(.amount.amount)")'
   say "Sally quotes Contoso 100 brackets: the access finds no record of Contoso's own, then its group's, 11.75:"
   api 201 "$conditions" createQuotation \
     -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$bracket]}"

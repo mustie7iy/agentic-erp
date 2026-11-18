@@ -2026,9 +2026,11 @@ change documents) is the reference.
   (`If-Match`, merge patch of `price_group`, null for none), all
   human-only; `CustomerSalesData` names its company by code and name, its
   customer by number and name and its group by code and name.
-  `SalesPriceCreate` and `SalesPrice` gain `price_group`,
-  `GET /v1/sales-prices` filters by it; `SalesCondition` gains `access`
-  and `price_group`. Event `CustomerSalesDataChanged` (`x-webhook`; the
+  `SalesPriceCreate` and `SalesPrice` gain `price_group` (and
+  `SalesPrice` its `price_group_name`), `GET /v1/sales-prices` filters by
+  it; `SalesCondition` gains `access`, `price_group` and
+  `price_group_name`, the group's name when the item was priced, kept as
+  the condition type's `name` is. Event `CustomerSalesDataChanged` (`x-webhook`; the
   customer by id and number, the group before and after) with the audit
   records `sales.customer_sales_data.create` and `.change`;
   `SalesPriceChanged` gains `price_group`.

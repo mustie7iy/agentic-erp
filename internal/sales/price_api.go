@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -20,22 +21,42 @@ import (
 // and never changed.
 const priceVersion = 1
 
-// priceRefs reads what the price records name by id: their companies
-// and, for a customer's record, the customer.
-func (e *Endpoints) priceRefs(ctx context.Context, prices []Price) (references, error) {
+// priceShown is what price records name beyond their ids: their
+// companies and customers, and, when one is for a price group, the active
+// configuration's groups, whose names they show.
+type priceShown struct {
+	refs   references
+	groups config.Pricing
+}
+
+// priceRefs reads what the price records name: their companies, for a
+// customer's record the customer, and for a group's the group's name
+// (ADR-0067 §13).
+func (e *Endpoints) priceRefs(ctx context.Context, prices []Price) (priceShown, error) {
 	docs := make([]named, len(prices))
+	grouped := false
 	for i, p := range prices {
 		docs[i] = named{legalEntity: p.LegalEntityID}
 		if p.CustomerID != nil {
 			docs[i].customer = *p.CustomerID
 		}
+		grouped = grouped || p.PriceGroup != nil
 	}
-	return e.references(ctx, docs)
+	refs, err := e.references(ctx, docs)
+	if err != nil || !grouped {
+		return priceShown{refs: refs}, err
+	}
+	cfg, _, err := e.Settings.Document(ctx)
+	if err != nil {
+		return priceShown{}, fmt.Errorf("sales: price groups of price records: %w", err)
+	}
+	return priceShown{refs: refs, groups: cfg.Pricing}, nil
 }
 
 // priceAPI is a price record as the API gives it, with what it names by
-// id.
-func priceAPI(p Price, refs references) gen.SalesPrice {
+// id and its price group's name.
+func priceAPI(p Price, s priceShown) gen.SalesPrice {
+	refs := s.refs
 	le := refs.companies[p.LegalEntityID]
 	out := gen.SalesPrice{ID: p.ID, Version: priceVersion, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, UpdatedAt: p.CreatedAt,
 		UpdatedBy: gen.NewOptUUID(p.CreatedBy), LegalEntityID: p.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name, ItemKey: p.ItemKey,
@@ -49,6 +70,10 @@ func priceAPI(p Price, refs references) gen.SalesPrice {
 	if p.CustomerID != nil {
 		customer := refs.partners[*p.CustomerID]
 		out.CustomerNumber, out.CustomerName = gen.NewOptString(customer.Number), gen.NewOptString(customer.Name)
+	}
+	if p.PriceGroup != nil {
+		g, _ := s.groups.PriceGroup(*p.PriceGroup) // a group is never removed once activated: a recorded one is configured
+		out.PriceGroupName = gen.NewOptString(g.Name)
 	}
 	return out
 }
@@ -140,7 +165,7 @@ func (e *Endpoints) ListSalesPrices(ctx context.Context, params gen.ListSalesPri
 			return p.ValidFrom.Format(time.DateOnly), p.ID
 		}
 		return p.ItemKey, p.ID
-	}, func(page []Price) (references, error) { return e.priceRefs(ctx, page) }, priceAPI)
+	}, func(page []Price) (priceShown, error) { return e.priceRefs(ctx, page) }, priceAPI)
 	if err != nil {
 		return nil, err
 	}

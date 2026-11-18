@@ -212,12 +212,13 @@ func TestPriceGroups(t *testing.T) {
 		change        func(*Pricing)
 		path, message string
 	}{
-		"without a procedure":     {func(p *Pricing) { p.ConditionTypes, p.Procedure = nil, nil }, "", ""},
-		"a code in small letters": {func(p *Pricing) { p.PriceGroups[0].Code = "w1" }, "pricing.price_groups[0].code", "1-10 capital letters"},
-		"a code twice":            {func(p *Pricing) { p.PriceGroups[1].Code = "01" }, "pricing.price_groups[01]", "duplicate price group code"},
-		"no name":                 {func(p *Pricing) { p.PriceGroups[1].Name = " " }, "pricing.price_groups[02].name", "is required"},
-		"a name of 61 characters": {func(p *Pricing) { p.PriceGroups[1].Name = strings.Repeat("n", 61) }, "pricing.price_groups[02].name", "at most 60"},
-		"too many groups":         {func(p *Pricing) { p.PriceGroups = many }, "pricing.price_groups", "at most 100 price groups"},
+		"without a procedure":               {func(p *Pricing) { p.ConditionTypes, p.Procedure = nil, nil }, "", ""},
+		"a name of 60 letters beyond ASCII": {func(p *Pricing) { p.PriceGroups[1].Name = strings.Repeat("é", 60) }, "", ""},
+		"a code in small letters":           {func(p *Pricing) { p.PriceGroups[0].Code = "w1" }, "pricing.price_groups[0].code", "1-10 capital letters"},
+		"a code twice":                      {func(p *Pricing) { p.PriceGroups[1].Code = "01" }, "pricing.price_groups[01]", "duplicate price group code"},
+		"no name":                           {func(p *Pricing) { p.PriceGroups[1].Name = " " }, "pricing.price_groups[02].name", "is required"},
+		"a name of 61 characters":           {func(p *Pricing) { p.PriceGroups[1].Name = strings.Repeat("n", 61) }, "pricing.price_groups[02].name", "at most 60"},
+		"too many groups":                   {func(p *Pricing) { p.PriceGroups = many }, "pricing.price_groups", "at most 100 price groups"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := withGroups(t)

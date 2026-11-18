@@ -99544,6 +99544,8 @@ type SalesCondition struct {
 	Access OptString `json:"access"`
 	// The price group whose record was found, when `access` is `price_group`.
 	PriceGroup OptString `json:"price_group"`
+	// The price group's name when the item was priced, with `price_group`.
+	PriceGroupName OptString `json:"price_group_name"`
 }
 
 // GetConditionType returns the value of ConditionType.
@@ -99596,6 +99598,11 @@ func (s *SalesCondition) GetPriceGroup() OptString {
 	return s.PriceGroup
 }
 
+// GetPriceGroupName returns the value of PriceGroupName.
+func (s *SalesCondition) GetPriceGroupName() OptString {
+	return s.PriceGroupName
+}
+
 // SetConditionType sets the value of ConditionType.
 func (s *SalesCondition) SetConditionType(val string) {
 	s.ConditionType = val
@@ -99644,6 +99651,11 @@ func (s *SalesCondition) SetAccess(val OptString) {
 // SetPriceGroup sets the value of PriceGroup.
 func (s *SalesCondition) SetPriceGroup(val OptString) {
 	s.PriceGroup = val
+}
+
+// SetPriceGroupName sets the value of PriceGroupName.
+func (s *SalesCondition) SetPriceGroupName(val OptString) {
+	s.PriceGroupName = val
 }
 
 // The scale level a sales item reached on the record its condition was found by (ADR-0067 §12): the
@@ -101837,6 +101849,8 @@ type SalesPrice struct {
 	// The customer price group the record is for (`pricing.price_groups` of the configuration); absent for
 	// a general record and a customer's.
 	PriceGroup OptString `json:"price_group"`
+	// The price group's name in the active configuration, with `price_group`.
+	PriceGroupName OptString `json:"price_group_name"`
 	// What the record is: a `price`, or a `discount_percent`, a percentage of the item's value before it.
 	// Open enumeration: clients must accept and preserve values not listed here; values may be added
 	// within /v1.
@@ -101933,6 +101947,11 @@ func (s *SalesPrice) GetCustomerName() OptString {
 // GetPriceGroup returns the value of PriceGroup.
 func (s *SalesPrice) GetPriceGroup() OptString {
 	return s.PriceGroup
+}
+
+// GetPriceGroupName returns the value of PriceGroupName.
+func (s *SalesPrice) GetPriceGroupName() OptString {
+	return s.PriceGroupName
 }
 
 // GetKind returns the value of Kind.
@@ -102053,6 +102072,11 @@ func (s *SalesPrice) SetCustomerName(val OptString) {
 // SetPriceGroup sets the value of PriceGroup.
 func (s *SalesPrice) SetPriceGroup(val OptString) {
 	s.PriceGroup = val
+}
+
+// SetPriceGroupName sets the value of PriceGroupName.
+func (s *SalesPrice) SetPriceGroupName(val OptString) {
+	s.PriceGroupName = val
 }
 
 // SetKind sets the value of Kind.

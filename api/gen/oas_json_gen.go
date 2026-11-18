@@ -247781,19 +247781,26 @@ func (s *SalesCondition) encodeFields(e *jx.Encoder) {
 			s.PriceGroup.Encode(e)
 		}
 	}
+	{
+		if s.PriceGroupName.Set {
+			e.FieldStart("price_group_name")
+			s.PriceGroupName.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfSalesCondition = [10]string{
-	0: "condition_type",
-	1: "name",
-	2: "kind",
-	3: "unit_price",
-	4: "price_unit",
-	5: "percent",
-	6: "amount",
-	7: "scale",
-	8: "access",
-	9: "price_group",
+var jsonFieldsNameOfSalesCondition = [11]string{
+	0:  "condition_type",
+	1:  "name",
+	2:  "kind",
+	3:  "unit_price",
+	4:  "price_unit",
+	5:  "percent",
+	6:  "amount",
+	7:  "scale",
+	8:  "access",
+	9:  "price_group",
+	10: "price_group_name",
 }
 
 // Decode decodes SalesCondition from json.
@@ -247910,6 +247917,16 @@ func (s *SalesCondition) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"price_group\"")
+			}
+		case "price_group_name":
+			if err := func() error {
+				s.PriceGroupName.Reset()
+				if err := s.PriceGroupName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"price_group_name\"")
 			}
 		default:
 			return d.Skip()
@@ -252413,6 +252430,12 @@ func (s *SalesPrice) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PriceGroupName.Set {
+			e.FieldStart("price_group_name")
+			s.PriceGroupName.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("kind")
 		e.Str(s.Kind)
 	}
@@ -252472,7 +252495,7 @@ func (s *SalesPrice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesPrice = [24]string{
+var jsonFieldsNameOfSalesPrice = [25]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -252487,16 +252510,17 @@ var jsonFieldsNameOfSalesPrice = [24]string{
 	11: "customer_number",
 	12: "customer_name",
 	13: "price_group",
-	14: "kind",
-	15: "condition_type",
-	16: "unit",
-	17: "unit_price",
-	18: "price_unit",
-	19: "percent",
-	20: "valid_from",
-	21: "valid_to",
-	22: "scale_basis",
-	23: "scale",
+	14: "price_group_name",
+	15: "kind",
+	16: "condition_type",
+	17: "unit",
+	18: "unit_price",
+	19: "price_unit",
+	20: "percent",
+	21: "valid_from",
+	22: "valid_to",
+	23: "scale_basis",
+	24: "scale",
 }
 
 // Decode decodes SalesPrice from json.
@@ -252504,7 +252528,7 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode SalesPrice to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -252666,8 +252690,18 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"price_group\"")
 			}
+		case "price_group_name":
+			if err := func() error {
+				s.PriceGroupName.Reset()
+				if err := s.PriceGroupName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"price_group_name\"")
+			}
 		case "kind":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.Kind = string(v)
@@ -252729,7 +252763,7 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"percent\"")
 			}
 		case "valid_from":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.ValidFrom = v
@@ -252761,7 +252795,7 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"scale_basis\"")
 			}
 		case "scale":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				s.Scale = make([]SalesPriceScaleLevel, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -252787,10 +252821,11 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11011111,
-		0b01000011,
-		0b10010000,
+		0b10000011,
+		0b00100000,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
