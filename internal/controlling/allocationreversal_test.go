@@ -177,6 +177,17 @@ func TestAllocationRunReversal(t *testing.T) {
 		}
 		page, _ := p.Must(200, "GET", "/v1/allocation-runs?reversed=true", "", "")
 		want(t, "the reversed run listed", apitest.List(t, page, "items")[0].(map[string]any)["id"], run["id"])
+		// The filter is part of the cursor's scope: a page token read with it
+		// pages on with it, and is refused with another.
+		first, _ := p.Must(200, "GET", "/v1/allocation-runs?page_size=1&reversed=false", "", "")
+		token := first["next_page_token"]
+		if token != nil {
+			t.Fatalf("a first page of the runs in force: got a next page %v, want none", token)
+		}
+		all, _ := p.Must(200, "GET", "/v1/allocation-runs?page_size=1", "", "")
+		next := all["next_page_token"].(string)
+		p.Must(200, "GET", "/v1/allocation-runs?page_size=1&page_token="+next, "", "")
+		p.Problem(400, "request.invalid_page_token", "GET", "/v1/allocation-runs?page_size=1&reversed=true&page_token="+next, "", "")
 	})
 	t.Run("a run into a closed period is not reversed", func(t *testing.T) {
 		periods, _ := p.Must(200, "GET", fmt.Sprintf("/v1/fiscal-periods?legal_entity_id=%s&fiscal_year=2026&order_by=period&page_size=5", p.DE), "", "")

@@ -660,7 +660,8 @@ func (e *Endpoints) ListAllocationRuns(ctx context.Context, params gen.ListAlloc
 	le, cycleID := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.AllocationCycleID)
 	year, period := apitypes.Ptr[int32](params.FiscalYear), apitypes.Ptr[int32](params.FiscalPeriod)
 	reversed := apitypes.Ptr[bool](params.Reversed)
-	scope := fmt.Sprintf("listAllocationRuns|%v|%v|%d|%d|%v", le, cycleID, params.FiscalYear.Value, params.FiscalPeriod.Value, reversed)
+	scope := fmt.Sprintf("listAllocationRuns|%v|%v|%d|%d|%t %t", le, cycleID, params.FiscalYear.Value, params.FiscalPeriod.Value, params.Reversed.Set,
+		params.Reversed.Value)
 	ks, err := e.Pages.Keyset(runSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
