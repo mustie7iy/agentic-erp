@@ -70,6 +70,8 @@ var Inventory = []Entry{
 	{"identity", "principal", "external_subject", CategoryIdentifier, "A person's identity at the tenant's identity provider, by which they sign in.", principal("id")},
 	{"integration", "output_message", "recipient", CategoryContact, "The address an output message (a purchase order to a supplier) was sent to.", nil},
 	{"integration", "output_message", "subject", CategoryFreeText, "The subject line of an output message, which may name its recipient.", nil},
+	{"inventory", "material_document", "header_text", CategoryFreeText, "What a goods movement is for, as the person who posted it wrote it, which may name a person.", nil},
+	{"materials", "material_change", "reason", CategoryFreeText, "Why a person asked for a material change, kept for its approver, which may name a person.", nil},
 	{"partner", "address", "city", CategoryAddress, "A business partner's address, printed on its documents.", partner("partner_id")},
 	{"partner", "address", "line1", CategoryAddress, "A business partner's address, printed on its documents.", partner("partner_id")},
 	{"partner", "address", "line2", CategoryAddress, "A business partner's address, printed on its documents.", partner("partner_id")},
