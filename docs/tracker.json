@@ -4546,7 +4546,7 @@
        {
         "s": "T",
         "t": "A buyer cancels or closes an RFQ without an award, with a reason: a requisition it was created from leaves sourcing (approved again, available to a new RFQ or an order), and the change is audited and published as an event (split from the RFQ variants placeholder).",
-        "r": "T82g · split from docs/design/plan-breadth-week2.md §T82b, Later · T82e (a requisition in sourcing) · ADR-0069",
+        "r": "T82g · docs/design/plan-depth-2.md §T82g · split from docs/design/plan-breadth-week2.md §T82b, Later · T82e (a requisition in sourcing) · ADR-0069",
         "src": "split:T82b",
         "c": []
        },
@@ -4616,7 +4616,7 @@
        {
         "s": "T",
         "t": "Cancelling a purchase order created by an RFQ's award moves its requisition back without an event, and the RFQ still names the cancelled order as its award (found in the batch 78 rfq lane review).",
-        "r": "internal/procurement order cancel (requisition back from ordered) · rfq_award_order.go · T82f · ADR-0007 outbox · ADR-0069",
+        "r": "T82h · docs/design/plan-depth-2.md §T82h · internal/procurement order cancel (requisition back from ordered) · rfq_award_order.go · T82f · ADR-0007 outbox · ADR-0069",
         "src": "review:batch78",
         "c": []
        }
@@ -7044,7 +7044,7 @@
        {
         "s": "T",
         "t": "The purchase-to-pay event log has no activity for procurement.requisition.in_sourcing (T82e: an RFQ created from the requisition), so a case sourced by an RFQ shows no sourcing step between approval and the order (found in the batch 78 rfq lane review).",
-        "r": "internal/processmining log.go activities · T103a · T82e",
+        "r": "T103c · docs/design/plan-depth-2.md §T82h · internal/processmining log.go activities · T103a · T82e",
         "src": "review:batch78",
         "c": []
        },
