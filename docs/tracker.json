@@ -1192,8 +1192,22 @@
        },
        {
         "s": "T",
-        "t": "later: incoming payment variants: one receipt for several customers, a receipt in another currency than the items, undoing an application, matching by rule and agent proposals from statement lines, receipts without a statement, direct debits, refunds, reason codes from configuration, output tax corrected on a payment difference (partial payments with residual items, payment differences and tolerances, and payments on account are T75f and T75g; after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T75c, Later · docs/design/plan-depth-1.md §recv, Later",
+        "t": "An AR accountant applies one bank receipt to the open items of more than one customer (a parent paying its subsidiaries' invoices): each customer's items are cleared by one entry, the payment shows each customer's part, and the receipt balances to the amount",
+        "r": "T75h · docs/design/plan-depth-2.md §T75h · other_customer_ids on POST /v1/incoming-payments · walkthrough step_receipt_several_customers · ADR-0063 §6 and As built",
+        "src": "split:T75c · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An AR accountant undoes an incoming payment applied to the wrong items, or an application of its credit on account: the clearing is reset, the items are open again, the receipt or the credit on account is restored as it was, and the clearing entry is reversed in its own period (refused once that period is closed)",
+        "r": "T75i · docs/design/plan-depth-2.md §T75i · POST /v1/incoming-payments/{id}:reset, POST /v1/incoming-payments/{id}/applications/{application_no}:reset · ledger.Postings.ResetClearing · walkthrough step_payment_reset · ADR-0063 §6 and As built",
+        "src": "split:T75c · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: incoming payment variants: a receipt in another currency than the items, matching by rule and agent proposals from statement lines, receipts without a statement, direct debits, refunds, reason codes from configuration, output tax corrected on a payment difference, resetting a clearing without reversing it and resetting clearings other than incoming payments' (partial payments with residual items, payment differences and tolerances, payments on account, one receipt for several customers and undoing an application are T75f, T75g, T75h and T75i; after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75c, Later · docs/design/plan-depth-1.md §recv, Later · docs/design/plan-depth-2.md §recv2, Later",
         "src": "po:2026-11-10 · design:03 §3.16 · adr:ADR-0047",
         "c": []
        }
