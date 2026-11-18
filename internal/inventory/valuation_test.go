@@ -127,6 +127,10 @@ func TestStandardPrice(t *testing.T) {
 	if got := fmt.Sprint(changed["value"].(map[string]any)["amount"]); got != "4.00" {
 		t.Errorf("revalued: got %s, want 4.00", got)
 	}
+	last, _ := changed["last_price_change"].(map[string]any)
+	if got := fmt.Sprint(last["revaluation"].(map[string]any)["amount"], " ", e.entry(t, last)); got != "1.33 PR 150000:133 518000:-133" {
+		t.Errorf("the change answered: got %s, want 1.33 PR 150000:133 518000:-133", got)
+	}
 	if got := e.balance(t, "518000"); got != -133 {
 		t.Errorf("the revaluation account: got %d, want -133", got)
 	}
@@ -134,8 +138,14 @@ func TestStandardPrice(t *testing.T) {
 		t.Errorf("the stock account: got %d, want 400, the valuation's value", got)
 	}
 	events := e.priceEvents(t, id)
-	if len(events) != 1 || fmt.Sprint(events[0]["revaluation"].(map[string]any)["amount"]) != "1.33" || events[0]["material_number"] == nil {
-		t.Errorf("events: got %v, want one revaluing by 1.33", events)
+	if len(events) != 1 {
+		t.Fatalf("events: got %d, want 1", len(events))
+	}
+	if got := fmt.Sprint(events[0]["revaluation"].(map[string]any)["amount"]); got != "1.33" {
+		t.Errorf("the event's revaluation: got %s, want 1.33", got)
+	}
+	if got := events[0]["material_number"]; got != changed["material_number"] {
+		t.Errorf("the event's material: got %v, want %v", got, changed["material_number"])
 	}
 }
 
@@ -346,6 +356,8 @@ func TestValuationEdges(t *testing.T) {
 		{"an amount of one decimal", "POST", docs, body(t, "501", e.item("1", "EA", map[string]any{"amount": amount("1.5")})), "", 400, "request.invalid_amount"},
 		{"a value beyond an amount", "POST", docs, body(t, "561", e.item("100", "EA", map[string]any{"material_id": huge})), "", 422,
 			"inventory.amount_too_large"},
+		{"receipts worth more than an amount", "POST", docs, body(t, "501", e.item("1", "EA", map[string]any{"amount": amount("90000000000000000.00")}),
+			e.item("1", "EA", map[string]any{"amount": amount("90000000000000000.00")})), "", 422, "inventory.amount_too_large"},
 		{"a price difference without its account", "POST", docs, body(t, "561", e.item("1", "EA", map[string]any{"material_id": diff,
 			"amount": amount("2.00")})), "", 422, "inventory.no_inventory_account"},
 		{"a stale class change", "PATCH", valuations + "/" + empty, `{"valuation_class": "3100"}`, `"9"`, 412, "request.version_mismatch"},
@@ -387,5 +399,26 @@ func TestValuationEdges(t *testing.T) {
 	next, _ := e.Must(200, "GET", valuations+"?page_size=2&page_token="+first["next_page_token"].(string), "", "")
 	if got := len(rows(t, first, "items")) + len(rows(t, next, "items")); got < 4 {
 		t.Errorf("valuations in pages: got %d, want 4 or more", got)
+	}
+}
+
+// TestTransferReversalAfterReceipt: a transfer within a plant reversed
+// after a receipt changed the moving price leaves the plant's value as
+// it was, so the stock account still holds it.
+func TestTransferReversalAfterReceipt(t *testing.T) {
+	e := setup(t)
+	e.post(t, "501", e.item("10", "EA", map[string]any{"amount": amount("10.00")}))
+	move := e.post(t, "311", e.item("5", "EA", map[string]any{"to_storage_location_id": e.s2}))
+	e.post(t, "501", e.item("10", "EA", map[string]any{"amount": amount("30.00")}))
+	_, tag := e.Must(200, "GET", docs+"/"+move["id"].(string), "", "")
+	rev, _ := e.Must(200, "POST", docs+"/"+move["id"].(string)+":reverse", "", tag)
+	if got := e.entry(t, rev); got != "none" {
+		t.Errorf("the reversal's entry: got %s, want none", got)
+	}
+	if got := e.valuation(t, e.bracket, e.p1); got != "20 EA 40.00 2.00/1" {
+		t.Errorf("the valuation: got %s, want 20 EA 40.00 2.00/1", got)
+	}
+	if got := e.balance(t, "150000"); got != 4000 {
+		t.Errorf("the stock account: got %d, want 4000, the valuation's value", got)
 	}
 }

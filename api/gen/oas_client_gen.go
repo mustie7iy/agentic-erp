@@ -656,8 +656,9 @@ type Invoker interface {
 	// and the difference posted on the company's date today between the valuation class's stock and
 	// revaluation accounts (document type PR; 422 `inventory.no_inventory_account` when the class lacks
 	// one), refused while that day's period is closed (409 `ledger.period_not_open`). A moving price
-	// changes the same way; without stock the price is set and nothing is posted. Audited, and published
-	// as MaterialPriceChanged. Human-only (`x-agent: false`).
+	// changes the same way; without stock the price is set and nothing is posted. Answers the valuation
+	// with the change as its `last_price_change`, naming the journal entry. Audited, and published as
+	// MaterialPriceChanged. Human-only (`x-agent: false`).
 	//
 	// POST /v1/material-valuations/{id}:changePrice
 	ChangeMaterialPrice(ctx context.Context, request *MaterialPriceChange, params ChangeMaterialPriceParams) (ChangeMaterialPriceRes, error)
@@ -15935,8 +15936,9 @@ func (c *Client) sendCaptureSupplierInvoice(ctx context.Context, request *Suppli
 // and the difference posted on the company's date today between the valuation class's stock and
 // revaluation accounts (document type PR; 422 `inventory.no_inventory_account` when the class lacks
 // one), refused while that day's period is closed (409 `ledger.period_not_open`). A moving price
-// changes the same way; without stock the price is set and nothing is posted. Audited, and published
-// as MaterialPriceChanged. Human-only (`x-agent: false`).
+// changes the same way; without stock the price is set and nothing is posted. Answers the valuation
+// with the change as its `last_price_change`, naming the journal entry. Audited, and published as
+// MaterialPriceChanged. Human-only (`x-agent: false`).
 //
 // POST /v1/material-valuations/{id}:changePrice
 func (c *Client) ChangeMaterialPrice(ctx context.Context, request *MaterialPriceChange, params ChangeMaterialPriceParams) (ChangeMaterialPriceRes, error) {

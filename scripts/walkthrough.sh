@@ -13375,6 +13375,8 @@ step_goods_movements() {
   QUIET=1 api 200 '' getMaterialValuation -p "id=$doc"
   api 200 '"\(.material_number): \(.price.amount) \(.price.currency) per \(.price_unit), stock \(.quantity.value) \(.quantity.unit) worth \(.value.amount) \(.value.currency)"' \
     changeMaterialPrice -p "id=$doc" -if-match "$ETAG" -body '{"price": {"amount": "0.55", "currency": "CAD"}}'
+  expect "the revaluation" "$(field '.last_price_change | "\(.revaluation.amount) \(.old_price.amount) > \(.new_price.amount)"')" "50.00 0.50 > 0.55"
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .last_price_change.journal_entry_id)"
   expect "the bolt's valuation" "$(valuation "$BOLT")" "1000 EA: 550.00 CAD at 0.55 per 1 EA"
   passed
 }

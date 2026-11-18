@@ -77,7 +77,8 @@ func lockValuations(ctx context.Context, tx pgx.Tx, lines []Line, r refs) (map[v
 //     the moving price, which is refused while that is zero;
 //   - what a line is valued at beyond what its stock takes is its price
 //     difference: a reversal is valued at what its original line was, and
-//     a transfer's receipt at what its issue took.
+//     a transfer's receipt, its reversal's too, at what its issue took, so
+//     a transfer within a plant leaves the plant's value as it was.
 func valueLines(lines []Line, mt movementType, vals map[valuationKey]*Valuation, amounts map[int16]money.Minor, r refs) error {
 	for i := range lines {
 		l := &lines[i]
@@ -86,9 +87,12 @@ func valueLines(lines []Line, mt movementType, vals map[valuationKey]*Valuation,
 		if a, ok := amounts[l.ItemNo]; ok && target == nil {
 			target = &a
 		}
-		if mt.transfer != noTransfer && mt.reverses == "" && i > 0 && lines[i-1].ItemNo == l.ItemNo { // a transfer's receipt follows its issue
-			took := -lines[i-1].Amount
-			target = &took
+		if mt.transfer != noTransfer { // a transfer, or its reversal, receives what its issue took, the line before it
+			target = nil
+			if l.Quantity[0] != '-' && i > 0 && lines[i-1].ItemNo == l.ItemNo {
+				took := -lines[i-1].Amount
+				target = &took
+			}
 		}
 		amount, err := v.move(money.ParseRat(l.Quantity), target)
 		if err != nil {
@@ -134,16 +138,18 @@ func (v *Valuation) move(q *big.Rat, target *money.Minor) (money.Minor, error) {
 	}
 	rounded, err := money.Round(worth, 0)
 	amount := rounded - offset
+	value2, serr := money.Sum(v.Value, amount)
+	err = errors.Join(err, serr)
 	newPrice := v.Price
 	if v.PriceControl == MovingAverage && after.Sign() > 0 {
 		var perr error
-		newPrice, perr = money.Round(new(big.Rat).Quo(new(big.Rat).Mul(rat(v.Value+amount), unit), after), 0)
+		newPrice, perr = money.Round(new(big.Rat).Quo(new(big.Rat).Mul(rat(value2), unit), after), 0)
 		err = errors.Join(err, perr)
 	}
 	if err != nil {
 		return 0, err
 	}
-	v.Quantity, v.Value, v.Price = money.PlainQuantity(after), v.Value+amount, newPrice
+	v.Quantity, v.Value, v.Price = money.PlainQuantity(after), value2, newPrice
 	return amount, nil
 }
 

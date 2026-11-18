@@ -452,7 +452,14 @@ create with such a match is refused (409) unless the request confirms it.
   posted; the ledger's refusals (a closed period) refuse the movement.
 - **Reversals** value each line at what its original line was, given
   back, its stock's share at the price now, the rest a price difference,
-  against the original's accounts.
+  against the original's accounts; a transfer's reversal, as a transfer,
+  receives what its issue took, so reversing a transfer within a plant
+  leaves its value as it was whatever moved since (review round 1,
+  `TestTransferReversalAfterReceipt`).
+- **Range.** A value beyond an amount's range is refused (422
+  `inventory.amount_too_large`, `money.Sum` of the stock's value); the
+  database computes a moving price by integer division of numerics,
+  exactly as the application does (review round 1).
 - **Valuation** of a stocked material extended to an active plant of a
   company the caller may act in, pending or blocked materials too (their
   accounting view is master data); refused when stock was moved there
@@ -464,7 +471,10 @@ create with such a match is refused (409) unless the request confirms it.
   company's day (409 `ledger.period_not_open`), the stock revalued at
   quantity × new price / price unit against the class's revaluation
   account (document type `PR`), a moving price too; without stock the
-  price is set and nothing posted. `MaterialPriceChanged`.
+  price is set and nothing posted. It answers the valuation with the
+  change as its `last_price_change`, naming the revaluation's journal
+  entry (review round 1: a consumer finds the entry it posted).
+  `MaterialPriceChanged`. A list of a valuation's price changes is Later.
 - **Locks.** A posting locks the valuations of its lines (material,
   plant order), then their stock rows, then draws numbers; a price change
   locks its valuation first. Valuations are read under the lock, so two

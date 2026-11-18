@@ -46,16 +46,38 @@ type Valuation struct {
 	Version                                int32
 	CreatedAt, UpdatedAt                   time.Time
 	CreatedBy, UpdatedBy                   uuid.UUID
+	// LastChange is its latest price change, nil when it has none.
+	LastChange *PriceChange
+}
+
+// PriceChange is a valuation's price change as it was kept: the prices
+// before and after, the revaluation, the day it was posted on and its
+// journal entry, none when nothing was revalued.
+type PriceChange struct {
+	ID          uuid.UUID   `json:"id"`
+	OldPrice    money.Minor `json:"old_price"`
+	NewPrice    money.Minor `json:"new_price"`
+	Amount      money.Minor `json:"amount"`
+	PostingDate string      `json:"posting_date"`
+	EntryID     *uuid.UUID  `json:"journal_entry_id"`
+	EntryYear   *int16      `json:"journal_entry_year"`
+	EntryNumber *string     `json:"journal_entry_number"`
+	CreatedAt   time.Time   `json:"created_at"`
+	CreatedBy   uuid.UUID   `json:"created_by"`
 }
 
 const valuationSelect = `SELECT v.id, v.legal_entity_id, v.material_id, v.plant_id, v.valuation_class, v.price_control, v.currency, c.exponent,
-		v.price, v.price_unit, trim_scale(v.quantity)::text, v.value, v.version, v.created_at, v.created_by, v.updated_at, v.updated_by
+		v.price, v.price_unit, trim_scale(v.quantity)::text, v.value, v.version, v.created_at, v.created_by, v.updated_at, v.updated_by,
+		(SELECT json_build_object('id', p.id, 'old_price', p.old_price, 'new_price', p.new_price, 'amount', p.amount, 'posting_date', p.posting_date,
+				'journal_entry_id', p.journal_entry_id, 'journal_entry_year', p.journal_entry_year, 'journal_entry_number', p.journal_entry_number,
+				'created_at', p.created_at, 'created_by', p.created_by)
+			FROM inventory.price_change p WHERE p.tenant_id = v.tenant_id AND p.valuation_id = v.id ORDER BY p.created_at DESC, p.id DESC LIMIT 1) AS last_price_change
 	FROM inventory.valuation v JOIN ref.currency c ON c.code = v.currency`
 
 func scanValuation(row pgx.Row) (Valuation, error) {
 	var v Valuation
 	err := row.Scan(&v.ID, &v.LegalEntityID, &v.MaterialID, &v.PlantID, &v.ValuationClass, &v.PriceControl, &v.Currency, &v.Exponent, &v.Price,
-		&v.PriceUnit, &v.Quantity, &v.Value, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
+		&v.PriceUnit, &v.Quantity, &v.Value, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy, &v.LastChange)
 	return v, errs.Wrapf(err, "scan valuation")
 }
 
@@ -219,8 +241,8 @@ func noStock(ctx context.Context, tx pgx.Tx, material, plant uuid.UUID, number s
 		return fmt.Errorf("inventory: stock of material %s: %w", number, err)
 	}
 	if any {
-		return problem.Conflict("inventory.stock_without_valuation", "Material "+number+" has stock in the plant moved before it was valued; "+
-			"reverse those documents first.")
+		return problem.Conflict("inventory.stock_without_valuation", "Material "+number+" has stock in the plant moved before materials were "+
+			"valued (S1c); its value cannot be told, so it is not valued here.")
 	}
 	return nil
 }

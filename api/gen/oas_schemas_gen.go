@@ -67485,6 +67485,9 @@ type MaterialValuation struct {
 	Quantity Quantity `json:"quantity"`
 	// That stock's value.
 	Value Money `json:"value"`
+	// Its latest price change, which `changeMaterialPrice` answers with; absent when its price was never
+	// changed.
+	LastPriceChange OptMaterialValuationPriceChange `json:"last_price_change"`
 }
 
 // GetID returns the value of ID.
@@ -67587,6 +67590,11 @@ func (s *MaterialValuation) GetValue() Money {
 	return s.Value
 }
 
+// GetLastPriceChange returns the value of LastPriceChange.
+func (s *MaterialValuation) GetLastPriceChange() OptMaterialValuationPriceChange {
+	return s.LastPriceChange
+}
+
 // SetID sets the value of ID.
 func (s *MaterialValuation) SetID(val uuid.UUID) {
 	s.ID = val
@@ -67685,6 +67693,11 @@ func (s *MaterialValuation) SetQuantity(val Quantity) {
 // SetValue sets the value of Value.
 func (s *MaterialValuation) SetValue(val Money) {
 	s.Value = val
+}
+
+// SetLastPriceChange sets the value of LastPriceChange.
+func (s *MaterialValuation) SetLastPriceChange(val OptMaterialValuationPriceChange) {
+	s.LastPriceChange = val
 }
 
 // A material's valuation in a plant to create.
@@ -67845,6 +67858,133 @@ func (s *MaterialValuationPage) SetNextPageToken(val OptString) {
 }
 
 func (*MaterialValuationPage) listMaterialValuationsRes() {}
+
+// A price change of a material valuation (SAP MR21): the prices before and after, what the stock was
+// revalued by and the journal entry that posted it.
+// Ref: #/components/schemas/MaterialValuationPriceChange
+type MaterialValuationPriceChange struct {
+	// The price change.
+	ID uuid.UUID `json:"id"`
+	// The price before, per price unit.
+	OldPrice Money `json:"old_price"`
+	// The price after, per price unit.
+	NewPrice Money `json:"new_price"`
+	// What the stock was revalued by, signed.
+	Revaluation Money `json:"revaluation"`
+	// The company's date it was posted on.
+	PostingDate time.Time `json:"posting_date"`
+	// The journal entry that posted the revaluation (`GET /v1/journal-entries/{id}`); absent when nothing
+	// was revalued.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// That entry's fiscal year; absent with it.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// That entry's document number; absent with it.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// When it was made.
+	CreatedAt time.Time `json:"created_at"`
+	// Who made it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *MaterialValuationPriceChange) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetOldPrice returns the value of OldPrice.
+func (s *MaterialValuationPriceChange) GetOldPrice() Money {
+	return s.OldPrice
+}
+
+// GetNewPrice returns the value of NewPrice.
+func (s *MaterialValuationPriceChange) GetNewPrice() Money {
+	return s.NewPrice
+}
+
+// GetRevaluation returns the value of Revaluation.
+func (s *MaterialValuationPriceChange) GetRevaluation() Money {
+	return s.Revaluation
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *MaterialValuationPriceChange) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *MaterialValuationPriceChange) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *MaterialValuationPriceChange) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *MaterialValuationPriceChange) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *MaterialValuationPriceChange) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *MaterialValuationPriceChange) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *MaterialValuationPriceChange) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetOldPrice sets the value of OldPrice.
+func (s *MaterialValuationPriceChange) SetOldPrice(val Money) {
+	s.OldPrice = val
+}
+
+// SetNewPrice sets the value of NewPrice.
+func (s *MaterialValuationPriceChange) SetNewPrice(val Money) {
+	s.NewPrice = val
+}
+
+// SetRevaluation sets the value of Revaluation.
+func (s *MaterialValuationPriceChange) SetRevaluation(val Money) {
+	s.Revaluation = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *MaterialValuationPriceChange) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *MaterialValuationPriceChange) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *MaterialValuationPriceChange) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *MaterialValuationPriceChange) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *MaterialValuationPriceChange) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *MaterialValuationPriceChange) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
 
 // Merge patch of a valuation: its class.
 // Ref: #/components/schemas/MaterialValuationUpdate
@@ -76101,6 +76241,52 @@ func (o OptMatchDecision) Get() (v MatchDecision, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptMatchDecision) Or(d MatchDecision) MatchDecision {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptMaterialValuationPriceChange returns new OptMaterialValuationPriceChange with value set to v.
+func NewOptMaterialValuationPriceChange(v MaterialValuationPriceChange) OptMaterialValuationPriceChange {
+	return OptMaterialValuationPriceChange{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptMaterialValuationPriceChange is optional MaterialValuationPriceChange.
+type OptMaterialValuationPriceChange struct {
+	Value MaterialValuationPriceChange
+	Set   bool
+}
+
+// IsSet returns true if OptMaterialValuationPriceChange was set.
+func (o OptMaterialValuationPriceChange) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptMaterialValuationPriceChange) Reset() {
+	var v MaterialValuationPriceChange
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptMaterialValuationPriceChange) SetTo(v MaterialValuationPriceChange) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptMaterialValuationPriceChange) Get() (v MaterialValuationPriceChange, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptMaterialValuationPriceChange) Or(d MaterialValuationPriceChange) MaterialValuationPriceChange {
 	if v, ok := o.Get(); ok {
 		return v
 	}

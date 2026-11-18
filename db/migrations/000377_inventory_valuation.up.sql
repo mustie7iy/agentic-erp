@@ -145,7 +145,9 @@ ALTER TABLE inventory.material_document
 -- A movement adds its quantity to its stock row and its quantity and
 -- value to its material's valuation in the plant, which must exist; a
 -- moving-priced valuation's price follows, its value per price unit of
--- its quantity, rounded half away from zero, while it has stock.
+-- its quantity, rounded half away from zero while it has stock: exactly,
+-- by integer division of numerics, as the application computes it (a
+-- numeric quotient keeps only some sixteen digits).
 CREATE OR REPLACE FUNCTION inventory.movement_stock() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
@@ -156,7 +158,7 @@ BEGIN
   END IF;
   UPDATE inventory.valuation SET quantity = quantity + NEW.quantity, value = value + NEW.amount, version = version + 1,
     price = CASE WHEN price_control = 'moving_average' AND quantity + NEW.quantity > 0
-      THEN round((value + NEW.amount) * price_unit / (quantity + NEW.quantity))::bigint ELSE price END
+      THEN div(2 * (value + NEW.amount)::numeric * price_unit + (quantity + NEW.quantity), 2 * (quantity + NEW.quantity))::bigint ELSE price END
   WHERE tenant_id = NEW.tenant_id AND material_id = NEW.material_id AND plant_id = NEW.plant_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'a movement is valued by its material''s valuation in the plant' USING ERRCODE = 'foreign_key_violation', CONSTRAINT = 'movement_valuation';

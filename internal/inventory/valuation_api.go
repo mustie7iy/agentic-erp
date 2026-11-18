@@ -3,6 +3,7 @@ package inventory
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -18,11 +19,22 @@ import (
 // plant and company.
 func valuationAPI(v Valuation, r refs) gen.MaterialValuation {
 	m, plant := r.materials[v.MaterialID], r.units[v.PlantID]
-	return gen.MaterialValuation{ID: v.ID, Version: v.Version, CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, UpdatedAt: v.UpdatedAt,
+	out := gen.MaterialValuation{ID: v.ID, Version: v.Version, CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, UpdatedAt: v.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(v.UpdatedBy), MaterialID: v.MaterialID, MaterialNumber: m.Number, MaterialDescription: m.Description,
 		PlantID: v.PlantID, PlantCode: plant.Code, PlantName: plant.Name, LegalEntityID: v.LegalEntityID, CompanyCode: r.companies[v.LegalEntityID].Code,
 		ValuationClass: v.ValuationClass, PriceControl: v.PriceControl, Price: apitypes.Money(v.Price, v.Currency, v.Exponent), PriceUnit: v.PriceUnit,
 		Quantity: gen.Quantity{Value: v.Quantity, Unit: m.BaseUnit}, Value: apitypes.Money(v.Value, v.Currency, v.Exponent)}
+	if c := v.LastChange; c != nil {
+		day, _ := time.Parse(time.DateOnly, c.PostingDate) // the database's date, in its form
+		change := gen.MaterialValuationPriceChange{ID: c.ID, OldPrice: apitypes.Money(c.OldPrice, v.Currency, v.Exponent),
+			NewPrice: apitypes.Money(c.NewPrice, v.Currency, v.Exponent), Revaluation: apitypes.Money(c.Amount, v.Currency, v.Exponent), PostingDate: day,
+			JournalEntryID: apitypes.OptUUID(c.EntryID), JournalEntryNumber: apitypes.OptString(c.EntryNumber), CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy}
+		if c.EntryYear != nil {
+			change.JournalEntryYear = gen.NewOptInt32(int32(*c.EntryYear))
+		}
+		out.LastPriceChange = gen.NewOptMaterialValuationPriceChange(change)
+	}
+	return out
 }
 
 // valuationRefs reads what valuations name.
