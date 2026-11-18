@@ -50,9 +50,15 @@ func init() {
 	problem.RegisterConstraint("allocation_cycle_code_once", func() *problem.Problem {
 		return problem.Conflict("controlling.allocation_cycle_exists", "The legal entity already has an allocation cycle with this code.")
 	})
-	problem.RegisterConstraint("allocation_run_once", func() *problem.Problem {
-		return problem.Conflict("controlling.allocation_run_exists", "The allocation cycle was already run for this period.")
-	})
+	// One run in force per cycle and period (T60k): the next attempt once
+	// the run before it is reversed.
+	problem.RegisterConstraint("allocation_run_once", runExists)
+	problem.RegisterConstraint("allocation_run_attempt_once", runExists)
+	problem.RegisterConstraint("allocation_run_in_force_once", runExists)
+}
+
+func runExists() *problem.Problem {
+	return problem.Conflict("controlling.allocation_run_exists", "The allocation cycle was already run for this period.")
 }
 
 // allocationRun is a row of controlling.allocation_run with its cycle's
@@ -71,33 +77,62 @@ type allocationRun struct {
 	Accounts                   int32
 	CreatedAt                  time.Time
 	CreatedBy                  uuid.UUID
+	// Attempt is the run's place among its cycle's runs of the period, one
+	// more after each reversal; Reversal is its reversal, nil while it is
+	// in force (T60k).
+	Attempt  int16
+	Reversal *runReversal
 	// Values are the key figure's values a run by key figure took its
 	// shares from, for its audit record; not kept on the run.
 	Values []shareValue
 }
 
-// runSelect reads runs with their cycles, as one relation r: a listing's
-// cursor names the run's id without a table (pagination.Keyset).
+// runReversal is a run's reversal (controlling.allocation_run_reversal).
+type runReversal struct {
+	EntryID        uuid.UUID
+	DocumentNumber string
+	CreatedAt      time.Time
+	CreatedBy      uuid.UUID
+}
+
+// runSelect reads runs with their cycles and reversals, as one relation
+// r: a listing's cursor names the run's id without a table
+// (pagination.Keyset).
 const runSelect = `SELECT r.id, r.cycle_id, r.legal_entity_id, r.cycle_code, r.cycle_name, r.kind, r.fiscal_year, r.fiscal_period, r.posting_date,
-	r.sender_cost_center_id, r.journal_entry_id, r.document_number, r.amount, r.account_count, r.created_at, r.created_by
+	r.sender_cost_center_id, r.journal_entry_id, r.document_number, r.amount, r.account_count, r.created_at, r.created_by, r.attempt,
+	r.reversal_journal_entry_id, r.reversal_document_number, r.reversed_at, r.reversed_by
 	FROM (SELECT a.id, a.cycle_id, a.legal_entity_id, c.code, c.name, c.kind, a.fiscal_year, a.fiscal_period, a.posting_date, c.sender_cost_center_id,
-			a.journal_entry_id, a.document_number, a.amount, a.account_count, a.created_at, a.created_by
-		FROM controlling.allocation_run a JOIN controlling.allocation_cycle c ON c.tenant_id = a.tenant_id AND c.id = a.cycle_id)
+			a.journal_entry_id, a.document_number, a.amount, a.account_count, a.created_at, a.created_by, a.attempt, v.journal_entry_id, v.document_number,
+			v.created_at, v.created_by
+		FROM controlling.allocation_run a JOIN controlling.allocation_cycle c ON c.tenant_id = a.tenant_id AND c.id = a.cycle_id
+		LEFT JOIN controlling.allocation_run_reversal v ON v.tenant_id = a.tenant_id AND v.run_id = a.id)
 		AS r(id, cycle_id, legal_entity_id, cycle_code, cycle_name, kind, fiscal_year, fiscal_period, posting_date, sender_cost_center_id,
-			journal_entry_id, document_number, amount, account_count, created_at, created_by)`
+			journal_entry_id, document_number, amount, account_count, created_at, created_by, attempt, reversal_journal_entry_id, reversal_document_number,
+			reversed_at, reversed_by)`
 
 func scanRun(r pgx.Row) (allocationRun, error) {
 	var a allocationRun
+	var entry, by *uuid.UUID
+	var number *string
+	var at *time.Time
 	err := r.Scan(&a.ID, &a.CycleID, &a.LegalEntityID, &a.CycleCode, &a.CycleName, &a.Kind, &a.FiscalYear, &a.FiscalPeriod, &a.PostingDate, &a.SenderID,
-		&a.EntryID, &a.DocumentNumber, &a.Amount, &a.Accounts, &a.CreatedAt, &a.CreatedBy)
+		&a.EntryID, &a.DocumentNumber, &a.Amount, &a.Accounts, &a.CreatedAt, &a.CreatedBy, &a.Attempt, &entry, &number, &at, &by)
+	if entry != nil { // the reversal's columns are NOT NULL: all or none
+		a.Reversal = &runReversal{EntryID: *entry, DocumentNumber: *number, CreatedAt: *at, CreatedBy: *by}
+	}
 	return a, errs.Wrapf(err, "controlling: scan allocation run")
 }
 
 func runToAPI(r allocationRun, currency string, exp int) gen.AllocationRun {
-	return gen.AllocationRun{ID: r.ID, AllocationCycleID: r.CycleID, AllocationCycleCode: r.CycleCode, AllocationCycleName: r.CycleName, Kind: r.Kind,
+	out := gen.AllocationRun{ID: r.ID, AllocationCycleID: r.CycleID, AllocationCycleCode: r.CycleCode, AllocationCycleName: r.CycleName, Kind: r.Kind,
 		LegalEntityID: r.LegalEntityID, FiscalYear: int32(r.FiscalYear), FiscalPeriod: int32(r.FiscalPeriod), PostingDate: r.PostingDate,
 		SenderCostCenterID: r.SenderID, SenderCostCenterCode: r.SenderCode, Amount: apitypes.Money(r.Amount, currency, exp), AccountCount: r.Accounts,
 		JournalEntryID: r.EntryID, JournalEntryNumber: r.DocumentNumber, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy}
+	if v := r.Reversal; v != nil {
+		out.ReversalJournalEntryID, out.ReversalJournalEntryNumber = gen.NewOptUUID(v.EntryID), gen.NewOptString(v.DocumentNumber)
+		out.ReversedAt, out.ReversedBy = gen.NewOptDateTime(v.CreatedAt), gen.NewOptUUID(v.CreatedBy)
+	}
+	return out
 }
 
 // accountCost is the sender's cost of the period on a primary cost
@@ -234,6 +269,26 @@ func assessmentLines(c cycle, costs []accountCost, weights []*big.Rat) ([]ledger
 	return lines, total, nil
 }
 
+// fixedAmountLines are an assessment by fixed amounts' lines, all on the
+// cycle's assessment account: each receiver, in the cycle's order, debited
+// with its amount and the sender credited with their total, whatever its
+// costs; and the total charged.
+func fixedAmountLines(c cycle) ([]ledger.PostingLine, money.Minor, error) {
+	amounts := make([]money.Minor, len(c.Receivers))
+	for j, r := range c.Receivers {
+		amounts[j] = r.Amount
+	}
+	total, err := money.Sum(amounts...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("controlling: total of allocation cycle %s: %w", c.ID, err)
+	}
+	lines := []ledger.PostingLine{{AccountID: *c.AssessmentID, Amount: -total, CostCenterID: &c.SenderID}}
+	for j := range c.Receivers {
+		lines = append(lines, ledger.PostingLine{AccountID: *c.AssessmentID, Amount: c.Receivers[j].Amount, CostCenterID: &c.Receivers[j].CostCenterID})
+	}
+	return lines, total, nil
+}
+
 // runLines are the lines of the cycle's run by its kind, with the amount
 // charged, the costs split by the receivers' parts of the whole.
 func runLines(c cycle, costs []accountCost, weights []*big.Rat) ([]ledger.PostingLine, money.Minor, error) {
@@ -297,6 +352,7 @@ func senderAssessed(ctx context.Context, tx pgx.Tx, c cycle, period ledger.Fisca
 	err := tx.QueryRow(ctx, `SELECT c.code, r.document_number FROM controlling.allocation_run r
 		JOIN controlling.allocation_cycle c ON c.tenant_id = r.tenant_id AND c.id = r.cycle_id
 		WHERE c.legal_entity_id = $1 AND c.sender_cost_center_id = $2 AND c.kind = $3 AND r.fiscal_year = $4 AND r.fiscal_period = $5
+			AND NOT EXISTS (SELECT FROM controlling.allocation_run_reversal v WHERE v.tenant_id = r.tenant_id AND v.run_id = r.id)
 		ORDER BY r.id LIMIT 1`, c.LegalEntityID, c.SenderID, CycleAssessment, period.FiscalYear, period.Number).Scan(&code, &number)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
@@ -328,16 +384,21 @@ func (e *Endpoints) centersValid(ctx context.Context, c cycle, day time.Time) er
 	return nil
 }
 
-// runOf is the cycle's run of the period, if it has one.
-func runOf(ctx context.Context, tx pgx.Tx, cycle uuid.UUID, period ledger.FiscalPeriod) (allocationRun, bool, error) {
-	r, err := scanRun(tx.QueryRow(ctx, runSelect+` WHERE r.cycle_id = $1 AND r.fiscal_year = $2 AND r.fiscal_period = $3`, cycle, period.FiscalYear, period.Number))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return allocationRun{}, false, nil
-	}
+// runOf is the cycle's run of the period in force, if it has one, and
+// the attempt a run of the period would be: one more than its runs, all
+// reversed but the one in force. Read under the sender's cycles' lock.
+func runOf(ctx context.Context, tx pgx.Tx, cycle uuid.UUID, period ledger.FiscalPeriod) (allocationRun, bool, int16, error) {
+	rows, _ := tx.Query(ctx, runSelect+` WHERE r.cycle_id = $1 AND r.fiscal_year = $2 AND r.fiscal_period = $3 ORDER BY r.attempt`, cycle, period.FiscalYear,
+		period.Number)
+	runs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (allocationRun, error) { return scanRun(r) })
 	if err != nil {
-		return allocationRun{}, false, fmt.Errorf("controlling: run of allocation cycle %s in %d/%d: %w", cycle, period.FiscalYear, period.Number, err)
+		return allocationRun{}, false, 0, fmt.Errorf("controlling: runs of allocation cycle %s in %d/%d: %w", cycle, period.FiscalYear, period.Number, err)
 	}
-	return r, true, nil
+	next := int16(len(runs) + 1)
+	if len(runs) == 0 || runs[len(runs)-1].Reversal != nil {
+		return allocationRun{}, false, next, nil
+	}
+	return runs[len(runs)-1], true, next, nil
 }
 
 // heldCycle reads the cycle a run is for with every cycle of its sender
@@ -380,9 +441,11 @@ func (e *Endpoints) RunAllocationCycle(ctx context.Context, req *gen.AllocationC
 	if err != nil {
 		return nil, err
 	}
-	if earlier, ran, err := runOf(ctx, tx, c.ID, period); err != nil {
+	earlier, ran, attempt, err := runOf(ctx, tx, c.ID, period)
+	if err != nil {
 		return nil, err
-	} else if ran {
+	}
+	if ran {
 		return nil, problem.Conflict("controlling.allocation_run_exists", fmt.Sprintf("The allocation cycle was already run for %d/%d: journal entry %s.",
 			period.FiscalYear, period.Number, earlier.DocumentNumber))
 	}
@@ -391,11 +454,13 @@ func (e *Endpoints) RunAllocationCycle(ctx context.Context, req *gen.AllocationC
 	}
 	res := gen.AllocationRunResult{AllocationCycleID: c.ID, AllocationCycleCode: c.Code, AllocationCycleName: c.Name, LegalEntityID: le.ID,
 		FiscalYear: req.FiscalYear, FiscalPeriod: req.FiscalPeriod}
-	costs, err := e.senderCosts(ctx, le.ID, c.SenderID, period)
-	if err != nil {
-		return nil, err
+	var costs []accountCost
+	if c.ShareBasis != SharesFixedAmounts { // fixed amounts charge no costs
+		if costs, err = e.senderCosts(ctx, le.ID, c.SenderID, period); err != nil {
+			return nil, err
+		}
 	}
-	run, posted, err := e.charge(ctx, tx, p, c, le, period, costs)
+	run, posted, err := e.charge(ctx, tx, p, c, le, period, attempt, costs)
 	if err != nil {
 		return nil, err
 	}
@@ -430,12 +495,21 @@ func weights(ctx context.Context, tx pgx.Tx, c cycle, period ledger.FiscalPeriod
 }
 
 // charge posts the sender's costs to the receivers by the cycle's kind and
-// share basis on the period's last day and keeps the run, which names
-// what it charged and the number of the sender's accounts whose costs it
-// charged. Costs that give no line post nothing and keep no run: posted
-// is false; the shares are taken only for costs to charge.
-func (e *Endpoints) charge(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c cycle, le tenancy.Entity, period ledger.FiscalPeriod,
+// share basis on the period's last day, as the run's attempt, and keeps
+// the run, which names what it charged and the number of the sender's
+// accounts whose costs it charged. Costs that give no line post nothing
+// and keep no run: posted is false; the shares are taken only for costs
+// to charge. Fixed amounts are charged whatever the costs.
+func (e *Endpoints) charge(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c cycle, le tenancy.Entity, period ledger.FiscalPeriod, attempt int16,
 	costs []accountCost) (allocationRun, bool, error) {
+	if c.ShareBasis == SharesFixedAmounts {
+		lines, total, err := fixedAmountLines(c)
+		if err != nil {
+			return allocationRun{}, false, err
+		}
+		run, err := e.post(ctx, tx, p, c, le, period, attempt, lines, total, 0)
+		return run, err == nil, err
+	}
 	if nothingToCharge(c, costs) {
 		return allocationRun{}, false, nil
 	}
@@ -447,14 +521,15 @@ func (e *Endpoints) charge(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c
 	if err != nil || len(lines) == 0 {
 		return allocationRun{}, false, err
 	}
-	run, err := e.post(ctx, tx, p, c, le, period, lines, total, len(costs))
+	run, err := e.post(ctx, tx, p, c, le, period, attempt, lines, total, len(costs))
 	run.Values = values
 	return run, err == nil, err
 }
 
-// post posts a run's lines and keeps the run: total is what it charged
-// the receivers and accounts the number of the sender's accounts.
-func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c cycle, le tenancy.Entity, period ledger.FiscalPeriod,
+// post posts a run's lines and keeps the run as its attempt: total is
+// what it charged the receivers and accounts the number of the sender's
+// accounts.
+func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c cycle, le tenancy.Entity, period ledger.FiscalPeriod, attempt int16,
 	lines []ledger.PostingLine, total money.Minor, accounts int) (allocationRun, error) {
 	if err := e.centersValid(ctx, c, period.End); err != nil {
 		return allocationRun{}, err
@@ -471,11 +546,11 @@ func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c c
 	}
 	run := allocationRun{ID: id, CycleID: c.ID, LegalEntityID: le.ID, CycleCode: c.Code, CycleName: c.Name, Kind: c.Kind, FiscalYear: period.FiscalYear,
 		FiscalPeriod: period.Number, PostingDate: period.End, SenderID: c.SenderID, SenderCode: c.SenderCode, EntryID: entry.ID,
-		DocumentNumber: entry.DocumentNumber, Amount: total, Accounts: int32(accounts), CreatedBy: p.ID}
+		DocumentNumber: entry.DocumentNumber, Amount: total, Accounts: int32(accounts), CreatedBy: p.ID, Attempt: attempt}
 	err = tx.QueryRow(ctx, `INSERT INTO controlling.allocation_run (tenant_id, id, cycle_id, legal_entity_id, fiscal_year, fiscal_period, posting_date,
-			journal_entry_id, document_number, amount, account_count, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING created_at`, p.TenantID, run.ID, run.CycleID, run.LegalEntityID, run.FiscalYear,
-		run.FiscalPeriod, run.PostingDate, run.EntryID, run.DocumentNumber, run.Amount, run.Accounts, run.CreatedBy).Scan(&run.CreatedAt)
+			journal_entry_id, document_number, amount, account_count, created_by, attempt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING created_at`, p.TenantID, run.ID, run.CycleID, run.LegalEntityID, run.FiscalYear,
+		run.FiscalPeriod, run.PostingDate, run.EntryID, run.DocumentNumber, run.Amount, run.Accounts, run.CreatedBy, run.Attempt).Scan(&run.CreatedAt)
 	if err != nil {
 		return allocationRun{}, fmt.Errorf("controlling: keep the run of allocation cycle %s: %w", c.ID, err)
 	}
@@ -503,25 +578,40 @@ func recordRun(ctx context.Context, r allocationRun, currency string, exp int) e
 				"account_count": r.Accounts, "journal_entry_id": r.EntryID, "journal_entry_number": r.DocumentNumber}})
 }
 
+// unit is a company's local currency with its digits.
+type unit struct {
+	currency string
+	exp      int
+}
+
+// units are the companies' currencies, each read once. The companies are
+// of rows read under row-level security in companies the caller may act
+// in, so each is found.
+func (e *Endpoints) units(ctx context.Context, tx pgx.Tx, companies []uuid.UUID) (map[uuid.UUID]unit, error) {
+	units := map[uuid.UUID]unit{}
+	for _, id := range companies {
+		if _, ok := units[id]; ok {
+			continue
+		}
+		le, exp, _, err := e.company(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		units[id] = unit{le.LocalCurrency, exp}
+	}
+	return units, nil
+}
+
 // shownRuns names the runs' senders and gives each its company's
 // currency: runs are listed across the companies the caller may act in.
 func (e *Endpoints) shownRuns(ctx context.Context, tx pgx.Tx, runs []allocationRun) (func(allocationRun) gen.AllocationRun, error) {
-	senders := make([]uuid.UUID, len(runs))
-	type unit struct {
-		currency string
-		exp      int
-	}
-	units := map[uuid.UUID]unit{}
+	senders, companies := make([]uuid.UUID, len(runs)), make([]uuid.UUID, len(runs))
 	for i, r := range runs {
-		senders[i] = r.SenderID
-		if _, ok := units[r.LegalEntityID]; ok {
-			continue
-		}
-		le, exp, _, err := e.company(ctx, tx, r.LegalEntityID) // the runs read are of companies the caller may act in
-		if err != nil {
-			return nil, fmt.Errorf("controlling: company of allocation run %s: %w", r.ID, err)
-		}
-		units[r.LegalEntityID] = unit{le.LocalCurrency, exp}
+		senders[i], companies[i] = r.SenderID, r.LegalEntityID
+	}
+	units, err := e.units(ctx, tx, companies)
+	if err != nil {
+		return nil, fmt.Errorf("controlling: companies of allocation runs: %w", err)
 	}
 	refs, err := e.Ledger.CostCenterRefs(ctx, senders)
 	if err != nil {
@@ -566,7 +656,8 @@ func (e *Endpoints) ListAllocationRuns(ctx context.Context, params gen.ListAlloc
 	}
 	le, cycleID := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.AllocationCycleID)
 	year, period := apitypes.Ptr[int32](params.FiscalYear), apitypes.Ptr[int32](params.FiscalPeriod)
-	scope := fmt.Sprintf("listAllocationRuns|%v|%v|%d|%d", le, cycleID, params.FiscalYear.Value, params.FiscalPeriod.Value)
+	reversed := apitypes.Ptr[bool](params.Reversed)
+	scope := fmt.Sprintf("listAllocationRuns|%v|%v|%d|%d|%v", le, cycleID, params.FiscalYear.Value, params.FiscalPeriod.Value, reversed)
 	ks, err := e.Pages.Keyset(runSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -576,8 +667,9 @@ func (e *Endpoints) ListAllocationRuns(ctx context.Context, params gen.ListAlloc
 		return nil, err
 	}
 	q, args := ks.SQL(runSelect+` WHERE ($1 OR r.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR r.legal_entity_id = $3)
-		AND ($4::uuid IS NULL OR r.cycle_id = $4) AND ($5::int IS NULL OR r.fiscal_year = $5) AND ($6::int IS NULL OR r.fiscal_period = $6)`,
-		[]any{access.All, access.IDs, le, cycleID, year, period})
+		AND ($4::uuid IS NULL OR r.cycle_id = $4) AND ($5::int IS NULL OR r.fiscal_year = $5) AND ($6::int IS NULL OR r.fiscal_period = $6)
+		AND ($7::boolean IS NULL OR (r.reversal_journal_entry_id IS NOT NULL) = $7)`,
+		[]any{access.All, access.IDs, le, cycleID, year, period, reversed})
 	rows, _ := tx.Query(ctx, q, args...)
 	runs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (allocationRun, error) { return scanRun(r) })
 	if err != nil {

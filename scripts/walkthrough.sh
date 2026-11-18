@@ -6501,8 +6501,8 @@ key_figure_shares() {
 # its account. The centers' reports show the assessment account's lines,
 # and a sender assessed for a period is not run for it again.
 step_assessment() {
-  heading "Step 53 — An assessment cycle: a cost center's costs of the period are charged to two others in one amount each on a secondary cost element, and stay on their accounts"
-  local base first second sender expense bank secondary cycle tag period entry before_first before_second other
+  heading "Step 53 — An assessment cycle: a cost center's costs of the period are charged to two others in one amount each on a secondary cost element, and stay on their accounts; the run reversed and fixed amounts charged instead"
+  local base first second sender expense bank secondary cycle tag period entry run before_first before_second other
   as ada
   say "An assessment is posted on a secondary cost element (ADR-0064 §4): an account of the chart that only"
   say "allocations post to. Maple's chart has none, so Ada proposes account 6990, a change of the chart, tier 4, with"
@@ -6562,6 +6562,7 @@ step_assessment() {
   expect "what the run charged" "$(field '"\(.posted) \(.run.amount.amount) \(.run.amount.currency) \(.run.sender_cost_center_code) \(.run.account_count) \(.run.kind)"')" \
     "true 1000.01 CAD CC-1400 1 assessment"
   entry=$(field .run.journal_entry_id)
+  run=$(field .run.id)
   api 200 '"entry \(.document_number) (\(.source_context)) on \(.posting_date): \([.lines[] | "\(.account_id | acct) \(.amount.amount) on cost center \(.cost_center_code)"] | join(" / "))"' \
     getJournalEntry -p "id=$entry"
   expect "the run's entry: the sender credited, the receivers debited with their shares, on the assessment account" \
@@ -6584,7 +6585,46 @@ step_assessment() {
   api 200 '.items[] | "  run of \(.allocation_cycle_code) (\(.kind)) for \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) from \(.sender_cost_center_code), entry \(.journal_entry_number)"' \
     listAllocationRuns -p "allocation_cycle_id=$cycle"
   expect "the cycle's runs" "$(field '.items | length')" 1
+  run_reversed_and_fixed "$cycle" "$tag" "$run" "$sender" "$first" "$second" "$secondary" "$period" "$before_first" "$before_second"
   passed
+}
+
+# run_reversed_and_fixed CYCLE TAG RUN SENDER FIRST SECOND ACCOUNT PERIOD
+# BEFORE_FIRST BEFORE_SECOND is T60k (ADR-0064 As built T60k): Carla
+# reverses the FACILITIES run in its period, the receivers give their
+# charges back and the sender is no longer assessed for the period; a
+# second reversal is refused. She then charges the offices fixed amounts
+# instead, CAD 250.00 and 150.00 a period, by an assessment of the same
+# sender, which posts them whatever the facilities' costs.
+run_reversed_and_fixed() {
+  local cycle=$1 tag=$2 run=$3 sender=$4 first=$5 second=$6 account=$7 period=$8 before_first=$9 before_second=${10} fixed
+  say "The rent is to be charged as fixed amounts, so Carla reverses the run of FACILITIES (T60k): its entry is reversed"
+  say "on the run's own date, in its period, which is still open."
+  api 200 '"run of \(.allocation_cycle_code) for \(.fiscal_year)/\(.fiscal_period) reversed by entry \(.reversal_journal_entry_number)"' \
+    reverseAllocationRun -p "id=$run" -if-match "$tag"
+  expect "the run's reversal" "$(field '"\(.id) \(.reversal_journal_entry_id != null) \(.reversed_at != null)"')" "$run true true"
+  expect "the first receiver's charge given back, in cents" "$(($(center_costs "$first" "$account") - before_first))" 0
+  expect "the second receiver's charge given back, in cents" "$(($(center_costs "$second" "$account") - before_second))" 0
+  expect "the sender's credit on the assessment account, in cents" "$(center_costs "$sender" "$account")" 0
+  refused 409 controlling.allocation_run_reversed reverseAllocationRun -p "id=$run" -if-match "$tag"
+  QUIET=1 api 200 '' listAllocationRuns -p "allocation_cycle_id=$cycle" -p reversed=true
+  expect "the cycle's reversed runs" "$(field '.items | length')" 1
+  say "She defines FAC-FIXED, an assessment of the facilities that charges CC-1100 CAD 250.00 and CC-1300 CAD 150.00"
+  say "each period; a distribution by fixed amounts is refused, since a distribution moves the costs posted:"
+  refused 422 controlling.allocation_cycle_invalid createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FAC-FIXED\", \"name\": \"Facilities at fixed amounts\", \"kind\": \"distribution\", \"share_basis\": \"fixed_amounts\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"amount\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}}]}"
+  expect "why the cycle is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "share_basis not_allowed"
+  api 201 '"cycle \(.code) (\(.kind) on account \(.assessment_account_number), \(.share_basis)): from \(.sender_cost_center_code) to \([.receivers[] | "\(.cost_center_code) \(.amount.amount) \(.amount.currency)"] | join(", "))"' createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FAC-FIXED\", \"name\": \"Facilities at fixed amounts\", \"kind\": \"assessment\", \"assessment_account_id\": \"$account\", \"share_basis\": \"fixed_amounts\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"amount\": {\"amount\": \"250.00\", \"currency\": \"CAD\"}}, {\"cost_center_id\": \"$second\", \"amount\": {\"amount\": \"150.00\", \"currency\": \"CAD\"}}]}"
+  fixed=$(field .id)
+  say "The sender is no longer assessed for $YEAR/$period, so the new cycle runs: one entry on the assessment account"
+  say "charges the amounts and credits the sender with their total."
+  api 200 '"cycle \(.allocation_cycle_code) run for \(.fiscal_year)/\(.fiscal_period): \(.run.amount.amount) \(.run.amount.currency) from \(.run.sender_cost_center_code), the costs of \(.run.account_count) accounts, entry \(.run.journal_entry_number)"' \
+    runAllocationCycle -p "id=$fixed" -if-match "$ETAG" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "what the run charged" "$(field '"\(.posted) \(.run.amount.amount) \(.run.amount.currency) \(.run.account_count)"')" "true 400.00 CAD 0"
+  expect "the first receiver charged its fixed amount, in cents" "$(($(center_costs "$first" "$account") - before_first))" 25000
+  expect "the second receiver charged its fixed amount, in cents" "$(($(center_costs "$second" "$account") - before_second))" 15000
+  expect "the sender relieved by their total, in cents" "$(center_costs "$sender" "$account")" -40000
 }
 
 # step_incoming_payment is T75c (ADR-0063 §6, ADR-0047): Northwind pays

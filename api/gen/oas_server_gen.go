@@ -998,7 +998,12 @@ type Handler interface {
 	// (`statistical_key_figure_id`, `required`), one that is no key figure of the legal entity
 	// (`unknown`), or one named with fixed percentages (`not_allowed`); a receiver without its percentage
 	// on fixed percentages (`receivers[i].percentage`, `required`) or with one on a key figure
-	// (`not_allowed`). A legal entity the caller cannot act in is answered as missing (422
+	// (`not_allowed`). An assessment may charge its receivers fixed amounts (`share_basis`
+	// `fixed_amounts`, T60k): each receiver names its `amount` in the legal entity's local currency, above
+	// zero (`receivers[i].amount`, `required`; `receivers[i].amount.currency` or `.amount`, `invalid`) and
+	// no percentage, another basis names no amount (`not_allowed`), amounts whose total no amount can hold
+	// are refused (`receivers`, `too_large`), and a distribution by fixed amounts is refused
+	// (`share_basis`, `not_allowed`). A legal entity the caller cannot act in is answered as missing (422
 	// `request.reference_not_found`). A cycle is not changed in this version. Created directly by
 	// permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
 	// not create one.
@@ -7486,6 +7491,24 @@ type Handler interface {
 	//
 	// POST /v1/entry-templates/{id}:retire
 	RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error)
+	// ReverseAllocationRun implements reverseAllocationRun operation.
+	//
+	// Reverses a run of an allocation cycle (ADR-0064 As built T60k; SAP's cycle reversal, from memory):
+	// the run's journal entry is reversed through the ledger in every ledger it was posted to, on the
+	// run's own posting date, so the run's period must still be open (409 `ledger.period_not_open`); each
+	// receiver gives its share back and the sender holds what the run charged again. The run is then no
+	// longer in force: the cycle may be run for the period again, and a sender assessed by it is no longer
+	// assessed for the period. A run is reversed once (409 `controlling.allocation_run_reversed`).
+	// `If-Match` is the cycle's version, which a reversal does not move. Every cycle of the run's sender
+	// is held under a row lock while the run is reversed, as while one of them runs, so a reversal and a
+	// run of one sender follow one another. A run of a legal entity the caller cannot act in is answered
+	// as missing (404). The reversal is kept on the run (`GET /v1/allocation-runs/{id}`), audited and
+	// published as AllocationRunReversed. The amounts are ledger amounts, so besides
+	// `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Agents may not reverse a run.
+	//
+	// POST /v1/allocation-runs/{id}:reverse
+	ReverseAllocationRun(ctx context.Context, params ReverseAllocationRunParams) (ReverseAllocationRunRes, error)
 	// ReverseAssetAcquisition implements reverseAssetAcquisition operation.
 	//
 	// Reverses a posted acquisition (ADR-0057 §6, T57d): its entry in every ledger through the ledger's
@@ -7647,14 +7670,18 @@ type Handler interface {
 	// receiver whose value is negative refuses the run (409 `controlling.allocation_key_figure_negative`,
 	// naming it) and receivers whose values add up to nothing refuse it (409
 	// `controlling.allocation_key_figure_missing`), each before anything is posted; the values used are in
-	// the run's audit record. A sender without costs in the period, or for an assessment with costs that
-	// add up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for
-	// the period later. One run per cycle and period: a second is refused (409
-	// `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version.
-	// `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of
-	// them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run
-	// at once follow one another: the second moves what the first left. Once a cycle of the sender was run
-	// as an assessment for a period, no cycle of that sender is run for the period again (409
+	// the run's audit record. With `share_basis` `fixed_amounts` (an assessment) the run reads no costs:
+	// its entry credits the sender with the receivers' amounts' total and debits each receiver with its
+	// amount on the assessment account, whatever the sender's costs, even when it has none
+	// (`account_count` 0). A sender without costs in the period, or for an assessment with costs that add
+	// up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for the
+	// period later. One run in force per cycle and period: a second is refused (409
+	// `controlling.allocation_run_exists`, naming the run's entry) until that run is reversed
+	// (`POST /v1/allocation-runs/{id}:reverse`, T60k). `If-Match` is the cycle's version. Every cycle of
+	// the sender is held under a row lock while one of them runs, so two runs of a cycle for one period
+	// never both post, and two cycles of one sender run at once follow one another: the second moves what
+	// the first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that
+	// sender is run for the period again while that run is in force (409
 	// `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's
 	// primary costs are still on their accounts, and another run would charge them a second time. Refused
 	// besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular

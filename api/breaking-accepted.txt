@@ -24,3 +24,9 @@ GET /v1/payment-runs/{id}/payments the response property `items/items/allOf[subs
 GET /v1/bank-statements/{id}/payments the response property `items/items/allOf[subschema #2]/bank_account_holder_name` became optional for the status `200`
 GET /v1/bank-statements/{id}/payments the response property `items/items/allOf[subschema #2]/bank_account_last4` became optional for the status `200`
 GET /v1/bank-statements/{id}/payments the response property `items/items/allOf[subschema #2]/bank_account_scheme` became optional for the status `200`
+# A run by fixed amounts charges its receivers' amounts and reads none of the
+# sender's costs, so it charged the costs of no account.
+# T60k (ADR-0064 As built T60k, decided by default under ADR-0053 d, for the product owner to overrule): account_count may be 0.
+POST /v1/allocation-cycles/{id}:run the `run/account_count` response property's min was decreased from `1.00` to `0.00` for the response status `200`
+GET /v1/allocation-runs the `items/items/account_count` response property's min was decreased from `1.00` to `0.00` for the response status `200`
+GET /v1/allocation-runs/{id} the `account_count` response property's min was decreased from `1.00` to `0.00` for the response status `200`

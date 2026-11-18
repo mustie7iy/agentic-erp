@@ -2173,6 +2173,10 @@ type RetireEntryTemplateRes interface {
 	retireEntryTemplateRes()
 }
 
+type ReverseAllocationRunRes interface {
+	reverseAllocationRunRes()
+}
+
 type ReverseAssetAcquisitionRes interface {
 	reverseAssetAcquisitionRes()
 }

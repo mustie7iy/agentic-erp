@@ -423,7 +423,8 @@ func TestPlanConstraintProblems(t *testing.T) {
 	for constraint, code := range map[string]string{
 		"plan_category_code_once": "controlling.plan_category_exists", "plan_category_open": "controlling.plan_category_locked",
 		"internal_order_code_once": "controlling.internal_order_exists", "allocation_cycle_code_once": "controlling.allocation_cycle_exists",
-		"allocation_run_once": "controlling.allocation_run_exists",
+		"allocation_run_once": "controlling.allocation_run_exists", "allocation_run_attempt_once": "controlling.allocation_run_exists",
+		"allocation_run_in_force_once": "controlling.allocation_run_exists", "statistical_key_figure_code_once": "controlling.statistical_key_figure_exists",
 	} {
 		t.Run(constraint, func(t *testing.T) {
 			if got := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: constraint}).Code; got != code {

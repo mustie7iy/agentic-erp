@@ -8765,11 +8765,18 @@ func (s *AllocationCycleCreateReceiversItem) encodeFields(e *jx.Encoder) {
 			s.Percentage.Encode(e)
 		}
 	}
+	{
+		if s.Amount.Set {
+			e.FieldStart("amount")
+			s.Amount.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfAllocationCycleCreateReceiversItem = [2]string{
+var jsonFieldsNameOfAllocationCycleCreateReceiversItem = [3]string{
 	0: "cost_center_id",
 	1: "percentage",
+	2: "amount",
 }
 
 // Decode decodes AllocationCycleCreateReceiversItem from json.
@@ -8802,6 +8809,16 @@ func (s *AllocationCycleCreateReceiversItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"percentage\"")
+			}
+		case "amount":
+			if err := func() error {
+				s.Amount.Reset()
+				if err := s.Amount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"amount\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -9135,12 +9152,19 @@ func (s *AllocationReceiver) encodeFields(e *jx.Encoder) {
 			s.Percentage.Encode(e)
 		}
 	}
+	{
+		if s.Amount.Set {
+			e.FieldStart("amount")
+			s.Amount.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfAllocationReceiver = [3]string{
+var jsonFieldsNameOfAllocationReceiver = [4]string{
 	0: "cost_center_id",
 	1: "cost_center_code",
 	2: "percentage",
+	3: "amount",
 }
 
 // Decode decodes AllocationReceiver from json.
@@ -9185,6 +9209,16 @@ func (s *AllocationReceiver) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"percentage\"")
+			}
+		case "amount":
+			if err := func() error {
+				s.Amount.Reset()
+				if err := s.Amount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"amount\"")
 			}
 		default:
 			return d.Skip()
@@ -9319,9 +9353,33 @@ func (s *AllocationRun) encodeFields(e *jx.Encoder) {
 		e.FieldStart("created_by")
 		json.EncodeUUID(e, s.CreatedBy)
 	}
+	{
+		if s.ReversalJournalEntryID.Set {
+			e.FieldStart("reversal_journal_entry_id")
+			s.ReversalJournalEntryID.Encode(e)
+		}
+	}
+	{
+		if s.ReversalJournalEntryNumber.Set {
+			e.FieldStart("reversal_journal_entry_number")
+			s.ReversalJournalEntryNumber.Encode(e)
+		}
+	}
+	{
+		if s.ReversedAt.Set {
+			e.FieldStart("reversed_at")
+			s.ReversedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.ReversedBy.Set {
+			e.FieldStart("reversed_by")
+			s.ReversedBy.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfAllocationRun = [17]string{
+var jsonFieldsNameOfAllocationRun = [21]string{
 	0:  "id",
 	1:  "allocation_cycle_id",
 	2:  "allocation_cycle_code",
@@ -9339,6 +9397,10 @@ var jsonFieldsNameOfAllocationRun = [17]string{
 	14: "journal_entry_number",
 	15: "created_at",
 	16: "created_by",
+	17: "reversal_journal_entry_id",
+	18: "reversal_journal_entry_number",
+	19: "reversed_at",
+	20: "reversed_by",
 }
 
 // Decode decodes AllocationRun from json.
@@ -9551,6 +9613,46 @@ func (s *AllocationRun) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"created_by\"")
+			}
+		case "reversal_journal_entry_id":
+			if err := func() error {
+				s.ReversalJournalEntryID.Reset()
+				if err := s.ReversalJournalEntryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_journal_entry_id\"")
+			}
+		case "reversal_journal_entry_number":
+			if err := func() error {
+				s.ReversalJournalEntryNumber.Reset()
+				if err := s.ReversalJournalEntryNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_journal_entry_number\"")
+			}
+		case "reversed_at":
+			if err := func() error {
+				s.ReversedAt.Reset()
+				if err := s.ReversedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversed_at\"")
+			}
+		case "reversed_by":
+			if err := func() error {
+				s.ReversedBy.Reset()
+				if err := s.ReversedBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversed_by\"")
 			}
 		default:
 			return d.Skip()
@@ -238799,6 +238901,234 @@ func (s *RevenueSchedulePeriod) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *RevenueSchedulePeriod) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseAllocationRunBadRequest as json.
+func (s *ReverseAllocationRunBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseAllocationRunBadRequest from json.
+func (s *ReverseAllocationRunBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseAllocationRunBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseAllocationRunBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseAllocationRunBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseAllocationRunBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseAllocationRunForbidden as json.
+func (s *ReverseAllocationRunForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseAllocationRunForbidden from json.
+func (s *ReverseAllocationRunForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseAllocationRunForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseAllocationRunForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseAllocationRunForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseAllocationRunForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseAllocationRunNotFound as json.
+func (s *ReverseAllocationRunNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseAllocationRunNotFound from json.
+func (s *ReverseAllocationRunNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseAllocationRunNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseAllocationRunNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseAllocationRunNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseAllocationRunNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseAllocationRunPreconditionFailed as json.
+func (s *ReverseAllocationRunPreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseAllocationRunPreconditionFailed from json.
+func (s *ReverseAllocationRunPreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseAllocationRunPreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseAllocationRunPreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseAllocationRunPreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseAllocationRunPreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseAllocationRunPreconditionRequired as json.
+func (s *ReverseAllocationRunPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseAllocationRunPreconditionRequired from json.
+func (s *ReverseAllocationRunPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseAllocationRunPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseAllocationRunPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseAllocationRunPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseAllocationRunPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseAllocationRunUnprocessableEntity as json.
+func (s *ReverseAllocationRunUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseAllocationRunUnprocessableEntity from json.
+func (s *ReverseAllocationRunUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseAllocationRunUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseAllocationRunUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseAllocationRunUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseAllocationRunUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

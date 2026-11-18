@@ -595,6 +595,7 @@ var operationRolesOidc = map[string][]string{
 	RetireCatalogItemOperation:                     []string{},
 	RetireControlOperation:                         []string{},
 	RetireEntryTemplateOperation:                   []string{},
+	ReverseAllocationRunOperation:                  []string{},
 	ReverseAssetAcquisitionOperation:               []string{},
 	ReverseAssetRetirementOperation:                []string{},
 	ReverseAssetTransferOperation:                  []string{},

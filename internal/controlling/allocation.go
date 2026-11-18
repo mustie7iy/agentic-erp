@@ -17,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -45,18 +46,22 @@ const (
 const (
 	SharesFixedPercentages = "fixed_percentages"
 	SharesKeyFigure        = "statistical_key_figure"
+	SharesFixedAmounts     = "fixed_amounts"
 )
 
 // wholeBP is the whole in basis points: the receivers' shares add up to it.
 const wholeBP = 10000
 
 // cycleReceiver is a receiver of a cycle with its share in basis points,
-// zero on a cycle whose shares are not fixed percentages; Code is named by
-// the ledger's port when the cycle is shown.
+// zero on a cycle whose shares are not fixed percentages, and its amount
+// in minor units of the company's currency, zero on a cycle whose shares
+// are not fixed amounts; Code is named by the ledger's port when the
+// cycle is shown.
 type cycleReceiver struct {
 	CostCenterID uuid.UUID
 	Code         string
 	ShareBP      int32
+	Amount       money.Minor
 }
 
 // cycle is an allocation cycle with its receivers in their order.
@@ -74,11 +79,15 @@ type cycle struct {
 	KeyFigureID       *uuid.UUID
 	KeyFigureCode     string
 	Receivers         []cycleReceiver
-	Version           int32
-	CreatedAt         time.Time
-	CreatedBy         uuid.UUID
-	UpdatedAt         time.Time
-	UpdatedBy         uuid.UUID
+	// Currency and Exp are the company's, which a cycle by fixed amounts
+	// shows its receivers' amounts in.
+	Currency  string
+	Exp       int
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
 }
 
 // cycleColumns are a cycle's columns, its key figure's code beside them.
@@ -118,16 +127,11 @@ func (e *Endpoints) withReceivers(ctx context.Context, tx pgx.Tx, cycles ...cycl
 	for i, c := range cycles {
 		ids[i], centers[i], at[c.ID] = c.ID, c.SenderID, i
 	}
-	rows, _ := tx.Query(ctx, `SELECT cycle_id, cost_center_id, share_bp FROM controlling.allocation_receiver WHERE cycle_id = ANY($1)
-		ORDER BY cycle_id, position`, ids)
+	rows, _ := tx.Query(ctx, `SELECT cycle_id, cost_center_id, coalesce(share_bp, 0), coalesce(amount, 0) FROM controlling.allocation_receiver
+		WHERE cycle_id = ANY($1) ORDER BY cycle_id, position`, ids)
 	var id uuid.UUID
 	var r cycleReceiver
-	var share *int32
-	if _, err := pgx.ForEachRow(rows, []any{&id, &r.CostCenterID, &share}, func() error {
-		r.ShareBP = 0
-		if share != nil {
-			r.ShareBP = *share
-		}
+	if _, err := pgx.ForEachRow(rows, []any{&id, &r.CostCenterID, &r.ShareBP, &r.Amount}, func() error {
 		cycles[at[id]].Receivers = append(cycles[at[id]].Receivers, r)
 		centers = append(centers, r.CostCenterID)
 		return nil
@@ -144,7 +148,30 @@ func (e *Endpoints) withReceivers(ctx context.Context, tx pgx.Tx, cycles ...cycl
 			cycles[i].Receivers[j].Code = refs[cycles[i].Receivers[j].CostCenterID].Code
 		}
 	}
+	if err := e.withCurrencies(ctx, tx, cycles); err != nil {
+		return nil, err
+	}
 	return cycles, e.withAssessmentAccounts(ctx, cycles)
+}
+
+// withCurrencies gives the cycles by fixed amounts their companies'
+// currencies, read once per company.
+func (e *Endpoints) withCurrencies(ctx context.Context, tx pgx.Tx, cycles []cycle) error {
+	var companies []uuid.UUID
+	for _, c := range cycles {
+		if c.ShareBasis == SharesFixedAmounts {
+			companies = append(companies, c.LegalEntityID)
+		}
+	}
+	units, err := e.units(ctx, tx, companies)
+	if err != nil {
+		return fmt.Errorf("controlling: currencies of allocation cycles: %w", err)
+	}
+	for i := range cycles {
+		u := units[cycles[i].LegalEntityID]
+		cycles[i].Currency, cycles[i].Exp = u.currency, u.exp
+	}
+	return nil
 }
 
 // withAssessmentAccounts names the assessment cycles' accounts, read from
@@ -210,6 +237,9 @@ func cycleToAPI(c cycle) gen.AllocationCycle {
 		if r.ShareBP != 0 {
 			out.Receivers[i].Percentage = gen.NewOptString(percent(r.ShareBP))
 		}
+		if r.Amount != 0 {
+			out.Receivers[i].Amount = gen.NewOptMoney(apitypes.Money(r.Amount, c.Currency, c.Exp))
+		}
 	}
 	if c.AssessmentID != nil {
 		out.AssessmentAccountID, out.AssessmentAccountNumber = gen.NewOptUUID(*c.AssessmentID), gen.NewOptString(c.AssessmentNumber)
@@ -220,15 +250,21 @@ func cycleToAPI(c cycle) gen.AllocationCycle {
 	return out
 }
 
-// receiversDetail are a cycle's receivers as its audit record and its
-// event carry them, in their order, each with its percentage when the
-// shares are fixed percentages.
-func receiversDetail(c cycle) []map[string]any {
+// receiversDetail are a cycle's receivers as its audit record (event
+// false) or its events carry them, in their order, each with its
+// percentage when the shares are fixed percentages and its amount when
+// they are fixed amounts.
+func receiversDetail(c cycle, event bool) []map[string]any {
 	out := make([]map[string]any, len(c.Receivers))
 	for i, r := range c.Receivers {
 		out[i] = map[string]any{"cost_center_id": r.CostCenterID, "cost_center_code": r.Code}
-		if r.ShareBP != 0 {
+		switch {
+		case r.ShareBP != 0:
 			out[i]["percentage"] = percent(r.ShareBP)
+		case r.Amount != 0 && event:
+			out[i]["amount"] = money.EventAmount(r.Amount, c.Currency, c.Exp)
+		case r.Amount != 0:
+			out[i]["amount"], out[i]["currency"] = r.Amount.Plain(c.Exp), c.Currency
 		}
 	}
 	return out
@@ -242,9 +278,9 @@ func receiversDetail(c cycle) []map[string]any {
 // figure.
 func recordCycle(ctx context.Context, c cycle, action, change string) error {
 	detail := map[string]any{"legal_entity_id": c.LegalEntityID, "code": c.Code, "name": c.Name, "kind": c.Kind, "sender_cost_center_id": c.SenderID,
-		"sender_cost_center_code": c.SenderCode, "receivers": receiversDetail(c)}
+		"sender_cost_center_code": c.SenderCode, "receivers": receiversDetail(c, false)}
 	v1 := map[string]any{"allocation_cycle_id": c.ID, "legal_entity_id": c.LegalEntityID, "code": c.Code, "name": c.Name, "kind": c.Kind,
-		"sender_cost_center_id": c.SenderID, "sender_cost_center_code": c.SenderCode, "receivers": receiversDetail(c), "change": change}
+		"sender_cost_center_id": c.SenderID, "sender_cost_center_code": c.SenderCode, "receivers": receiversDetail(c, true), "change": change}
 	if c.AssessmentID != nil {
 		for _, m := range []map[string]any{detail, v1} {
 			m["assessment_account_id"], m["assessment_account_number"] = *c.AssessmentID, c.AssessmentNumber
@@ -319,11 +355,11 @@ func (e *Endpoints) cycleCenters(ctx context.Context, le uuid.UUID, req *gen.All
 
 // cycleShares reads the receivers' percentages as basis points: on fixed
 // percentages each given, above 0 and at most 100 with up to two decimals,
-// adding up to 100; by key figure none given, the shares zero. A basis
+// adding up to 100; on another basis none given, the shares zero. A basis
 // that is none is cycleBasis's refusal alone.
 func cycleShares(basis string, req *gen.AllocationCycleCreate) ([]int32, []problem.FieldError) {
 	shares := make([]int32, len(req.Receivers))
-	if basis != SharesFixedPercentages && basis != SharesKeyFigure {
+	if basis != SharesFixedPercentages && basis != SharesKeyFigure && basis != SharesFixedAmounts {
 		return shares, nil
 	}
 	var bad []problem.FieldError
@@ -403,11 +439,13 @@ func (e *Endpoints) cycleBasis(ctx context.Context, tx pgx.Tx, le uuid.UUID, req
 	const field, want = "statistical_key_figure_id", "a statistical key figure of the legal entity"
 	id, given := req.StatisticalKeyFigureID.Get()
 	switch {
-	case basis != SharesFixedPercentages && basis != SharesKeyFigure:
-		return refuse("share_basis", "unsupported", SharesFixedPercentages+" or "+SharesKeyFigure)
-	case basis == SharesFixedPercentages && given:
-		return refuse(field, "not_allowed", "no key figure: the shares are the receivers' percentages")
-	case basis == SharesFixedPercentages:
+	case basis != SharesFixedPercentages && basis != SharesKeyFigure && basis != SharesFixedAmounts:
+		return refuse("share_basis", "unsupported", SharesFixedPercentages+", "+SharesKeyFigure+" or "+SharesFixedAmounts)
+	case basis == SharesFixedAmounts && req.Kind == CycleDistribution:
+		return refuse("share_basis", "not_allowed", "fixed amounts on an assessment alone: a distribution moves the costs posted, account by account")
+	case basis != SharesKeyFigure && given:
+		return refuse(field, "not_allowed", "no key figure: the shares are the receivers' own")
+	case basis != SharesKeyFigure:
 		return basis, nil, "", nil
 	case !given:
 		return refuse(field, "required", want)
@@ -423,10 +461,44 @@ func (e *Endpoints) cycleBasis(ctx context.Context, tx pgx.Tx, le uuid.UUID, req
 	return basis, nil, code, nil
 }
 
+// cycleAmounts reads the receivers' fixed amounts: by fixed amounts each
+// given, in the company's currency and above zero, their total one an
+// amount holds; on another basis none given, the amounts zero.
+func cycleAmounts(basis string, req *gen.AllocationCycleCreate, currency string, exp int) ([]money.Minor, []problem.FieldError) {
+	amounts := make([]money.Minor, len(req.Receivers))
+	var bad []problem.FieldError
+	refuse := func(field, code, message string) {
+		bad = append(bad, problem.FieldError{Field: field, Code: code, Message: message})
+	}
+	for i, r := range req.Receivers {
+		field := fmt.Sprintf("receivers[%d].amount", i)
+		in, given := r.Amount.Get()
+		switch {
+		case basis != SharesFixedAmounts && given:
+			refuse(field, "not_allowed", "no amount: the shares are not fixed amounts")
+		case basis != SharesFixedAmounts:
+		case !given:
+			refuse(field, "required", "an amount above zero in the legal entity's local currency, "+currency)
+		case in.Currency != currency:
+			refuse(field+".currency", "invalid", "the legal entity's local currency, "+currency)
+		default:
+			amount, err := money.ParseAmount(in.Amount, exp)
+			if err != nil || amount <= 0 {
+				refuse(field+".amount", "invalid", fmt.Sprintf("an amount above zero with exactly %d decimals", exp))
+			}
+			amounts[i] = amount
+		}
+	}
+	if _, err := money.Sum(amounts...); err != nil && len(bad) == 0 {
+		refuse("receivers", "too_large", "amounts whose total an amount holds")
+	}
+	return amounts, bad
+}
+
 // newCycle checks a create request and returns the cycle it describes,
 // its centers and its assessment account named; every field that cannot
 // stand is named (422).
-func (e *Endpoints) newCycle(ctx context.Context, tx pgx.Tx, le uuid.UUID, req *gen.AllocationCycleCreate) (cycle, error) {
+func (e *Endpoints) newCycle(ctx context.Context, tx pgx.Tx, le uuid.UUID, currency string, exp int, req *gen.AllocationCycleCreate) (cycle, error) {
 	bad, number, err := e.cycleKind(ctx, le, req)
 	if err != nil {
 		return cycle{}, err
@@ -440,15 +512,16 @@ func (e *Endpoints) newCycle(ctx context.Context, tx pgx.Tx, le uuid.UUID, req *
 		return cycle{}, err
 	}
 	shares, sharesBad := cycleShares(basis, req)
-	if bad = append(append(append(bad, basisBad...), centers...), sharesBad...); len(bad) > 0 {
+	amounts, amountsBad := cycleAmounts(basis, req, currency, exp)
+	if bad = append(append(append(append(bad, basisBad...), centers...), sharesBad...), amountsBad...); len(bad) > 0 {
 		return cycle{}, problem.Unprocessable("controlling.allocation_cycle_invalid", "The allocation cycle cannot be defined as given.", bad...)
 	}
 	c := cycle{LegalEntityID: le, Code: req.Code, Name: req.Name, Kind: req.Kind, SenderID: req.SenderCostCenterID,
 		SenderCode: refs[req.SenderCostCenterID].Code, AssessmentID: apitypes.Ptr[uuid.UUID](req.AssessmentAccountID), AssessmentNumber: number,
 		ShareBasis: basis, KeyFigureID: apitypes.Ptr[uuid.UUID](req.StatisticalKeyFigureID), KeyFigureCode: figure,
-		Receivers: make([]cycleReceiver, len(req.Receivers))}
+		Receivers: make([]cycleReceiver, len(req.Receivers)), Currency: currency, Exp: exp}
 	for i, r := range req.Receivers {
-		c.Receivers[i] = cycleReceiver{CostCenterID: r.CostCenterID, Code: refs[r.CostCenterID].Code, ShareBP: shares[i]}
+		c.Receivers[i] = cycleReceiver{CostCenterID: r.CostCenterID, Code: refs[r.CostCenterID].Code, ShareBP: shares[i], Amount: amounts[i]}
 	}
 	return c, nil
 }
@@ -470,7 +543,11 @@ func (e *Endpoints) CreateAllocationCycle(ctx context.Context, req *gen.Allocati
 	if err != nil {
 		return nil, err
 	}
-	c, err := e.newCycle(ctx, tx, le.ID, req)
+	exp, err := currency.Exponent(ctx, tx, le.LocalCurrency, nil)
+	if err != nil {
+		return nil, fmt.Errorf("controlling: currency of a new allocation cycle: %w", err)
+	}
+	c, err := e.newCycle(ctx, tx, le.ID, le.LocalCurrency, exp, req)
 	if err != nil {
 		return nil, err
 	}
@@ -481,16 +558,16 @@ func (e *Endpoints) CreateAllocationCycle(ctx context.Context, req *gen.Allocati
 	if err != nil {
 		return nil, fmt.Errorf("controlling: insert allocation cycle %s of %s: %w", req.Code, le.ID, err)
 	}
-	row.SenderCode, row.AssessmentNumber, row.Receivers = c.SenderCode, c.AssessmentNumber, c.Receivers
-	centers, shares := make([]uuid.UUID, len(c.Receivers)), make([]*int32, len(c.Receivers))
+	row.SenderCode, row.AssessmentNumber, row.Receivers, row.Currency, row.Exp = c.SenderCode, c.AssessmentNumber, c.Receivers, c.Currency, c.Exp
+	centers, shares, amounts := make([]uuid.UUID, len(c.Receivers)), make([]int32, len(c.Receivers)), make([]money.Minor, len(c.Receivers))
 	for i, r := range c.Receivers {
-		centers[i] = r.CostCenterID
-		if r.ShareBP != 0 {
-			shares[i] = &r.ShareBP
-		}
+		centers[i], shares[i], amounts[i] = r.CostCenterID, r.ShareBP, r.Amount
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO controlling.allocation_receiver (tenant_id, cycle_id, position, cost_center_id, share_bp)
-		SELECT $1, $2, r.n, r.center, r.bp FROM unnest($3::uuid[], $4::int[]) WITH ORDINALITY AS r(center, bp, n)`, p.TenantID, row.ID, centers, shares); err != nil {
+	// A share or an amount of zero is none: the receiver holds the other, or
+	// neither on a cycle by key figure.
+	if _, err := tx.Exec(ctx, `INSERT INTO controlling.allocation_receiver (tenant_id, cycle_id, position, cost_center_id, share_bp, amount)
+		SELECT $1, $2, r.n, r.center, nullif(r.bp, 0), nullif(r.amount, 0) FROM unnest($3::uuid[], $4::int[], $5::bigint[]) WITH ORDINALITY AS r(center, bp, amount, n)`,
+		p.TenantID, row.ID, centers, shares, amounts); err != nil {
 		return nil, fmt.Errorf("controlling: insert the receivers of allocation cycle %s: %w", row.ID, err)
 	}
 	if err := recordCycle(ctx, row, "create", "created"); err != nil {

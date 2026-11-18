@@ -9031,7 +9031,7 @@ paths:
       tags:
         - controlling
       summary: Create an allocation cycle
-      description: "Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to. The kind is `distribution`, whose run moves the sender's primary costs to the receivers on their original accounts, or `assessment`, whose run charges them to the receivers in one amount on the cycle's assessment account and leaves them on the sender's accounts. An assessment cycle names its assessment account, `assessment_account_id`: an active account of the legal entity whose cost element is `secondary` (ADR-0064 §4), which only allocations post to; a distribution names none. The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind that is neither (`kind`, `unsupported`); an assessment without its account (`assessment_account_id`, `required`), with one that is no account of the legal entity (`unknown`), not a secondary cost element (`not_secondary`) or not active (`not_active`), and a distribution with one (`not_allowed`); a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100 with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to 100 (`receivers`, `not_100`). The receivers' shares are fixed percentages (`share_basis` `fixed_percentages`, the default) or a statistical key figure's values in the period run (`statistical_key_figure`, ADR-0064 As built T60j); refused besides: a basis that is neither (`share_basis`, `unsupported`); a key figure missing with `statistical_key_figure` (`statistical_key_figure_id`, `required`), one that is no key figure of the legal entity (`unknown`), or one named with fixed percentages (`not_allowed`); a receiver without its percentage on fixed percentages (`receivers[i].percentage`, `required`) or with one on a key figure (`not_allowed`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A cycle is not changed in this version. Created directly by permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may not create one."
+      description: "Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to. The kind is `distribution`, whose run moves the sender's primary costs to the receivers on their original accounts, or `assessment`, whose run charges them to the receivers in one amount on the cycle's assessment account and leaves them on the sender's accounts. An assessment cycle names its assessment account, `assessment_account_id`: an active account of the legal entity whose cost element is `secondary` (ADR-0064 §4), which only allocations post to; a distribution names none. The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind that is neither (`kind`, `unsupported`); an assessment without its account (`assessment_account_id`, `required`), with one that is no account of the legal entity (`unknown`), not a secondary cost element (`not_secondary`) or not active (`not_active`), and a distribution with one (`not_allowed`); a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100 with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to 100 (`receivers`, `not_100`). The receivers' shares are fixed percentages (`share_basis` `fixed_percentages`, the default) or a statistical key figure's values in the period run (`statistical_key_figure`, ADR-0064 As built T60j); refused besides: a basis that is neither (`share_basis`, `unsupported`); a key figure missing with `statistical_key_figure` (`statistical_key_figure_id`, `required`), one that is no key figure of the legal entity (`unknown`), or one named with fixed percentages (`not_allowed`); a receiver without its percentage on fixed percentages (`receivers[i].percentage`, `required`) or with one on a key figure (`not_allowed`). An assessment may charge its receivers fixed amounts (`share_basis` `fixed_amounts`, T60k): each receiver names its `amount` in the legal entity's local currency, above zero (`receivers[i].amount`, `required`; `receivers[i].amount.currency` or `.amount`, `invalid`) and no percentage, another basis names no amount (`not_allowed`), amounts whose total no amount can hold are refused (`receivers`, `too_large`), and a distribution by fixed amounts is refused (`share_basis`, `not_allowed`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A cycle is not changed in this version. Created directly by permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may not create one."
       x-permission: controlling.allocation.write
       x-agent: false
       x-problem-codes:
@@ -9114,7 +9114,7 @@ paths:
       tags:
         - controlling
       summary: Run an allocation cycle for a period
-      description: "Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A run reads the sender's primary costs of the period, per account, from the leading ledger (what the cost center report shows on primary cost accounts) and posts one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day). A distribution's entry has, per account, the sender credited with its cost and each receiver debited with its share on the same account, so the entry balances per account and every account's balance is unchanged; an account's cost is split by the receivers' percentages and rounded so that the shares add up to it to the minor unit (largest remainder). An assessment's entry is on the cycle's assessment account alone: the sender credited with the total of its primary costs and each receiver debited with its share of that total, split and rounded the same way, so the entry balances on the account; the sender's primary costs stay on their accounts, and the cost center report shows the sender relieved, and the receivers charged, on the assessment account. With `share_basis` `statistical_key_figure` the shares are the receivers' values of the cycle's key figure in the period run (the sum of their postings, `GET /v1/statistical-key-figures/{id}/values`) over their total, split and rounded the same way; a receiver without a value takes nothing, a receiver whose value is negative refuses the run (409 `controlling.allocation_key_figure_negative`, naming it) and receivers whose values add up to nothing refuse it (409 `controlling.allocation_key_figure_missing`), each before anything is posted; the values used are in the run's audit record. A sender without costs in the period, or for an assessment with costs that add up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run at once follow one another: the second moves what the first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that sender is run for the period again (409 `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's primary costs are still on their accounts, and another run would charge them a second time. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not run a cycle."
+      description: "Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A run reads the sender's primary costs of the period, per account, from the leading ledger (what the cost center report shows on primary cost accounts) and posts one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day). A distribution's entry has, per account, the sender credited with its cost and each receiver debited with its share on the same account, so the entry balances per account and every account's balance is unchanged; an account's cost is split by the receivers' percentages and rounded so that the shares add up to it to the minor unit (largest remainder). An assessment's entry is on the cycle's assessment account alone: the sender credited with the total of its primary costs and each receiver debited with its share of that total, split and rounded the same way, so the entry balances on the account; the sender's primary costs stay on their accounts, and the cost center report shows the sender relieved, and the receivers charged, on the assessment account. With `share_basis` `statistical_key_figure` the shares are the receivers' values of the cycle's key figure in the period run (the sum of their postings, `GET /v1/statistical-key-figures/{id}/values`) over their total, split and rounded the same way; a receiver without a value takes nothing, a receiver whose value is negative refuses the run (409 `controlling.allocation_key_figure_negative`, naming it) and receivers whose values add up to nothing refuse it (409 `controlling.allocation_key_figure_missing`), each before anything is posted; the values used are in the run's audit record. With `share_basis` `fixed_amounts` (an assessment) the run reads no costs: its entry credits the sender with the receivers' amounts' total and debits each receiver with its amount on the assessment account, whatever the sender's costs, even when it has none (`account_count` 0). A sender without costs in the period, or for an assessment with costs that add up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run in force per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's entry) until that run is reversed (`POST /v1/allocation-runs/{id}:reverse`, T60k). `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run at once follow one another: the second moves what the first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that sender is run for the period again while that run is in force (409 `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's primary costs are still on their accounts, and another run would charge them a second time. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not run a cycle."
       x-permission: controlling.allocation.run
       x-also-permissions:
         - ledger.entry.read
@@ -9263,6 +9263,12 @@ paths:
             format: int32
             minimum: 1
             maximum: 16
+        - name: reversed
+          in: query
+          required: false
+          description: "Only the runs reversed (`true`) or in force (`false`)."
+          schema:
+            type: boolean
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -9312,6 +9318,88 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/allocation-runs/{id}:reverse":
+    post:
+      operationId: reverseAllocationRun
+      tags:
+        - controlling
+      summary: Reverse an allocation run
+      description: "Reverses a run of an allocation cycle (ADR-0064 As built T60k; SAP's cycle reversal, from memory): the run's journal entry is reversed through the ledger in every ledger it was posted to, on the run's own posting date, so the run's period must still be open (409 `ledger.period_not_open`); each receiver gives its share back and the sender holds what the run charged again. The run is then no longer in force: the cycle may be run for the period again, and a sender assessed by it is no longer assessed for the period. A run is reversed once (409 `controlling.allocation_run_reversed`). `If-Match` is the cycle's version, which a reversal does not move. Every cycle of the run's sender is held under a row lock while the run is reversed, as while one of them runs, so a reversal and a run of one sender follow one another. A run of a legal entity the caller cannot act in is answered as missing (404). The reversal is kept on the run (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunReversed. The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not reverse a run."
+      x-permission: controlling.allocation.run
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.number_range_exhausted
+        - controlling.allocation_run_reversed
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unknown_unit
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The run, with its reversal."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/statistical-key-figures:
     get:
       operationId: listStatisticalKeyFigures
@@ -45157,10 +45245,11 @@ components:
               readOnly: true
             share_basis:
               type: string
-              description: "What the receivers' shares are: `fixed_percentages`, each receiver's `percentage`, adding up to 100; `statistical_key_figure`, each receiver's value of the cycle's statistical key figure in the period run, over the receivers' total (ADR-0064 As built T60j). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. Immutable."
+              description: "What the receivers' shares are: `fixed_percentages`, each receiver's `percentage`, adding up to 100; `statistical_key_figure`, each receiver's value of the cycle's statistical key figure in the period run, over the receivers' total (ADR-0064 As built T60j); `fixed_amounts`, an assessment's alone, each receiver's `amount` (T60k). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. Immutable."
               x-extensible-enum:
                 - fixed_percentages
                 - statistical_key_figure
+                - fixed_amounts
               readOnly: true
             statistical_key_figure_id:
               type: string
@@ -45229,6 +45318,10 @@ components:
           type: string
           description: "The receiver's share of the sender's costs in percent, with two decimals; present exactly on a cycle whose `share_basis` is `fixed_percentages`."
           readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "What a run charges the receiver, in the legal entity's local currency; present exactly on a cycle whose `share_basis` is `fixed_amounts`."
+          readOnly: true
       examples:
         - cost_center_id: "0192a000-0000-7000-8000-000000000201"
           cost_center_code: CC-1100
@@ -45269,10 +45362,11 @@ components:
           description: "Required with kind `assessment`, refused with `distribution`: an active account of the legal entity whose cost element is `secondary`, on which the cycle's runs credit the sender and debit the receivers."
         share_basis:
           type: string
-          description: "What the receivers' shares are: `fixed_percentages` (the default), each receiver's `percentage`; or `statistical_key_figure`, each receiver's value of `statistical_key_figure_id` in the period run, the receivers naming no percentage. Open enumeration; a basis not listed is refused (422)."
+          description: "What the receivers' shares are: `fixed_percentages` (the default), each receiver's `percentage`; `statistical_key_figure`, each receiver's value of `statistical_key_figure_id` in the period run, the receivers naming no percentage; or, on an assessment alone, `fixed_amounts`, each receiver's `amount`, charged as it is every period. Open enumeration; a basis not listed is refused (422)."
           x-extensible-enum:
             - fixed_percentages
             - statistical_key_figure
+            - fixed_amounts
         statistical_key_figure_id:
           type: string
           format: uuid
@@ -45299,6 +45393,9 @@ components:
                 type: string
                 pattern: "^(100(\\.0{1,2})?|[0-9]{1,2}(\\.[0-9]{1,2})?)$"
                 description: "The receiver's share in percent: above 0 and at most 100, with up to two decimals. Required with `share_basis` `fixed_percentages`, refused otherwise."
+              amount:
+                $ref: "#/components/schemas/Money"
+                description: "What a run charges the receiver, in the legal entity's local currency, above zero. Required with `share_basis` `fixed_amounts`, refused otherwise."
             additionalProperties: false
       additionalProperties: false
       examples:
@@ -45437,13 +45534,13 @@ components:
           readOnly: true
         amount:
           $ref: "#/components/schemas/Money"
-          description: "What the run charged the receivers, in the legal entity's local currency: the total of the sender's primary costs of the period. A distribution moves it off the sender's accounts; an assessment credits it to the sender on the assessment account."
+          description: "What the run charged the receivers, in the legal entity's local currency: the total of the sender's primary costs of the period, or by fixed amounts the receivers' amounts. A distribution moves it off the sender's accounts; an assessment credits it to the sender on the assessment account."
           readOnly: true
         account_count:
           type: integer
           format: int32
-          minimum: 1
-          description: How many of the sender's accounts the run charged the costs of.
+          minimum: 0
+          description: "How many of the sender's accounts the run charged the costs of; 0 for a cycle by fixed amounts, which reads no costs."
           readOnly: true
         journal_entry_id:
           type: string
@@ -45463,6 +45560,25 @@ components:
           type: string
           format: uuid
           description: The principal who ran it.
+          readOnly: true
+        reversal_journal_entry_id:
+          type: string
+          format: uuid
+          description: "The reversal's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`); present once the run is reversed (`POST /v1/allocation-runs/{id}:reverse`), when it is no longer in force."
+          readOnly: true
+        reversal_journal_entry_number:
+          type: string
+          description: "The reversal entry's document number; present with `reversal_journal_entry_id`."
+          readOnly: true
+        reversed_at:
+          type: string
+          format: date-time
+          description: "When the run was reversed (UTC); present with `reversal_journal_entry_id`."
+          readOnly: true
+        reversed_by:
+          type: string
+          format: uuid
+          description: "The principal who reversed it; present with `reversal_journal_entry_id`."
           readOnly: true
       examples:
         - id: "0192a000-0000-7000-8000-000000000d11"

@@ -549,6 +549,7 @@ const (
 	RetireCatalogItemOperation                     OperationName = "RetireCatalogItem"
 	RetireControlOperation                         OperationName = "RetireControl"
 	RetireEntryTemplateOperation                   OperationName = "RetireEntryTemplate"
+	ReverseAllocationRunOperation                  OperationName = "ReverseAllocationRun"
 	ReverseAssetAcquisitionOperation               OperationName = "ReverseAssetAcquisition"
 	ReverseAssetRetirementOperation                OperationName = "ReverseAssetRetirement"
 	ReverseAssetTransferOperation                  OperationName = "ReverseAssetTransfer"

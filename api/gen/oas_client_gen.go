@@ -1019,7 +1019,12 @@ type Invoker interface {
 	// (`statistical_key_figure_id`, `required`), one that is no key figure of the legal entity
 	// (`unknown`), or one named with fixed percentages (`not_allowed`); a receiver without its percentage
 	// on fixed percentages (`receivers[i].percentage`, `required`) or with one on a key figure
-	// (`not_allowed`). A legal entity the caller cannot act in is answered as missing (422
+	// (`not_allowed`). An assessment may charge its receivers fixed amounts (`share_basis`
+	// `fixed_amounts`, T60k): each receiver names its `amount` in the legal entity's local currency, above
+	// zero (`receivers[i].amount`, `required`; `receivers[i].amount.currency` or `.amount`, `invalid`) and
+	// no percentage, another basis names no amount (`not_allowed`), amounts whose total no amount can hold
+	// are refused (`receivers`, `too_large`), and a distribution by fixed amounts is refused
+	// (`share_basis`, `not_allowed`). A legal entity the caller cannot act in is answered as missing (422
 	// `request.reference_not_found`). A cycle is not changed in this version. Created directly by
 	// permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
 	// not create one.
@@ -7507,6 +7512,24 @@ type Invoker interface {
 	//
 	// POST /v1/entry-templates/{id}:retire
 	RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error)
+	// ReverseAllocationRun invokes reverseAllocationRun operation.
+	//
+	// Reverses a run of an allocation cycle (ADR-0064 As built T60k; SAP's cycle reversal, from memory):
+	// the run's journal entry is reversed through the ledger in every ledger it was posted to, on the
+	// run's own posting date, so the run's period must still be open (409 `ledger.period_not_open`); each
+	// receiver gives its share back and the sender holds what the run charged again. The run is then no
+	// longer in force: the cycle may be run for the period again, and a sender assessed by it is no longer
+	// assessed for the period. A run is reversed once (409 `controlling.allocation_run_reversed`).
+	// `If-Match` is the cycle's version, which a reversal does not move. Every cycle of the run's sender
+	// is held under a row lock while the run is reversed, as while one of them runs, so a reversal and a
+	// run of one sender follow one another. A run of a legal entity the caller cannot act in is answered
+	// as missing (404). The reversal is kept on the run (`GET /v1/allocation-runs/{id}`), audited and
+	// published as AllocationRunReversed. The amounts are ledger amounts, so besides
+	// `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Agents may not reverse a run.
+	//
+	// POST /v1/allocation-runs/{id}:reverse
+	ReverseAllocationRun(ctx context.Context, params ReverseAllocationRunParams) (ReverseAllocationRunRes, error)
 	// ReverseAssetAcquisition invokes reverseAssetAcquisition operation.
 	//
 	// Reverses a posted acquisition (ADR-0057 §6, T57d): its entry in every ledger through the ledger's
@@ -7668,14 +7691,18 @@ type Invoker interface {
 	// receiver whose value is negative refuses the run (409 `controlling.allocation_key_figure_negative`,
 	// naming it) and receivers whose values add up to nothing refuse it (409
 	// `controlling.allocation_key_figure_missing`), each before anything is posted; the values used are in
-	// the run's audit record. A sender without costs in the period, or for an assessment with costs that
-	// add up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for
-	// the period later. One run per cycle and period: a second is refused (409
-	// `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version.
-	// `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of
-	// them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run
-	// at once follow one another: the second moves what the first left. Once a cycle of the sender was run
-	// as an assessment for a period, no cycle of that sender is run for the period again (409
+	// the run's audit record. With `share_basis` `fixed_amounts` (an assessment) the run reads no costs:
+	// its entry credits the sender with the receivers' amounts' total and debits each receiver with its
+	// amount on the assessment account, whatever the sender's costs, even when it has none
+	// (`account_count` 0). A sender without costs in the period, or for an assessment with costs that add
+	// up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for the
+	// period later. One run in force per cycle and period: a second is refused (409
+	// `controlling.allocation_run_exists`, naming the run's entry) until that run is reversed
+	// (`POST /v1/allocation-runs/{id}:reverse`, T60k). `If-Match` is the cycle's version. Every cycle of
+	// the sender is held under a row lock while one of them runs, so two runs of a cycle for one period
+	// never both post, and two cycles of one sender run at once follow one another: the second moves what
+	// the first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that
+	// sender is run for the period again while that run is in force (409
 	// `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's
 	// primary costs are still on their accounts, and another run would charge them a second time. Refused
 	// besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular
@@ -18923,7 +18950,12 @@ func (c *Client) sendCopyPlanCategory(ctx context.Context, request *PlanCategory
 // (`statistical_key_figure_id`, `required`), one that is no key figure of the legal entity
 // (`unknown`), or one named with fixed percentages (`not_allowed`); a receiver without its percentage
 // on fixed percentages (`receivers[i].percentage`, `required`) or with one on a key figure
-// (`not_allowed`). A legal entity the caller cannot act in is answered as missing (422
+// (`not_allowed`). An assessment may charge its receivers fixed amounts (`share_basis`
+// `fixed_amounts`, T60k): each receiver names its `amount` in the legal entity's local currency, above
+// zero (`receivers[i].amount`, `required`; `receivers[i].amount.currency` or `.amount`, `invalid`) and
+// no percentage, another basis names no amount (`not_allowed`), amounts whose total no amount can hold
+// are refused (`receivers`, `too_large`), and a distribution by fixed amounts is refused
+// (`share_basis`, `not_allowed`). A legal entity the caller cannot act in is answered as missing (422
 // `request.reference_not_found`). A cycle is not changed in this version. Created directly by
 // permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
 // not create one.
@@ -57788,6 +57820,23 @@ func (c *Client) sendListAllocationRuns(ctx context.Context, params ListAllocati
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.FiscalPeriod.Get(); ok {
 				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "reversed" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "reversed",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Reversed.Get(); ok {
+				return e.EncodeValue(conv.BoolToString(val))
 			}
 			return nil
 		}); err != nil {
@@ -105629,6 +105678,175 @@ func (c *Client) sendRetireEntryTemplate(ctx context.Context, params RetireEntry
 	return result, nil
 }
 
+// ReverseAllocationRun invokes reverseAllocationRun operation.
+//
+// Reverses a run of an allocation cycle (ADR-0064 As built T60k; SAP's cycle reversal, from memory):
+// the run's journal entry is reversed through the ledger in every ledger it was posted to, on the
+// run's own posting date, so the run's period must still be open (409 `ledger.period_not_open`); each
+// receiver gives its share back and the sender holds what the run charged again. The run is then no
+// longer in force: the cycle may be run for the period again, and a sender assessed by it is no longer
+// assessed for the period. A run is reversed once (409 `controlling.allocation_run_reversed`).
+// `If-Match` is the cycle's version, which a reversal does not move. Every cycle of the run's sender
+// is held under a row lock while the run is reversed, as while one of them runs, so a reversal and a
+// run of one sender follow one another. A run of a legal entity the caller cannot act in is answered
+// as missing (404). The reversal is kept on the run (`GET /v1/allocation-runs/{id}`), audited and
+// published as AllocationRunReversed. The amounts are ledger amounts, so besides
+// `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Agents may not reverse a run.
+//
+// POST /v1/allocation-runs/{id}:reverse
+func (c *Client) ReverseAllocationRun(ctx context.Context, params ReverseAllocationRunParams) (ReverseAllocationRunRes, error) {
+	res, err := c.sendReverseAllocationRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendReverseAllocationRun(ctx context.Context, params ReverseAllocationRunParams) (res ReverseAllocationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("reverseAllocationRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/allocation-runs/{id}:reverse"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReverseAllocationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/allocation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":reverse"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReverseAllocationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReverseAllocationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ReverseAssetAcquisition invokes reverseAssetAcquisition operation.
 //
 // Reverses a posted acquisition (ADR-0057 §6, T57d): its entry in every ledger through the ledger's
@@ -107035,14 +107253,18 @@ func (c *Client) sendRotateWebhookSubscriptionSecret(ctx context.Context, params
 // receiver whose value is negative refuses the run (409 `controlling.allocation_key_figure_negative`,
 // naming it) and receivers whose values add up to nothing refuse it (409
 // `controlling.allocation_key_figure_missing`), each before anything is posted; the values used are in
-// the run's audit record. A sender without costs in the period, or for an assessment with costs that
-// add up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for
-// the period later. One run per cycle and period: a second is refused (409
-// `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version.
-// `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of
-// them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run
-// at once follow one another: the second moves what the first left. Once a cycle of the sender was run
-// as an assessment for a period, no cycle of that sender is run for the period again (409
+// the run's audit record. With `share_basis` `fixed_amounts` (an assessment) the run reads no costs:
+// its entry credits the sender with the receivers' amounts' total and debits each receiver with its
+// amount on the assessment account, whatever the sender's costs, even when it has none
+// (`account_count` 0). A sender without costs in the period, or for an assessment with costs that add
+// up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for the
+// period later. One run in force per cycle and period: a second is refused (409
+// `controlling.allocation_run_exists`, naming the run's entry) until that run is reversed
+// (`POST /v1/allocation-runs/{id}:reverse`, T60k). `If-Match` is the cycle's version. Every cycle of
+// the sender is held under a row lock while one of them runs, so two runs of a cycle for one period
+// never both post, and two cycles of one sender run at once follow one another: the second moves what
+// the first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that
+// sender is run for the period again while that run is in force (409
 // `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's
 // primary costs are still on their accounts, and another run would charge them a second time. Refused
 // besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular

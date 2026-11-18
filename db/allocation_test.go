@@ -112,11 +112,11 @@ func TestAllocationRules(t *testing.T) {
 		"an assessment turned into a distribution": {`UPDATE controlling.allocation_cycle SET kind = 'distribution', assessment_account_id = NULL, version = version + 1
 			WHERE id = $1`, []any{assessment}, "keeps its company, code, kind, sender, assessment account"},
 		"a cycle deleted":                {`DELETE FROM controlling.allocation_cycle WHERE id = $1`, []any{cycle}, "permission denied"},
-		"a second run of a period":       {allocationRunSQL, []any{f.tenant, id(), cycle, f.entity, 5, id(), "2", 100, 1, f.actor}, "allocation_run_once"},
+		"a second run of a period":       {allocationRunSQL, []any{f.tenant, id(), cycle, f.entity, 5, id(), "2", 100, 1, f.actor}, "allocation_run_attempt_once"},
 		"an entry of two runs":           {allocationRunSQL, []any{f.tenant, id(), cycle, f.entity, 6, entry, "2", 100, 1, f.actor}, "allocation_run_entry_once"},
 		"a run of no cycle":              {allocationRunSQL, []any{f.tenant, id(), id(), f.entity, 6, id(), "2", 100, 1, f.actor}, "allocation_run_cycle"},
 		"a run in another company":       {allocationRunSQL, []any{f.tenant, id(), cycle, id(), 6, id(), "2", 100, 1, f.actor}, "allocation_run_cycle"},
-		"a run of no account":            {allocationRunSQL, []any{f.tenant, id(), cycle, f.entity, 6, id(), "2", 100, 0, f.actor}, "allocation_run_account_count_check"},
+		"a run of fewer than no account": {allocationRunSQL, []any{f.tenant, id(), cycle, f.entity, 6, id(), "2", 100, -1, f.actor}, "allocation_run_account_count"},
 		"a run of a period that is none": {allocationRunSQL, []any{f.tenant, id(), cycle, f.entity, 17, id(), "2", 100, 1, f.actor}, "allocation_run_fiscal_period_check"},
 		"a run changed":                  {`UPDATE controlling.allocation_run SET amount = 1 WHERE cycle_id = $1`, []any{cycle}, "permission denied"},
 		"a run deleted":                  {`DELETE FROM controlling.allocation_run WHERE cycle_id = $1`, []any{cycle}, "permission denied"},

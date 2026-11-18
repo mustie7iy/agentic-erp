@@ -567,6 +567,19 @@ line); `GET /v1/statistical-key-figures/{id}/values` (`fiscal_year`,
 `fiscal_period` required, `cost_center_id` optional) pages the period's
 value per cost center, by its id, with the `total` of every page.
 
+Since T60k an assessment may charge fixed amounts (`share_basis`
+`fixed_amounts`, each receiver's `amount` in the company's currency:
+`receivers[i].amount` `required`, `not_allowed`, `.currency` or
+`.amount` `invalid`, `receivers` `too_large`; a distribution by fixed
+amounts `share_basis` `not_allowed`): its run reads no costs and charges
+the amounts (`account_count` 0). `POST /v1/allocation-runs/{id}:reverse`
+(`controlling.allocation.run` and `ledger.entry.read`, `x-agent: false`,
+`If-Match` the cycle's version) reverses a run's entry on its own date
+(409 `ledger.period_not_open` when its period is closed; 409
+`controlling.allocation_run_reversed` the second time); the run shows its
+reversal, `GET /v1/allocation-runs` filters `reversed`, and the cycle may
+run for the period again. Published as `AllocationRunReversed`.
+
 The margin report (ADR-0075, T92b) is computed on read: `GET
 /v1/margin-report` (`controlling.margin.read` and `ledger.entry.read`,
 `x-slo-class: report`) takes a `legal_entity_id`, a `fiscal_year` and a

@@ -384,6 +384,7 @@ channels:
       AllocationCycleChanged: {$ref: '#/components/messages/AllocationCycleChanged'}
       AllocationRunPosted: {$ref: '#/components/messages/AllocationRunPosted'}
       AllocationCycleChangedV2: {$ref: '#/components/messages/AllocationCycleChangedV2'}
+      AllocationRunReversed: {$ref: '#/components/messages/AllocationRunReversed'}
       StatisticalKeyFigureChanged: {$ref: '#/components/messages/StatisticalKeyFigureChanged'}
       StatisticalKeyFigurePosted: {$ref: '#/components/messages/StatisticalKeyFigurePosted'}
   assets:
@@ -761,6 +762,7 @@ operations:
       - $ref: '#/channels/controlling/messages/AllocationCycleChanged'
       - $ref: '#/channels/controlling/messages/AllocationRunPosted'
       - $ref: '#/channels/controlling/messages/AllocationCycleChangedV2'
+      - $ref: '#/channels/controlling/messages/AllocationRunReversed'
       - $ref: '#/channels/controlling/messages/StatisticalKeyFigureChanged'
       - $ref: '#/channels/controlling/messages/StatisticalKeyFigurePosted'
   publishAssetsEvents:
@@ -3909,6 +3911,27 @@ components:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000060a, source: /erp/eu-1/controlling, type: com.example.erp.controlling.allocation_cycle_changed.v2, subject: 0192a000-0000-7000-8000-000000000d02, time: '2026-11-18T09:10:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {allocation_cycle_id: 0192a000-0000-7000-8000-000000000d02, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: SHARED-EMP, name: Shared services by employees, kind: distribution, share_basis: statistical_key_figure, statistical_key_figure_id: 0192a000-0000-7000-8000-000000000d21, statistical_key_figure_code: EMPL, sender_cost_center_id: 0192a000-0000-7000-8000-000000000203, sender_cost_center_code: CC-1200, receivers: [{cost_center_id: 0192a000-0000-7000-8000-000000000201, cost_center_code: CC-1100}, {cost_center_id: 0192a000-0000-7000-8000-000000000202, cost_center_code: CC-1300}], change: created}
+    AllocationRunReversed:
+      name: AllocationRunReversed
+      title: Allocation run reversed
+      summary: A run of an allocation cycle was reversed.
+      description: |
+        Emitted by `allocation-runs/{id}:reverse`, ADR-0064 As built T60k:
+        the run's entry reversed on its own posting date (the reversal also
+        published by the ledger as JournalEntryReversed), so the receivers
+        gave their shares back and the cycle may be run for the period
+        again. Subject is the allocation cycle id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.allocation_run_reversed.v1}
+      payload: {$ref: '#/components/schemas/AllocationRunReversedV1'}
+      examples:
+        - name: reversed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000060b, source: /erp/eu-1/controlling, type: com.example.erp.controlling.allocation_run_reversed.v1, subject: 0192a000-0000-7000-8000-000000000d01, time: '2026-11-30T18:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {allocation_run_id: 0192a000-0000-7000-8000-000000000d11, allocation_cycle_id: 0192a000-0000-7000-8000-000000000d01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: SHARED-IT, name: IT services to the offices, kind: distribution, fiscal_year: 2026, fiscal_period: 11, posting_date: '2026-11-30', sender_cost_center_id: 0192a000-0000-7000-8000-000000000203, sender_cost_center_code: CC-1200, amount: {amount: '999.99', currency: EUR}, journal_entry_id: 0192a000-0000-7000-8000-000000000e42, reversal_journal_entry_id: 0192a000-0000-7000-8000-000000000e43, reversal_journal_entry_number: '100000044'}
     StatisticalKeyFigureChanged:
       name: StatisticalKeyFigureChanged
       title: Statistical key figure changed
@@ -6941,7 +6964,7 @@ components:
         sender_cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The sender, `ledger.cost_center.id`.'}
         sender_cost_center_code: {type: string}
         amount: {$ref: '#/components/schemas/Money', description: 'What the run charged the receivers, in the legal entity''s local currency: the total of the sender''s primary costs of the period.'}
-        account_count: {type: integer, description: How many of the sender's accounts the run charged the costs of.}
+        account_count: {type: integer, description: 'How many of the sender''s accounts the run charged the costs of; 0 by fixed amounts, which read no costs.'}
         journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The run''s entry in the leading ledger, `ledger.journal_entry.id`.'}
         journal_entry_number: {type: string, description: The entry's document number.}
     AllocationCycleChangedV2:
@@ -6953,7 +6976,7 @@ components:
         code: {type: string, description: The cycle's code, unique in its legal entity.}
         name: {type: string}
         kind: {type: string, description: 'Open enum: distribution, assessment.'}
-        share_basis: {type: string, description: 'Open enum: fixed_percentages, statistical_key_figure. What the receivers'' shares are.'}
+        share_basis: {type: string, description: 'Open enum: fixed_percentages, statistical_key_figure, fixed_amounts. What the receivers'' shares are.'}
         statistical_key_figure_id: {$ref: '#/components/schemas/Uuid', description: 'The statistical key figure the shares come from, `controlling.statistical_key_figure.id`; present exactly with share_basis statistical_key_figure.'}
         statistical_key_figure_code: {type: string, description: 'The key figure''s code; present with `statistical_key_figure_id`.'}
         sender_cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The sender, `ledger.cost_center.id`.'}
@@ -6970,7 +6993,27 @@ components:
               cost_center_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.cost_center.id`.'}
               cost_center_code: {type: string}
               percentage: {type: string, description: 'The receiver''s share in percent, with two decimals; present exactly by fixed percentages.'}
+              amount: {$ref: '#/components/schemas/Money', description: 'What a run charges the receiver, in the legal entity''s local currency; present exactly by fixed amounts.'}
         change: {type: string, description: 'Open enum: created.'}
+    AllocationRunReversedV1:
+      type: object
+      required: [allocation_run_id, allocation_cycle_id, legal_entity_id, code, name, kind, fiscal_year, fiscal_period, posting_date, sender_cost_center_id, sender_cost_center_code, amount, journal_entry_id, reversal_journal_entry_id, reversal_journal_entry_number]
+      properties:
+        allocation_run_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.allocation_run.id`.'}
+        allocation_cycle_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.allocation_cycle.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The cycle's code.}
+        name: {type: string, description: The cycle's name.}
+        kind: {type: string, description: 'Open enum: distribution, assessment.'}
+        fiscal_year: {type: integer, description: The fiscal year of the period run.}
+        fiscal_period: {type: integer, description: 'The period run, and the reversal''s.'}
+        posting_date: {type: string, format: date, description: 'The run''s posting date, and the reversal''s.'}
+        sender_cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The sender, `ledger.cost_center.id`.'}
+        sender_cost_center_code: {type: string}
+        amount: {$ref: '#/components/schemas/Money', description: 'What the run had charged the receivers and the reversal gives back, in the legal entity''s local currency.'}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The run''s entry, `ledger.journal_entry.id`.'}
+        reversal_journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The reversal''s entry in the leading ledger, `ledger.journal_entry.id`.'}
+        reversal_journal_entry_number: {type: string, description: The reversal entry's document number.}
     StatisticalKeyFigureChangedV1:
       type: object
       required: [statistical_key_figure_id, legal_entity_id, code, name, unit, change]

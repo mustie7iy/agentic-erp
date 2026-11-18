@@ -3071,8 +3071,9 @@ type AllocationCycle struct {
 	AssessmentAccountNumber OptString `json:"assessment_account_number"`
 	// What the receivers' shares are: `fixed_percentages`, each receiver's `percentage`, adding up to 100;
 	// `statistical_key_figure`, each receiver's value of the cycle's statistical key figure in the period
-	// run, over the receivers' total (ADR-0064 As built T60j). Open enumeration: clients must accept and
-	// preserve values not listed here; values may be added within /v1. Immutable.
+	// run, over the receivers' total (ADR-0064 As built T60j); `fixed_amounts`, an assessment's alone,
+	// each receiver's `amount` (T60k). Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1. Immutable.
 	ShareBasis string `json:"share_basis"`
 	// The statistical key figure the shares come from (`GET /v1/statistical-key-figures/{id}`); present
 	// exactly with `share_basis` `statistical_key_figure`. Immutable.
@@ -3283,9 +3284,10 @@ type AllocationCycleCreate struct {
 	// whose cost element is `secondary`, on which the cycle's runs credit the sender and debit the
 	// receivers.
 	AssessmentAccountID OptUUID `json:"assessment_account_id"`
-	// What the receivers' shares are: `fixed_percentages` (the default), each receiver's `percentage`; or
+	// What the receivers' shares are: `fixed_percentages` (the default), each receiver's `percentage`;
 	// `statistical_key_figure`, each receiver's value of `statistical_key_figure_id` in the period run,
-	// the receivers naming no percentage. Open enumeration; a basis not listed is refused (422).
+	// the receivers naming no percentage; or, on an assessment alone, `fixed_amounts`, each receiver's
+	// `amount`, charged as it is every period. Open enumeration; a basis not listed is refused (422).
 	ShareBasis OptString `json:"share_basis"`
 	// Required with `share_basis` `statistical_key_figure`, refused otherwise: a statistical key figure of
 	// the legal entity.
@@ -3393,6 +3395,9 @@ type AllocationCycleCreateReceiversItem struct {
 	// The receiver's share in percent: above 0 and at most 100, with up to two decimals. Required with
 	// `share_basis` `fixed_percentages`, refused otherwise.
 	Percentage OptString `json:"percentage"`
+	// What a run charges the receiver, in the legal entity's local currency, above zero. Required with
+	// `share_basis` `fixed_amounts`, refused otherwise.
+	Amount OptMoney `json:"amount"`
 }
 
 // GetCostCenterID returns the value of CostCenterID.
@@ -3405,6 +3410,11 @@ func (s *AllocationCycleCreateReceiversItem) GetPercentage() OptString {
 	return s.Percentage
 }
 
+// GetAmount returns the value of Amount.
+func (s *AllocationCycleCreateReceiversItem) GetAmount() OptMoney {
+	return s.Amount
+}
+
 // SetCostCenterID sets the value of CostCenterID.
 func (s *AllocationCycleCreateReceiversItem) SetCostCenterID(val uuid.UUID) {
 	s.CostCenterID = val
@@ -3413,6 +3423,11 @@ func (s *AllocationCycleCreateReceiversItem) SetCostCenterID(val uuid.UUID) {
 // SetPercentage sets the value of Percentage.
 func (s *AllocationCycleCreateReceiversItem) SetPercentage(val OptString) {
 	s.Percentage = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AllocationCycleCreateReceiversItem) SetAmount(val OptMoney) {
+	s.Amount = val
 }
 
 // AllocationCycleHeaders wraps AllocationCycle with response headers.
@@ -3549,6 +3564,9 @@ type AllocationReceiver struct {
 	// The receiver's share of the sender's costs in percent, with two decimals; present exactly on a cycle
 	// whose `share_basis` is `fixed_percentages`.
 	Percentage OptString `json:"percentage"`
+	// What a run charges the receiver, in the legal entity's local currency; present exactly on a cycle
+	// whose `share_basis` is `fixed_amounts`.
+	Amount OptMoney `json:"amount"`
 }
 
 // GetCostCenterID returns the value of CostCenterID.
@@ -3566,6 +3584,11 @@ func (s *AllocationReceiver) GetPercentage() OptString {
 	return s.Percentage
 }
 
+// GetAmount returns the value of Amount.
+func (s *AllocationReceiver) GetAmount() OptMoney {
+	return s.Amount
+}
+
 // SetCostCenterID sets the value of CostCenterID.
 func (s *AllocationReceiver) SetCostCenterID(val uuid.UUID) {
 	s.CostCenterID = val
@@ -3579,6 +3602,11 @@ func (s *AllocationReceiver) SetCostCenterCode(val string) {
 // SetPercentage sets the value of Percentage.
 func (s *AllocationReceiver) SetPercentage(val OptString) {
 	s.Percentage = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AllocationReceiver) SetAmount(val OptMoney) {
+	s.Amount = val
 }
 
 // A run of an allocation cycle for a fiscal period (ADR-0064 §5): the journal entry that charged the
@@ -3609,10 +3637,11 @@ type AllocationRun struct {
 	// The sender's code.
 	SenderCostCenterCode string `json:"sender_cost_center_code"`
 	// What the run charged the receivers, in the legal entity's local currency: the total of the sender's
-	// primary costs of the period. A distribution moves it off the sender's accounts; an assessment
-	// credits it to the sender on the assessment account.
+	// primary costs of the period, or by fixed amounts the receivers' amounts. A distribution moves it off
+	// the sender's accounts; an assessment credits it to the sender on the assessment account.
 	Amount Money `json:"amount"`
-	// How many of the sender's accounts the run charged the costs of.
+	// How many of the sender's accounts the run charged the costs of; 0 for a cycle by fixed amounts,
+	// which reads no costs.
 	AccountCount int32 `json:"account_count"`
 	// The run's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show the
 	// sender's credit and each receiver's share: per account for a distribution, on the assessment account
@@ -3624,6 +3653,15 @@ type AllocationRun struct {
 	CreatedAt time.Time `json:"created_at"`
 	// The principal who ran it.
 	CreatedBy uuid.UUID `json:"created_by"`
+	// The reversal's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`); present once
+	// the run is reversed (`POST /v1/allocation-runs/{id}:reverse`), when it is no longer in force.
+	ReversalJournalEntryID OptUUID `json:"reversal_journal_entry_id"`
+	// The reversal entry's document number; present with `reversal_journal_entry_id`.
+	ReversalJournalEntryNumber OptString `json:"reversal_journal_entry_number"`
+	// When the run was reversed (UTC); present with `reversal_journal_entry_id`.
+	ReversedAt OptDateTime `json:"reversed_at"`
+	// The principal who reversed it; present with `reversal_journal_entry_id`.
+	ReversedBy OptUUID `json:"reversed_by"`
 }
 
 // GetID returns the value of ID.
@@ -3711,6 +3749,26 @@ func (s *AllocationRun) GetCreatedBy() uuid.UUID {
 	return s.CreatedBy
 }
 
+// GetReversalJournalEntryID returns the value of ReversalJournalEntryID.
+func (s *AllocationRun) GetReversalJournalEntryID() OptUUID {
+	return s.ReversalJournalEntryID
+}
+
+// GetReversalJournalEntryNumber returns the value of ReversalJournalEntryNumber.
+func (s *AllocationRun) GetReversalJournalEntryNumber() OptString {
+	return s.ReversalJournalEntryNumber
+}
+
+// GetReversedAt returns the value of ReversedAt.
+func (s *AllocationRun) GetReversedAt() OptDateTime {
+	return s.ReversedAt
+}
+
+// GetReversedBy returns the value of ReversedBy.
+func (s *AllocationRun) GetReversedBy() OptUUID {
+	return s.ReversedBy
+}
+
 // SetID sets the value of ID.
 func (s *AllocationRun) SetID(val uuid.UUID) {
 	s.ID = val
@@ -3796,7 +3854,55 @@ func (s *AllocationRun) SetCreatedBy(val uuid.UUID) {
 	s.CreatedBy = val
 }
 
+// SetReversalJournalEntryID sets the value of ReversalJournalEntryID.
+func (s *AllocationRun) SetReversalJournalEntryID(val OptUUID) {
+	s.ReversalJournalEntryID = val
+}
+
+// SetReversalJournalEntryNumber sets the value of ReversalJournalEntryNumber.
+func (s *AllocationRun) SetReversalJournalEntryNumber(val OptString) {
+	s.ReversalJournalEntryNumber = val
+}
+
+// SetReversedAt sets the value of ReversedAt.
+func (s *AllocationRun) SetReversedAt(val OptDateTime) {
+	s.ReversedAt = val
+}
+
+// SetReversedBy sets the value of ReversedBy.
+func (s *AllocationRun) SetReversedBy(val OptUUID) {
+	s.ReversedBy = val
+}
+
 func (*AllocationRun) getAllocationRunRes() {}
+
+// AllocationRunHeaders wraps AllocationRun with response headers.
+type AllocationRunHeaders struct {
+	IdempotentReplayed OptBool
+	Response           AllocationRun
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AllocationRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AllocationRunHeaders) GetResponse() AllocationRun {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AllocationRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AllocationRunHeaders) SetResponse(val AllocationRun) {
+	s.Response = val
+}
+
+func (*AllocationRunHeaders) reverseAllocationRunRes() {}
 
 // One page of allocation runs.
 // Ref: #/components/schemas/AllocationRunPage
@@ -27552,6 +27658,7 @@ func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) retireCatalogItemRes()                     {}
 func (*ConflictHeaders) retireControlRes()                         {}
 func (*ConflictHeaders) retireEntryTemplateRes()                   {}
+func (*ConflictHeaders) reverseAllocationRunRes()                  {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
 func (*ConflictHeaders) reverseAssetRetirementRes()                {}
 func (*ConflictHeaders) reverseAssetTransferRes()                  {}
@@ -95904,6 +96011,30 @@ func (s *RevenueSchedulePeriod) SetDeliveredQuantity(val OptQuantity) {
 	s.DeliveredQuantity = val
 }
 
+type ReverseAllocationRunBadRequest Problem
+
+func (*ReverseAllocationRunBadRequest) reverseAllocationRunRes() {}
+
+type ReverseAllocationRunForbidden Problem
+
+func (*ReverseAllocationRunForbidden) reverseAllocationRunRes() {}
+
+type ReverseAllocationRunNotFound Problem
+
+func (*ReverseAllocationRunNotFound) reverseAllocationRunRes() {}
+
+type ReverseAllocationRunPreconditionFailed Problem
+
+func (*ReverseAllocationRunPreconditionFailed) reverseAllocationRunRes() {}
+
+type ReverseAllocationRunPreconditionRequired Problem
+
+func (*ReverseAllocationRunPreconditionRequired) reverseAllocationRunRes() {}
+
+type ReverseAllocationRunUnprocessableEntity Problem
+
+func (*ReverseAllocationRunUnprocessableEntity) reverseAllocationRunRes() {}
+
 type ReverseAssetAcquisitionBadRequest Problem
 
 func (*ReverseAssetAcquisitionBadRequest) reverseAssetAcquisitionRes() {}
@@ -102817,6 +102948,7 @@ func (*ServiceUnavailableHeaders) requestBankAccountEndRes()                 {}
 func (*ServiceUnavailableHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ServiceUnavailableHeaders) retireCatalogItemRes()                     {}
 func (*ServiceUnavailableHeaders) retireEntryTemplateRes()                   {}
+func (*ServiceUnavailableHeaders) reverseAllocationRunRes()                  {}
 func (*ServiceUnavailableHeaders) reverseAssetAcquisitionRes()               {}
 func (*ServiceUnavailableHeaders) reverseAssetRetirementRes()                {}
 func (*ServiceUnavailableHeaders) reverseAssetTransferRes()                  {}
@@ -108969,6 +109101,7 @@ func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
 func (*TooManyRequestsHeaders) retireControlRes()                         {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()                   {}
+func (*TooManyRequestsHeaders) reverseAllocationRunRes()                  {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()                {}
 func (*TooManyRequestsHeaders) reverseAssetTransferRes()                  {}
@@ -109884,6 +110017,7 @@ func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
 func (*UnauthorizedHeaders) retireControlRes()                         {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()                   {}
+func (*UnauthorizedHeaders) reverseAllocationRunRes()                  {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()                {}
 func (*UnauthorizedHeaders) reverseAssetTransferRes()                  {}
