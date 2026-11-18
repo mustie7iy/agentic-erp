@@ -140,7 +140,9 @@ func (e *Endpoints) newExposure(ctx context.Context, tx pgx.Tx, le tenancy.Entit
 // read: no limit restricts nothing; so is one whose limit is not in
 // effect on the company's day: pending its approval (T77d) or outside its
 // validity (T77c), the day read only when the customer has a limit. The
-// caller has checked the caller's access to the order's company;
+// caller has found the order's company, which legalEntity names (the
+// company's day is read by its code), and checked the caller's access to
+// it;
 // Company, Customer, Exponent and LimitID are not set, nor Day without a
 // limit.
 func (e *Endpoints) Check(ctx context.Context, legalEntity, customer uuid.UUID, amount money.Minor) (Exposure, error) {
