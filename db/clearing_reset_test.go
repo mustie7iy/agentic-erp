@@ -31,8 +31,9 @@ func (f fixture) clearedPair(t *testing.T, c uuid.UUID) (inv, pay uuid.UUID) {
 
 // TestClearingResetRules (T75i, migration 000364; ADR-0063 §6 As built): a
 // clearing item is never changed, and deleted only once its clearing is
-// reset, the trigger keeping it in clearing_reset_item, or with its tenant
-// erased; a clearing is reset once; a reset and its items are never
+// reset, whose record moves it into clearing_reset_item, or with its
+// tenant erased; the application deletes none and writes no reset item
+// itself; a clearing is reset once; a reset and its items are never
 // changed or deleted; once reset, the lines may be cleared again.
 func TestClearingResetRules(t *testing.T) {
 	need(t)
@@ -46,17 +47,17 @@ func TestClearingResetRules(t *testing.T) {
 		stmts []stmt
 		want  string
 	}{
-		{"an item deleted while its clearing holds", []stmt{deleted}, "allowed only of a clearing that is reset"},
+		{"an item deleted by the application", []stmt{deleted}, "permission denied"},
 		{"an item changed", []stmt{step(`UPDATE ledger.clearing_item SET line_no = 3 WHERE clearing_id = $1`, c)}, "permission denied"},
 		{"a reset of no clearing", []stmt{step(`INSERT INTO ledger.clearing_reset (tenant_id, clearing_id, reset_by) VALUES ($1, $2, $3)`, f.tenant, id(), f.actor)},
 			"clearing_reset_tenant_id_clearing_id_fkey"},
 		{"a clearing reset twice", []stmt{reset, reset}, "clearing_reset_pkey"},
 		{"a reset changed", []stmt{reset, step(`UPDATE ledger.clearing_reset SET reset_by = $1`, id())}, "permission denied"},
 		{"a reset deleted", []stmt{reset, step(`DELETE FROM ledger.clearing_reset WHERE clearing_id = $1`, c)}, "permission denied"},
-		{"a reset item of no reset", []stmt{step(`INSERT INTO ledger.clearing_reset_item VALUES ($1, $2, 2026, $3, 2)`, f.tenant, id(), inv)},
-			"clearing_reset_item_tenant_id_clearing_id_fkey"},
-		{"a reset item changed", []stmt{reset, deleted, step(`UPDATE ledger.clearing_reset_item SET line_no = 3`)}, "permission denied"},
-		{"a reset item deleted", []stmt{reset, deleted, step(`DELETE FROM ledger.clearing_reset_item`)}, "permission denied"},
+		{"a reset item written by the application", []stmt{step(`INSERT INTO ledger.clearing_reset_item VALUES ($1, $2, 2026, $3, 2)`, f.tenant, c, inv)},
+			"permission denied"},
+		{"a reset item changed", []stmt{reset, step(`UPDATE ledger.clearing_reset_item SET line_no = 3`)}, "permission denied"},
+		{"a reset item deleted", []stmt{reset, step(`DELETE FROM ledger.clearing_reset_item`)}, "permission denied"},
 	} {
 		t.Run(k.name, func(t *testing.T) {
 			failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return all(tx, k.stmts...) }), k.want)
@@ -67,7 +68,7 @@ func TestClearingResetRules(t *testing.T) {
 		again := id()
 		err := asApp(t, f.tenant, func(tx pgx.Tx) error {
 			ctx := context.Background()
-			if err := all(tx, reset, deleted); err != nil {
+			if err := all(tx, reset); err != nil { // the reset moves the items (clearing_reset_moves_items)
 				return err
 			}
 			if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM ledger.clearing_reset_item WHERE clearing_id = $1),
@@ -101,6 +102,8 @@ func ownerRules(t *testing.T, f fixture, c uuid.UUID) {
 		{"an item deleted with its tenant erased", `DELETE FROM ledger.clearing_item WHERE clearing_id = $1`, f.tenant.String(), ""},
 		{"an item deleted while another tenant is erased", `DELETE FROM ledger.clearing_item WHERE clearing_id = $1`, id().String(),
 			"allowed only of a clearing that is reset"},
+		{"a reset item of no reset", `INSERT INTO ledger.clearing_reset_item SELECT tenant_id, gen_random_uuid(), fiscal_year, journal_entry_id, line_no
+			FROM ledger.clearing_item WHERE clearing_id = $1`, "", "clearing_reset_item_tenant_id_clearing_id_fkey"},
 	} {
 		t.Run(k.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -175,7 +178,7 @@ func TestIncomingPaymentResetRules(t *testing.T) {
 			rev := id()
 			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit), step(reset, s.tenant, s.doc, &one, "Wrong", rev),
 				step(reset, s.tenant, s.doc, noApp, "Wrong", rev))
-		}, "incoming_payment_reset_entry_once"},
+		}, "incoming_payment_reset_pkey"},
 		{"an empty reason", func(tx pgx.Tx, s scene) error {
 			return all(tx, paid(s), step(reset, s.tenant, s.doc, noApp, "", id()))
 		}, "incoming_payment_reset_reason_length"},

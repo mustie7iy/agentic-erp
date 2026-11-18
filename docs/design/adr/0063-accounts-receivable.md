@@ -1040,11 +1040,14 @@ document (from memory, not checked against a source in the lane). §6's
 - **The ledger's reset** (`ledger.Postings.ResetClearing`,
   `internal/ledger/clearingreset.go`): the clearing a clearing entry made,
   and its copies' in the other ledgers (clearCopies), is reset: its
-  `ledger.clearing_item` rows are deleted, which the clearing item's
+  reset is recorded in `ledger.clearing_reset`, whose trigger
+  (`clearing_reset_moves_items`, security definer as `erp_owner`, under
+  row-level security) keeps its `ledger.clearing_item` rows in
+  `ledger.clearing_reset_item` and deletes them; the clearing item's own
   trigger (`ledger.clearing_item_reset_only`, replacing
-  `platform.forbid_mutation` there) allows only for a clearing recorded in
-  `ledger.clearing_reset`, keeping each in `ledger.clearing_reset_item`
-  (or for the erasure of its tenant); every reader of open items (the
+  `platform.forbid_mutation` there) allows a delete only of a reset
+  clearing (or with the erasure of its tenant), and the application
+  deletes from no tenant table and writes no reset item itself; every reader of open items (the
   `ledger.open_item` view, `OpenItems.Receivable`, `Receipts`, `Closed`,
   `loadItems`, the analytics snapshot) reads "not in `clearing_item`" and
   sees the lines open again unchanged. A line is still cleared at most
@@ -1094,13 +1097,15 @@ document (from memory, not checked against a source in the lane). §6's
   unapplied receipts and may be applied again by a new payment; its items
   too. IncomingPaymentReset (`x-webhook`: the customer by id and number,
   `application_no`, what it had applied, how many items, the clearing
-  entry and its reversal; no reason, which is free text) and the audit
+  entry and its reversal, and for the payment's own each customer's part,
+  T75h; no reason, which is free text) and the audit
   record `receivables.incoming_payment.reset` (with the reason).
-- **Schema (000364):** the two ledger tables, insert-only, the clearing
-  item's trigger and `DELETE` on it for `erp_app`;
-  `receivables.incoming_payment_reset` (application NULL for the payment's
-  own; foreign keys to the payment and to the application; once each,
-  `UNIQUE NULLS NOT DISTINCT`; a reversal one undoing's; insert-only).
+- **Schema (000364):** the two ledger tables, insert-only (no insert of
+  a reset item by `erp_app`), the two triggers;
+  `receivables.incoming_payment_reset` (keyed by tenant and reversal, a
+  reversal one undoing's; application NULL for the payment's own; foreign
+  keys to the payment and to the application; once each,
+  `UNIQUE NULLS NOT DISTINCT`; insert-only).
   `incoming_payment_receipt_once`, `incoming_payment_item_once` and
   `incoming_payment_application_credit_once` give way to indexes: a
   receipt, an item and a credit line applied again after an undoing are
@@ -1118,6 +1123,7 @@ document (from memory, not checked against a source in the lane). §6's
   clearing, manual clearings and settlements being later slices.
 - Tests: `TestResetPayment`, `TestResetResidualClearedSince`,
   `TestResetApplication`, `TestResetClosedPeriod`, `TestResetConcurrently`,
+  `TestResetRacesAnApplication`,
   `TestDatabaseFailures` (receivables); `TestResetClearingRefusals`,
   `TestParallelClearing/reset` (ledger); `TestClearingResetRules`,
   `TestIncomingPaymentResetRules`, `TestClearingResetRevert` (db).

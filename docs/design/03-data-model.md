@@ -1053,12 +1053,13 @@ Rules enforced in the database:
   system's date and a reversal its own (ADR-0006 As built).
 - A line is cleared at most once at a time (`clearing_item` unique on the
   line). T75i (migration 000364): a clearing is reset once
-  (`ledger.clearing_reset`, insert-only); only then may its
-  `clearing_item` rows be deleted, which the trigger
-  `clearing_item_reset_only` allows (or the erasure of the tenant) and
-  keeps each in `ledger.clearing_reset_item` (insert-only), so the lines
-  are open again and may be cleared again; a clearing item is never
-  updated. The clearing entry is reversed with the reset
+  (`ledger.clearing_reset`, insert-only), and its record moves its
+  `clearing_item` rows into `ledger.clearing_reset_item` (insert-only,
+  written by the trigger `clearing_reset_moves_items` as the owner, never
+  by the application); the trigger `clearing_item_reset_only` allows a
+  delete only of a reset clearing (or with the erasure of the tenant), so
+  the lines are open again and may be cleared again; a clearing item is
+  never updated. The clearing entry is reversed with the reset
   (`ledger.Postings.ResetClearing`).
 - Open items are lines on reconciliation accounts without a clearing item.
 - A reversal clears the original's open items against the matching lines of
@@ -4663,8 +4664,8 @@ erDiagram
   (`incoming_payment_reset_application_fkey`), once each
   (`incoming_payment_reset_once`, NULLS NOT DISTINCT), with a reason of 1
   to 200 characters (`incoming_payment_reset_reason_length`) and the
-  reversal of the clearing entry, one undoing's
-  (`incoming_payment_reset_entry_once`). Insert-only. The down migration
+  reversal of the clearing entry, one undoing's (the key, tenant and
+  reversal). Insert-only. The down migration
   is refused while a clearing or a payment was reset.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,

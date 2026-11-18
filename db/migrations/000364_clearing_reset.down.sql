@@ -18,7 +18,8 @@ DROP INDEX receivables.incoming_payment_by_receipt;
 ALTER TABLE receivables.incoming_payment ADD CONSTRAINT incoming_payment_receipt_once UNIQUE (tenant_id, receipt_entry_id);
 DROP TABLE receivables.incoming_payment_reset;
 
-REVOKE DELETE ON ledger.clearing_item FROM erp_app;
+DROP TRIGGER clearing_reset_moves_items ON ledger.clearing_reset;
+DROP FUNCTION ledger.move_reset_clearing_items();
 DROP TRIGGER clearing_item_reset_only ON ledger.clearing_item;
 CREATE TRIGGER clearing_item_immutable BEFORE UPDATE OR DELETE ON ledger.clearing_item FOR EACH ROW EXECUTE FUNCTION platform.forbid_mutation();
 DROP FUNCTION ledger.clearing_item_reset_only();

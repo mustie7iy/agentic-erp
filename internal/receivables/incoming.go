@@ -561,6 +561,17 @@ func customerParts(payer uuid.UUID, customers []uuid.UUID, amounts []money.Minor
 	return out, true
 }
 
+// partsPayload is the customers' parts as an event carries them: each by
+// id and number, never by name (product owner, 2026-11-05), with its part.
+func (v IncomingPayment) partsPayload(parts []CustomerPart, names map[uuid.UUID]partner.Named) []map[string]any {
+	out := make([]map[string]any, len(parts))
+	for i, c := range parts {
+		out[i] = map[string]any{"customer_id": c.CustomerID, "customer_number": names[c.CustomerID].Number,
+			"amount": money.EventAmount(c.Amount, v.Currency, v.Exponent)}
+	}
+	return out
+}
+
 // recordApplied adds the audit record of the application and publishes
 // IncomingPaymentApplied in the same transaction (ADR-0007, ADR-0011).
 // The event names the customers by id and number, never by name (product
@@ -574,12 +585,7 @@ func recordApplied(ctx context.Context, v IncomingPayment, le tenancy.Entity, na
 			residuals++
 		}
 	}
-	parts := v.Parts()
-	customers := make([]map[string]any, len(parts))
-	for i, c := range parts {
-		customers[i] = map[string]any{"customer_id": c.CustomerID, "customer_number": names[c.CustomerID].Number,
-			"amount": money.EventAmount(c.Amount, v.Currency, v.Exponent)}
-	}
+	customers := v.partsPayload(v.Parts(), names)
 	customer := names[v.CustomerID]
 	payload := map[string]any{"incoming_payment_id": v.ID, "document_number": v.DocumentNumber, "legal_entity_id": v.LegalEntityID,
 		"legal_entity_code": le.Code, "customer_id": v.CustomerID, "customer_number": customer.Number,

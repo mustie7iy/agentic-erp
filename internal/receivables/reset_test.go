@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -107,7 +108,10 @@ func (e env) resetRecorded(t *testing.T, id, entry, reversal string) {
 	payload := e.outboxPayload(t, id, "incoming_payment_reset")
 	fields(t, "IncomingPaymentReset", payload, map[string]any{"incoming_payment_id": id, "customer_number": "BP70000001", "application_no": 0,
 		"amount": eur("100.00"), "item_count": 1, "clearing_entry_id": entry, "reversal_entry_id": reversal, "reversal_posting_date": "2026-03-21"})
-	if _, ok := payload["reason"]; ok {
+	if cs, _ := payload["customers"].([]any); len(cs) != 1 || cs[0].(map[string]any)["customer_number"] != "BP70000001" {
+		t.Errorf("IncomingPaymentReset's customers: got %v, want the payer's part", payload["customers"])
+	}
+		if _, ok := payload["reason"]; ok {
 		t.Errorf("IncomingPaymentReset: got the reason %v, want none (free text)", payload["reason"])
 	}
 	var n int
@@ -256,5 +260,51 @@ func TestResetConcurrently(t *testing.T) {
 func TestResetOnceMapping(t *testing.T) {
 	if p := problem.From(&pgconn.PgError{Code: "23505", ConstraintName: "incoming_payment_reset_once"}); p.Status != 409 || p.Code != "receivables.already_reset" {
 		t.Errorf("incoming_payment_reset_once: got %v, want 409 receivables.already_reset", p)
+	}
+}
+
+// TestResetRacesAnApplication (T75i): undoing a payment races an
+// application of its credit on account; the check that no application is
+// in force runs before the locks, so the ledger's check under them decides:
+// either the application wins and the undoing is refused, or the undoing
+// wins and the application is refused, and nothing is left half done.
+func TestResetRacesAnApplication(t *testing.T) {
+	e := setup(t)
+	got, _ := e.Must(201, "POST", "/v1/incoming-payments", e.onAccount(e.customer, e.receipt(t, 10000, "2026-03-20").ID), "")
+	id := uuid.MustParse(got["id"].(string))
+	invoice := entryOf(t, e.invoiced(t, e.customer, "30.00", "2026-03-22"))
+	h := endpoints(t)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		errs[0] = apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.Reset(ctx, receivables.ResetInput{PaymentID: id, IfMatch: etag.IfMatch(`"1"`), Reason: "Racing."})
+			return err
+		})
+	}()
+	go func() {
+		defer wg.Done()
+		errs[1] = apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.ApplyOnAccount(ctx, receivables.CreditInput{PaymentID: id, Items: []ledger.ItemRef{{FiscalYear: 2026, EntryID: invoice, LineNo: 1}}})
+			return err
+		})
+	}()
+	wg.Wait()
+	var resets, apps int
+	pgtest.Scan(t, `SELECT (SELECT count(*) FROM receivables.incoming_payment_reset WHERE tenant_id = $1),
+		(SELECT count(*) FROM receivables.incoming_payment_application WHERE tenant_id = $1)`, []any{e.Tenant.ID}, &resets, &apps)
+	switch {
+	case errs[0] == nil && errs[1] != nil:
+		if c := problem.From(errs[1]).Code; c != "ledger.entry_reversed" && c != "receivables.no_credit_on_account" || resets != 1 || apps != 0 {
+			t.Errorf("the undoing won: application refused with %v, %d resets, %d applications; want entry_reversed or no_credit_on_account, 1, 0", errs[1], resets, apps)
+		}
+	case errs[1] == nil && errs[0] != nil:
+		if c := problem.From(errs[0]).Code; c != "ledger.clearing_lines_cleared" && c != "receivables.applications_in_force" || resets != 0 || apps != 1 {
+			t.Errorf("the application won: undoing refused with %v, %d resets, %d applications; want clearing_lines_cleared or applications_in_force, 0, 1", errs[0], resets, apps)
+		}
+	default:
+		t.Errorf("got %v and %v, want one of them refused", errs[0], errs[1])
 	}
 }

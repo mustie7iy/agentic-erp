@@ -169,14 +169,12 @@ func (v IncomingPayment) resettable(no int32) (undoing, error) {
 		if v.resetOf(a.No) != nil {
 			continue
 		}
-		switch {
-		case no == 0:
+		if no == 0 {
 			return undoing{}, problem.Conflict("receivables.applications_in_force",
 				fmt.Sprintf("Application %d of the payment's credit on account is in force: undo the applications, last first, before the payment.", a.No))
-		default:
-			return undoing{}, problem.Conflict("receivables.application_not_latest",
-				fmt.Sprintf("Application %d, a later one, is in force: undo the applications last first.", a.No))
 		}
+		return undoing{}, problem.Conflict("receivables.application_not_latest",
+			fmt.Sprintf("Application %d, a later one, is in force: undo the applications last first.", a.No))
 	}
 	if no == 0 {
 		return undoing{entry: ledger.ItemRef{FiscalYear: v.EntryYear, EntryID: v.EntryID}, amount: v.Amount}, nil
@@ -202,7 +200,8 @@ func insertReset(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUI
 // recordReset adds the audit record of the reset and publishes
 // IncomingPaymentReset in the same transaction (ADR-0007, ADR-0011): the
 // customer by id and number, never by name (product owner, 2026-11-05),
-// and no reason, which is free text; the audit record keeps it.
+// for the payment's own each customer whose items open again with its
+// part, and no reason, which is free text; the audit record keeps it.
 func (e *Endpoints) recordReset(ctx context.Context, v IncomingPayment, le tenancy.Entity, no int32, undone undoing, rev ledger.Entry) error {
 	const action = "receivables.incoming_payment.reset"
 	items := 0
@@ -211,15 +210,23 @@ func (e *Endpoints) recordReset(ctx context.Context, v IncomingPayment, le tenan
 			items++
 		}
 	}
-	names, err := e.Partners.Names(ctx, []uuid.UUID{v.CustomerID})
+	parts := v.Parts()
+	ids := make([]uuid.UUID, len(parts))
+	for i, c := range parts {
+		ids[i] = c.CustomerID
+	}
+	names, err := e.Partners.Names(ctx, ids) // the payer is the first part
 	if err != nil {
-		return fmt.Errorf("receivables: customer of incoming payment %s: %w", v.ID, err)
+		return fmt.Errorf("receivables: customers of incoming payment %s: %w", v.ID, err)
 	}
 	amount := money.EventAmount(undone.amount, v.Currency, v.Exponent)
 	payload := map[string]any{"incoming_payment_id": v.ID, "document_number": v.DocumentNumber, "legal_entity_id": v.LegalEntityID,
 		"legal_entity_code": le.Code, "customer_id": v.CustomerID, "customer_number": names[v.CustomerID].Number, "application_no": no, "amount": amount,
 		"item_count": items, "clearing_entry_id": undone.entry.EntryID, "reversal_entry_id": rev.ID, "reversal_entry_year": rev.FiscalYear,
 		"reversal_entry_number": rev.DocumentNumber, "reversal_posting_date": rev.PostingDate.Format(time.DateOnly)}
+	if no == 0 { // the payment's own application: whose items open again (T75h)
+		payload["customers"] = v.partsPayload(parts, names)
+	}
 	detail := map[string]any{"document_number": v.DocumentNumber, "application_no": no, "reason": v.resetOf(no).Reason, "amount": amount, "items": items,
 		"clearing_entry_id": undone.entry.EntryID, "reversal_entry_id": rev.ID, "reversal_entry_number": rev.DocumentNumber}
 	if err := audit.Record(ctx, action, "receivables.incoming_payment", v.ID, detail,

@@ -5885,6 +5885,16 @@ components:
         reversal_entry_year: {type: integer, description: "The reversal's fiscal year."}
         reversal_entry_number: {type: string, description: "The reversal's document number."}
         reversal_posting_date: {$ref: '#/components/schemas/Date', description: "The reversal's posting date, the clearing entry's."}
+        customers:
+          type: array
+          description: "With `application_no` 0, each customer whose items the payment had applied and are open again (T75h), the payer first, by id and number, never by name, with its part; absent for an application of the credit on account, the payer's alone."
+          items:
+            type: object
+            required: [customer_id, customer_number, amount]
+            properties:
+              customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+              customer_number: {type: string, description: "The customer's business partner number."}
+              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals."}
     QuotationChangedV1:
       type: object
       required: [quotation_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, quotation_date, valid_until, net_amount, status, status_before, version]

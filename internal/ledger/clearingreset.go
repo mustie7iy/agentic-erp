@@ -133,16 +133,13 @@ func resettable(ctx context.Context, tx pgx.Tx, entry ItemRef, clearings []uuid.
 	return out, nil
 }
 
-// resetClearings records each clearing's reset and deletes its items,
-// which the clearing item's trigger keeps in ledger.clearing_reset_item
-// (migration 000364): the lines are open again.
+// resetClearings records each clearing's reset, which moves its items
+// into ledger.clearing_reset_item (the trigger clearing_reset_moves_items,
+// migration 000364): the lines are open again.
 func resetClearings(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, clearings []uuid.UUID) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.clearing_reset (tenant_id, clearing_id, reset_by) SELECT $1, c, $2 FROM unnest($3::uuid[]) AS x(c)`,
 		actor.TenantID, actor.ID, clearings); err != nil {
 		return fmt.Errorf("ledger: reset %d clearings: %w", len(clearings), err)
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM ledger.clearing_item WHERE clearing_id = ANY($1)`, clearings); err != nil {
-		return fmt.Errorf("ledger: open the items of %d clearings again: %w", len(clearings), err)
 	}
 	return nil
 }

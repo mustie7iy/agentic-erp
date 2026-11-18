@@ -3,9 +3,10 @@
 -- application of its credit on account, is undone as SAP's FBRA resets
 -- cleared items and reverses the clearing document. The clearing's lines
 -- open again: their ledger.clearing_item rows are deleted, which only a
--- reset clearing allows, each kept in ledger.clearing_reset_item by the
--- trigger that lets the delete through; ledger.clearing_reset records the
--- reset of a clearing, once. The clearing entry is then reversed by the
+-- reset clearing allows: recording the reset of a clearing, once, in
+-- ledger.clearing_reset moves its items into ledger.clearing_reset_item
+-- (clearing_reset_moves_items, as the owner: the application deletes from
+-- no tenant table and writes no reset item itself). The clearing entry is then reversed by the
 -- ledger's ordinary reversal (ledger.reversal links the two), so the
 -- reset holds no reference to it. A line is still cleared at most once at
 -- a time (clearing_item_pkey); over time it may be cleared, reset and
@@ -50,9 +51,8 @@ CREATE TRIGGER clearing_reset_item_immutable BEFORE UPDATE OR DELETE ON ledger.c
 SELECT platform.secure_table('ledger.clearing_reset_item'::regclass);
 
 -- A clearing item is never changed, and deleted only when its clearing is
--- reset, which keeps it in clearing_reset_item, or when its tenant is
--- erased (platform.forbid_mutation's app.erasing). It runs as the caller,
--- held to row-level security like the delete itself.
+-- reset (clearing_reset_moves_items keeps it in clearing_reset_item first)
+-- or when its tenant is erased (platform.forbid_mutation's app.erasing).
 CREATE FUNCTION ledger.clearing_item_reset_only() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -61,8 +61,6 @@ BEGIN
       RETURN OLD;
     END IF;
     IF EXISTS (SELECT FROM ledger.clearing_reset r WHERE r.tenant_id = OLD.tenant_id AND r.clearing_id = OLD.clearing_id) THEN
-      INSERT INTO ledger.clearing_reset_item (tenant_id, clearing_id, fiscal_year, journal_entry_id, line_no)
-      VALUES (OLD.tenant_id, OLD.clearing_id, OLD.fiscal_year, OLD.journal_entry_id, OLD.line_no);
       RETURN OLD;
     END IF;
   END IF;
@@ -72,7 +70,25 @@ END $$;
 ALTER FUNCTION ledger.clearing_item_reset_only() OWNER TO erp_owner;
 DROP TRIGGER clearing_item_immutable ON ledger.clearing_item;
 CREATE TRIGGER clearing_item_reset_only BEFORE UPDATE OR DELETE ON ledger.clearing_item FOR EACH ROW EXECUTE FUNCTION ledger.clearing_item_reset_only();
-GRANT DELETE ON ledger.clearing_item TO erp_app;
+
+-- The reset of a clearing opens its lines again: its items are kept in
+-- clearing_reset_item and deleted, as the owner, since the application
+-- may do neither; row-level security still applies to the owner (FORCE),
+-- so only the tenant's own rows move.
+CREATE FUNCTION ledger.move_reset_clearing_items() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  INSERT INTO ledger.clearing_reset_item (tenant_id, clearing_id, fiscal_year, journal_entry_id, line_no)
+  SELECT tenant_id, clearing_id, fiscal_year, journal_entry_id, line_no FROM ledger.clearing_item
+  WHERE tenant_id = NEW.tenant_id AND clearing_id = NEW.clearing_id;
+  DELETE FROM ledger.clearing_item WHERE tenant_id = NEW.tenant_id AND clearing_id = NEW.clearing_id;
+  RETURN NULL;
+END $$;
+ALTER FUNCTION ledger.move_reset_clearing_items() OWNER TO erp_owner;
+REVOKE EXECUTE ON FUNCTION ledger.move_reset_clearing_items() FROM PUBLIC;
+CREATE TRIGGER clearing_reset_moves_items AFTER INSERT ON ledger.clearing_reset
+  FOR EACH ROW EXECUTE FUNCTION ledger.move_reset_clearing_items();
+REVOKE INSERT ON ledger.clearing_reset_item FROM erp_app;
 
 CREATE TABLE receivables.incoming_payment_reset (
   tenant_id             uuid NOT NULL,
@@ -83,13 +99,12 @@ CREATE TABLE receivables.incoming_payment_reset (
   reversal_entry_id     uuid NOT NULL,       -- ledger context: the reversal of the clearing entry
   created_at            timestamptz NOT NULL DEFAULT now(),
   created_by            uuid NOT NULL,
+  PRIMARY KEY (tenant_id, reversal_entry_id),    -- a reversal is one undoing's
   CONSTRAINT incoming_payment_reset_payment_fkey FOREIGN KEY (tenant_id, incoming_payment_id) REFERENCES receivables.incoming_payment (tenant_id, id),
   CONSTRAINT incoming_payment_reset_application_fkey FOREIGN KEY (tenant_id, incoming_payment_id, application_no)
     REFERENCES receivables.incoming_payment_application (tenant_id, incoming_payment_id, application_no),
-  -- Each application, the payment's own included, is reset once, and a
-  -- reversal is one reset's.
-  CONSTRAINT incoming_payment_reset_once UNIQUE NULLS NOT DISTINCT (tenant_id, incoming_payment_id, application_no),
-  CONSTRAINT incoming_payment_reset_entry_once UNIQUE (tenant_id, reversal_entry_id)
+  -- Each application, the payment's own included, is reset once.
+  CONSTRAINT incoming_payment_reset_once UNIQUE NULLS NOT DISTINCT (tenant_id, incoming_payment_id, application_no)
 );
 CREATE TRIGGER incoming_payment_reset_immutable BEFORE UPDATE OR DELETE ON receivables.incoming_payment_reset
   FOR EACH ROW EXECUTE FUNCTION platform.forbid_mutation();
