@@ -1,0 +1,507 @@
+# Supply chain plan (17 November 2026)
+
+**Status:** plan (product owner, 2026-11-17: "remove the supply chain plan
+and include it as part of the current implementation plan"). Supply chain
+was outside the required scope of the breadth phase (product owner,
+2026-11-10; `plan-breadth-week2.md` and `plan-breadth-week3.md`,
+"Boundaries"); it joins the scope with this plan. It splits the tracker's
+Supply chain placeholders into slices (ADR-0053) in the form of
+`plan-breadth-week3.md` (Adds, Acceptance, Later). `docs/tracker.json`
+stays the only plan (07 §7.5): each slice is a leaf under its
+placeholder's group, named by its section here (`S1a` …), and each
+placeholder is narrowed to what no slice here builds, the variants named
+in the slices' "Later". ADR-0082 decides the contexts, their published
+APIs, the data model and the SAP behaviour followed.
+
+## What every slice reuses
+
+What `plan-breadth-week1.md` to `-week3.md` list under the same heading
+applies unchanged: the unit of work and `reqctx.Request`, RLS with
+`tenant_id` leading every key, `money.Minor` and `money.Sum`, row locks and
+state guards, `Idempotency-Key` and `If-Match`, financial effects only
+through the ledger's posting port, the context's outbox and inbox, an
+audit record per state change, `problem.*` errors, contract first, real
+PostgreSQL tests with `pgtest` and `pgtest.FailingTx`, a schema test per
+database rule, the company's date in its time zone (`config.DocumentDay`),
+events naming a customer or supplier by id and number only, none offered
+as a webhook event until a consumer asks, and one new or extended step of
+`scripts/walkthrough.sh` through the public API. Headless first.
+
+Supply chain adds:
+
+- **Quantities are exact.** A quantity is a decimal string in the API and
+  an integer count of a fixed number of decimal places in the database
+  (ADR-0082 §5); a conversion between units is an integer numerator and
+  denominator, never a float, and a converted quantity that does not come
+  out exact in the target unit's decimals is refused, not rounded.
+- **Plants and storage locations are tenancy's org units** (`plant`,
+  `storage_location` under its plant; `internal/tenancy`, built in phase
+  1). No new organisational table is added; SAP's T001W and T001L map onto
+  them.
+- **Stock postings go through the ledger's posting port** (from S1d): the
+  inventory context never writes ledger tables. Account determination by
+  valuation class is the configuration's (`companies[].account_determination`,
+  ADR-0082 §8).
+- **Procurement and sales read materials through materials' published
+  API** (from S1e and S1f); the materials context imports neither.
+
+## Pilot relevance
+
+The pilot's questionnaire answers are not known. **Assumption, for the
+product owner to confirm:** the pilot company (Maple Industries Canada,
+the walkthrough's) buys and sells physical goods it keeps in stock at one
+or two plants, values them at moving average price, and has no batches,
+serial numbers, intercompany stock transfers, MRP or external warehouse,
+transport or trade systems at go-live. Under that assumption the slices
+marked **pilot** below are pilot-relevant; the others are not until the
+questionnaire says so. No tracker leaf carries the `pilot` tag for this:
+the pilot scope changes only by the product owner's decision.
+
+## Build order and lanes
+
+- **S1, the foundation, in sequence** (one lane, `scm`): S1a → S1b → S1c →
+  S1d → S1e → S1f. Each depends on the one before; S1e and S1f are the
+  first to change procurement and sales.
+- **S2, the flows, in parallel once S1 is on main** (up to three lanes on
+  code that does not overlap): shipping (S2a → S2b), physical inventory
+  (S2c → S2d → S2e), batches and serials (S2f → S2g), transfers (S2h →
+  S2i), ATP (S2j), planning (S2k → S2l → S2m → S2n), SAP migration (S2o →
+  S2p), connectors (S2q, S2r, S2s).
+
+## New contexts (ADR-0082)
+
+- **`materials`** (schema `materials`, `internal/materials`): the material
+  master and its governance. Imports `approvals`, `config` and `tenancy`
+  only; procurement, sales and inventory import its published API.
+- **`inventory`** (schema `inventory`, `internal/inventory`, from S1c):
+  stock by location, goods movements, valuation and physical inventory.
+  Reads materials through `materials`' published API and posts through
+  the ledger's posting port.
+- Shipping (S2a, S2b), planning (S2k–S2n) and the connectors (S2q–S2s)
+  are decided by their own ADRs when they are built.
+
+## S1 Foundation
+
+### S1a Material master (pilot)
+
+**Capability.** A master data specialist creates a material with its
+number from the company's `material` range, a description, a base unit of
+measure, a material type, a material group and a status, extends it to
+plants and their storage locations, gives it alternative units of measure
+with exact conversions, reads and lists materials, and changes one at the
+version read.
+
+- **Reuses:** tenancy's plants and storage locations (org units),
+  `ref.unit_of_measure`, the configuration's number ranges and company
+  dates, the ledger's fiscal calendar, `etag`, audit, outbox, pagination.
+- **Adds:** the context `materials` (schema, RLS, outbox and inbox, its
+  row in `internal/layout`); tables `materials.material` (SAP MARA and
+  MAKT's one description), `materials.plant_data` (MARC: the material in a
+  plant), `materials.storage_location_data` (MARD without stock) and
+  `materials.unit_conversion` (MARM); `POST /v1/materials`,
+  `GET /v1/materials`, `GET /v1/materials/{id}`, `PATCH
+  /v1/materials/{id}` (`If-Match`); event `MaterialChanged`; permissions
+  `materials.material.read`, `.write`; number range `material`, unique in
+  the tenant across companies and years (`config.RangeRepeats`); ADR-0082.
+- **Walkthrough:** `step_material`: a bracket is created in the pilot
+  company's plant with a box of 20 as an alternative unit, read back,
+  changed at its version and blocked; a stale version, a conversion to the
+  base unit itself and a storage location of another plant are refused.
+- **Acceptance:** the number is the company range's next; the base unit,
+  every alternative unit and every conversion factor are known and exact
+  (integers above zero, no float); a storage location is one of a plant
+  the material has; a change needs the current version (412 otherwise)
+  and records its audit with the values before and after; the base unit
+  and material type do not change once created.
+- **Depends on:** nothing.
+
+**Later for Material master:** further descriptions by language (MAKT);
+the material's sales organisation and purchasing views (MVKE, EINA/EINE
+belong to S1f and sourcing); dimensions, weights and EAN/GTIN codes;
+material types and groups from configuration (T134, T023) instead of an
+open enumeration and a code; plant-specific status and MRP data (MARC
+fields beyond the assignment, S2k); external number assignment;
+classification and characteristics; changing a material's base unit or
+type once used (SAP's MM02 refusal and MMAM).
+
+### S1b Material governance (pilot)
+
+**Capability.** Creating or changing a material is a change request
+approved through the existing approvals, as a business partner's is: the
+material is `pending` until its create change is approved, a change of an
+active material applies when its change is approved, possible duplicates
+by description are listed for the approver, and blocking applies at once.
+
+- **Reuses:** `internal/approvals` (`Open`, the handler map,
+  `approvals.Paths`), the business partner governance's rules (one pending
+  change of a kind per object, a rejected or cancelled create leaving no
+  material behind, a duplicate list on the create change, blocking without
+  approval; `internal/partner` changes.go and duplicates.go), S1a.
+- **Adds:** `materials.material_change` (kind `create`, `update`, `block`,
+  `unblock`; status `pending`, `applied`, `rejected`, `cancelled`;
+  payload, reason, possible duplicates, the approval request);
+  `GET /v1/material-changes`, `GET /v1/material-changes/{id}`; `POST
+  /v1/materials` creates the material `pending` with its create change;
+  `PATCH /v1/materials/{id}` opens an `update` change (202) unless it only
+  blocks; approval object type `material_change` decided by the role
+  `process_owner`; permission `materials.change.approve`; event
+  `MaterialChangeChanged`.
+- **Walkthrough:** `step_material_governance`: a new material waits for
+  its approval and is listed with its possible duplicate; a second
+  material with the same description is refused until confirmed; the
+  process owner approves; a change waits and applies on approval; a
+  rejected change leaves the material as it was.
+- **Acceptance:** a material with the description of another, white space
+  and case aside, is refused (409) unless the request confirms it, and its
+  change lists the others; a second pending change of the same material
+  is refused (409); approval applies the change to the material's then
+  current version, rejection and withdrawal leave it unchanged, and a
+  rejected create leaves the material out of reads and duplicate checks;
+  the decisions are the approvals context's (the requester's own approval
+  as approvals refuses it).
+
+**Later for Governance for materials:** approval by plant or material
+type, a configurable approver role and multi-step policies; a fuzzy
+duplicate check (similar, not equal, descriptions; SAP MDG's match
+profiles); field-level change tracking for downstream systems (change
+pointers, ALE distribution); mass changes.
+
+### S1c Stock by location and goods movements (pilot)
+
+**Capability.** A warehouse clerk posts goods movements of a material at
+a plant's storage location — a receipt without an order, an initial entry,
+an issue to a cost center, a scrapping, a transfer between storage
+locations or plants — each numbered as a material document, reverses one,
+and reads the stock by location now or as at a date.
+
+- **Reuses:** S1a's materials (`materials.Materials`, the published API),
+  their units and conversions, tenancy's plants and storage locations,
+  the ledger's cost centers (by id, read through a port), the
+  configuration's number ranges (`material_document`).
+- **Adds:** the context `inventory` (schema, RLS, outbox, `internal/layout`
+  row); `inventory.material_document` and `.movement` (insert-only items,
+  each with a movement type, quantity in the base unit and the entered
+  unit, plant and storage location, sign), `inventory.stock` (the
+  quantity per material, plant and storage location, updated under a row
+  lock in the movement's transaction); movement types 501, 561, 201, 551,
+  311, 301 and their reversals 502, 562, 202, 552, 312, 302 (SAP's,
+  ADR-0082 §7, from memory); `POST /v1/material-documents`,
+  `GET /v1/material-documents`, `GET /v1/material-documents/{id}`,
+  `POST /v1/material-documents/{id}:reverse`, `GET /v1/stock`
+  (`as_of`); event `MaterialDocumentPosted`; permissions
+  `inventory.movement.post`, `inventory.stock.read`.
+- **Walkthrough:** `step_goods_movements`: an initial entry, an issue to a
+  cost center, a transfer to another storage location, a reversal; the
+  stock read now and as at the day before.
+- **Acceptance:** stock never goes below zero (409, two issues racing for
+  the last quantity issue it once); a movement of a blocked or pending
+  material, or at a plant the material is not extended to, is refused; a
+  reversal reverses the whole document once; the stock as at a date is
+  the sum of the movements posted up to it; nothing is posted to the
+  ledger yet (S1d values the movements).
+
+**Later for Stock by location and Goods movements:** stock types (quality
+inspection, blocked, restricted; SAP's 321–344), special stocks
+(consignment, customer, project), negative stock by plant, goods movement
+reasons, reservations (RESB), the movement types of production (261, 101
+for orders) which wait for Manufacturing, period-end closing of the
+material period (MMPV), printing the goods receipt slip.
+
+### S1d Valuation and inventory postings (pilot)
+
+**Capability.** An inventory accountant gives a material its valuation in
+a plant — moving average or standard price, a valuation class — and from
+then every goods movement of it posts its value through the ledger by the
+company's account determination; a price change revalues the stock.
+
+- **Reuses:** S1c's movements, `ledger.Postings.Post` with
+  `source_context` `inventory`, the account determination
+  (`companies[].account_determination`), `money.Scale`, the ledger's
+  calendar and open periods.
+- **Adds:** `inventory.valuation` (SAP MBEW: price control `S` or `V`,
+  standard price, moving price, price unit, total quantity and value per
+  material and plant as the valuation area), the account keys by
+  valuation class (stock, offsetting consumption, scrapping, initial
+  entry, price difference, revaluation; ADR-0082 §8), the posting of each
+  movement in its transaction (one journal entry per material document,
+  document type `WA`/`WE` by direction), `POST /v1/material-valuations`,
+  `PATCH` for the valuation class, `POST
+  /v1/material-valuations/{id}:changePrice` (SAP MR21); event
+  `MaterialPriceChanged`; permissions `inventory.valuation.read`,
+  `.write`.
+- **Walkthrough:** `step_valuation`: the bracket valued at moving average;
+  a receipt at a price raises the moving price; an issue posts its value
+  to consumption; a price change of a standard-priced material posts the
+  revaluation.
+- **Acceptance:** the stock value always equals quantity × price for a
+  standard-priced material and the running value for a moving-average one,
+  with the rounding difference of an issue taken by the value left
+  (`money.Sum`); a movement without a valuation or without the accounts it
+  needs is refused (422) and posts nothing; the ledger's stock account
+  balance equals the valuation's total value; a price change is refused
+  while the period is closed.
+
+**Later for Moving average and standard price and Inventory postings:**
+the material ledger and actual costing (SAP CKM3, multiple currencies and
+valuations), split valuation (by batch or origin), future and previous
+period prices, valuation of special stocks, the lowest value principle at
+year end, revaluation with a price change in a past period, below-zero
+moving prices, small-difference tolerances (SAP's OMR4-like checks).
+
+### S1e Purchase order goods receipt into stock, GR/IR and the invoice (pilot)
+
+**Capability.** A purchase order item names a material, a plant and a
+storage location; its goods receipt is a movement 101 into stock valued
+at the order price, posting stock against GR/IR; the supplier invoice
+against the receipt clears GR/IR and puts a price difference on the stock
+(moving average, as far as stock is left) or the price difference account
+(standard price).
+
+- **Reuses:** procurement's purchase orders and goods receipts (T-items
+  of phase 1, `internal/procurement`), payables' invoice verification and
+  GR/IR clearing, S1c's movements and S1d's valuation, materials'
+  published API.
+- **Adds:** optional `material_id`, `plant_id`, `storage_location_id` on a
+  purchase order item (the item's unit converted to the base unit by the
+  material's conversions); procurement's receipt of such an item calls
+  inventory's movement port in the same transaction (movement 101, its
+  reversal 102); the invoice's price difference posted by the valuation's
+  rule; ADR-0082 As built.
+- **Walkthrough:** `step_stock_receipt`: an order for 100 brackets
+  received into stock in two parts; the stock and its value read; the
+  invoice at a higher price; the moving price after it.
+- **Acceptance:** a receipt of a stock item without a valuation is refused
+  and nothing is received; GR/IR of a stock item balances once the
+  invoice is posted; an item without a material behaves as before
+  (expense or asset account assignment); the receipt's reversal reverses
+  stock and GR/IR once.
+
+**Later for the goods receipt into stock:** goods receipt into quality
+inspection, delivery tolerances against the order (over- and
+underdelivery), GR-based invoice verification by receipt versus by order,
+evaluated receipt settlement (ERS), returns to the supplier (122, 161),
+delivery costs (planned freight) on the stock value.
+
+### S1f Item keys of sales and procurement mapped onto materials (pilot)
+
+**Capability.** A quotation, sales order, billing, requisition, RFQ and
+catalog item may name a material instead of a free-text key: its
+description and unit come from the material, its quantity is converted to
+the material's base unit, and the existing free-text keys of a tenant are
+mapped to materials once.
+
+- **Reuses:** materials' published API, the sales and procurement items
+  (`item_key`, `material_key`), sales prices by item key (T80a).
+- **Adds:** optional `material_id` on those items (expand, then a mapping
+  run that sets it from a key equal to a material's number, reported per
+  key that matches none); sales prices found by material as well as by key;
+  ADR-0082 As built, and the as-built notes of ADR-0067 and ADR-0071.
+- **Walkthrough:** `step_material_items`: a sales order item and a
+  requisition item for the bracket by material, their descriptions and
+  units taken from it.
+- **Acceptance:** a blocked or pending material is refused on a new item;
+  a key that names no material stays a free-text item; nothing already
+  billed or received changes.
+
+**Later for mapping item keys:** customer-material info records (SAP
+KNMT), purchasing info records and source lists (EINA/EINE, EORD), the
+material's sales and purchasing texts, substitution of materials.
+
+## S2 Flows (parallel once S1 is on main)
+
+### S2a Outbound delivery and picking (pilot)
+
+**Capability.** A shipping clerk creates an outbound delivery for a
+confirmed sales order's items due, from a plant and storage location, and
+records the picked quantities.
+
+- **Adds:** a shipping context (its ADR) with the delivery document
+  (header and items, numbered from `outbound_delivery`), picking status,
+  `POST /v1/outbound-deliveries`, `:pick`; the sales order's T78c
+  delivery confirmation becomes the delivery's goods issue for a material
+  item (S2b).
+- **Walkthrough:** `step_outbound_delivery`. **Acceptance:** a delivery
+  takes no more than the order's open quantity; picking is at most the
+  delivery quantity and from stock that is there.
+
+### S2b Goods issue, cost of goods sold and billing from the delivery (pilot)
+
+**Capability.** Posting the delivery's goods issue (movement 601) reduces
+stock and posts the cost of goods sold at the valuation price; billing
+bills the delivered quantities; profitability shows cost of sales.
+
+- **Adds:** the goods issue through inventory's movement port and the
+  valuation (S1d) with the account key for cost of goods sold; the billing
+  document from the delivery; profitability's cost of sales from the goods
+  issue (ADR-0075 As built). **Walkthrough:** `step_goods_issue`.
+  **Acceptance:** the goods issue posts once; its cost equals the stock
+  value taken; a delivery without goods issue is not billed.
+
+**Later for Shipping and delivery:** packing and handling units, shipping
+points and routes, delivery split and grouping, proof of delivery,
+delivery notes, returns deliveries (stock posting of T85b's returns),
+the order-to-delivery variants of `plan-breadth-week2.md` §T78c.
+
+### S2c Physical inventory count documents (pilot)
+
+**Capability.** An inventory controller creates a count document for a
+plant and storage location's materials, freezing the book quantity, and
+enters the counted quantities.
+
+- **Adds:** `inventory.count_document` and items (SAP MI01, MI04),
+  posting block during the count. **Walkthrough:** `step_count`.
+  **Acceptance:** one open count per material and storage location; a
+  count is entered once per item and recounted only as a new document.
+
+### S2d Inventory differences posted (pilot)
+
+**Capability.** The inventory controller posts a count's differences
+(movements 701, 702; SAP MI07), valued at the material's price.
+
+- **Adds:** the difference posting through S1c and S1d with the account
+  key for inventory differences. **Walkthrough:** extends `step_count`.
+  **Acceptance:** book quantity after posting equals the count; a
+  difference above the company's tolerance needs approval.
+
+### S2e Count planning agent
+
+**Capability.** A recommending agent (ADR-0072) proposes the materials to
+count this period (cycle counting by ABC class, movement frequency and
+last count) for an inventory controller to decide.
+
+- **Adds:** an agent package, its type, suite and walkthrough step.
+  **Acceptance:** it never creates a count document itself.
+
+**Later for Physical inventory and cycle counting:** cycle counting
+indicators on the plant data, sampling inventory, counts on handling units
+or bins (EWM), freeze of the book quantity at a past date.
+
+### S2f Batches
+
+**Capability.** A material managed in batches carries a batch on every
+movement and stock row; batches have a manufacture and expiry date.
+**Adds:** `inventory.batch`, batch on movements and stock (stock key
+extended, expand-migrate-contract). **Acceptance:** a batch-managed
+material is refused without a batch; stock by batch adds up to the
+storage location's.
+
+### S2g Serial numbers
+
+**Capability.** A material with a serial number profile records each
+unit's serial number on receipt and issue. **Adds:** `inventory.serial`
+and its history. **Acceptance:** a serial number is in stock at most once.
+
+**Later for Batch and serial number management:** batch classification
+and determination (FEFO), where-used lists, recall, serial numbers in
+maintenance (phase 6).
+
+### S2h Stock transport order within a company
+
+**Capability.** A planner orders stock from one plant to another of the
+same company; the issue puts it in transit and the receipt at the other
+plant takes it out (SAP 351/101, from memory). **Adds:** the order type
+in procurement, stock in transit. **Acceptance:** stock in transit is
+neither plant's unrestricted stock and adds up across the two movements.
+
+### S2i Intercompany stock transfer
+
+**Capability.** The same between plants of two companies, with
+intercompany billing and the receiving company's supplier invoice.
+**Acceptance:** each company's ledger balances, the transfer price is the
+billing's. **Later for Stock transfers and intercompany:** one-step
+transfers between companies, transit stock valuation, cross-border
+customs (S2s).
+
+### S2j Available-to-promise on the sales order
+
+**Capability.** Confirming a sales order item checks the material's
+available quantity at the plant (stock less confirmed open orders and
+deliveries) and confirms what is available on the requested date.
+**Acceptance:** two orders racing for the last quantity confirm it once.
+**Later for Available-to-promise:** checking rules with replenishment lead
+time, back-order processing, product allocation, global ATP across
+plants.
+
+### S2k MRP net requirements
+
+**Capability.** A planning run per plant computes net requirements
+(demand from open sales orders and a reorder point against stock and open
+receipts) and proposes purchase requisitions. **Acceptance:** a rerun
+replaces its own open proposals and never a person's requisition.
+
+### S2l Replenishment agent
+
+**Capability.** A recommending agent reviews the run's proposals and
+recommends what to order, from which supplier and when, for a buyer to
+decide. **Later for MRP and replenishment:** lot sizing procedures,
+safety stock calculation, MRP areas, planned orders for production (phase
+5), scheduling with calendars.
+
+### S2m Demand forecasting agent
+
+**Capability.** A recommending agent forecasts a material's demand by
+plant from its goods issues and open orders and states its accuracy
+(the analytics context's forecast pattern, ADR-0044).
+
+### S2n S&OP review
+
+**Capability.** A planner reviews the forecast against supply and
+capacity by material group and month and fixes a consensus plan version.
+**Later for Demand forecasting and S&OP:** statistical models beyond the
+agent's, promotions, collaborative forecasts with customers, IBP's
+supply optimisation.
+
+### S2o SAP migration of the material master (pilot)
+
+**Capability.** The migration run loads materials from SAP's MARA, MAKT
+(one language), MARM, MARC, MARD's assignments, T001W and T001L into
+materials and tenancy, with the quality gate and reconciliation of phase
+0. **Acceptance:** every material number is kept as an external
+reference; a material whose base unit or conversion is not exact is held
+back with its reason. Which MARA fields carry which meaning is the SAP
+specialist's to confirm (from memory here).
+
+### S2p SAP migration of stock and values (pilot)
+
+**Capability.** The cutover loads stock by storage location (MARD) and
+valuation (MBEW) as initial entries (movement 561) valued at SAP's price,
+posting against the migration clearing account, reconciled to SAP's
+stock account balances. **Acceptance:** quantity and value per material
+and plant equal SAP's at the cutover date.
+
+### S2q WMS connector
+
+**Capability.** An external warehouse system receives deliveries and
+receipts to pick and put away and reports the movements back (the
+integration context's connector pattern).
+
+### S2r TMS connector
+
+**Capability.** An external transport system receives outbound deliveries
+to plan and returns the shipment and freight cost.
+
+### S2s Trade compliance connector
+
+**Capability.** An external trade compliance service screens deliveries'
+parties and materials (sanctioned parties, export classification) and
+blocks a delivery it refuses. **Later for the connectors:** an embedded
+warehouse (SAP EWM), freight settlement, customs declarations.
+
+## Slices, counted
+
+Twenty-five slices: six in S1 (S1a–S1f, built in sequence) and nineteen
+in S2 (S2a–S2s). Pilot-relevant under the assumption above: S1a–S1f,
+S2a–S2d, S2o and S2p (twelve).
+
+## Facts for the specialist (from memory, to be confirmed)
+
+- SAP's material tables and fields named here (MARA, MAKT, MARM with
+  UMREZ/UMREN, MARC, MARD, MBEW with VPRSV, VERPR, STPRS, PEINH and BKLAS,
+  T001W, T001L, T134, T023) and the movement types (101, 102, 201, 202,
+  261, 301, 302, 311, 312, 351, 501, 502, 551, 552, 561, 562, 601, 701,
+  702) are stated from memory, without a primary source in the
+  repository.
+- SAP's account determination for inventory (transaction keys BSX, WRX,
+  PRD, GBB with its account modifiers, UMB) is from memory; ADR-0082 §8
+  maps it onto this ERP's account determination keys and is confirmed by
+  the SAP specialist before S1d.

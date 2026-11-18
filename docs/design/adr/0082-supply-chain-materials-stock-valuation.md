@@ -1,0 +1,214 @@
+# ADR-0082: Supply chain: material master, stock and valuation
+
+**Status:** proposed (scm lane, 2026-11-17; decided by default under
+ADR-0053 d after the product owner's decision of 2026-11-17 that supply
+chain joins the current plan). It decides the contexts of the supply chain
+foundation and the slices S1a-S1f of `docs/design/plan-supply-chain.md`.
+Each slice records what it built under "As built". **The SAP behaviour
+named here is stated from memory** (no primary source in the repository);
+the plan's "Facts for the specialist" lists it for the SAP specialist.
+
+## Context
+
+Supply chain was outside the required scope of the breadth phase (product
+owner, 2026-11-10). On 2026-11-17 the product owner put it into the
+current plan. The sales and procurement chains built so far name what is
+sold and bought by a free-text key and a description (`item_key`,
+`material_key`; `plan-breadth-week2.md`, "Boundaries"), and 03 §3.16
+foresaw "a shared `material` master in a future `product` context,
+referenced by id from procurement, inventory, sales and manufacturing".
+
+What the design already settles:
+
+- Contexts own their schema; no foreign key leaves a schema (02 §2.1);
+  a context reads another through a port the composition root wires, in
+  the other's published types (ADR-0001, `internal/layout`).
+- ADR-0003 (RLS, `tenant_id` leading every key), ADR-0004 (UUIDv7 ids,
+  document numbers from the configuration's number ranges, per company,
+  document type and fiscal year), ADR-0005 (no floats), ADR-0007
+  (outbox), ADR-0008 (row locks, state guards), ADR-0011 (audit).
+- Plants and storage locations exist: tenancy's org units of kind `plant`
+  and `storage_location`, a storage location under its plant
+  (`parent_id`), each in one legal entity (phase 1, 03 §3.3).
+- Master data governance exists for business partners (03 §3.6,
+  `internal/partner`): a create or change is a partner change applied
+  when its approval request is approved, one pending change per kind, a
+  duplicate list on the create change, blocking at once.
+- Units of measure are `ref.unit_of_measure` (code, name, dimension).
+- Financial effects go through the ledger's posting port alone
+  (`ledger.Postings`).
+
+## Decision
+
+### 1. Two contexts: `materials` and `inventory`
+
+- **`materials`** (schema `materials`, `internal/materials`; S1a, S1b): the
+  material master and its governance. It imports `approvals` (to open
+  requests, as `partner` does), `config` (the company's date) and
+  `tenancy` (published types) and nothing else. It is not a leaf: from
+  S1c on `inventory`, from S1e `procurement` and from S1f `sales` import
+  its published API.
+- **`inventory`** (schema `inventory`, `internal/inventory`; S1c-S1e and
+  the physical inventory of S2): stock by location, goods movements and
+  material documents, valuation and inventory postings. It imports
+  `materials`, `ledger` (the posting port and calendar, as `leases`
+  does), `config` and `tenancy`.
+
+The name is `materials`, not 03 §3.16's `product`: SAP and the tracker
+call the object a material (MARA), and a product master in a later sense
+(sales catalogues, configurable products) is not decided here. 03 §3.16 is
+updated.
+
+### 2. Published APIs
+
+- `materials.Materials` (S1c, S1e, S1f): a material by id with its
+  number, description, base unit, type, status and plants, and whether it
+  is usable at a plant (`active` and extended to it); a quantity in one of
+  its units converted exactly to its base unit (`Convert`, refused when
+  the result is not exact in six decimals).
+- `inventory.Movements` (S1e, S2b, S2d): post a goods movement of a
+  movement type in the caller's transaction and read its material
+  document, for procurement's goods receipt, shipping's goods issue and
+  physical inventory's differences.
+
+Each is an interface the caller declares in its own package, satisfied by
+the callee's type, as `leases.Lessors` is by `partner.Suppliers`.
+
+### 3. Dependency directions
+
+`materials → approvals, config, tenancy`; `inventory → materials, ledger,
+config, tenancy`; `procurement → materials, inventory` (S1e) and `sales →
+materials` (S1f). No cycle: neither `materials` nor `inventory` imports
+procurement, sales or payables. Procurement's dependency on `inventory`
+is the one new direction between existing chains; it is decided here, as
+CLAUDE.md asks of a new cross-context import.
+
+### 4. Data model (S1a, S1b)
+
+Every table has `tenant_id` leading its primary key and RLS
+(`platform.secure_table`); references to tenancy's org units and to
+`ref.unit_of_measure` are by key, with no foreign key out of the schema
+but `ref`'s (as every context references `ref`).
+
+- `materials.material` (SAP MARA with MAKT's one description): `number`
+  unique in the tenant; `description` (1 to 200 characters);
+  `base_uom_code` (ref); `material_type`; `material_group`; `status`
+  (`pending`, `active`, `blocked`; `pending` only while a create change
+  waits, S1b); `version`; who created and changed it.
+- `materials.plant_data` (MARC): the material at a plant, with the
+  plant's legal entity kept for the companies a caller may act in.
+- `materials.storage_location_data` (MARD without stock): the material
+  at a storage location of one of its plants (foreign key to its
+  `plant_data`).
+- `materials.unit_conversion` (MARM): one row per alternative unit,
+  `numerator` and `denominator` integers from 1 to 1,000,000: one
+  alternative unit is `numerator / denominator` base units (SAP's UMREZ
+  and UMREN, from memory). The base unit has no row.
+- `materials.material_change` (S1b): the governed change, as
+  `partner.partner_change` is: kind, status, payload, reason, possible
+  duplicates, the approval request, numbered `MC` and eight digits per
+  tenant by the context itself (as partner changes are, ADR-0004 As
+  built review:T73g2).
+
+The material types are an open enumeration of SAP's standard types (from
+memory): `raw_material` (ROH), `semi_finished` (HALB), `finished_good`
+(FERT), `trading_good` (HAWA), `non_stock` (NLAG), `service` (DIEN). The
+material group is a code of 1 to 9 capitals, digits, `-` or `_` (SAP
+MATKL's length, from memory), not yet a configured list (Later).
+
+### 5. Quantities and units
+
+Quantities are decimal strings in the API and `numeric(20,6)` in the
+database, as procurement's are; never floats. A conversion multiplies by
+the numerator and divides by the denominator exactly; a quantity whose
+converted value has more than six decimals is refused, never rounded.
+
+### 6. Number ranges
+
+A material's number is drawn from the configuration's number range of
+document type `material` of the company the request names
+(`legal_entity_id`, one the caller may act in) for the fiscal year of
+that company's date today, as every document is numbered (ADR-0004). SAP
+numbers materials across the client, not per company code (from memory);
+this ERP's ranges are per company and year, so a material is numbered by
+the company that creates it and keeps that number wherever it is
+extended. The number is unique in the tenant (`material_number_once`).
+So that two companies' ranges cannot issue the same number, the
+configuration refuses a `material` range that can issue a number another
+company's or another year's `material` range issues
+(`config.RangeRepeats` with `config.NumberedPerTenant`). No country pack
+ships a `material` range: the signed-off packs are not changed here, as
+for `lease_contract` and `expense_report` (ADR-0073, ADR-0074); a pack
+version that brings one is left to the next pack change.
+
+### 7. SAP behaviour followed, and where it is not
+
+Followed (from memory): the material master's split into general data
+(MARA), plant data (MARC), storage location data (MARD) and units
+(MARM); the base unit and alternative units with numerator and
+denominator; the material types' meanings; the material status blocking
+use; governed creation and change as SAP MDG does it for materials, with
+a duplicate check before approval; from S1c the movement types and their
+reversals (101/102, 201/202, 301/302, 311/312, 501/502, 551/552,
+561/562), material documents and stock per storage location; from S1d
+price control `S` and `V`, the valuation area being the plant, and the
+inventory account determination's split by valuation class.
+
+Not followed:
+
+- **Numbers per company and year** (§6), not across the client.
+- **No external number assignment** and no number range per material
+  type: one range per company.
+- **One description**, in no language; MAKT's languages are Later.
+- **Base unit and material type fixed once created** (SAP allows a type
+  change through MMAM and refuses a base unit change once stock or
+  documents exist; here both are refused from the start, the safer
+  default, until a slice needs otherwise).
+- **Statuses are three** (`pending`, `active`, `blocked`), not SAP's
+  configurable cross-plant and plant-specific statuses with their own
+  effects per business process.
+- **The approver is the `process_owner` role**, fixed, as invoice
+  exceptions' is (`approvals.DefaultExceptionRole`); a configurable role
+  or policy is Later.
+
+### 8. Inventory account determination (S1d, planned)
+
+The configuration's account determination (`companies[].account_determination`)
+gains keys per valuation class for the stock account (SAP BSX), the
+offsetting accounts of issues to consumption, scrapping and initial
+entries (GBB with its modifiers), price differences (PRD) and
+revaluation (UMB); GR/IR stays the existing key (WRX). The SAP specialist
+confirms the mapping before S1d is built.
+
+### 9. Governance (S1b)
+
+As for business partners: creating a material makes it `pending` with a
+`create` change; approval makes it `active`; rejection or withdrawal
+leaves a `pending` material that no read lists and no duplicate check
+finds. A change of an active material is an `update` change applied to
+the material when approved, at its version then. Blocking applies at once
+without approval; unblocking is a change. One pending change per
+material. The create change lists the materials with the same
+description, white space and case aside (the possible duplicates); a
+create with such a match is refused (409) unless the request confirms it.
+
+## Consequences
+
+- Materials are tenant-wide master data with company-scoped plant data,
+  as business partners are with their company data.
+- A tenant creating materials needs a `material` range in each company
+  that creates them, with prefixes or intervals that do not meet.
+- Procurement gains a dependency on `inventory` in S1e.
+
+## Alternatives
+
+- **The material numbered by the context itself, as business partners
+  are** (`BP` and eight digits). Rejected: the plan asks for numbers from
+  the configuration's ranges, which a tenant governs and SAP migrations
+  fill, and partner numbering is the exception ADR-0004's As built names.
+- **A tenant-wide number range in the configuration.** Rejected for now:
+  it changes every range's key (company, type, year) and the
+  configuration context's tables, for one document type.
+- **One context for materials and stock.** Rejected: the material master
+  is read by procurement and sales, which must not depend on stock
+  postings and the ledger they bring.
