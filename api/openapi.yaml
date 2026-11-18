@@ -22349,7 +22349,7 @@ paths:
         - sales
       summary: List customers' sales data
       description: "The sales data of customers in the companies the caller may act in (ADR-0067 §13, T80f), each as `getCustomerSalesData` gives it: with its company's code and name, its customer's number and name and its price group with the group's name. Filtered by company, customer and price group. Sortable by: `customer_number` (default)."
-      x-permission: sales.price.read
+      x-permission: sales.customer_sales_data.read
       x-problem-codes:
         - config.not_bootstrapped
         - request.invalid_order_by
@@ -22395,8 +22395,8 @@ paths:
       tags:
         - sales
       summary: Set up a customer's sales data in a company
-      description: "Sets up a customer's sales data in a company (ADR-0067 §13, T80f; SAP's sales area data of a customer, from memory): what selling to the customer there needs beyond its company data, now its customer price group. A quotation or sales order item of the customer in the company that is priced from the price records takes the customer's own record first, then the one for its price group, then the general one (`createSalesPrice`), prices and discounts alike. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise). A price group is one of the active configuration's (`pricing.price_groups`; 422 `sales.unknown_price_group` naming `price_group`); without one the customer takes the general records. A customer has one sales data per company: a second is refused (409 `sales.customer_sales_data_exists`), and the first is found with `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with `updateCustomerSalesData`. The items priced before keep their prices. Audited, and published as CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created. Human-only (`x-agent: false`)."
-      x-permission: sales.price.write
+      description: "Sets up a customer's sales data in a company (ADR-0067 §13, T80f; SAP's sales area data of a customer, from memory): what selling to the customer there needs beyond its company data, now its customer price group. A quotation or sales order item of the customer in the company that is priced from the price records takes the customer's own record first, then the one for its price group, then the general one (`createSalesPrice`), prices and discounts alike. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise). A price group is one of the active configuration's (`pricing.price_groups`; 422 `sales.unknown_price_group` naming `price_group`); without one the customer takes the general records. A customer has one sales data per company: a second is refused (409 `sales.customer_sales_data_exists`), and the first is found with `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with `updateCustomerSalesData`. The items priced before keep their prices. Setting up and changing sales data takes `sales.customer_sales_data.write` and reading it `.read`, not the price permissions, so maintaining prices and assigning customers to price groups can be held by different roles (segregation of duties, product owner 2026-11-18). Audited, and published as CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created. Human-only (`x-agent: false`)."
+      x-permission: sales.customer_sales_data.write
       x-agent: false
       x-problem-codes:
         - config.not_bootstrapped
@@ -22454,7 +22454,7 @@ paths:
         - sales
       summary: Get a customer's sales data
       description: "A customer's sales data in a company (ADR-0067 §13, T80f) with its company's code and name, its customer's number and name and its price group with the group's name. One of a company the caller may not act in is not found (404), as one that does not exist."
-      x-permission: sales.price.read
+      x-permission: sales.customer_sales_data.read
       x-problem-codes:
         - config.not_bootstrapped
       parameters:
@@ -22485,7 +22485,7 @@ paths:
         - sales
       summary: Change a customer's sales data
       description: "Changes a customer's price group in its sales data, with the caller's version of it (`If-Match`; 412 when another change came first): the new group, one of the active configuration's (422 `sales.unknown_price_group` naming `price_group`), or null for none, holds for the items priced from now on; the items priced before keep their prices. A change to the group the sales data already has is refused (422 `sales.nothing_to_change`). The customer and the company do not change. The audit record and CustomerSalesDataChanged carry the group before and after. JSON Merge Patch (RFC 7396) of the one field that changes. Sales data of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
-      x-permission: sales.price.write
+      x-permission: sales.customer_sales_data.write
       x-agent: false
       x-problem-codes:
         - config.not_bootstrapped

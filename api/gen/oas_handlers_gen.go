@@ -18839,7 +18839,10 @@ func (s *Server) handleCreateCustomerInvoiceRequest(args [0]string, argsEscaped 
 // records. A customer has one sales data per company: a second is refused (409
 // `sales.customer_sales_data_exists`), and the first is found with
 // `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with
-// `updateCustomerSalesData`. The items priced before keep their prices. Audited, and published as
+// `updateCustomerSalesData`. The items priced before keep their prices. Setting up and changing sales
+// data takes `sales.customer_sales_data.write` and reading it `.read`, not the price permissions, so
+// maintaining prices and assigning customers to price groups can be held by different roles
+// (segregation of duties, product owner 2026-11-18). Audited, and published as
 // CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created.
 // Human-only (`x-agent: false`).
 //

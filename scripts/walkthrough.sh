@@ -648,7 +648,7 @@ latest_pack() {
 # The permissions of everyone's day-to-day work: all but administering
 # access and the organisation, activating configuration, the AI policy,
 # releasing payments and deciding approvals, which the approver roles hold.
-STAFF_DENIED=' partner.privacy.block partner.privacy.read_blocked records.privacy.delete identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release '
+STAFF_DENIED=' partner.privacy.block partner.privacy.read_blocked records.privacy.delete identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release sales.customer_sales_data.write '
 
 # grant ROLE_ID PERMISSION... grants a role the permissions.
 grant() {
@@ -13665,17 +13665,21 @@ step_price_scales() {
 }
 
 # step_price_groups is T80f (ADR-0067 §13): Ada adds the customer price
-# groups 01 Wholesale and 02 Retail through a governed change; Paula puts
-# Contoso and Northwind in 01 in their sales data for Maple and records
-# 01's price of BRACKET-M8; a second sales data and a record for a
-# customer and a group are refused. Sally's quotation to Contoso takes
-# the group's price, Northwind's its own price and discount: each
-# condition says which step of the access found it. Paula moves Contoso to
-# 02, which has no record, and its next item takes the general price; an
-# unknown group and a stale version are refused.
+# groups 01 Wholesale and 02 Retail through a governed change. Customers'
+# sales data have their own permission (product owner, 2026-11-18):
+# finance_staff does not hold sales.customer_sales_data.write, so Paula,
+# the pricing analyst, is refused setting one up and reads them; Ada gives
+# Sally the role sales_master_data, and Sally puts Contoso and Northwind
+# in 01 in their sales data for Maple; Paula records 01's price of
+# BRACKET-M8; a second sales data and a record for a customer and a group
+# are refused. Sally's quotation to Contoso takes the group's price,
+# Northwind's its own price and discount: each condition says which step
+# of the access found it. Sally moves Contoso to 02, which has no record,
+# and its next item takes the general price; an unknown group and a stale
+# version are refused.
 step_price_groups() {
-  heading "Step 129 — Prices per customer price group: price groups through a governed change, a customer's group in its sales data, a group's price before the general one and after the customer's own, each condition naming its access; a changed group holding for items priced after it"
-  local customer=$CUSTOMER contoso sales until base cr bracket conditions data tag
+  heading "Step 129 — Prices per customer price group: price groups through a governed change, a customer's group in its sales data under its own permission, a group's price before the general one and after the customer's own, each condition naming its access; a changed group holding for items priced after it"
+  local customer=$CUSTOMER contoso sales until base cr bracket conditions data tag role sally
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as ada
   say "Maple sells to wholesalers below its list price. Customer price groups are the tenant's configuration"
@@ -13697,8 +13701,23 @@ step_price_groups() {
   as ruth
   QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Contoso
   contoso=$(field '.items[0].id')
+  as ada
+  say "A customer's price group decides its prices, so who assigns it is kept apart from who maintains prices"
+  say "(product owner, 2026-11-18): the sales data take sales.customer_sales_data.write, which finance_staff does not"
+  say "hold. Ada creates the role of the sales master data team and gives it to Sally:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "sales_master_data", "name": "Sales master data"}'
+  role=$(field .id)
+  grant "$role" sales.customer_sales_data.write
+  sally=$(awk -F'\t' '$2 == "Sally Sales" { print $1 }' "$WORK/names")
+  [ -n "$sally" ] || fail "step 62's Sally is not there"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$sally\", \"role_id\": \"$role\"}"
   as paula
-  say "Paula puts Contoso and Northwind in the wholesale group, in their sales data for Maple:"
+  say "Paula maintains prices; she may read customers' sales data but not set them up:"
+  refused 403 identity.permission_missing createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"01\"}"
+  api 200 '"Contoso'"'"'s sales data: \(.items | length), none set up yet"' listCustomerSalesData -p "customer_id=$contoso"
+  expect "Contoso's sales data, read by Paula" "$(field '.items | length')" 0
+  as sally
+  say "Sally puts Contoso and Northwind in the wholesale group, in their sales data for Maple:"
   api 201 '"sales data of \(.customer_number) \(.customer_name) in \(.company_code): price group \(.price_group) \(.price_group_name), version \(.version)"' \
     createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"01\"}"
   data=$(field .id)
@@ -13708,6 +13727,7 @@ step_price_groups() {
     createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"price_group\": \"01\"}"
   say "A customer has one sales data per company: a second is refused, and the one there is changed instead:"
   refused 409 sales.customer_sales_data_exists createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"02\"}"
+  as paula
   say "Paula records the wholesale price of the bracket, 11.75 CAD. A record is for one customer or for a group, not both:"
   api 201 '"price of \(.item_key) for price group \(.price_group): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), valid from \(.valid_from)"' \
     createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"price_group\": \"01\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"11.75\", \"currency\": \"CAD\"}, \"valid_from\": \"$YEAR-01-01\"}"
@@ -13729,8 +13749,8 @@ step_price_groups() {
     -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$bracket]}"
   expect "Northwind's conditions" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.access) \(.amount.amount)"] | join(", ")')" \
     "PR00 customer 1174.99, K007 customer -58.75"
-  as paula
-  say "Contoso becomes a retail customer. Paula moves it to 02 with her version of its sales data; a group the"
+  as sally
+  say "Contoso becomes a retail customer. Sally moves it to 02 with her version of its sales data; a group the"
   say "configuration does not have is refused, and so is her version once it is stale:"
   refused 422 sales.unknown_price_group updateCustomerSalesData -p "id=$data" -if-match "$tag" -body '{"price_group": "09"}'
   api 200 '"sales data of \(.customer_number): price group \(.price_group) \(.price_group_name), version \(.version)"' \

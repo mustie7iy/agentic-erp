@@ -165,6 +165,39 @@ func TestSalesDataRefusals(t *testing.T) {
 	}
 }
 
+// TestSalesDataPermissions: a customer's sales data is read with
+// sales.customer_sales_data.read and set up and changed with .write
+// (product owner, 2026-11-18): the price permissions, which the caller
+// keeps, give neither, so price maintenance and price group assignment
+// are held apart.
+func TestSalesDataPermissions(t *testing.T) {
+	e := setupGroups(t)
+	path := "/v1/customer-sales-data/" + e.inGroup(t, e.customer, "01")
+	other := e.salesData(e.partner(t, "BP70000002", "Contoso", "active", "customer"), "02")
+	revoke := func(code string) {
+		pgtest.Exec(t, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND permission_code = $2`, e.Tenant.ID, code)
+	}
+	revoke("sales.customer_sales_data.write")
+	t.Run("set up and changed without the write", func(t *testing.T) {
+		e.In(t).Problem(403, "identity.permission_missing", "POST", "/v1/customer-sales-data", other, "")
+		e.In(t).Problem(403, "identity.permission_missing", "PATCH", path, `{"price_group": "02"}`, `"1"`)
+	})
+	t.Run("read with the read alone", func(t *testing.T) {
+		e.In(t).Must(200, "GET", path, "", "")
+		e.In(t).Must(200, "GET", "/v1/customer-sales-data", "", "")
+	})
+	revoke("sales.customer_sales_data.read")
+	t.Run("not read without the read", func(t *testing.T) {
+		e.In(t).Problem(403, "identity.permission_missing", "GET", path, "", "")
+		e.In(t).Problem(403, "identity.permission_missing", "GET", "/v1/customer-sales-data", "", "")
+	})
+	var prices int
+	pgtest.Scan(t, `SELECT count(*) FROM identity.role_permission WHERE tenant_id = $1 AND permission_code LIKE 'sales.price.%'`, []any{e.Tenant.ID}, &prices)
+	if prices == 0 {
+		t.Error("the price permissions: got none held, want the caller to keep them throughout")
+	}
+}
+
 // TestSalesDataChangesRacing: two changes with the same version wait for
 // one another on the row lock; one is made and the other finds the
 // version gone (ADR-0008; T80f acceptance).

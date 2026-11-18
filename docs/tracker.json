@@ -5046,9 +5046,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Customer sales data under its own permission: sales.customer_sales_data.read and .write on /v1/customer-sales-data in place of sales.price.read and .write, so price maintenance and price group assignment are separable (product owner 2026-11-18); existing roles granted the new permission where the old one gave access",
-        "r": "docs/design/plan-depth-3.md §packperm · T80f · ADR-0067 §7 and As built · walkthrough step_price_groups",
+        "r": "docs/design/plan-depth-3.md §packperm · T80f · x-permission of listCustomerSalesData, getCustomerSalesData (.read), createCustomerSalesData, updateCustomerSalesData (.write) · db/migrations/000390 (expand: grants copied) · TestCustomerSalesDataPermissionExpand · TestSalesDataPermissions · ADR-0067 §7, default 27 and As built · 03-data-model §3.29 · walkthrough step_price_groups (role sales_master_data)",
         "src": "po:2026-11-18",
         "c": []
        },

@@ -146,7 +146,8 @@ name the customer by id and number, never by name.
 ### 7. Permissions and agents
 `sales.quotation.read` and `.write` (creating, and recording the
 customer's answer); `sales.order.read`, `.write` and `.confirm`;
-`sales.price.read` and `.write` (§10); the later slices add theirs. None is an approval permission. Every write of the
+`sales.price.read` and `.write` (§10); `sales.customer_sales_data.read` and `.write` (§13, As built
+"Customer sales data under its own permission"); the later slices add theirs. None is an approval permission. Every write of the
 context is human-only (`x-agent: false`) in the first version, as
 receivables' are (ADR-0063 §8): no ADR gives an agent a sales action, and
 the order capture agent is a leaf of its own.
@@ -484,6 +485,10 @@ Taken in T80f (§13):
 27. The sales data is read and written with `sales.price.read` and
     `.write`: it holds the price group alone, which decides nothing but
     prices; a later field with another owner gets its own permission.
+    Overruled by the product owner on 2026-11-18: the sales data has its
+    own permissions, `sales.customer_sales_data.read` and `.write`, so
+    price maintenance and price group assignment can be held apart (As
+    built, "Customer sales data under its own permission").
 28. The access sequence is fixed (customer, price group, general); a
     customer's own record beats its group's even when the group's is
     later.
@@ -2050,3 +2055,46 @@ change documents) is the reference.
   second sales data, a record for a customer and a group, an unknown
   group and a stale version are refused.
 - **Decided by default:** defaults 26-30 above.
+
+### Customer sales data under its own permission (migration 000390)
+The product owner, 2026-11-18 (`plan-depth-3.md` §packperm): a
+customer's price group decides its prices, so who assigns it is kept
+apart from who maintains prices (segregation of duties). Default 27 is
+overruled.
+- Contract: `listCustomerSalesData` and `getCustomerSalesData` take
+  `sales.customer_sales_data.read`, `createCustomerSalesData` and
+  `updateCustomerSalesData` `sales.customer_sales_data.write`, in place
+  of `sales.price.read` and `.write`; the set-up's description says so.
+  No handler changes: the operation's `x-permission` is the check
+  (`internal/platform/authz`). Pricing a quotation or sales order item
+  reads the customer's group in the sales context itself, so order
+  entry needs neither permission.
+- Migration 000390 (expand, 06 §6.4): the two permissions, neither an
+  approval one; every role grant of `sales.price.read` or `.write` in
+  force today or from a later day, in every tenant, copied to the new
+  read or write for the same days from today at the earliest, in the
+  name of whoever made the grant it copies (row-level security off for
+  the migration, the grants read under a SHARE lock so none made
+  meanwhile is missed). An ended grant is not copied. Down removes the
+  grants, the segregation-of-duties rules naming the new permissions and
+  the permissions. A new tenant's administrator holds both, as every
+  permission (`GrantEveryPermission`). Tests: `TestCustomerSalesDataPermission`,
+  `TestCustomerSalesDataPermissionExpand` (db), `TestSalesDataPermissions`
+  (the price permissions give neither).
+- Walkthrough step 129: finance_staff no longer holds
+  `sales.customer_sales_data.write`; Ada creates the role
+  `sales_master_data` holding it and gives it to Sally, who sets up and
+  changes the sales data; Paula, the pricing analyst, is refused setting
+  one up (403 `identity.permission_missing`) and reads them.
+- **Decided by default:** (1) the expand copies the write to every role
+  that held `sales.price.write`, pricing roles included: a role's purpose
+  is not recorded, so the migration cannot tell a pricing role from a
+  master data one, and taking access away on the day of a release is
+  what expand → contract avoids; a tenant takes the write from its
+  pricing roles itself, or adds the segregation-of-duties rule
+  `sales.customer_sales_data.write` / `sales.price.write`, which no
+  migration seeds (rules are the tenant's, ADR-0010). (2) The copied
+  grants write no audit record and publish no event, as no permission
+  seed has: they repeat grants already audited, and the migration runs
+  outside any request. (3) Read stays with every role that read prices,
+  pricing analysts among them: they see which group a customer is in.
