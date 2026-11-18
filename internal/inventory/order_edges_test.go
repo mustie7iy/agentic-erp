@@ -344,12 +344,46 @@ func TestStockReceiptDatabaseFailures(t *testing.T) {
 	}
 	parked := e.parked(t, po, "25.50", invoiced{1, "10", "25.50"})
 	day := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
+	draft, _ := e.Must(201, "POST", "/v1/purchase-orders", e.order(t, "EUR", e.orderItem(nil)), "")
+	draftID := uuid.MustParse(draft["id"].(string))
+	ch, _ := e.Must(201, "POST", "/v1/purchase-orders/"+po.String()+"/changes", mustJSON(t, map[string]any{"reason": "Later delivery",
+		"order_date": "2026-11-02"}), "")
+	change, unchanged := uuid.MustParse(ch["id"].(string)), e.stockOrder(t, "PO-3", "EUR")
 	for name, call := range map[string]func(ctx context.Context) error{
 		"order a stock item": func(ctx context.Context) error {
 			_, err := proc.CreatePurchaseOrder(ctx, &gen.PurchaseOrderCreate{LegalEntityID: e.DE, SupplierID: e.supplier, Currency: "EUR", OrderDate: day,
 				Items: []gen.PurchaseOrderItem{{MaterialID: gen.NewOptUUID(uuid.MustParse(e.bracket)), Description: "Bracket", Quantity: gen.Quantity{Value: "1", Unit: "EA"},
 					UnitPrice: gen.Money{Amount: "2.50", Currency: "EUR"}, AccountID: e.expense, PlantID: gen.NewOptUUID(e.p1),
 					StorageLocationID: gen.NewOptUUID(e.s1)}}}, gen.CreatePurchaseOrderParams{})
+			return err
+		},
+		"release a stock order": func(ctx context.Context) error {
+			_, err := proc.ReleasePurchaseOrder(ctx, gen.ReleasePurchaseOrderParams{ID: draftID, IfMatch: "*"})
+			return err
+		},
+		"read a stock order": func(ctx context.Context) error {
+			_, err := proc.GetPurchaseOrder(ctx, gen.GetPurchaseOrderParams{ID: po})
+			return err
+		},
+		"list stock orders": func(ctx context.Context) error {
+			_, err := proc.ListPurchaseOrders(ctx, gen.ListPurchaseOrdersParams{DocumentNumber: gen.NewOptString("PO-1")})
+			return err
+		},
+		"change a stock order": func(ctx context.Context) error {
+			_, err := proc.CreatePurchaseOrderChange(ctx, &gen.PurchaseOrderChangeCreate{Reason: "Later still", OrderDate: gen.NewOptDate(day)},
+				gen.CreatePurchaseOrderChangeParams{ID: unchanged})
+			return err
+		},
+		"read a stock order's change": func(ctx context.Context) error {
+			_, err := proc.GetPurchaseOrderChange(ctx, gen.GetPurchaseOrderChangeParams{ID: po, ChangeID: change})
+			return err
+		},
+		"list a stock order's changes": func(ctx context.Context) error {
+			_, err := proc.ListPurchaseOrderChanges(ctx, gen.ListPurchaseOrderChangesParams{ID: po})
+			return err
+		},
+		"cancel a stock order's change": func(ctx context.Context) error {
+			_, err := proc.CancelPurchaseOrderChange(ctx, gen.CancelPurchaseOrderChangeParams{ID: po, ChangeID: change, IfMatch: "*"})
 			return err
 		},
 		"receive into stock": func(ctx context.Context) error {
@@ -403,22 +437,26 @@ func TestStockReceiptsAtOnce(t *testing.T) {
 	for i := range invoices {
 		invoices[i] = e.parked(t, billed, "25.00", invoiced{1, "10", "25.00"})
 	}
+	// The requests are built here: a test helper fails the test on the
+	// test's goroutine alone.
+	receipt, issue := e.receipt(t, po, "", 1, "1"), body(t, "201", e.item("1", "EA", map[string]any{"cost_center_id": e.c1}))
+	unordered, posting := body(t, "501", e.item("1", "EA", map[string]any{"amount": amount("2.50")})), mustJSON(t, map[string]any{"posting_date": e.day})
 	var wg sync.WaitGroup
 	statuses := make([]int, 16)
 	for i := range statuses {
+		path, req, ifMatch := "/v1/goods-receipts", receipt, ""
+		switch i % 4 {
+		case 1:
+			path, req = docs, issue
+		case 2:
+			path, req = docs, unordered
+		case 3:
+			path, req, ifMatch = "/v1/supplier-invoices/"+invoices[i/4]+":post", posting, "*"
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			switch i % 4 {
-			case 0:
-				statuses[i], _, _ = e.Do("POST", "/v1/goods-receipts", e.receipt(t, po, "", 1, "1"), "")
-			case 1:
-				statuses[i], _, _ = e.Do("POST", docs, body(t, "201", e.item("1", "EA", map[string]any{"cost_center_id": e.c1})), "")
-			case 2:
-				statuses[i], _, _ = e.Do("POST", docs, body(t, "501", e.item("1", "EA", map[string]any{"amount": amount("2.50")})), "")
-			default:
-				statuses[i], _, _ = e.Do("POST", "/v1/supplier-invoices/"+invoices[i/4]+":post", mustJSON(t, map[string]any{"posting_date": e.day}), "*")
-			}
+			statuses[i], _, _ = e.Do("POST", path, req, ifMatch)
 		}()
 	}
 	wg.Wait()

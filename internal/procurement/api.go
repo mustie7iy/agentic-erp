@@ -564,11 +564,7 @@ func (e *Endpoints) UpdatePurchaseOrder(ctx context.Context, req *gen.PurchaseOr
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.orderOK(ctx, o)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return e.orderOK(ctx, o)
 }
 
 // ReleasePurchaseOrder implements POST /v1/purchase-orders/{id}:release.
@@ -577,11 +573,7 @@ func (e *Endpoints) ReleasePurchaseOrder(ctx context.Context, params gen.Release
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.orderOK(ctx, o)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return e.orderOK(ctx, o)
 }
 
 // ClosePurchaseOrder implements POST /v1/purchase-orders/{id}:close.
@@ -590,11 +582,7 @@ func (e *Endpoints) ClosePurchaseOrder(ctx context.Context, params gen.ClosePurc
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.orderOK(ctx, o)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return e.orderOK(ctx, o)
 }
 
 // CancelPurchaseOrder implements POST /v1/purchase-orders/{id}:cancel.
@@ -603,11 +591,7 @@ func (e *Endpoints) CancelPurchaseOrder(ctx context.Context, params gen.CancelPu
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.orderOK(ctx, o)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return e.orderOK(ctx, o)
 }
 
 // GetPurchaseOrderDocument implements GET /v1/purchase-orders/{id}/document.
@@ -702,11 +686,7 @@ func (e *Endpoints) UpdatePurchaseOrderChange(ctx context.Context, req *gen.Purc
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.changeOK(ctx, ch)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return e.changeOK(ctx, ch)
 }
 
 // CancelPurchaseOrderChange implements POST /v1/purchase-orders/{id}/changes/{change_id}:cancel.
@@ -715,11 +695,7 @@ func (e *Endpoints) CancelPurchaseOrderChange(ctx context.Context, params gen.Ca
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.changeOK(ctx, ch)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return e.changeOK(ctx, ch)
 }
 
 // SubmitPurchaseOrderChange implements POST /v1/purchase-orders/{id}/changes/{change_id}:submit.
@@ -728,11 +704,7 @@ func (e *Endpoints) SubmitPurchaseOrderChange(ctx context.Context, params gen.Su
 	if err != nil {
 		return nil, err
 	}
-	out, err := e.changeOK(ctx, ch)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
+	return e.changeOK(ctx, ch)
 }
 
 // --- goods receipts ---------------------------------------------------------
