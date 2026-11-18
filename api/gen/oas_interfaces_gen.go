@@ -2097,6 +2097,14 @@ type RequestBankAccountEndRes interface {
 	requestBankAccountEndRes()
 }
 
+type ResetIncomingPaymentApplicationRes interface {
+	resetIncomingPaymentApplicationRes()
+}
+
+type ResetIncomingPaymentRes interface {
+	resetIncomingPaymentRes()
+}
+
 type ResumeWebhookSubscriptionRes interface {
 	resumeWebhookSubscriptionRes()
 }

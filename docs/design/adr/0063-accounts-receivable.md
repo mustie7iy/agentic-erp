@@ -974,3 +974,160 @@ The second variant of §6 (`plan-depth-1.md` §T75g).
   payment at a time, applied in order.
 - Not built: refunds of a credit on account, undoing an application,
   one receipt for several customers (the placeholder's "later").
+
+### T75h One receipt for several customers (migration 000363)
+A variant of §6 (`plan-depth-2.md` §T75h): one bank receipt applied to
+the open items of more than one customer, as a parent pays its
+subsidiaries' invoices (SAP's other accounts of F-28, from memory, not
+checked against a source in the lane).
+
+- `POST /v1/incoming-payments` takes `other_customer_ids`: the other
+  customers whose items the receipt pays besides `customer_id`, which
+  stays the payer, the payment's customer (its number heads the clearing
+  entry's text, its account takes what is left `on_account`, and its
+  credit on account is applied to its own items only, T75g). Each is a
+  business partner (422 `request.reference_not_found` naming
+  `other_customer_ids[i]`), not the payer (422
+  `receivables.duplicate_customer`), named once (the contract's
+  `uniqueItems`, 400), and has at least one of the items (422
+  `receivables.customer_without_items`, checked on what the ledger
+  applied, so the posting rolls back). The ledger
+  (`ReceiptApplication.OtherCustomers`) accepts an item of any of them in
+  `checkCustomerItem` (422 `ledger.not_the_customers_item` otherwise, as
+  before) and returns each item's customer (`AppliedReceipt.Customers`).
+  One DZ entry clears the receipt and every customer's items; a residual
+  item is a line of its item's customer (it took the item's partner
+  already), the payment difference is no customer's.
+- The payment shows each item's customer by id, number and name
+  (`IncomingPaymentItem.customer_*`) and `customers`: each customer whose
+  items it applied with the receipt and its part, those items net of
+  their residuals (`IncomingPayment.Parts`, `money.Sum`), the payer first,
+  with zero when none of the items was its own, then the others in the
+  order of their first item. The parts, less `difference` and with what
+  was left on account, are the receipt. `customer_id` on
+  `GET /v1/incoming-payments` also finds a payment that paid that
+  customer's items for another. IncomingPaymentApplied carries
+  `customers` (id, number and part, never the name: product owner
+  2026-11-05), optional so a v1 consumer is unaffected; the audit record
+  carries them too.
+- Schema (000363): `incoming_payment_item.customer_id`, nullable: rows
+  written before it, or by the previous version during a rolling upgrade
+  (06 §6.4), are the payment's customer's and are read as
+  `coalesce(customer_id, payment's customer_id)`. Indexed with the
+  payment for the list's filter. The down migration is refused while an
+  item names another customer than its payment's.
+- **Decided by default:** (1) the payer is the request's `customer_id`,
+  unchanged in meaning, so a payment of one customer is as before; (2)
+  the other customers need not be set up in the company: their items are
+  open items on customer reconciliation accounts, which is the ledger's
+  check, as for the payer; (3) what is left on account is the payer's,
+  never a subsidiary's; (4) an application of a credit on account (T75g)
+  stays with the payer's items; (5) no relationship between the
+  customers is required (a head office or alternative payer in the
+  customer master is not modelled; SAP's alternative payer, from memory,
+  stays later).
+- Tests: `TestReceiptForSeveralCustomers`, `TestSeveralCustomersOnAccount`,
+  `TestSeveralCustomersRefusals` (receivables); `TestSeveralCustomersRevert`
+  (db). Walkthrough `step_receipt_several_customers` (step 116).
+
+### T75i Undoing an application (migration 000364)
+A variant of §6 (`plan-depth-2.md` §T75i): an incoming payment applied to
+the wrong items, or an application of its credit on account (T75g), is
+undone, as SAP's FBRA resets cleared items and reverses the clearing
+document (from memory, not checked against a source in the lane). §6's
+"an application is not undone in the first version" no longer holds.
+
+- **The ledger's reset** (`ledger.Postings.ResetClearing`,
+  `internal/ledger/clearingreset.go`): the clearing a clearing entry made,
+  and its copies' in the other ledgers (clearCopies), is reset: its
+  reset is recorded in `ledger.clearing_reset`, whose trigger
+  (`clearing_reset_moves_items`, security definer as `erp_owner`, under
+  row-level security) keeps its `ledger.clearing_item` rows in
+  `ledger.clearing_reset_item` and deletes them; the clearing item's own
+  trigger (`ledger.clearing_item_reset_only`, replacing
+  `platform.forbid_mutation` there) allows a delete only of a reset
+  clearing (or with the erasure of its tenant), and the application
+  deletes from no tenant table and writes no reset item itself; every reader of open items (the
+  `ledger.open_item` view, `OpenItems.Receivable`, `Receipts`, `Closed`,
+  `loadItems`, the analytics snapshot) reads "not in `clearing_item`" and
+  sees the lines open again unchanged. A line is still cleared at most
+  once at a time (`clearing_item_pkey`). The clearing entry is then
+  reversed by the ledger's reversal (`reverse`, in every ledger of its
+  posting group, `ledger.reversal`), on its own posting date: a period
+  closed since refuses the reset with the posting's problem (409
+  `ledger.period_not_open`) and nothing changes. The lines the entry
+  posted (a residual item, a credit on account, the offsets) are of a
+  reversed entry, no open items, and the reversal clears its own against
+  them as any reversal does. `GET /v1/clearings/{id}` shows a reset
+  clearing with the lines it had cleared and `reset_at`, `reset_by`;
+  ClearingReset (`x-webhook`) names the lines opened again; the audit
+  record is `ledger.clearing.reset`.
+- **Locks and refusals under them:** the entries of the clearing's lines
+  are read without a lock to name them, then locked in one sorted call
+  (`lockEntries`) before anything else, as an application and a reversal
+  of any of them take theirs, and read again under the locks: a line of
+  the entry cleared by another clearing since (a residual item or a credit
+  on account applied) refuses the reset, 409 `ledger.clearing_lines_cleared`
+  (undo that one first), a clearing reset already 409
+  `ledger.clearing_already_reset` (`clearing_reset_pkey` maps to it as a
+  backstop); an entry that made no clearing is 422
+  `ledger.not_a_clearing_entry`. No lock is held across anything but the
+  request's transaction.
+- **Receivables:** `POST /v1/incoming-payments/{id}:reset` undoes the
+  payment's own application of its receipt, once every application of its
+  credit is undone (409 `receivables.applications_in_force`);
+  `POST /v1/incoming-payments/{id}/applications/{application_no}:reset`
+  undoes the latest application in force (409
+  `receivables.application_not_latest`; 404 for a number the payment has
+  not). Each once (409 `receivables.already_reset`;
+  `incoming_payment_reset_once` maps to it), with `If-Match` the payment's
+  version (412) and a reason of 1 to 200 characters, not white space
+  alone; `receivables.payment.apply`, human-only, idempotent. What may be
+  undone is read without a lock; the ledger's check under the locks is
+  what holds (write skew: an application or a reset committed meanwhile
+  is refused there and the request rolls back). A row of
+  `receivables.incoming_payment_reset` records the undoing with the
+  reversal; the payment's `status` is `reset` once its own application is
+  undone (`applied` before), `reset` and each application's `reset` show
+  the reason, the reversal by number, when and by whom; its `version` is
+  1 + applications + undoings. The credit on account (`on_account`) is the
+  line the last application in force left, else the payment's own while
+  it is applied: undoing application n opens the credit it consumed again
+  as it stood. The receipt, once its payment is undone, waits among the
+  unapplied receipts and may be applied again by a new payment; its items
+  too. IncomingPaymentReset (`x-webhook`: the customer by id and number,
+  `application_no`, what it had applied, how many items, the clearing
+  entry and its reversal, and for the payment's own each customer's part,
+  T75h; no reason, which is free text) and the audit
+  record `receivables.incoming_payment.reset` (with the reason).
+- **Schema (000364):** the two ledger tables, insert-only (no insert of
+  a reset item by `erp_app`), the two triggers;
+  `receivables.incoming_payment_reset` (keyed by tenant and reversal, a
+  reversal one undoing's; application NULL for the payment's own; foreign
+  keys to the payment and to the application; once each,
+  `UNIQUE NULLS NOT DISTINCT`; insert-only).
+  `incoming_payment_receipt_once`, `incoming_payment_item_once` and
+  `incoming_payment_application_credit_once` give way to indexes: a
+  receipt, an item and a credit line applied again after an undoing are
+  held to one application at a time by `clearing_item_pkey` under the
+  entries' locks. The down migration is refused while anything was reset.
+- **Decided by default:** (1) a reset always reverses the clearing entry
+  (SAP's "reset and reverse"); a reset alone, leaving the entry's offsets
+  open, stays later; (2) the reversal is dated the clearing entry's own
+  posting date, so a period closed since refuses the undoing (the brief's
+  rule) rather than reversing into the current period; (3) undoings are
+  last first, the payment's own after its applications', matching the
+  chain each application consumes; (4) a reason is required; (5) the
+  reason stays out of the event; (6) only incoming payments' clearings
+  are reset through the API; the ledger's port resets a clearing only for
+  the context and document that posted its entry (`ClearingReset`'s
+  source, 409 `ledger.entry_owned_elsewhere` otherwise, as `:reverse`
+  holds an entry to its owner), manual clearings and settlements being
+  later slices.
+- Tests: `TestResetPayment`, `TestResetResidualClearedSince`,
+  `TestResetApplication`, `TestResetClosedPeriod`, `TestResetConcurrently`,
+  `TestResetRacesAnApplication`,
+  `TestDatabaseFailures` (receivables); `TestResetClearingRefusals`,
+  `TestParallelClearing/reset` (ledger); `TestClearingResetRules`,
+  `TestIncomingPaymentResetRules`, `TestClearingResetRevert` (db).
+  Walkthrough `step_payment_reset` (step 117).

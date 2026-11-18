@@ -230,7 +230,8 @@ func (e env) applied(t *testing.T, got map[string]any, receipt string) {
 		"amount": map[string]any{"amount": "150.00", "currency": "EUR"}, "receipt_journal_entry_id": receipt,
 		"journal_entry_id": got["journal_entry_id"], "journal_entry_year": float64(2026), "journal_entry_number": got["journal_entry_number"],
 		"item_count": float64(3), "residual_count": float64(0), "difference": map[string]any{"amount": "0.00", "currency": "EUR"},
-		"on_account_amount": map[string]any{"amount": "0.00", "currency": "EUR"}}
+		"on_account_amount": map[string]any{"amount": "0.00", "currency": "EUR"},
+		"customers":         []any{map[string]any{"customer_id": e.customer.String(), "customer_number": "BP70000001", "amount": map[string]any{"amount": "150.00", "currency": "EUR"}}}}
 	if a, b := mustJSON(t, payload), mustJSON(t, want); a != b {
 		t.Errorf("event payload: got %s, want %s", a, b)
 	}

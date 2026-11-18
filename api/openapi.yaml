@@ -20006,7 +20006,7 @@ paths:
         - name: customer_id
           in: query
           required: false
-          description: Only the payments applied to this customer's items (business partner id).
+          description: "Only the payments applied to this customer's items (business partner id): those it paid as the payer and those that paid its items for another (T75h)."
           schema:
             type: string
             format: uuid
@@ -20048,7 +20048,7 @@ paths:
       tags:
         - receivables
       summary: Apply an incoming payment to a customer's open items
-      description: "Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency. An item paid in part names its `residual`: what stays open of it, more than zero and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422 `receivables.currency_mismatch`), with a reason (422 `receivables.unknown_residual_reason`) and, if wanted, a free text that is not white space alone (422 `request.validation_failed`). Together the items, net of their residuals, equal the receipt, but for a payment difference within the company's payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's currency and a percent of the items applied, the lower binding; none configured, none allowed); anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; each residual is a new open item of the customer, a debit line of that entry on the item's account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item did; a difference is a line on the company's `payment_difference_expense` account (an underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422 `ledger.no_payment_difference_account` without it); what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). With `on_account`, what the receipt leaves after the items, the whole receipt when there are none, is posted to the customer's reconciliation account (its company data, 422 `receivables.customer_not_usable` without it) as a credit of the customer's at the receipt's rate, a line of the clearing entry, which `applyIncomingPaymentOnAccount` applies later; an overpayment is then left on account rather than kept within the tolerance, and something must be left (422 `receivables.nothing_left_on_account`); without it the items are required (422 `ledger.no_items`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused. An application is not undone in the first version. Human-only (`x-agent: false`)."
+      description: "Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f), and with `other_customer_ids` to other customers' items as well (T75h: one receipt for several customers, each customer's items cleared by the one entry and its part shown in `customers`, a part out of range refused with 422 `receivables.amount_too_large`; a residual item stays its item's customer's, what is left on account the payer's). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency. An item paid in part names its `residual`: what stays open of it, more than zero and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422 `receivables.currency_mismatch`), with a reason (422 `receivables.unknown_residual_reason`) and, if wanted, a free text that is not white space alone (422 `request.validation_failed`). Together the items, net of their residuals, equal the receipt, but for a payment difference within the company's payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's currency and a percent of the items applied, the lower binding; none configured, none allowed); anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; each residual is a new open item of the customer, a debit line of that entry on the item's account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item did; a difference is a line on the company's `payment_difference_expense` account (an underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422 `ledger.no_payment_difference_account` without it); what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). With `on_account`, what the receipt leaves after the items, the whole receipt when there are none, is posted to the customer's reconciliation account (its company data, 422 `receivables.customer_not_usable` without it) as a credit of the customer's at the receipt's rate, a line of the clearing entry, which `applyIncomingPaymentOnAccount` applies later; an overpayment is then left on account rather than kept within the tolerance, and something must be left (422 `receivables.nothing_left_on_account`); without it the items are required (422 `ledger.no_items`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only (`x-agent: false`)."
       x-permission: receivables.payment.apply
       x-agent: false
       x-problem-codes:
@@ -20095,8 +20095,11 @@ paths:
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
         - receivables.amount_not_positive
+        - receivables.amount_too_large
         - receivables.currency_mismatch
         - receivables.customer_not_usable
+        - receivables.customer_without_items
+        - receivables.duplicate_customer
         - receivables.nothing_left_on_account
         - receivables.receipt_already_applied
         - receivables.receipt_not_open
@@ -20131,6 +20134,20 @@ paths:
                   receipt_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
                   items: []
                   on_account: true
+              several_customers:
+                summary: One receipt paying the payer's invoice and a subsidiary's
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  other_customer_ids: ["01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d43"]
+                  receipt_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                  items:
+                    - fiscal_year: 2026
+                      journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
+                      line_no: 1
+                    - fiscal_year: 2026
+                      journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+                      line_no: 1
               part_paid:
                 summary: A receipt that pays an invoice in part, the rest disputed
                 value:
@@ -20303,6 +20320,210 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/incoming-payments/{id}:reset":
+    post:
+      operationId: resetIncomingPayment
+      tags:
+        - receivables
+      summary: Undo an incoming payment applied to the wrong items
+      description: "Undoes an incoming payment's application of its receipt (T75i; SAP FBRA, reset cleared items and reverse): its clearing is reset, so the receipt waits on the house bank's incoming payments clearing account again (`listUnappliedReceipts`) and every item it was applied to is an open item again as it stood, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must still be open (409 `ledger.period_not_open`, and nothing changes): the residual items and the credit on account it left, and the payment difference it wrote off, are taken back with it. Every application of its credit on account must be undone first (409 `receivables.applications_in_force`), and nothing it left may have been cleared since, by another payment or a manual clearing (409 `ledger.clearing_lines_cleared`). A payment is reset once (409 `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it meanwhile). The receipt and the items may then be applied again. `If-Match` is the payment's version, which the reset moves; the answer is the payment, `status` `reset`, with its `reset`. Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. One of a company the caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`)."
+      x-permission: receivables.payment.apply
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.clearing_already_reset
+        - ledger.clearing_lines_cleared
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.not_a_clearing_entry
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unknown_unit
+        - receivables.already_reset
+        - receivables.application_not_latest
+        - receivables.applications_in_force
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why the payment is undone.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncomingPaymentReset"
+            examples:
+              wrong_invoice:
+                summary: A receipt applied to the wrong invoice
+                value:
+                  reason: Applied to invoice CI100003; the remittance names CI100004.
+      responses:
+        "200":
+          description: "The payment, reset."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomingPayment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/incoming-payments/{id}/applications/{application_no}:reset":
+    post:
+      operationId: resetIncomingPaymentApplication
+      tags:
+        - receivables
+      summary: Undo an application of an incoming payment's credit on account
+      description: "Undoes an application of an incoming payment's credit on account (T75i; T75g's `applyIncomingPaymentOnAccount`): its clearing is reset, so the credit it consumed is open on the customer's account again as it stood and every item it was applied to is an open item again, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must still be open (409 `ledger.period_not_open`, and nothing changes): the credit and the residual items it left are taken back with it. Only the payment's latest application still in force is undone (409 `receivables.application_not_latest`: undo the later ones first), once (409 `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it meanwhile), and nothing it left may have been cleared since (409 `ledger.clearing_lines_cleared`). `If-Match` is the payment's version, which the reset moves; the answer is the payment, the application with its `reset` and `on_account` showing the credit open again. Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. A number that is none of the payment's applications, or a payment of a company the caller may not act in, is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`)."
+      x-permission: receivables.payment.apply
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.clearing_already_reset
+        - ledger.clearing_lines_cleared
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.not_a_clearing_entry
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unknown_unit
+        - receivables.already_reset
+        - receivables.application_not_latest
+        - receivables.applications_in_force
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: application_no
+          in: path
+          required: true
+          description: "The application's number in the payment (`applications[].application_no`)."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why the application is undone.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncomingPaymentReset"
+            examples:
+              wrong_invoice:
+                summary: A credit applied to the wrong invoice
+                value:
+                  reason: The credit was meant for invoice CI100004.
+      responses:
+        "200":
+          description: "The payment, the application reset."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomingPayment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
         "422":
           $ref: "#/components/responses/Unprocessable"
         "428":
@@ -47117,7 +47338,7 @@ components:
           journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dae"
           line_no: 1
     Clearing:
-      description: "A clearing: open items settled against each other, with the clearing journal entry. Insert-only; a line is cleared at most once."
+      description: "A clearing: open items settled against each other, with the clearing journal entry. Insert-only; a line is cleared at most once at a time: a clearing that is reset (T75i) opens its lines again."
       allOf:
         - $ref: "#/components/schemas/InsertOnlyFields"
         - type: object
@@ -47146,7 +47367,17 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/ClearingItemRef"
-              description: Cleared lines.
+              description: "Cleared lines; a reset clearing's, the lines it had cleared."
+              readOnly: true
+            reset_at:
+              type: string
+              format: date-time
+              description: "When the clearing was reset (T75i: an incoming payment or an application of its credit undone), its lines opened again and its clearing entry reversed; absent while it holds."
+              readOnly: true
+            reset_by:
+              type: string
+              format: uuid
+              description: "Who reset it (`GET /v1/principal-names`); absent while it holds."
               readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
@@ -56583,7 +56814,14 @@ components:
       additionalProperties: false
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company that received the payment: a legal entity the caller may act in."}
-        customer_id: {type: string, format: uuid, description: "The customer whose open items the payment is applied to (business partner id)."}
+        customer_id: {type: string, format: uuid, description: "The customer whose open items the payment is applied to (business partner id): the payer, whose account takes what is left `on_account`."}
+        other_customer_ids:
+          type: array
+          minItems: 0
+          maxItems: 50
+          uniqueItems: true
+          items: {type: string, format: uuid}
+          description: "The other customers whose open items the same receipt pays (T75h; SAP's other accounts of a payment, as a parent pays its subsidiaries' invoices), business partners each with at least one of the items (422 `receivables.customer_without_items`), not the payer (422 `receivables.duplicate_customer`) and each named once (400 `request.invalid_body`); absent or empty: the payer's items only."
         receipt_journal_entry_id: {type: string, format: uuid, description: "The receipt: the journal entry a bank statement line matched as incoming posted, waiting on a house bank's incoming payments clearing account (`listUnappliedReceipts`)."}
         posting_date: {type: string, format: date, description: "The posting date of the clearing entry; absent: today, the company's date in its time zone (`companies[].time_zone`)."}
         items:
@@ -56592,7 +56830,7 @@ components:
           maxItems: 999
           uniqueItems: true
           items: {$ref: "#/components/schemas/IncomingPaymentItemRef"}
-          description: "The customer's open items the payment is applied to (`GET /v1/open-items`), invoices and credits, each with a residual item if it is paid in part; together, net of their residuals, they equal the receipt, in its currency, but for a difference within the company's payment tolerance and, with `on_account`, what is left on account. Empty only with `on_account`."
+          description: "The open items the payment is applied to (`GET /v1/open-items`), the payer's and the other customers', invoices and credits, each with a residual item if it is paid in part; together, net of their residuals, they equal the receipt, in its currency, but for a difference within the company's payment tolerance and, with `on_account`, what is left on account. Empty only with `on_account`."
         on_account: {type: boolean, default: false, description: "Leave what the receipt has left after the items, the whole receipt when there are none, on the customer's account as a credit of the customer's (T75g): an open item that `applyIncomingPaymentOnAccount` applies later. Something must be left (422 `receivables.nothing_left_on_account`)."}
     IncomingPaymentItemRef:
       type: object
@@ -56643,9 +56881,12 @@ components:
     IncomingPaymentItem:
       type: object
       description: "An open item an incoming payment was applied to, identified by (fiscal_year, journal_entry_id, line_no)."
-      required: [item_no, application_no, fiscal_year, journal_entry_id, line_no, journal_entry_number, reference, amount]
+      required: [item_no, application_no, customer_id, customer_number, customer_name, fiscal_year, journal_entry_id, line_no, journal_entry_number, reference, amount]
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the payment, in the order of the requests.", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The customer whose item it is: the payment's or one of the other customers it paid (T75h) (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "That customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "That customer's name, as it is now.", readOnly: true}
         application_no: {type: integer, format: int32, minimum: 0, description: "The application that applied the item: 0 for the payment itself, else the number of the application of its credit on account (`applications`).", readOnly: true}
         fiscal_year: {type: integer, format: int32, description: "Fiscal year of the item's journal entry.", readOnly: true}
         journal_entry_id: {type: string, format: uuid, description: "The item's journal entry (`GET /v1/journal-entries/{id}`).", readOnly: true}
@@ -56655,21 +56896,32 @@ components:
         amount: {$ref: "#/components/schemas/Money", description: "The amount the item stood at, in the payment's currency: positive for what the customer owed (an invoice), negative for a credit of the customer's."}
         residual: {$ref: "#/components/schemas/IncomingPaymentResidual", description: "The residual item the payment left of the item, paid in part; absent when the payment cleared it in full."}
     IncomingPayment:
-      description: "An incoming payment applied to a customer's open items (accounts receivable, ADR-0063 §6): a receipt from a house bank's incoming payments clearing account, cleared with the items by one journal entry. It is written once and never changed, so its `version` is 1."
+      description: "An incoming payment applied to a customer's open items (accounts receivable, ADR-0063 §6): a receipt from a house bank's incoming payments clearing account, cleared with the items by one journal entry. Its `version` is 1 when it is applied and moves with each application of its credit on account (T75g) and each undoing (T75i)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, posting_date, currency, amount,
+          required: [document_number, status, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, customers, posting_date, currency, amount,
             difference, applications, receipt_journal_entry_id, receipt_journal_entry_year, receipt_journal_entry_number, receipt_account_id, receipt_account_number,
             receipt_account_name, journal_entry_id, journal_entry_year, journal_entry_number, items]
           properties:
             document_number: {type: string, description: "The document number, from the company's `incoming_payment` number range.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [applied, reset]
+              description: "`applied`: the receipt is applied, its clearing in force; `reset`: the application was undone (`resetIncomingPayment`, T75i), the receipt and the items open again and `reset` saying when and why. Open enumeration: clients accept values they do not know."
+              readOnly: true
+            reset: {$ref: "#/components/schemas/IncomingPaymentResetDone", description: "The undoing of the payment's application of its receipt; absent while it is applied."}
             legal_entity_id: {type: string, format: uuid, description: "The company that received the payment.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
             company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
             customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
             customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
             customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            customers:
+              type: array
+              items: {$ref: "#/components/schemas/IncomingPaymentCustomer"}
+              description: "Each customer whose items the payment applied with the receipt (T75h), the payer first (its part zero when none of the items was its own), then the others in the order of their first item, with its part; the parts less `difference`, and with what was left `on_account`, are the receipt."
+              readOnly: true
             posting_date: {type: string, format: date, description: "The posting date of the clearing entry.", readOnly: true}
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The payment's currency (ISO 4217), the receipt's and every item's.", readOnly: true}
             amount: {$ref: "#/components/schemas/Money", description: "What was received: the receipt's amount. It is the items' amounts less their residuals and less `difference`."}
@@ -56705,12 +56957,18 @@ components:
           updated_at: "2026-11-12T14:03:11Z"
           updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
           document_number: IP100001
+          status: applied
           legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
           company_code: "3000"
           company_name: Maple Industries Canada
           customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
           customer_number: BP100042
           customer_name: Northwind Traders
+          customers:
+            - customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+              customer_number: BP100042
+              customer_name: Northwind Traders
+              amount: {amount: "1050.00", currency: CAD}
           posting_date: "2026-11-12"
           currency: CAD
           amount: {amount: "1050.00", currency: CAD}
@@ -56728,19 +56986,31 @@ components:
           items:
             - item_no: 1
               application_no: 0
+              customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+              customer_number: BP100042
+              customer_name: Northwind Traders
               fiscal_year: 2026
               journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
               line_no: 1
               journal_entry_number: "1800000001"
               reference: CI100001
               amount: {amount: "1050.00", currency: CAD}
+    IncomingPaymentCustomer:
+      type: object
+      description: "A customer whose open items an incoming payment applied with its receipt, and its part (T75h)."
+      required: [customer_id, customer_number, customer_name, amount]
+      properties:
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "Its part of the receipt: its items applied with the receipt, net of their residuals, in the payment's currency; negative when its credits exceed its invoices."}
     IncomingPaymentOnAccount:
       type: object
       description: "What an incoming payment left on the customer's account (T75g): a credit of the customer's on its reconciliation account, a line of the payment's clearing entry, which each application of it consumes, leaving what the items do not take as a new credit line."
       required: [amount, open_amount]
       properties:
         amount: {$ref: "#/components/schemas/Money", description: "What the payment left on account, in its currency."}
-        open_amount: {$ref: "#/components/schemas/Money", description: "What of it is still open on account: the credit the last application left, or the payment's own before any; zero when it is all applied, or was cleared otherwise (a manual clearing, or netted as a credit item by another payment)."}
+        open_amount: {$ref: "#/components/schemas/Money", description: "What of it is still open on account: the credit the last application in force left, or the payment's own before any (an application undone, T75i, opens the credit it consumed again); zero when it is all applied, was cleared otherwise (a manual clearing, or netted as a credit item by another payment), or the payment was undone."}
         fiscal_year: {type: integer, format: int32, description: "Fiscal year of the open credit's journal entry; absent when nothing is open.", readOnly: true}
         journal_entry_id: {type: string, format: uuid, description: "The journal entry the open credit is a line of (`GET /v1/journal-entries/{id}`); absent when nothing is open.", readOnly: true}
         journal_entry_number: {type: string, description: "That entry's document number; absent when nothing is open.", readOnly: true}
@@ -56760,6 +57030,7 @@ components:
         journal_entry_number: {type: string, description: "The clearing entry's document number.", readOnly: true}
         created_at: {type: string, format: date-time, description: "When it was applied.", readOnly: true}
         created_by: {type: string, format: uuid, description: "Who applied it (`GET /v1/principal-names`).", readOnly: true}
+        reset: {$ref: "#/components/schemas/IncomingPaymentResetDone", description: "The undoing of the application (`resetIncomingPaymentApplication`, T75i); absent while it is in force."}
     IncomingPaymentApplicationCreate:
       type: object
       description: "Apply a payment's credit on account to the customer's open items."
@@ -56774,6 +57045,24 @@ components:
           uniqueItems: true
           items: {$ref: "#/components/schemas/IncomingPaymentItemRef"}
           description: "The customer's open items the credit is applied to, invoices and credits, each with a residual item if it is paid in part; together, net of their residuals, at most the credit, but for an underpayment within the company's payment tolerance. What they leave stays on account."
+    IncomingPaymentReset:
+      type: object
+      description: "Undo an incoming payment's application, or an application of its credit on account (T75i)."
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 200, description: "Why it is undone, not white space alone (422 `request.validation_failed`): the audit record and the payment keep it."}
+    IncomingPaymentResetDone:
+      type: object
+      description: "The reset of an incoming payment's application, or of an application of its credit on account (T75i): its clearing reset, its clearing entry reversed."
+      required: [reason, journal_entry_id, journal_entry_year, journal_entry_number, created_at, created_by]
+      properties:
+        reason: {type: string, description: "Why it was undone.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The reversal of the clearing entry (`GET /v1/journal-entries/{id}`), dated that entry's posting date.", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The reversal's fiscal year.", readOnly: true}
+        journal_entry_number: {type: string, description: "The reversal's document number.", readOnly: true}
+        created_at: {type: string, format: date-time, description: "When it was undone.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "Who undid it (`GET /v1/principal-names`).", readOnly: true}
     IncomingPaymentPage:
       type: object
       description: One page of incoming payments applied.

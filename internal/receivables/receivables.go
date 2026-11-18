@@ -10,7 +10,10 @@
 // customer's open item with its payment terms, and credits revenue and
 // output tax. An incoming payment waiting on a house bank's incoming
 // payments clearing account is applied to the customer's open items in
-// full and exactly (T75c, ADR-0063 §6; incoming.go). A credit memo is the
+// full and exactly (T75c, ADR-0063 §6; incoming.go), or with residual
+// items, a tolerated difference and what is left on account (T75f,
+// T75g), to the items of several customers (T75h), and undone by the
+// ledger's reset of its clearing (T75i, reset.go). A credit memo is the
 // same document with the kind credit_memo, posted with the signs turned;
 // one naming an invoice may not, with the other posted memos naming it,
 // exceed that invoice's gross amount (T75d, ADR-0063 §7; kinds.go). The
@@ -85,10 +88,12 @@ type Terms interface {
 }
 
 // Postings is the ledger's posting port (03 §3.16): a customer invoice's
-// entry, and the entry that applies a receipt to a customer's open items.
+// entry, the entry that applies a receipt to a customer's open items, and
+// the reset of that entry's clearing with its reversal (T75i).
 type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
 	ApplyReceipt(ctx context.Context, in ledger.ReceiptApplication) (ledger.AppliedReceipt, error)
+	ResetClearing(ctx context.Context, in ledger.ClearingReset) (ledger.Entry, error)
 }
 
 // Entries names journal entries by their document numbers and by their

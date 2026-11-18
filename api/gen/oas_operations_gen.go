@@ -530,6 +530,8 @@ const (
 	ReportBankFileStatusOperation                  OperationName = "ReportBankFileStatus"
 	RequestBankAccountChangeOperation              OperationName = "RequestBankAccountChange"
 	RequestBankAccountEndOperation                 OperationName = "RequestBankAccountEnd"
+	ResetIncomingPaymentOperation                  OperationName = "ResetIncomingPayment"
+	ResetIncomingPaymentApplicationOperation       OperationName = "ResetIncomingPaymentApplication"
 	ResumeWebhookSubscriptionOperation             OperationName = "ResumeWebhookSubscription"
 	RetireCatalogItemOperation                     OperationName = "RetireCatalogItem"
 	RetireControlOperation                         OperationName = "RetireControl"

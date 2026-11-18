@@ -46,17 +46,26 @@ type Clearing struct {
 	Items         []ItemRef
 	CreatedAt     time.Time
 	CreatedBy     uuid.UUID
+	// ResetAt and ResetBy are when and by whom the clearing was reset
+	// (T75i); nil while it holds.
+	ResetAt *time.Time
+	ResetBy *uuid.UUID
 }
 
 // The clearing entry's own lines are cleared with the items but are not
 // items the caller asked to clear, so they are left out. A clearing by a
 // copy in another ledger is part of the clearing by its posting group's
-// first entry (clearCopies) and is not shown by itself.
+// first entry (clearCopies) and is not shown by itself. A reset clearing
+// (T75i, clearingreset.go) shows the lines it had cleared, which its reset
+// kept, and when and by whom it was reset.
 const clearingSelect = `SELECT c.id, c.legal_entity_id, c.clearing_date, c.clearing_entry_year, c.clearing_entry_id, c.created_at, c.created_by,
 		(SELECT json_agg(json_build_object('fiscal_year', i.fiscal_year, 'journal_entry_id', i.journal_entry_id, 'line_no', i.line_no)
 			ORDER BY i.fiscal_year, i.journal_entry_id, i.line_no)
-		 FROM ledger.clearing_item i WHERE i.tenant_id = c.tenant_id AND i.clearing_id = c.id AND i.journal_entry_id <> c.clearing_entry_id)
-	FROM ledger.clearing c`
+		 FROM (SELECT fiscal_year, journal_entry_id, line_no FROM ledger.clearing_item WHERE tenant_id = c.tenant_id AND clearing_id = c.id
+			UNION ALL SELECT fiscal_year, journal_entry_id, line_no FROM ledger.clearing_reset_item WHERE tenant_id = c.tenant_id AND clearing_id = c.id) i
+		 WHERE i.journal_entry_id <> c.clearing_entry_id),
+		r.reset_at, r.reset_by
+	FROM ledger.clearing c LEFT JOIN ledger.clearing_reset r ON r.tenant_id = c.tenant_id AND r.clearing_id = c.id`
 
 // shownClearing is the SQL condition that the clearing c is not a copy's
 // (see clearingSelect); every read of clearings appends it.
@@ -65,7 +74,8 @@ const shownClearing = `NOT EXISTS (SELECT FROM ledger.journal_entry ce WHERE ce.
 
 func scanClearing(row pgx.Row) (Clearing, error) {
 	var c Clearing
-	err := errs.Wrapf(row.Scan(&c.ID, &c.LegalEntityID, &c.ClearingDate, &c.EntryYear, &c.EntryID, &c.CreatedAt, &c.CreatedBy, &c.Items), "scan clearing")
+	err := errs.Wrapf(row.Scan(&c.ID, &c.LegalEntityID, &c.ClearingDate, &c.EntryYear, &c.EntryID, &c.CreatedAt, &c.CreatedBy, &c.Items, &c.ResetAt, &c.ResetBy),
+		"scan clearing")
 	return c, err
 }
 

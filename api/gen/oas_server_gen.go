@@ -1690,27 +1690,30 @@ type Handler interface {
 	CreateHierarchy(ctx context.Context, req *HierarchyCreate, params CreateHierarchyParams) (CreateHierarchyRes, error)
 	// CreateIncomingPayment implements createIncomingPayment operation.
 	//
-	// Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f). The payment is a
-	// receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits
-	// as an open item on the house bank's incoming payments clearing account (ADR-0047);
-	// `listUnappliedReceipts` lists them. The items are open items of the customer on customer
-	// reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the
-	// receipt's currency. An item paid in part names its `residual`: what stays open of it, more than zero
-	// and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming
-	// `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's
-	// currency (422 `receivables.currency_mismatch`), with a reason (422
-	// `receivables.unknown_residual_reason`) and, if wanted, a free text that is not white space alone
-	// (422 `request.validation_failed`). Together the items, net of their residuals, equal the receipt,
-	// but for a payment difference within the company's payment tolerance
-	// (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's
-	// currency and a percent of the items applied, the lower binding; none configured, none allowed);
-	// anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No
-	// cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`,
-	// offsets the receipt and every item at the amounts they were booked at and clears them all; each
-	// residual is a new open item of the customer, a debit line of that entry on the item's account at the
-	// item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item
-	// did; a difference is a line on the company's `payment_difference_expense` account (an underpayment)
-	// or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
+	// Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f), and with
+	// `other_customer_ids` to other customers' items as well (T75h: one receipt for several customers,
+	// each customer's items cleared by the one entry and its part shown in `customers`, a part out of
+	// range refused with 422 `receivables.amount_too_large`; a residual item stays its item's customer's,
+	// what is left on account the payer's). The payment is a receipt: the journal entry a bank statement
+	// line matched as incoming posted, whose credit line waits as an open item on the house bank's
+	// incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are
+	// open items of the customer on customer reconciliation accounts of the company
+	// (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency. An item paid in part
+	// names its `residual`: what stays open of it, more than zero and less than the item, which is an
+	// amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more
+	// than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422
+	// `receivables.currency_mismatch`), with a reason (422 `receivables.unknown_residual_reason`) and, if
+	// wanted, a free text that is not white space alone (422 `request.validation_failed`). Together the
+	// items, net of their residuals, equal the receipt, but for a payment difference within the company's
+	// payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in
+	// the company's currency and a percent of the items applied, the lower binding; none configured, none
+	// allowed); anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the
+	// difference. No cash discount is granted. One clearing entry, document type `DZ`, `source_context`
+	// `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them
+	// all; each residual is a new open item of the customer, a debit line of that entry on the item's
+	// account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due
+	// when the item did; a difference is a line on the company's `payment_difference_expense` account (an
+	// underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
 	// `ledger.no_payment_difference_account` without it); what that leaves in local or group currency,
 	// receipt and items having been booked at different rates, is a realized exchange difference on the
 	// company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date
@@ -1735,7 +1738,7 @@ type Handler interface {
 	// (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its
 	// place in the request as the field `items[i]`. Nothing is posted when the application is refused. A
 	// retry with the same `Idempotency-Key` answers the payment applied; another request for the same
-	// receipt is refused. An application is not undone in the first version. Human-only
+	// receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only
 	// (`x-agent: false`).
 	//
 	// POST /v1/incoming-payments
@@ -7215,6 +7218,45 @@ type Handler interface {
 	//
 	// POST /v1/business-partners/{id}/bank-accounts/{bank_account_id}:end
 	RequestBankAccountEnd(ctx context.Context, req *BankAccountEnd, params RequestBankAccountEndParams) (RequestBankAccountEndRes, error)
+	// ResetIncomingPayment implements resetIncomingPayment operation.
+	//
+	// Undoes an incoming payment's application of its receipt (T75i; SAP FBRA, reset cleared items and
+	// reverse): its clearing is reset, so the receipt waits on the house bank's incoming payments clearing
+	// account again (`listUnappliedReceipts`) and every item it was applied to is an open item again as it
+	// stood, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so
+	// that period must still be open (409 `ledger.period_not_open`, and nothing changes): the residual
+	// items and the credit on account it left, and the payment difference it wrote off, are taken back
+	// with it. Every application of its credit on account must be undone first (409
+	// `receivables.applications_in_force`), and nothing it left may have been cleared since, by another
+	// payment or a manual clearing (409 `ledger.clearing_lines_cleared`). A payment is reset once (409
+	// `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it
+	// meanwhile). The receipt and the items may then be applied again. `If-Match` is the payment's
+	// version, which the reset moves; the answer is the payment, `status` `reset`, with its `reset`.
+	// Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. One of a company the
+	// caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as
+	// the first answered it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/incoming-payments/{id}:reset
+	ResetIncomingPayment(ctx context.Context, req *IncomingPaymentReset, params ResetIncomingPaymentParams) (ResetIncomingPaymentRes, error)
+	// ResetIncomingPaymentApplication implements resetIncomingPaymentApplication operation.
+	//
+	// Undoes an application of an incoming payment's credit on account (T75i; T75g's
+	// `applyIncomingPaymentOnAccount`): its clearing is reset, so the credit it consumed is open on the
+	// customer's account again as it stood and every item it was applied to is an open item again, and its
+	// clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must
+	// still be open (409 `ledger.period_not_open`, and nothing changes): the credit and the residual items
+	// it left are taken back with it. Only the payment's latest application still in force is undone (409
+	// `receivables.application_not_latest`: undo the later ones first), once (409
+	// `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it
+	// meanwhile), and nothing it left may have been cleared since (409 `ledger.clearing_lines_cleared`).
+	// `If-Match` is the payment's version, which the reset moves; the answer is the payment, the
+	// application with its `reset` and `on_account` showing the credit open again. Audited, and published
+	// as IncomingPaymentReset and the ledger's ClearingReset. A number that is none of the payment's
+	// applications, or a payment of a company the caller may not act in, is not found. A retry with the
+	// same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/incoming-payments/{id}/applications/{application_no}:reset
+	ResetIncomingPaymentApplication(ctx context.Context, req *IncomingPaymentReset, params ResetIncomingPaymentApplicationParams) (ResetIncomingPaymentApplicationRes, error)
 	// ResumeWebhookSubscription implements resumeWebhookSubscription operation.
 	//
 	// Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event

@@ -1411,6 +1411,12 @@ func reversibleEntry(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(
 	if err := lockEntries(ctx, tx, false, []uuid.UUID{id}); err != nil {
 		return Entry{}, err
 	}
+	return checkReversible(ctx, tx, id, ifMatch, cancelling)
+}
+
+// checkReversible reads the entry under its lock, which the caller holds,
+// refusing it as reversibleEntry does.
+func checkReversible(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(Entry) error, cancelling uuid.UUID) (Entry, error) {
 	orig, err := getEntry(ctx, tx, id)
 	if err != nil {
 		return Entry{}, err
