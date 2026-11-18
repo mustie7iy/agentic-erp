@@ -3368,8 +3368,9 @@ line or reservation. An agent's budget is identity's
 - financial effects only through `ledger` postings (`source_context`,
   `source_document_id` on the journal entry);
 - partners via `partner` roles (`customer` joins `supplier`);
-- a shared `material` master in a future `product` context, referenced by id
-  from procurement, inventory, sales and manufacturing;
+- a shared `material` master, referenced by id from procurement, inventory,
+  sales and manufacturing: the `materials` context (§3.34, ADR-0082, which
+  names it `materials` rather than `product`);
 - controlling dimensions (cost center, profit center, internal order, WBS
   element) added to `journal_line` as nullable `uuid` columns, so ledger and
   controlling stay one table, as in SAP's Universal Journal.
@@ -6125,3 +6126,240 @@ erDiagram
   (`LeaseContractChanged`, `LeaseRunPosted`).
 - Permissions `leases.contract.read`, `.write` and `.activate`, and
   `leases.run.post`.
+
+## 3.34 Material master (`materials`)
+
+ADR-0082, S1a. The material master: it reads tenancy's companies and org
+units, the configuration's number ranges and company dates and the
+ledger's fiscal calendar through its ports and keeps no foreign key out of
+its schema but `ref`'s (02 §2.1). Plants and storage locations are
+tenancy's org units (§3.3). S1a (migration 000373) builds the schema with
+its outbox and inbox, the material, its plants, storage locations and
+alternative units. Nothing is deleted: a plant, storage location or unit
+taken off a material is marked removed and given back by clearing the
+mark.
+
+```mermaid
+erDiagram
+  material ||--o{ plant_data : "extended to"
+  plant_data ||--o{ storage_location_data : "kept in"
+  material ||--o{ unit_conversion : "alternative units"
+  material { uuid id PK
+    text number "material range of its company, once in the tenant"
+    uuid legal_entity_id "tenancy: the numbering company"
+    text description "1 to 200 characters"
+    text base_uom_code "ref, fixed"
+    text material_type "fixed"
+    text material_group "1 to 9 of A-Z 0-9 - _"
+    text status "pending, active, blocked"
+    int version }
+  material ||--o{ material_change : "changed by"
+  material_change { uuid id PK
+    text number "MC and 8 digits"
+    text kind "create, update, block, unblock"
+    jsonb payload
+    jsonb possible_duplicates
+    text status "pending, applied, rejected, cancelled"
+    uuid workflow_request_id "workflow" }
+  plant_data { uuid material_id PK
+    uuid plant_id PK "tenancy: a plant"
+    uuid legal_entity_id "tenancy: the plant's company"
+    timestamptz removed_at }
+  storage_location_data { uuid material_id PK
+    uuid storage_location_id PK "tenancy: under the plant"
+    uuid plant_id FK
+    timestamptz removed_at }
+  unit_conversion { uuid material_id PK
+    text uom_code PK "ref, not the base unit"
+    int numerator "1 to 1000000"
+    int denominator "1 to 1000000"
+    timestamptz removed_at }
+```
+
+- `materials.material`: a material (SAP MARA with MAKT's one
+  description). Its number is 1 to 40 characters
+  (`material_number_check`), once in the tenant (`material_number_once`,
+  409 `materials.number_taken`), drawn from the `material` range of
+  `legal_entity_id`; the description is 1 to 200 characters and not blank
+  (`material_description_check`); the base unit is a unit of measure
+  (`material_base_uom_code_fkey`); the type is `raw_material`,
+  `semi_finished`, `finished_good`, `trading_good`, `non_stock` or
+  `service` (`material_type_check`); the group is 1 to 9 capitals, digits,
+  `-` or `_` (`material_group_check`); the status is `pending` (until its create change is approved), `active` or
+  `blocked` (`material_status_check`) and the version at least 1
+  (`material_version_check`). The number, company, base unit and type do
+  not change (`material_fixed`, a trigger). The list reads by number
+  (`material_number_once`). The application creates materials and changes
+  their description, group, status and version; it deletes none.
+- `materials.plant_data`: the material at a plant (MARC) of a material
+  that exists (`plant_data_material_fkey`), once (`plant_data_pkey`), with
+  the plant's company; a plant's materials are read by
+  `plant_data_by_plant`. `removed_at` and `removed_by` are set together or
+  not at all (`plant_data_removed_check`); they are the only columns the
+  application updates.
+- `materials.storage_location_data`: the material at a storage location
+  (MARD's key; the stock is the inventory context's) of one of its plants
+  (`storage_location_data_plant_fkey`), once
+  (`storage_location_data_pkey`), removed as a plant is
+  (`storage_location_data_removed_check`).
+- `materials.unit_conversion`: an alternative unit (MARM) of a material
+  that exists (`unit_conversion_material_fkey`), a unit of measure
+  (`unit_conversion_uom_code_fkey`) other than its base unit
+  (`unit_conversion_not_base`, a trigger), once (`unit_conversion_pkey`):
+  one `uom_code` is `numerator` / `denominator` base units, each 1 to
+  1,000,000 (`unit_conversion_numerator_check`,
+  `unit_conversion_denominator_check`). The application updates the
+  factors and the removal mark (`unit_conversion_removed_check`) alone.
+- `materials.material_change` (S1b, migrations 000374 and 000375): a
+  governed change of a material (`material_change_material_fkey`),
+  numbered `MC` and eight digits (`material_change_number_check`) once in
+  the tenant (`material_change_number_once`), of kind `create`, `update`,
+  `block` or `unblock` (`material_change_kind_check`) and status
+  `pending`, `applied`, `rejected` or `cancelled`
+  (`material_change_status_check`), applied exactly when it has
+  `applied_at` (`material_change_applied_check`); its payload is an object
+  (`material_change_payload_object`), its possible duplicates an array
+  (`material_change_possible_duplicates_array`), its reason at most 500
+  characters (`material_change_reason_check`), its version at least 1
+  (`material_change_version_check`). One pending change per material
+  (`material_change_one_pending`). A material's changes are read by
+  `material_change_by_material`, the tenant's by `material_change_by_created`.
+  The application writes changes and their status; it deletes none.
+  `materials.material.status` gains `pending` (000374, validated by
+  000375), and `material_normalized_description` serves the duplicate
+  check by `platform.normalized_text(description)`.
+- `materials.outbox`, `materials.inbox`: the context's events
+  (`MaterialChanged`, `MaterialChangeChanged`).
+- Permissions `materials.material.read` and `.write`, and the approval
+  permission `materials.change.approve`.
+
+## 3.35 Inventory management (`inventory`)
+
+ADR-0082, S1c. Stock by location and goods movements: the context reads
+the materials context's published API, tenancy's companies and org units,
+the ledger's cost centers and fiscal calendar and the configuration's
+number ranges and company dates through its ports, and keeps no foreign
+key out of its schema but `ref`'s (02 §2.1). S1c (migration 000376) builds
+the schema with its outbox and inbox, material documents, their movements
+and the stock; S1d (000377, 000378) the valuations and price changes, and
+posts the value of movements and price changes through the ledger's
+posting port. Documents, movements and price changes are insert-only: a
+mistaken document is reversed by another.
+
+```mermaid
+erDiagram
+  material_document ||--|{ movement : "lines"
+  material_document ||--o| material_document : "reversed by"
+  stock ||--o{ movement : "the sum of"
+  material_document { uuid id PK
+    uuid legal_entity_id "tenancy: its plants' company"
+    smallint fiscal_year
+    text number "material_document range, once per company and year"
+    text movement_type "501 561 201 551 311 301 and their reversals"
+    date posting_date "the company's date"
+    text header_text "1 to 200"
+    uuid reversal_of_id FK "once" }
+  movement { uuid material_document_id PK
+    smallint line_no PK "1 to 200"
+    smallint item_no "1 to 100"
+    uuid material_id "materials"
+    uuid plant_id "tenancy"
+    uuid storage_location_id "tenancy"
+    numeric quantity "base unit, signed, not 0"
+    numeric entry_quantity "positive"
+    text entry_uom_code "ref"
+    uuid cost_center_id "ledger" }
+  valuation ||--o{ price_change : "revalued by"
+  valuation { uuid id PK
+    uuid material_id "once per material and plant"
+    uuid plant_id
+    text valuation_class
+    text price_control "standard, moving_average"
+    bigint price "per price_unit"
+    numeric quantity
+    bigint value }
+  price_change { uuid id PK
+    bigint old_price
+    bigint new_price
+    bigint amount "revaluation"
+    uuid journal_entry_id "ledger" }
+  stock { uuid id PK
+    uuid legal_entity_id "tenancy: the plant's company"
+    uuid material_id "once per material, plant and location"
+    uuid plant_id
+    uuid storage_location_id
+    numeric quantity "never below zero" }
+```
+
+- `inventory.material_document`: a goods movement (SAP MKPF) of one
+  movement type, `501`, `502`, `561`, `562`, `201`, `202`, `551`, `552`,
+  `311`, `312`, `301` or `302` (`material_document_movement_type_check`),
+  numbered 1 to 40 characters (`material_document_number_check`) once per
+  company and fiscal year (`material_document_number_once`), with a header
+  text of 1 to 200 characters that is not blank
+  (`material_document_header_text_check`). A reversal type names the
+  document it reverses and another type none
+  (`material_document_reversal_check`); a reversal is of its original's
+  company with its type's reversal, of a document that reverses none
+  (`material_document_reversal`, a trigger), once
+  (`material_document_reversed_once`). Insert-only
+  (`material_document_insert_only`); the list reads by
+  `material_document_by_created_at`.
+- `inventory.movement`: a line of a document (MSEG), one stock effect in
+  the material's base unit, signed and not zero (`movement_quantity_check`),
+  with the item's quantity as entered, positive
+  (`movement_entry_quantity_check`), in a unit of measure
+  (`movement_entry_uom_code_fkey`); lines 1 to 200
+  (`movement_line_no_check`) of items 1 to 100 (`movement_item_no_check`)
+  of a document that exists (`movement_document_fkey`), once
+  (`movement_pkey`). Insert-only (`movement_insert_only`); a stock's
+  movements are read by `movement_by_stock`. Each adds its quantity to its
+  stock row, which must exist (`movement_stock`, a security definer
+  trigger).
+- `inventory.stock`: the quantity of a material at a storage location of a
+  plant (MARD's unrestricted stock), once (`stock_once`), with the plant's
+  company. Written empty by the application (`stock_from_movements`, a
+  trigger) before the first movement of it, its quantity changed by
+  `movement_stock` alone (the application may update `updated_at`, which
+  its row lock needs, and nothing else) and never below zero
+  (`stock_not_negative`). The list reads by `stock_by_created_at`, a
+  plant's stock by `stock_by_plant`.
+- `inventory.valuation` (S1d, migration 000377): a material's valuation
+  in a plant (SAP MBEW), once (`valuation_once`), of a valuation class of
+  1 to 4 capitals or digits (`valuation_class_check`), price control
+  `standard` or `moving_average` (`valuation_price_control_check`), a
+  currency (`valuation_currency_fkey`), a price not below zero
+  (`valuation_price_check`) per a price unit of 1 to 10000
+  (`valuation_price_unit_check`), and the quantity and value of the
+  material's stock in the plant, neither below zero
+  (`valuation_quantity_check`, `valuation_value_check`), no value without
+  stock (`valuation_value_without_stock`), a standard-priced one worth its
+  quantity at its price rounded half away from zero
+  (`valuation_standard_value`). It starts empty and keeps its material,
+  plant, company, price control, currency and price unit
+  (`valuation_fixed`, a trigger); the application changes its class alone
+  (and its version), deletes none; its quantity, value and moving price
+  change with its movements (`movement_stock`, which needs it:
+  `movement_valuation`) and its price with its price changes. The list
+  reads by `valuation_by_created_at`.
+- `inventory.price_change` (S1d): a price change (SAP MR21) of a
+  valuation (`price_change_valuation_fkey`), to another price
+  (`price_change_changes`), neither below zero, of the stock it revalued
+  and by how much, naming its journal entry exactly when it revalued
+  (`price_change_entry`); of the valuation's price and stock as they are,
+  which it sets (`price_change_valuation`, a security definer trigger).
+  Insert-only (`price_change_insert_only`); read by
+  `price_change_by_valuation`.
+- `inventory.movement` gains `amount` and `difference` (S1d): the value a
+  line moves on its valuation and its price difference.
+  `inventory.material_document` gains `currency` and the journal entry it
+  posted, given together and with the currency
+  (`material_document_entry`).
+- `ledger.account_determination` takes the keys of valuation classes,
+  `inventory_<kind>:<class>` (`account_determination_key_check`, 000377,
+  validated by 000378), and `ledger.journal_entry` the source context
+  `inventory`.
+- `inventory.outbox`, `inventory.inbox`: the context's events
+  (`MaterialDocumentPosted`, `MaterialPriceChanged`).
+- Permissions `inventory.movement.post`, `inventory.stock.read`,
+  `inventory.valuation.read` and `.write`.

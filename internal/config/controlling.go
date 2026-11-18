@@ -118,7 +118,7 @@ func determinationKeys(ad AccountDetermination) [][2]string {
 // AutomaticAccounts are the accounts the company's automatic postings use
 // (ADR-0050 §4): the account determination (payables, payment runs, FX
 // differences, GR/IR, price differences, cash discounts, down payments,
-// leases),
+// leases, inventory by valuation class),
 // tax codes in the single-rate form and each component's account (T61a: a
 // multi-component code posts each tax to its component's account),
 // withholding tax codes, the revaluation's accounts, the house banks'
@@ -133,6 +133,11 @@ func (c *Company) AutomaticAccounts() []AutomaticAccount {
 	}
 	for _, k := range determinationKeys(c.AccountDetermination) {
 		add("account_determination."+k[0], k[1])
+	}
+	for _, inv := range c.AccountDetermination.Inventory {
+		for _, a := range inv.Accounts() {
+			add("account_determination.inventory["+inv.ValuationClass+"]."+a[0], a[1])
+		}
 	}
 	for _, t := range c.TaxCodes {
 		add("tax_codes["+t.Code+"].account", t.Account)

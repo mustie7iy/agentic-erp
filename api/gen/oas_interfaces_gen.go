@@ -173,6 +173,10 @@ type CaptureSupplierInvoiceRes interface {
 	captureSupplierInvoiceRes()
 }
 
+type ChangeMaterialPriceRes interface {
+	changeMaterialPriceRes()
+}
+
 type ChangeSalesOrderRes interface {
 	changeSalesOrderRes()
 }
@@ -407,6 +411,18 @@ type CreateLeaseRunRes interface {
 
 type CreateLegalEntityRes interface {
 	createLegalEntityRes()
+}
+
+type CreateMaterialDocumentRes interface {
+	createMaterialDocumentRes()
+}
+
+type CreateMaterialRes interface {
+	createMaterialRes()
+}
+
+type CreateMaterialValuationRes interface {
+	createMaterialValuationRes()
 }
 
 type CreateMemoRecordRes interface {
@@ -991,6 +1007,22 @@ type GetMarginReportRes interface {
 
 type GetMatchResultRes interface {
 	getMatchResultRes()
+}
+
+type GetMaterialChangeRes interface {
+	getMaterialChangeRes()
+}
+
+type GetMaterialDocumentRes interface {
+	getMaterialDocumentRes()
+}
+
+type GetMaterialRes interface {
+	getMaterialRes()
+}
+
+type GetMaterialValuationRes interface {
+	getMaterialValuationRes()
 }
 
 type GetMemoRecordRes interface {
@@ -1601,6 +1633,22 @@ type ListMatchResultsRes interface {
 	listMatchResultsRes()
 }
 
+type ListMaterialChangesRes interface {
+	listMaterialChangesRes()
+}
+
+type ListMaterialDocumentsRes interface {
+	listMaterialDocumentsRes()
+}
+
+type ListMaterialValuationsRes interface {
+	listMaterialValuationsRes()
+}
+
+type ListMaterialsRes interface {
+	listMaterialsRes()
+}
+
 type ListMemoRecordsRes interface {
 	listMemoRecordsRes()
 }
@@ -1807,6 +1855,10 @@ type ListSegmentsRes interface {
 
 type ListSodRulesRes interface {
 	listSodRulesRes()
+}
+
+type ListStockRes interface {
+	listStockRes()
 }
 
 type ListSupplierInvoicesRes interface {
@@ -2177,6 +2229,10 @@ type ReverseJournalEntryRes interface {
 	reverseJournalEntryRes()
 }
 
+type ReverseMaterialDocumentRes interface {
+	reverseMaterialDocumentRes()
+}
+
 type ReverseSupplierInvoiceRes interface {
 	reverseSupplierInvoiceRes()
 }
@@ -2347,6 +2403,14 @@ type UpdateInternalOrderSettlementRuleRes interface {
 
 type UpdateLegalEntityRes interface {
 	updateLegalEntityRes()
+}
+
+type UpdateMaterialRes interface {
+	updateMaterialRes()
+}
+
+type UpdateMaterialValuationRes interface {
+	updateMaterialValuationRes()
 }
 
 type UpdateMemoRecordRes interface {

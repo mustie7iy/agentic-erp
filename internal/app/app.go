@@ -46,8 +46,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/grc"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
+	"github.com/mustie7iy/agentic-erp/internal/inventory"
 	"github.com/mustie7iy/agentic-erp/internal/leases"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
@@ -102,6 +104,8 @@ type (
 	recordsAPI     = records.Endpoints
 	miningAPI      = processmining.Endpoints
 	leasesAPI      = leases.Endpoints
+	materialsAPI   = materials.Endpoints
+	inventoryAPI   = inventory.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -139,6 +143,8 @@ type handler struct {
 	*recordsAPI
 	*miningAPI
 	*leasesAPI
+	*materialsAPI
+	*inventoryAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -281,15 +287,8 @@ func New(cfg Config) (http.Handler, error) {
 		workflowAPI:    &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: approvalHandlers(cfg)}},
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
-		receivablesAPI: Receivables(cfg),
 		salesAPI:       selling,
-		revenueAPI:     Revenue(cfg),
-		collectionsAPI: Collections(cfg),
 		creditAPI:      crediting,
-		grcAPI:         GRC(cfg),
-		recordsAPI:     Records(cfg),
-		miningAPI:      ProcessMining(cfg),
-		leasesAPI:      Leases(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       Audit(cfg),
 		integrationAPI: Integration(cfg),
@@ -305,6 +304,7 @@ func New(cfg Config) (http.Handler, error) {
 		controllingAPI: controllingEndpoints(cfg),
 		taxfilingAPI:   taxFiling(cfg, library),
 	}
+	h.laterContexts(cfg)
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, Begin: cfg.Begin, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
 		// The API-hosted upload is the one route outside the generated
@@ -430,6 +430,22 @@ func Payments(cfg Config) *payments.Endpoints {
 		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Approvals: opener(), Sessions: agents.Sessions{}, Now: cfg.Now}
 }
 
+// laterContexts sets the handler's contexts of the later phases, each wired
+// from the configuration alone (receivables, revenue, collections, GRC,
+// records, process mining, leases, materials, inventory), so New lists only those it
+// builds from what it has set up.
+func (h *handler) laterContexts(cfg Config) {
+	h.receivablesAPI = Receivables(cfg)
+	h.revenueAPI = Revenue(cfg)
+	h.collectionsAPI = Collections(cfg)
+	h.grcAPI = GRC(cfg)
+	h.recordsAPI = Records(cfg)
+	h.miningAPI = ProcessMining(cfg)
+	h.leasesAPI = Leases(cfg)
+	h.materialsAPI = Materials(cfg)
+	h.inventoryAPI = Inventory(cfg)
+}
+
 // approvalHandlers are the contexts that own each approval object type:
 // each moves its objects on when their requests complete and says where the
 // API reads them (approvals.Locator).
@@ -448,6 +464,7 @@ func approvalHandlers(cfg Config) map[string]approvals.Handler {
 		approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
 		approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: procurementEndpoints(cfg)},
 		approvals.TaxReturn:         taxfiling.TaxReturns{Endpoints: &taxfiling.Endpoints{Items: ledger.TaxItems{}}},
+		approvals.MaterialChange:    materials.Approvals{Endpoints: Materials(cfg)},
 	}
 }
 

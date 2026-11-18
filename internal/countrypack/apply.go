@@ -196,7 +196,8 @@ func mergeDetermination(m *merger, p string, base, tenant, next *config.AccountD
 		return out
 	}
 	merged := merge3(m, p, list(base), list(tenant), list(next), func(f field) string { return f.Name })
-	*tenant = config.AccountDetermination{}
+	// No pack ships accounts by valuation class: the document's stay.
+	*tenant = config.AccountDetermination{Inventory: tenant.Inventory}
 	fs := determination(tenant)
 	for _, f := range merged {
 		*fs[f.Name] = f.Value

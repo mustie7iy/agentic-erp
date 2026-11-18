@@ -105,7 +105,11 @@ Week 3 adds five things every slice here holds to (product owner,
 
 Supply chain, Manufacturing, Assets/service/EHS, Projects, Human capital
 and the industry packs stay outside. Week 2's boundaries hold (no material
-master, no stock, no cost of goods sold), and week 3 adds:
+master, no stock, no cost of goods sold), and week 3 adds the points
+below. (Supply chain joined the scope on 2026-11-17, product owner; its
+gaps here are planned in `plan-supply-chain.md`: the return's stock
+posting with the returns deliveries of S2a's "Later", inventory metrics
+after S1c, cost of goods sold for profitability S2b.)
 
 - **A return moves no stock.** T85b is a confirmation in the sales
   context that returned quantities arrived, as T78c is for a delivery. The
@@ -323,7 +327,8 @@ still expected.
 
 **Later for Returns orders (after 1 December):** a return before billing
 or without a billing document; the return delivery, goods receipt,
-inspection and stock posting (Supply chain, outside the required scope);
+inspection and stock posting (Supply chain, outside the required scope
+until 2026-11-17, now `plan-supply-chain.md` S2a's "Later");
 replacement deliveries; changing or cancelling a returns order; approval
 of a return; return reasons from configuration; the return in the revenue
 contract (accounting specialist, question 4).
@@ -2219,7 +2224,9 @@ no stored document needs it).
 **OUT, depends on an area outside the required scope (5).** Budget
 control (industry pack); cost estimates and actual costing (product
 costing needs materials, bills of material and stock valuation:
-Manufacturing and Supply chain); inventory metrics and HR metrics ("as
+Manufacturing and Supply chain; Supply chain joined the scope on
+2026-11-17, its materials and valuation planned in `plan-supply-chain.md`
+S1a and S1d); inventory metrics and HR metrics ("as
 that module lands").
 
 **WEB, the web workspace, deferred since ADR-0053 (3).** Dashboards in

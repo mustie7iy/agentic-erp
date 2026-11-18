@@ -380,6 +380,27 @@ func (s Setup) Apply(ctx context.Context, doc *config.Config) error {
 	return applyLedgerGroups(ctx, tx, p, doc)
 }
 
+// determination is the company's account determination by key, the
+// accounts by valuation class (config.InventoryKey, ADR-0082 §8) among
+// them; an empty account names no row.
+func determination(co config.Company) (keys, numbers []string) {
+	ad := co.AccountDetermination
+	keys = []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference",
+		"cash_discount", "down_payment", "retained_earnings", "contract_asset", "contract_liability", "right_of_use_asset", "lease_liability",
+		"lease_interest", "right_of_use_depreciation", "right_of_use_accumulated_depreciation", "payment_difference_expense",
+		"payment_difference_revenue"}
+	numbers = []string{ad.APReconciliation, ad.InputTax,
+		ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference, ad.CashDiscount, ad.DownPayment, co.YearEnd.RetainedEarningsAccount,
+		ad.ContractAsset, ad.ContractLiability, ad.RightOfUseAsset, ad.LeaseLiability, ad.LeaseInterest, ad.RightOfUseDepreciation,
+		ad.RightOfUseAccumulatedDepreciation, ad.PaymentDifferenceExpense, ad.PaymentDifferenceRevenue}
+	for _, inv := range ad.Inventory {
+		for _, a := range inv.Accounts() {
+			keys, numbers = append(keys, config.InventoryKey(a[0], inv.ValuationClass)), append(numbers, a[1])
+		}
+	}
+	return keys, numbers
+}
+
 // applyCompany makes one company's chart of accounts, account
 // determination, fiscal calendar, tax codes and foreign-currency valuation
 // match the document.
@@ -411,18 +432,12 @@ func (s Setup) applyCompany(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err := applyControlling(ctx, tx, p, le.ID, chart, co, today); err != nil {
 		return err
 	}
-	ad := co.AccountDetermination
+	keys, numbers := determination(co)
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.account_determination AS d (tenant_id, legal_entity_id, key, account_id, updated_by)
 		SELECT $1, $2, k, g.id, $4 FROM unnest($5::text[], $6::text[]) AS x(k, n) JOIN ledger.gl_account g ON g.chart_id = $3 AND g.number = x.n
 		ON CONFLICT (tenant_id, legal_entity_id, key) DO UPDATE SET account_id = EXCLUDED.account_id, version = d.version + 1, updated_by = $4
 		WHERE d.account_id <> EXCLUDED.account_id`,
-		p.TenantID, le.ID, chart, p.ID, []string{"ap_reconciliation", "input_tax", "bank", "fx_gain", "fx_loss", "gr_ir", "price_difference",
-			"cash_discount", "down_payment", "retained_earnings", "contract_asset", "contract_liability", "right_of_use_asset", "lease_liability",
-			"lease_interest", "right_of_use_depreciation", "right_of_use_accumulated_depreciation", "payment_difference_expense",
-			"payment_difference_revenue"}, []string{ad.APReconciliation, ad.InputTax,
-			ad.Bank, ad.FXGain, ad.FXLoss, ad.GRIR, ad.PriceDifference, ad.CashDiscount, ad.DownPayment, co.YearEnd.RetainedEarningsAccount,
-			ad.ContractAsset, ad.ContractLiability, ad.RightOfUseAsset, ad.LeaseLiability, ad.LeaseInterest, ad.RightOfUseDepreciation,
-			ad.RightOfUseAccumulatedDepreciation, ad.PaymentDifferenceExpense, ad.PaymentDifferenceRevenue}); err != nil {
+		p.TenantID, le.ID, chart, p.ID, keys, numbers); err != nil {
 		return fmt.Errorf("ledger: apply company %s: account determination: %w", co.Code, err)
 	}
 	if err := applyCompanyLedgers(ctx, tx, p, le.ID, co); err != nil {

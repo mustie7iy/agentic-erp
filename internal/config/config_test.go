@@ -952,3 +952,62 @@ func TestHouseBankAccount(t *testing.T) {
 		})
 	}
 }
+
+// TestInventoryAccounts (ADR-0082 §8, S1d): a company's accounts by
+// valuation class are checked, are automatic accounts and their classes
+// need WE, WA and PR journal ranges; a class is found by its code, and a
+// company the configuration lacks has none.
+func TestInventoryAccounts(t *testing.T) {
+	inventory := func(classes ...InventoryAccounts) func(c *Config) {
+		return func(c *Config) {
+			co := &c.Companies[0]
+			co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "150000", Name: "Inventory", Type: Asset},
+				Account{Number: "391000", Name: "Initial entries", Type: Equity})
+			co.AccountDetermination.Inventory = classes
+		}
+	}
+	good := InventoryAccounts{ValuationClass: "3000", Stock: "150000", Receipt: "211000", InitialEntry: "391000", Consumption: "510000"}
+	for _, c := range []struct {
+		name   string
+		mutate func(c *Config)
+		path   string
+	}{
+		{"a class of five", inventory(InventoryAccounts{ValuationClass: "30000", Stock: "150000"}), "companies[1000].account_determination.inventory[30000].valuation_class"},
+		{"a class twice", inventory(good, good), "companies[1000].account_determination.inventory[3000].valuation_class"},
+		{"no stock account", inventory(InventoryAccounts{ValuationClass: "3000"}), "companies[1000].account_determination.inventory[3000].stock"},
+		{"stock an expense", inventory(InventoryAccounts{ValuationClass: "3000", Stock: "510000"}), "companies[1000].account_determination.inventory[3000].stock"},
+		{"consumption an asset", inventory(InventoryAccounts{ValuationClass: "3000", Stock: "150000", Consumption: "150000"}),
+			"companies[1000].account_determination.inventory[3000].consumption"},
+		{"a receipt account unknown", inventory(InventoryAccounts{ValuationClass: "3000", Stock: "150000", Receipt: "999999"}),
+			"companies[1000].account_determination.inventory[3000].receipt"},
+		{"no WA range", inventory(good), "number_ranges[1000/journal_wa/2026]"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := fixture(t)
+			c.mutate(cfg)
+			cfg.NumberRanges = append(cfg.NumberRanges, NumberRange{Company: "1000", DocumentType: "material_document", FiscalYear: 2026, First: 1, Last: 9})
+			if fs := Validate(cfg, currency.Seeded()); !hasPath(fs, c.path) {
+				t.Errorf("got %v, want a finding at %s", fs, c.path)
+			}
+		})
+	}
+	cfg := fixture(t)
+	inventory(good)(cfg)
+	var automatic []string
+	for _, a := range cfg.Companies[0].AutomaticAccounts() {
+		if strings.Contains(a.Path, "inventory") {
+			automatic = append(automatic, a.Path+" "+a.Account)
+		}
+	}
+	if got, want := strings.Join(automatic, ", "), "account_determination.inventory[3000].stock 150000, account_determination.inventory[3000].receipt 211000, "+
+		"account_determination.inventory[3000].initial_entry 391000, account_determination.inventory[3000].consumption 510000"; got != want {
+		t.Errorf("automatic accounts: got %s, want %s", got, want)
+	}
+	if a, ok := cfg.Companies[0].InventoryClass("3000"); !ok || a.Stock != "150000" || InventoryKey("stock", "3000") != "inventory_stock:3000" {
+		t.Errorf("class 3000: got %v %v, want its stock account 150000", a, ok)
+	}
+	var none *Company
+	if _, ok := none.InventoryClass("3000"); ok {
+		t.Error("a company the configuration lacks: got a class, want none")
+	}
+}

@@ -760,6 +760,24 @@ func (UnimplementedHandler) CaptureSupplierInvoice(ctx context.Context, req *Sup
 	return r, ht.ErrNotImplemented
 }
 
+// ChangeMaterialPrice implements changeMaterialPrice operation.
+//
+// Changes a valuation's price at the caller's version (`If-Match`; ADR-0082 §8, S1d; SAP MR21) to
+// another price in its currency (422 `inventory.currency_mismatch`, `inventory.invalid_price`,
+// `inventory.nothing_to_change`; a standard price above zero): the material's stock in the plant is
+// revalued at the new price, its quantity × the price / the price unit rounded half away from zero,
+// and the difference posted on the company's date today between the valuation class's stock and
+// revaluation accounts (document type PR; 422 `inventory.no_inventory_account` when the class lacks
+// one), refused while that day's period is closed (409 `ledger.period_not_open`). A moving price
+// changes the same way; without stock the price is set and nothing is posted. Answers the valuation
+// with the change as its `last_price_change`, naming the journal entry. Audited, and published as
+// MaterialPriceChanged. Human-only (`x-agent: false`).
+//
+// POST /v1/material-valuations/{id}:changePrice
+func (UnimplementedHandler) ChangeMaterialPrice(ctx context.Context, req *MaterialPriceChange, params ChangeMaterialPriceParams) (r ChangeMaterialPriceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ChangeSalesOrder implements changeSalesOrder operation.
 //
 // Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the
@@ -2214,6 +2232,116 @@ func (UnimplementedHandler) CreateLeaseRun(ctx context.Context, req *LeaseRunCre
 //
 // POST /v1/legal-entities
 func (UnimplementedHandler) CreateLegalEntity(ctx context.Context, req *LegalEntityCreate, params CreateLegalEntityParams) (r CreateLegalEntityRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateMaterial implements createMaterial operation.
+//
+// Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit
+// of measure, material type and material group, extended to plants and their storage locations and
+// given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in
+// (422 `request.reference_not_found`); the material is numbered from its `material` number range of
+// the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number
+// is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The
+// base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the
+// type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active
+// org unit of kind `plant` in a company the caller may act in, given once (422
+// `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org
+// unit of kind `storage_location` under that plant, given once (422
+// `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit
+// is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
+// `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
+// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
+// the material type do not change afterwards. Created `pending` with a material change of kind
+// `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner`
+// decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn
+// it stays `pending` and is used nowhere. The change lists the existing materials with the same
+// description, white space and case aside, whatever their status, a pending one whose create change
+// was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is
+// refused (409 `materials.duplicate_description`, naming them) unless the request sets
+// `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the
+// first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same
+// `Idempotency-Key` answers the material created. Human-only (`x-agent: false`).
+//
+// POST /v1/materials
+func (UnimplementedHandler) CreateMaterial(ctx context.Context, req *MaterialCreate, params CreateMaterialParams) (r CreateMaterialRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateMaterialDocument implements createMaterialDocument operation.
+//
+// Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a
+// receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center,
+// `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between
+// plants of one company; each item moves a quantity of a material at a plant's storage location. Each
+// material is an `active` material (422 `inventory.material_invalid` when there is none with the id,
+// `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type
+// `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a
+// company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422
+// `inventory.plant_not_extended`), each storage location an active one under it (422
+// `inventory.storage_location_invalid`) the material is kept at (422
+// `inventory.storage_location_not_extended`), and every plant of the document one company's (422
+// `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the
+// material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted
+// exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a
+// cost center (422 `inventory.cost_center_required`), an active one of the company in force on the
+// posting date (422 `inventory.cost_center_invalid`); another movement type names none (422
+// `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same
+// plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`,
+// `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422
+// `inventory.transfer_target_required`, `inventory.same_location`); another movement type names
+// neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
+// `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`).
+// The document is posted on the company's date today in its time zone and numbered from its
+// `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is
+// in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue
+// of more than a storage location holds is refused naming the material, the location and both
+// quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post
+// one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`).
+// Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
+// item is two, the issue and the receipt. The lines are applied in order, and each leaves its
+// location's stock at zero or more, so items that move stock round a circle out of an empty location
+// are refused though they change nothing in all. Every line is valued (S1d): its material is valued in
+// its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the
+// stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the
+// value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is
+// worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's
+// currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422
+// `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the
+// receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted
+// through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or
+// initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock
+// account against the account its movement type posts to (receipt, initial entry, consumption with the
+// item's cost center, scrapping), and price differences on its price difference account (422
+// `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
+// 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
+// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/material-documents
+func (UnimplementedHandler) CreateMaterialDocument(ctx context.Context, req *MaterialDocumentCreate, params CreateMaterialDocumentParams) (r CreateMaterialDocumentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateMaterialValuation implements createMaterialValuation operation.
+//
+// Values a material in a plant, the valuation area (ADR-0082 §8, S1d; SAP MBEW): a material kept in
+// stock (422 `inventory.material_invalid`, `inventory.material_not_stocked`) extended to an active
+// plant of a company the caller may act in (422 `inventory.plant_invalid`,
+// `inventory.plant_not_extended`), once (409 `inventory.valuation_exists`). Its price control is
+// `standard` (the stock is always worth its quantity at the standard price, rounded half away from
+// zero) or `moving_average` (the moving price is the stock's value per price unit, following its
+// receipts); its price is in the company's local currency per `price_unit` base units (422
+// `inventory.currency_mismatch`, `inventory.invalid_price`; a standard price is above zero); its
+// valuation class one of the company's account determination
+// (`companies[].account_determination.inventory`, 422 `inventory.unknown_valuation_class`), whose
+// accounts its movements post to. Stock moved in the plant before the material was valued is refused
+// (409 `inventory.stock_without_valuation`). From then on every goods movement of the material in the
+// plant is valued and posted (`createMaterialDocument`). The price control, currency and price unit do
+// not change afterwards. Audited. Human-only (`x-agent: false`).
+//
+// POST /v1/material-valuations
+func (UnimplementedHandler) CreateMaterialValuation(ctx context.Context, req *MaterialValuationCreate, params CreateMaterialValuationParams) (r CreateMaterialValuationRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -4747,6 +4875,52 @@ func (UnimplementedHandler) GetMatchResult(ctx context.Context, params GetMatchR
 	return r, ht.ErrNotImplemented
 }
 
+// GetMaterial implements getMaterial operation.
+//
+// One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description,
+// base unit, type, group and status, its plants and their storage locations in the companies the
+// caller may act in, each with its code and name, and its alternative units with their conversions.
+//
+// GET /v1/materials/{id}
+func (UnimplementedHandler) GetMaterial(ctx context.Context, params GetMaterialParams) (r GetMaterialRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetMaterialChange implements getMaterialChange operation.
+//
+// One material change (ADR-0082 §9, S1b) with its material's number and description, what it asks
+// for, its possible duplicates and its approval request.
+//
+// GET /v1/material-changes/{id}
+func (UnimplementedHandler) GetMaterialChange(ctx context.Context, params GetMaterialChangeParams) (r GetMaterialChangeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetMaterialDocument implements getMaterialDocument operation.
+//
+// One material document (ADR-0082 §7, S1c) with its company, movement type, posting date and lines,
+// each naming its material by number and description, its plant and storage location by code and name
+// and its cost center by code, and the documents it reverses and that reverse it. A document of a
+// company the caller may not act in is not found (404).
+//
+// GET /v1/material-documents/{id}
+func (UnimplementedHandler) GetMaterialDocument(ctx context.Context, params GetMaterialDocumentParams) (r GetMaterialDocumentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetMaterialValuation implements getMaterialValuation operation.
+//
+// One valuation of a material in a plant (ADR-0082 §8, S1d): its price control, price per price unit,
+// valuation class, and the quantity and value of the material's stock in the plant, which its
+// movements and price changes move; the material by number and description, the plant by code and
+// name. Its `version` moves with each of them. One of a company the caller may not act in is not found
+// (404).
+//
+// GET /v1/material-valuations/{id}
+func (UnimplementedHandler) GetMaterialValuation(ctx context.Context, params GetMaterialValuationParams) (r GetMaterialValuationRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetMemoRecord implements getMemoRecord operation.
 //
 // One memo record, with its status as of the read date: its legal entity's date at the read in its
@@ -6826,6 +7000,51 @@ func (UnimplementedHandler) ListMatchResults(ctx context.Context, params ListMat
 	return r, ht.ErrNotImplemented
 }
 
+// ListMaterialChanges implements listMaterialChanges operation.
+//
+// Governed changes of materials (ADR-0082 §9, S1b), newest first: each with its kind, status, what it
+// asks for, its possible duplicates (a create's) and its approval request. Filtered by material, kind
+// and status. Sortable by: `created_at`.
+//
+// GET /v1/material-changes
+func (UnimplementedHandler) ListMaterialChanges(ctx context.Context, params ListMaterialChangesParams) (r ListMaterialChangesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListMaterialDocuments implements listMaterialDocuments operation.
+//
+// The material documents of the companies the caller may act in (ADR-0082 §7, S1c), each as
+// `getMaterialDocument` gives it, the latest first. Filtered by material, plant and movement type: a
+// document matches a material or a plant when one of its lines names it. Sortable by: `created_at`.
+//
+// GET /v1/material-documents
+func (UnimplementedHandler) ListMaterialDocuments(ctx context.Context, params ListMaterialDocumentsParams) (r ListMaterialDocumentsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListMaterialValuations implements listMaterialValuations operation.
+//
+// The valuations of materials in the plants of the companies the caller may act in (ADR-0082 §8,
+// S1d), each as `getMaterialValuation` gives it, in the order they were created. Filtered by material
+// and plant. Sortable by: `created_at`.
+//
+// GET /v1/material-valuations
+func (UnimplementedHandler) ListMaterialValuations(ctx context.Context, params ListMaterialValuationsParams) (r ListMaterialValuationsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListMaterials implements listMaterials operation.
+//
+// The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
+// base unit, type, group and status, its plants and storage locations in the companies the caller may
+// act in, and its alternative units. Filtered by number, plant, status, material type and material
+// group. Sortable by: `number`.
+//
+// GET /v1/materials
+func (UnimplementedHandler) ListMaterials(ctx context.Context, params ListMaterialsParams) (r ListMaterialsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListMemoRecords implements listMemoRecords operation.
 //
 // The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts
@@ -7456,6 +7675,19 @@ func (UnimplementedHandler) ListSegments(ctx context.Context, params ListSegment
 //
 // GET /v1/sod-rules
 func (UnimplementedHandler) ListSodRules(ctx context.Context, params ListSodRulesParams) (r ListSodRulesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListStock implements listStock operation.
+//
+// The stock of materials by plant and storage location in the companies the caller may act in
+// (ADR-0082 §7, S1c; SAP MMBE), in the material's base unit: as it is now, or as at the end of a day
+// (`as_of`), the sum of the movements of material documents posted up to and including it. A location
+// with no stock is left out. Filtered by material, plant and storage location; in the order each
+// location's stock was first moved. Sortable by: `created_at`.
+//
+// GET /v1/stock
+func (UnimplementedHandler) ListStock(ctx context.Context, params ListStockParams) (r ListStockRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -9180,6 +9412,28 @@ func (UnimplementedHandler) ReverseJournalEntry(ctx context.Context, req OptJour
 	return r, ht.ErrNotImplemented
 }
 
+// ReverseMaterialDocument implements reverseMaterialDocument operation.
+//
+// Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal
+// movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a
+// `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first
+// (each keeping its original item's `item_no`), posted on the company's date today and numbered from
+// its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
+// it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
+// nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The
+// reversal moves the stock back, so it is refused when the stock the original received has gone (409
+// `inventory.insufficient_stock`, naming the material, the location and both quantities). The material
+// may have been blocked since; the reversal is still posted. Each line is valued at what its original
+// line was, given back: what the stock does not take of it at its price now is a price difference, and
+// the value is posted through the ledger as the original's was, reversed. A document of a company the
+// caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/material-documents/{id}:reverse
+func (UnimplementedHandler) ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (r ReverseMaterialDocumentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ReverseSupplierInvoice implements reverseSupplierInvoice operation.
 //
 // Posts a reversal of the invoice's journal entry; the status becomes `reversed` and
@@ -10009,6 +10263,46 @@ func (UnimplementedHandler) UpdateInternalOrderSettlementRule(ctx context.Contex
 //
 // PATCH /v1/legal-entities/{id}
 func (UnimplementedHandler) UpdateLegalEntity(ctx context.Context, req *LegalEntityUpdate, params UpdateLegalEntityParams) (r UpdateLegalEntityRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateMaterial implements updateMaterial operation.
+//
+// Requests a change of a material's description, material group, status, plants or alternative units
+// with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b).
+// JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The
+// number, the base unit and the material type do not change. `status` moves between `active` and
+// `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's
+// plants in the companies the caller may act in, each with its storage locations, and leaves those of
+// other companies as they are; `alternative_units` replaces its alternative units, an empty list
+// removing them; each is checked as `createMaterial` checks it. A change that would leave the material
+// as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409
+// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a
+// block. A change that only blocks the material is applied at once, a pending change or not (the
+// material answered blocked, with a material change of kind `block`, applied, read with
+// `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a
+// pending update approved later leaves the block in place. Any other opens a pending material change
+// (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as
+// it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material
+// as it is then when its approval request is approved by the role `process_owner`, and leaving it as
+// it is when it is rejected or withdrawn. Audited with the values before and after, and published as
+// MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
+//
+// PATCH /v1/materials/{id}
+func (UnimplementedHandler) UpdateMaterial(ctx context.Context, req *MaterialUpdate, params UpdateMaterialParams) (r UpdateMaterialRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateMaterialValuation implements updateMaterialValuation operation.
+//
+// Changes a valuation's class at the caller's version (`If-Match`, 412 otherwise; ADR-0082 §8, S1d)
+// to another class of the company (422 `inventory.unknown_valuation_class`,
+// `inventory.nothing_to_change`), while the material has no stock in the plant (409
+// `inventory.valuation_class_with_stock`): its stock stands on its class's stock account. JSON Merge
+// Patch. Audited with the class before. Human-only (`x-agent: false`).
+//
+// PATCH /v1/material-valuations/{id}
+func (UnimplementedHandler) UpdateMaterialValuation(ctx context.Context, req *MaterialValuationUpdate, params UpdateMaterialValuationParams) (r UpdateMaterialValuationRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
