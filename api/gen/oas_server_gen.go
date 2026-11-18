@@ -210,6 +210,34 @@ type Handler interface {
 	//
 	// POST /v1/country-pack-applications
 	ApplyCountryPack(ctx context.Context, req *CountryPackApplication, params ApplyCountryPackParams) (ApplyCountryPackRes, error)
+	// ApplyIncomingPaymentOnAccount implements applyIncomingPaymentOnAccount operation.
+	//
+	// Applies what an incoming payment left on the customer's account (T75g, `createIncomingPayment` with
+	// `on_account`) to the customer's open items, as SAP clears an account with a payment on account. The
+	// credit applied is the one still open: the payment's own before any application, else what the last
+	// application left; one that is no longer open, all applied or cleared otherwise, is refused (409
+	// `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared` when another request
+	// cleared it meanwhile, as two applications racing for it end). The items are the customer's open
+	// items in the company, invoices and credits, in the payment's currency, refused as
+	// `createIncomingPayment` refuses them, each naming its place in the request as the field `items[i]`,
+	// and each may name a `residual` as there. Together, net of their residuals, they may be less than the
+	// credit: what is left stays on account as a new credit of the customer's, a line of the application's
+	// clearing entry, at the credit's rate. More than the credit is refused (422
+	// `ledger.clearing_not_balanced`) but for an underpayment within the company's payment tolerance,
+	// written off to its `payment_difference_expense` account. One clearing entry, document type `DZ`,
+	// `source_context` `receivables`, its source document the payment, offsets the credit and the items at
+	// the amounts they were booked at and clears them all; an exchange difference is realized as
+	// `createIncomingPayment` realizes one. The posting date is the request's, else today, the company's
+	// date in its time zone, in an open period and on or after the latest posting date of the credit and
+	// the items. The application is numbered in the payment from 1; its items join the payment's items
+	// with its number. The payment's `version` moves with each application (`ETag`), and the answer is the
+	// payment with the application, which its `applications` list last. Audited, and published as
+	// IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry
+	// with the same `Idempotency-Key` answers the payment as the first answered it. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/incoming-payments/{id}/applications
+	ApplyIncomingPaymentOnAccount(ctx context.Context, req *IncomingPaymentApplicationCreate, params ApplyIncomingPaymentOnAccountParams) (ApplyIncomingPaymentOnAccountRes, error)
 	// ApplyPlanBatch implements applyPlanBatch operation.
 	//
 	// Uploads the plan of a category, legal entity and fiscal year for some of its centers (ADR-0050 §8):
@@ -292,9 +320,21 @@ type Handler interface {
 	// `procurement.invalid_amount`, `target_value.amount`). The RFQ becomes `awarded` and names the
 	// contract (`contract_id`, `contract_document_number`), the quotation becomes `awarded` and the RFQ's
 	// other quotations `not_awarded`, all in one transaction. The contract is a draft: it is released with
-	// `contracts/{id}:release` as any other. No approval is asked for. Human-only: an award commits the
-	// company to a supplier. Audited, and published as RfqAwarded, which names the supplier by id and
-	// number, and RfqChanged.
+	// `contracts/{id}:release` as any other. With `award_to` `purchase_order` (T82f) the award creates a
+	// draft purchase order instead, as `POST /v1/purchase-orders` would with its checks, number and audit
+	// record: with the quotation's supplier and its payment terms, in the RFQ's currency, dated the legal
+	// entity's date today, its items the RFQ's at the quoted prices and price units with their delivery
+	// dates and, for an RFQ from a requisition, naming the requisition, whose items' account assignments
+	// they take and which becomes `ordered`; the RFQ names the order (`purchase_order_id`,
+	// `purchase_order_document_number`) and is released with `purchase-orders/{id}:release` as any other.
+	// `valid_from` and `valid_to` are required for a contract and not sent for an order (422
+	// `request.validation_failed`). An RFQ from a requisition is awarded to a purchase order only (422
+	// `procurement.rfq_from_requisition`, naming `award_to`). An award to a purchase order also needs
+	// `procurement.order.create`, as `POST /v1/purchase-orders` does (403 `identity.permission_missing`).
+	// A quotation not ranked first needs a `reason` (422 `procurement.award_reason_required`, naming
+	// `reason`); a reason given is kept as `award_reason`. No approval is asked for. Human-only: an award
+	// commits the company to a supplier. Audited, and published as RfqAwarded for a contract or
+	// RfqAwardedToOrder for a purchase order, each naming the supplier by id and number, and RfqChanged.
 	//
 	// POST /v1/rfqs/{id}:award
 	AwardRfq(ctx context.Context, req *RfqAward, params AwardRfqParams) (AwardRfqRes, error)
@@ -390,6 +430,37 @@ type Handler interface {
 	//
 	// POST /v1/assets/{id}:cancel
 	CancelAsset(ctx context.Context, params CancelAssetParams) (CancelAssetRes, error)
+	// CancelBillingDocument implements cancelBillingDocument operation.
+	//
+	// Cancels a `created` or `posted` billing document, once (ADR-0067, As built T79c), at the version the
+	// caller read (`If-Match`), with a reason, as SAP's billing cancellation does: a cancellation document
+	// is created, numbered from the company's `billing_document` number range of its date's fiscal year. A
+	// created document posted nothing, so its cancellation posts nothing either. For a posted one,
+	// accounts receivable enters and posts a customer credit memo in the same transaction (`kind`
+	// `credit_memo`, document type `DG`) naming the document's customer invoice (`reference_invoice_id`)
+	// and the cancellation as its source, with the invoice's items one for one: each item's account,
+	// amount and the output tax the invoice's item bore, so receivables, revenue and output tax move back
+	// by exactly the invoice's net, tax and gross. Its credit line is the customer's open credit item; it
+	// is not cleared against the invoice, which stays open until it is cleared (`createClearing`) or paid.
+	// Either way the document becomes `cancelled`, names its `cancellation`, and what it billed of the
+	// order's items is billable again: each order item's `billed_quantity` falls by the document's
+	// quantity and the order's `version` moves, and a later billing document bills the delivered
+	// quantities at the order's prices as the cumulative rule says over the documents not cancelled.
+	// `cancellation_date` is the cancellation's date and, for a posted document, the credit memo's date,
+	// which is its tax date, and posting date, in an open period (409 `ledger.period_not_open`); absent:
+	// today, the company's date in its time zone; it is not before the billing date, nor before the
+	// posting date of a posted one (422 `sales.invalid_cancellation_date`). The document's row and then
+	// its order's are read under a lock: of two requests to cancel one document one does and the other
+	// meets another version (412). A cancelled document is refused (409 `sales.invalid_status`), as is one
+	// a returns order or a credit memo request that is not rejected names (409
+	// `sales.billing_document_referenced`): those are settled first. What accounts receivable or the
+	// ledger refuses leaves the document as it was and is answered with their code, the document's number
+	// leading the detail and the document's own fields named, as `postBillingDocument` answers. Audited,
+	// and published as BillingDocumentCancelled, beside the credit memo's own events. A retry with the
+	// same `Idempotency-Key` answers the cancelled document. Human-only (`x-agent: false`).
+	//
+	// POST /v1/billing-documents/{id}:cancel
+	CancelBillingDocument(ctx context.Context, req *BillingDocumentCancel, params CancelBillingDocumentParams) (CancelBillingDocumentRes, error)
 	// CancelContract implements cancelContract operation.
 	//
 	// Cancels a draft contract that was never used (status `cancelled`). Active contracts are ended with
@@ -466,6 +537,22 @@ type Handler interface {
 	//
 	// POST /v1/revaluation-runs/{id}:cancel
 	CancelRevaluationRun(ctx context.Context, req *ReasonInput, params CancelRevaluationRunParams) (CancelRevaluationRunRes, error)
+	// CancelSalesOrder implements cancelSalesOrder operation.
+	//
+	// Cancels a `draft` or `confirmed` sales order of which nothing is delivered (ADR-0067, As built
+	// T78d), at the version the caller read (`If-Match`), with a reason: the order is read under a row
+	// lock and moves to `cancelled` once, naming the reason, who cancelled it and when. An order already
+	// cancelled is refused (409 `sales.invalid_status`), as is one with a quantity delivered (409
+	// `sales.order_delivered`) and a confirmed one with a revenue contract (409
+	// `sales.revenue_contract_exists`), whose obligations hold the order's values: since only what is
+	// delivered is billed, nothing of a cancelled order is billed. A cancelled order takes no change,
+	// delivery or billing document, and leaves the customer's open orders (`getCreditExposure`). The
+	// quotation it came from stays ordered. Nothing is posted. Audited, and published as
+	// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the cancelled order. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}:cancel
+	CancelSalesOrder(ctx context.Context, req *ReasonInput, params CancelSalesOrderParams) (CancelSalesOrderRes, error)
 	// CancelSupplierInvoice implements cancelSupplierInvoice operation.
 	//
 	// Cancels a parked or held invoice (status `cancelled`); its supplier reference can then be entered
@@ -518,6 +605,37 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, req *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
+	// ChangeSalesOrder implements changeSalesOrder operation.
+	//
+	// Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the
+	// caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date.
+	// The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`).
+	// Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422
+	// `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and
+	// the unit price given, in the order's currency, with its price unit; what is not given stays. A
+	// changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the
+	// order's date: an entered price stays entered, an item priced from the price records takes the record
+	// valid on that date again, with the pricing procedure's discounts; its account and tax code are
+	// checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's
+	// quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
+	// `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
+	// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
+	// (`cancelBillingDocument`). A confirmed order with a revenue contract (`createRevenueContract`, or
+	// made when the order is confirmed) keeps its items' quantities and prices (409
+	// `sales.revenue_contract_exists`): the contract holds their values, and follows no change of them;
+	// its requested delivery date still changes. `requested_delivery_date` is on or after the order's date
+	// (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
+	// refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
+	// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
+	// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
+	// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
+	// release; a lower value leaves the block as it is. The change is kept, numbered within the order,
+	// with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes`
+	// counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+	// `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}:change
+	ChangeSalesOrder(ctx context.Context, req *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error)
 	// CheckCloseTask implements checkCloseTask operation.
 	//
 	// Runs a check task's check now and records its result on the task (ADR-0058 §6, T64c):
@@ -605,7 +723,10 @@ type Handler interface {
 	CloseDisputeCase(ctx context.Context, req *DisputeCaseClose, params CloseDisputeCaseParams) (CloseDisputeCaseRes, error)
 	// CloseFiscalPeriod implements closeFiscalPeriod operation.
 	//
-	// Closes the period for postings. Requires status `open`.
+	// Closes the period for postings. Requires status `open`. Refused while a payment run of the company
+	// is being released, or stopped and waiting to be resumed, with payments dated in the period not
+	// posted yet (409 `ledger.payment_release_pending`, naming the runs): resume the release (`:release`)
+	// and let it finish first.
 	//
 	// POST /v1/fiscal-periods/{id}:close
 	CloseFiscalPeriod(ctx context.Context, params CloseFiscalPeriodParams) (CloseFiscalPeriodRes, error)
@@ -685,14 +806,15 @@ type Handler interface {
 	// confirmed, the proposal is compared with the open items again: when an item of it was cleared since
 	// the run was started, or was dunned since by another confirmed run of the company (its recorded level
 	// is no longer the run's `previous_level`), the proposal is stale and refused (409
-	// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
-	// `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run
-	// was started does not make the proposal stale: the run is confirmed as proposed and the item recorded
-	// as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a
-	// second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers
-	// the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is
-	// not cancelled. A run of a company the caller may not act in is not found (404). Human-only
-	// (`x-agent: false`).
+	// `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the
+	// item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a
+	// stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays
+	// `proposed`. A dispute case opened on an item after the run was started does not make the proposal
+	// stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not
+	// `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and
+	// publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without
+	// notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company
+	// the caller may not act in is not found (404). Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
@@ -761,20 +883,20 @@ type Handler interface {
 	// Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
 	// the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
 	// (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
-	// not changed or cancelled in the first version. Nothing is posted. The confirmation checks the
-	// customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax
-	// its items' tax codes give on the order's date, in the company's currency (an order in another
-	// currency at the average rate valid on its date), is compared with the customer's credit limit in the
-	// company less its exposure, its open items and its other confirmed orders not yet billed, as
-	// `getCreditExposure` gives them. An order that is within the limit, and every order of a customer
-	// without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same,
-	// with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding
-	// `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one
-	// customer confirmed at once are checked one after the other, so they cannot both take the room only
-	// one fits. The order is not checked again after its confirmation. The value must be calculable: a tax
-	// code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an
-	// order in another currency without a rate into the company's on its date (422
-	// `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
+	// changed (`changeSalesOrder`) and cancelled (`cancelSalesOrder`) as a draft is. Nothing is posted.
+	// The confirmation checks the customer's credit (ADR-0066, T77b), once: the order's gross value, its
+	// net value plus the output tax its items' tax codes give on the order's date, in the company's
+	// currency (an order in another currency at the average rate valid on its date), is compared with the
+	// customer's credit limit in the company less its exposure, its open items and its other confirmed
+	// orders not yet billed, as `getCreditExposure` gives them. An order that is within the limit, and
+	// every order of a customer without a limit, is confirmed with `credit_block` `none`. One that is not
+	// is confirmed all the same, with `credit_block` `blocked`: it takes no delivery, and so no billing,
+	// until a person holding `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`).
+	// Two orders of one customer confirmed at once are checked one after the other, so they cannot both
+	// take the room only one fits. The order is not checked again after its confirmation. The value must
+	// be calculable: a tax code that is no longer an output tax code on the order's date (422
+	// `sales.unknown_tax_code`), an order in another currency without a rate into the company's on its
+	// date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
 	// `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
 	// confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
 	// amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
@@ -1401,6 +1523,28 @@ type Handler interface {
 	//
 	// POST /v1/down-payment-requests
 	CreateDownPaymentRequest(ctx context.Context, req *DownPaymentRequestCreate, params CreateDownPaymentRequestParams) (CreateDownPaymentRequestRes, error)
+	// CreateDunningBlock implements createDunningBlock operation.
+	//
+	// Places a dunning block (ADR-0065 As built, T76e): the customer (`customer_id`), or one of its open
+	// items named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's
+	// item names it), is not dunned in the company, for a reason, up to an end date. The company is one
+	// the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`); the customer a
+	// business partner of the tenant (422 `request.reference_not_found` naming `customer_id`); an item an
+	// open item on a customer reconciliation account of the company in the leading ledger that this
+	// customer owes (422 `collections.item_not_open` naming `journal_entry_id`); the journal line is named
+	// whole or not at all (422 `request.validation_failed`). `valid_to` is the last key date the block
+	// holds for: not before the company's today and at most 2100-12-31 (422
+	// `collections.invalid_block_end` naming `valid_to`). `reason` is a text of more than white space (422
+	// `request.validation_failed`). The block is created `active`. A dunning run started while it is
+	// active, at a key date up to `valid_to`, leaves the blocked items out of its notices and names them
+	// in `blocked_items`; a run proposed before the block is refused as stale when it is confirmed
+	// (`confirmDunningRun`). Several blocks of one customer or item may be active at once; each holds
+	// until its own end date or release. Placing a block posts nothing and changes nothing on the items.
+	// Audited. A retry with the same `Idempotency-Key` answers the block placed. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/dunning-blocks
+	CreateDunningBlock(ctx context.Context, req *DunningBlockCreate, params CreateDunningBlockParams) (CreateDunningBlockRes, error)
 	// CreateDunningRun implements createDunningRun operation.
 	//
 	// Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a):
@@ -1416,11 +1560,22 @@ type Handler interface {
 	// dunned and reduce nothing, with or without terms. An item with an open dispute case
 	// (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in
 	// `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a
-	// new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level
-	// the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would
-	// reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days,
-	// and one at the highest level stays there. A notice's level is the highest among its items. A key
-	// date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
+	// new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its
+	// own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the
+	// run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items`
+	// (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs
+	// recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one
+	// dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+	// highest level stays there. A notice's level is the highest among its items. The company's dunning
+	// procedure applies as the configuration has it when the run is started, and the run keeps it (T76d):
+	// an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose
+	// notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the
+	// run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its
+	// level's `charge`, and each item at a level that charges `interest` is charged interest at
+	// `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue`
+	// ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it
+	// asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date
+	// after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
 	// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
 	// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
 	// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
@@ -1535,24 +1690,43 @@ type Handler interface {
 	CreateHierarchy(ctx context.Context, req *HierarchyCreate, params CreateHierarchyParams) (CreateHierarchyRes, error)
 	// CreateIncomingPayment implements createIncomingPayment operation.
 	//
-	// Applies an incoming payment to a customer's open items, in full and exactly (ADR-0063 §6, T75c;
-	// plan default 4). The payment is a receipt: the journal entry a bank statement line matched as
-	// incoming posted, whose credit line waits as an open item on the house bank's incoming payments
-	// clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the
-	// customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and
-	// credits alike, in the receipt's currency; together they equal the receipt exactly (422
-	// `ledger.clearing_not_balanced`): no partial payment, no difference and no cash discount. One
-	// clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every
-	// item at the amounts they were booked at and clears them all; what that leaves in local or group
-	// currency, receipt and items having been booked at different rates, is a realized exchange difference
-	// on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The
-	// posting date is the request's, else today, the company's date in its time zone; it must be in an
-	// open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt
-	// and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item`
-	// naming `posting_date`, its message giving that date). The application is a document with a number
-	// from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are
-	// written with it. A receipt that is not waiting on an incoming payments clearing account of the
-	// company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
+	// Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f). The payment is a
+	// receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits
+	// as an open item on the house bank's incoming payments clearing account (ADR-0047);
+	// `listUnappliedReceipts` lists them. The items are open items of the customer on customer
+	// reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the
+	// receipt's currency. An item paid in part names its `residual`: what stays open of it, more than zero
+	// and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming
+	// `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's
+	// currency (422 `receivables.currency_mismatch`), with a reason (422
+	// `receivables.unknown_residual_reason`) and, if wanted, a free text that is not white space alone
+	// (422 `request.validation_failed`). Together the items, net of their residuals, equal the receipt,
+	// but for a payment difference within the company's payment tolerance
+	// (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's
+	// currency and a percent of the items applied, the lower binding; none configured, none allowed);
+	// anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No
+	// cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`,
+	// offsets the receipt and every item at the amounts they were booked at and clears them all; each
+	// residual is a new open item of the customer, a debit line of that entry on the item's account at the
+	// item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item
+	// did; a difference is a line on the company's `payment_difference_expense` account (an underpayment)
+	// or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
+	// `ledger.no_payment_difference_account` without it); what that leaves in local or group currency,
+	// receipt and items having been booked at different rates, is a realized exchange difference on the
+	// company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date
+	// is the request's, else today, the company's date in its time zone; it must be in an open period (409
+	// `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items,
+	// since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming
+	// `posting_date`, its message giving that date). With `on_account`, what the receipt leaves after the
+	// items, the whole receipt when there are none, is posted to the customer's reconciliation account
+	// (its company data, 422 `receivables.customer_not_usable` without it) as a credit of the customer's
+	// at the receipt's rate, a line of the clearing entry, which `applyIncomingPaymentOnAccount` applies
+	// later; an overpayment is then left on account rather than kept within the tolerance, and something
+	// must be left (422 `receivables.nothing_left_on_account`); without it the items are required (422
+	// `ledger.no_items`). The application is a document with a number from the company's
+	// `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A
+	// receipt that is not waiting on an incoming payments clearing account of the company is refused, 422
+	// `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
 	// `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an
 	// open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as
 	// are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a
@@ -1579,6 +1753,26 @@ type Handler interface {
 	//
 	// POST /v1/internal-orders
 	CreateInternalOrder(ctx context.Context, req *InternalOrderCreate, params CreateInternalOrderParams) (CreateInternalOrderRes, error)
+	// CreateInternalOrderBudgetChange implements createInternalOrderBudgetChange operation.
+	//
+	// Supplements an internal order's budget or returns part of it (ADR-0064 §3, T60h): `kind`
+	// `supplement` adds the amount to the budget, `return` takes it off. The amount is positive and in the
+	// order's legal entity's local currency (422 `controlling.order_budget_invalid` on `amount.amount` or
+	// `amount.currency`). The order needs a budget set first (409 `controlling.order_budget_missing`). A
+	// return never takes the budget below the order's actual costs, the debits less the credits of the
+	// leading ledger's lines naming it over every fiscal year, nor below zero (409
+	// `controlling.order_budget_return_too_large`, naming what may be returned): budget that is used is
+	// not returned. `If-Match` is the budget's version as `GET /v1/internal-orders/{id}/budget` gave it;
+	// the order is read under a row lock, so of two changes at one version the second is refused (412).
+	// The change is one new version of the budget, kept with the budget before and after it and an
+	// optional text, audited and published as InternalOrderBudgetChanged; the answer's `ETag` is the
+	// budget's new version, the `If-Match` of the next change. The availability control is kept as it is.
+	// Changed directly by permission, with no approval request; the amounts are budget amounts, and the
+	// return's check reads the actual costs, so the caller also needs `ledger.entry.read`. An order of a
+	// legal entity the caller cannot act in is answered as missing (404). Agents may not change a budget.
+	//
+	// POST /v1/internal-orders/{id}/budget-changes
+	CreateInternalOrderBudgetChange(ctx context.Context, req *InternalOrderBudgetChangeCreate, params CreateInternalOrderBudgetChangeParams) (CreateInternalOrderBudgetChangeRes, error)
 	// CreateLeaseContract implements createLeaseContract operation.
 	//
 	// Creates a lease contract a company enters as lessee (ADR-0073 §3-§4, T88a), with its payment
@@ -2008,7 +2202,19 @@ type Handler interface {
 	// error naming `supplier_ids[i]`). The due date is not before the legal entity's date today in its
 	// company's time zone (422 `procurement.rfq_due_date_past`, naming that date and zone). The RFQ is
 	// numbered from the company's `rfq` number range for that date's fiscal year. A draft is not changed:
-	// it is published (`:publish`) as created. Audited, and published as RfqChanged.
+	// it is published (`:publish`) as created. An RFQ from a requisition (`requisition_id`, T82e) takes
+	// its items from it and none are sent (422 `procurement.rfq_items_from_requisition` otherwise): every
+	// live item of an `approved` requisition of the legal entity (409 `procurement.invalid_status`; 422
+	// `procurement.requisition_mismatch` for another legal entity or currency; 422
+	// `procurement.requisition_on_contract` for one naming a contract, which is ordered as a release
+	// against it) becomes an item of the RFQ in its order, with its description, quantity, unit and
+	// account, its catalog key as material key (or `<requisition number>/<item no>` for an item without
+	// one or sharing it with another), the requisition's need date as delivery date and its item number as
+	// `requisition_item_no`; the currency defaults to the requisition's. The requisition is read under a
+	// row lock and becomes `in_sourcing`, naming the RFQ, in the same transaction, so a second RFQ from it
+	// is refused (409 `procurement.invalid_status`); while in sourcing it is neither ordered directly nor
+	// cancelled. Without a requisition, `currency` and `items` are required (422
+	// `request.validation_failed`). Audited, and published as RfqChanged.
 	//
 	// POST /v1/rfqs
 	CreateRfq(ctx context.Context, req *RfqCreate, params CreateRfqParams) (CreateRfqRes, error)
@@ -3276,6 +3482,15 @@ type Handler interface {
 	//
 	// GET /v1/down-payment-requests/{id}
 	GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (GetDownPaymentRequestRes, error)
+	// GetDunningBlock implements getDunningBlock operation.
+	//
+	// One dunning block (ADR-0065 As built, T76e) with its company's code and name, its customer's number
+	// and name, the open item it blocks by journal line and document number (none for a block of the whole
+	// customer), its reason, its end date and its status, and once released who released it when. One of a
+	// company the caller may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/dunning-blocks/{id}
+	GetDunningBlock(ctx context.Context, params GetDunningBlockParams) (GetDunningBlockRes, error)
 	// GetDunningRun implements getDunningRun operation.
 	//
 	// One dunning run (ADR-0065 §3, T76a) with its company's code and name, its key date, its status and
@@ -3405,12 +3620,13 @@ type Handler interface {
 	GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error)
 	// GetIncomingPayment implements getIncomingPayment operation.
 	//
-	// One incoming payment applied (ADR-0063 §6, T75c) with its company's code and name, its customer's
-	// number and name, its amount, the receipt it applied (the journal entry the statement line posted,
-	// with its number, the incoming payments clearing account's number and name and the bank statement and
-	// line that posted it), the clearing entry that cleared receipt and items, and the items it was
-	// applied to, each with its journal entry's number and reference and the amount it stood at, a credit
-	// of the customer's negative. One of a company the caller may not act in is not found.
+	// One incoming payment applied (ADR-0063 §6, T75c; T75f, T75g: its residual items, its difference,
+	// what it left on account and that credit's applications) with its company's code and name, its
+	// customer's number and name, its amount, the receipt it applied (the journal entry the statement line
+	// posted, with its number, the incoming payments clearing account's number and name and the bank
+	// statement and line that posted it), the clearing entry that cleared receipt and items, and the items
+	// it was applied to, each with its journal entry's number and reference and the amount it stood at, a
+	// credit of the customer's negative. One of a company the caller may not act in is not found.
 	//
 	// GET /v1/incoming-payments/{id}
 	GetIncomingPayment(ctx context.Context, params GetIncomingPaymentParams) (GetIncomingPaymentRes, error)
@@ -3429,10 +3645,12 @@ type Handler interface {
 	// of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the
 	// budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so.
 	// An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a
-	// budget is shown here and refuses no posting. The `ETag` is the budget's version, the one `PATCH`
-	// takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual
-	// is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for
-	// the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	// budget refuses no posting unless the budget has an availability control (T60h): then
+	// `availability_control` gives its limits and `availability` says where the actual stands against
+	// them; a posting above the refusal limit is refused. The `ETag` is the budget's version, the one
+	// `PATCH` takes. An order of a legal entity the caller cannot act in is answered as missing (404). The
+	// actual is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`,
+	// as for the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 	//
 	// GET /v1/internal-orders/{id}/budget
 	GetInternalOrderBudget(ctx context.Context, params GetInternalOrderBudgetParams) (GetInternalOrderBudgetRes, error)
@@ -4923,6 +5141,16 @@ type Handler interface {
 	//
 	// GET /v1/down-payment-requests
 	ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (ListDownPaymentRequestsRes, error)
+	// ListDunningBlocks implements listDunningBlocks operation.
+	//
+	// The dunning blocks of the companies the caller may act in (ADR-0065 As built, T76e), each as
+	// `getDunningBlock` gives it: with its company's code and name, its customer's number and name, the
+	// open item it blocks (none for a block of the whole customer), its reason, its end date and its
+	// status. Filtered by company, customer and status. Sortable by: `created_at` (default, the latest
+	// first).
+	//
+	// GET /v1/dunning-blocks
+	ListDunningBlocks(ctx context.Context, params ListDunningBlocksParams) (ListDunningBlocksRes, error)
 	// ListDunningNotices implements listDunningNotices operation.
 	//
 	// The notices a dunning run proposed (ADR-0065 §3-§4, T76a), one per customer: the customer's number
@@ -5142,15 +5370,26 @@ type Handler interface {
 	//
 	// GET /v1/internal-order-balances
 	ListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (ListInternalOrderBalancesRes, error)
+	// ListInternalOrderBudgetChanges implements listInternalOrderBudgetChanges operation.
+	//
+	// The versions of one internal order's budget (ADR-0064 §3, T60h), latest first: each change with its
+	// kind (`set` by `PATCH /v1/internal-orders/{id}/budget`, `supplement` or `return` by `POST`), the
+	// budget before and after it, the availability control after it, its text, who made it and when. A
+	// change is never changed or removed. Changes made before T60h are not kept, so a budget's history may
+	// start after its version 1. An order of a legal entity the caller cannot act in is answered as
+	// missing (404). Sortable by: `version`.
+	//
+	// GET /v1/internal-orders/{id}/budget-changes
+	ListInternalOrderBudgetChanges(ctx context.Context, params ListInternalOrderBudgetChangesParams) (ListInternalOrderBudgetChangesRes, error)
 	// ListInternalOrderSettlements implements listInternalOrderSettlements operation.
 	//
 	// The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it
 	// was posted on, the receiving cost center with its code, the amount moved in the legal entity's local
 	// currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`),
-	// which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot
-	// act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so
-	// besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
-	// `identity.permission_missing` otherwise).
+	// which shows the lines, and its reversal when it was reversed (T60i). A settlement is never changed.
+	// An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by:
+	// `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 	//
 	// GET /v1/internal-orders/{id}/settlements
 	ListInternalOrderSettlements(ctx context.Context, params ListInternalOrderSettlementsParams) (ListInternalOrderSettlementsRes, error)
@@ -5669,6 +5908,17 @@ type Handler interface {
 	//
 	// GET /v1/sales-orders/{id}/deliveries
 	ListSalesDeliveries(ctx context.Context, params ListSalesDeliveriesParams) (ListSalesDeliveriesRes, error)
+	// ListSalesOrderChanges implements listSalesOrderChanges operation.
+	//
+	// The changes of a sales order (ADR-0067, As built T78d), each as `changeSalesOrder` made it: its
+	// number within the order, the order's version after it, its reason, who made it and when, and what it
+	// changed with its values before and after: the net value, the requested delivery date, the credit
+	// block and each item changed. A change is kept as it was made and never altered. An order of a
+	// company the caller may not act in is not found (404), as one that does not exist. Sortable by:
+	// `change_no`.
+	//
+	// GET /v1/sales-orders/{id}/changes
+	ListSalesOrderChanges(ctx context.Context, params ListSalesOrderChangesParams) (ListSalesOrderChangesRes, error)
 	// ListSalesOrders implements listSalesOrders operation.
 	//
 	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
@@ -5849,7 +6099,9 @@ type Handler interface {
 	//
 	// Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as
 	// a closed one does, and `:open` cannot reopen it; only an approved unlock request returns it to
-	// `closed`. Requires status `closed`, so the postings under way have finished. Human-only.
+	// `closed`. Requires status `closed`, so the postings under way have finished, and no payment run of
+	// the company being released, or stopped and waiting to be resumed, with payments dated in the period
+	// not posted yet (409 `ledger.payment_release_pending`). Human-only.
 	//
 	// POST /v1/fiscal-periods/{id}:lock
 	LockFiscalPeriod(ctx context.Context, params LockFiscalPeriodParams) (LockFiscalPeriodRes, error)
@@ -6107,11 +6359,11 @@ type Handler interface {
 	// not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer
 	// an output tax code of the company with a rate on the billing date (422
 	// `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or
-	// `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the
-	// first version, so a document refused for an item's account or tax code cannot be posted until the
-	// configuration allows it again. A posted billing document is not reversed or cancelled in the first
-	// version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`).
-	// Human-only (`x-agent: false`).
+	// `journal_dr` number range (422 `config.no_number_range`). A document refused for an item's account
+	// or tax code is posted once the configuration allows it again, or cancelled
+	// (`cancelBillingDocument`). A posted billing document is cancelled by `cancelBillingDocument`, which
+	// posts a credit memo; the ledger's `reverseJournalEntry` refuses its entry (409
+	// `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`).
 	//
 	// POST /v1/billing-documents/{id}:post
 	PostBillingDocument(ctx context.Context, req OptBillingDocumentPost, params PostBillingDocumentParams) (PostBillingDocumentRes, error)
@@ -6729,6 +6981,18 @@ type Handler interface {
 	//
 	// POST /v1/credit-memo-requests/{id}:release
 	ReleaseCreditMemoRequest(ctx context.Context, params ReleaseCreditMemoRequestParams) (ReleaseCreditMemoRequestRes, error)
+	// ReleaseDunningBlock implements releaseDunningBlock operation.
+	//
+	// Releases an `active` dunning block once, before its end date (ADR-0065 As built, T76e), at the
+	// version the caller read (`If-Match`; 412 when another change came first): the block is read under a
+	// row lock and becomes `released`; a run started from then on duns the items again. A released block
+	// is refused (409 `collections.block_released`). A block past its end date is released too, which
+	// changes nothing for runs. Audited. A retry with the same `Idempotency-Key` answers the released
+	// block. A block of a company the caller may not act in is not found (404). Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/dunning-blocks/{id}:release
+	ReleaseDunningBlock(ctx context.Context, params ReleaseDunningBlockParams) (ReleaseDunningBlockRes, error)
 	// ReleaseInternalOrder implements releaseInternalOrder operation.
 	//
 	// Releases a `created` internal order for posting (ADR-0064 §1), at the version the caller read
@@ -6805,11 +7069,11 @@ type Handler interface {
 	// the order takes deliveries and is billed as any confirmed order, and it counts in the customer's
 	// exposure, which may then exceed the limit: the release is the credit manager's decision, whatever
 	// the amount. An order without a block, or whose block is already released, is refused (409
-	// `sales.order_not_credit_blocked`). The release is by its own permission,
-	// `sales.order.credit_release`; no rule sets the person who releases apart from the one who confirmed
-	// the order. Nothing is checked again and nothing is posted. Audited, and published as
-	// SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released order.
-	// Human-only (`x-agent: false`).
+	// `sales.order_not_credit_blocked`), and a cancelled one too (409 `sales.invalid_status`). The release
+	// is by its own permission, `sales.order.credit_release`; no rule sets the person who releases apart
+	// from the one who confirmed the order. Nothing is checked again and nothing is posted. Audited, and
+	// published as SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released
+	// order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:releaseCreditBlock
 	ReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (ReleaseSalesOrderCreditBlockRes, error)
@@ -7061,6 +7325,28 @@ type Handler interface {
 	//
 	// POST /v1/goods-receipts/{id}:reverse
 	ReverseGoodsReceipt(ctx context.Context, req OptGoodsReceiptReverse, params ReverseGoodsReceiptParams) (ReverseGoodsReceiptRes, error)
+	// ReverseInternalOrderSettlement implements reverseInternalOrderSettlement operation.
+	//
+	// Reverses an internal order's latest settlement (ADR-0064 §3, T60i): the settlement's journal entry
+	// is reversed through the ledger in every ledger it was posted to, dated the settlement's own posting
+	// date, the settled period's last day, so the period must still be open (409
+	// `ledger.period_not_open`). Per account the order is debited and the receiving cost center credited
+	// again: the order's balance is what it was before the settlement, and the cost center's report gives
+	// the cost back. The reversed settlement no longer bounds the period the order is next settled up to,
+	// and the order may be settled again. Only the order's latest settlement that is not reversed is
+	// reversed (409 `controlling.settlement_not_latest`: reverse the later ones first), and once (409
+	// `controlling.settlement_reversed`). The order must be released (409
+	// `controlling.internal_order_not_released`) and not closed (409 `controlling.internal_order_closed`).
+	// `If-Match` is the order's version, as `:settle` takes it; a reversal does not move it. The order is
+	// held under a row lock, so two reversals never reverse one settlement twice. Kept on the settlement
+	// (`GET /v1/internal-orders/{id}/settlements`), audited and published as
+	// InternalOrderSettlementReversed. A settlement that is none of the order's, or an order of a legal
+	// entity the caller cannot act in, is answered as missing (404). The amounts are ledger amounts, so
+	// besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Agents may not reverse a settlement.
+	//
+	// POST /v1/internal-orders/{id}/settlements/{settlement_id}:reverse
+	ReverseInternalOrderSettlement(ctx context.Context, params ReverseInternalOrderSettlementParams) (ReverseInternalOrderSettlementRes, error)
 	// ReverseJournalEntry implements reverseJournalEntry operation.
 	//
 	// Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a
@@ -7745,16 +8031,22 @@ type Handler interface {
 	UpdateEntryTemplate(ctx context.Context, req *EntryTemplateUpdate, params UpdateEntryTemplateParams) (UpdateEntryTemplateRes, error)
 	// UpdateInternalOrderBudget implements updateInternalOrderBudget operation.
 	//
-	// Sets or replaces the budget of an internal order (ADR-0064 §3): one overall amount, zero or more,
-	// in the order's legal entity's local currency (422 `controlling.order_budget_invalid`, whose field
-	// error names `budget.currency` or `budget.amount`). JSON Merge Patch (RFC 7396) of the order's
-	// budget, whose one field, `budget`, is replaced whole. `If-Match` is the budget's version as `GET`
-	// gave it, `"0"` for an order whose budget was never set; the order is read under a row lock, so of
-	// two changes at one version the second is refused (412). The budget may be set on an order in any
-	// status and may be below the order's actual costs: nothing is refused for it. Set directly by
-	// permission, with no approval request. Audited with the amounts before and after, and published as
-	// InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so
-	// the caller also needs `ledger.entry.read`. Agents may not set a budget.
+	// Sets or replaces the budget of an internal order (ADR-0064 §3), its availability control (T60h), or
+	// both. JSON Merge Patch (RFC 7396) of the order's budget: `budget`, one overall amount, zero or more,
+	// in the order's legal entity's local currency, is replaced whole (422
+	// `controlling.order_budget_invalid`, whose field error names `budget.currency` or `budget.amount`);
+	// `availability_control`, the warning and refusal limits, is replaced whole, and null removes it (422
+	// `controlling.order_budget_invalid` on `availability_control.warn_percent` when the warning limit is
+	// not below the refusal limit). An order whose budget was never set needs `budget` (422
+	// `controlling.order_budget_invalid` on `budget`), and a patch naming neither field is refused the
+	// same way. `If-Match` is the budget's version as `GET` gave it, `"0"` for an order whose budget was
+	// never set; the order is read under a row lock, so of two changes at one version the second is
+	// refused (412). The budget may be set on an order in any status and may be below the order's actual
+	// costs. Set directly by permission, with no approval request. Each patch is one new version of the
+	// budget, kept in its history (`GET /v1/internal-orders/{id}/budget-changes`, kind `set`), audited
+	// with the amounts and limits before and after, and published as InternalOrderBudgetChanged. The
+	// answer is the budget against the actual costs, as `GET` gives it, so the caller also needs
+	// `ledger.entry.read`. Agents may not set a budget.
 	//
 	// PATCH /v1/internal-orders/{id}/budget
 	UpdateInternalOrderBudget(ctx context.Context, req *InternalOrderBudgetUpdate, params UpdateInternalOrderBudgetParams) (UpdateInternalOrderBudgetRes, error)

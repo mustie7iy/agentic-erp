@@ -696,6 +696,38 @@ extract's LFBK names its vendor itself and is unchanged:
   the link is right; `A_BusinessPartner`'s `Supplier` [M, to verify in
   the pilot's `$metadata`].
 
+## As built: the bank account that loads, and the extract's order (review:batch77)
+
+The batch 77 review found a vendor's payments account taken as its first
+LFBK row in extract order, which an OData extract paged with `$skip` and
+`$top` but no `$orderby` does not fix, so a rehearsal and the real run
+could load different accounts and the reconciliation, comparing the same
+"first" row, saw no difference; and a run's company codes extracted in a
+map's random order.
+
+- **The account that loads** (coordinator 2026-11-17, ERP practice). The
+  one with the lowest bank details ID (BUT0BK-BKVID, read as
+  `A_BusinessPartnerBank`'s `BankIdentification`, the entity's key beside
+  the partner, which the SAP specialist named, po:2026-11-09, A7 [M]), and then by LFBK's key (bank country, bank key, account
+  number), which is all a file extract's LFBK has (`sap.LoadedBanks`). SAP
+  itself has no "main" vendor account; the payment program picks by the
+  partner bank type on the item, which the platform does not carry, so
+  the lowest ID, normally the account created first, is the rule a
+  reviewer can predict. The load and the reconciliation both use it.
+- **The others.** The quality gate warns of every vendor with more than
+  one account, naming the count and the one that loads by its ID and last
+  four (table LFBK, keyed by the vendor): they do not load, and the
+  business adds them on the platform if they are needed. A warning, not an
+  error: the vendor and its documents load right.
+- **Order.** Every OData page is ordered by its entity set's key
+  properties (`EntityMapping.Keys`, `$orderby`), and the run extracts its
+  company codes sorted, so the quality issues and opening entries come in
+  the same order on every run. The keys are stated from memory, like the
+  properties: confirm them in the pilot's `$metadata`. The journal item's
+  key also holds the ledger, which is not mapped (T56h5).
+- **Errors.** A page the system refuses fails with its HTTP status alone:
+  the body may echo records, and the error reaches the run's report.
+
 ## As built: an order item's delivery date (T53g, ADR-0051 decision P7)
 
 An order item may carry the day it is expected to be delivered

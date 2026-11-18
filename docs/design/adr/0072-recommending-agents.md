@@ -208,7 +208,7 @@ agent anyway (403 `identity.agent_not_allowed`).
 | `regulatory` (drafting, T107b) | `erp agent regulatory-draft -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `listFiscalPeriods`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a pack applied, a regression suite, a decision on an approval or a recommendation |
 | `enablement` | `internal/enablementagent`, `erp agent enablement-docs -process P [-out F]`; beside the pattern, `erp agent enablement-help -operation ID -field NAME\|-problem CODE` (T109b) | `listConfigVersions`, `getConfigVersion`, `listRoles`, `listRolePermissions`, `listSodRules`; for help also `getSchema` | on `config_version`: `process_document` (T109a); help replies only (T109b) | every write of the configuration and of access (change requests, a pack applied, a regression suite, roles, grants, assignments, SoD rules, principals, company access) |
 | `bid_comparison` | `internal/bidagent`, `erp agent bid-compare -rfq ID` | `getRfq`, `listSupplierQuotations`, `getRfqComparison`, `getBusinessPartner`, `listContracts`, `listPurchaseOrders` | on `rfq`: `award`, `no_award` | `awardRfq`, `publishRfq`, `createSupplierQuotation`, `createRfq` |
-| `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `listAccounts`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`; nothing in the contract sends to a customer |
+| `collections` | `internal/collectionsagent`, `erp agent collections -company CODE [-key-date YYYY-MM-DD]` | `getCollectionWorklist`, `getReceivablesAging`, `listDunningRuns`, `listDunningNotices`, `listIncomingPayments`, `listCustomerInvoices`, `listDisputeCases`, `getDisputeCase`, `listOpenItems`, `listAccounts`, `getBusinessPartner` | on `business_partner` (a customer of the worklist): `call`, `send_reminder`, `escalate`, `wait_for_dispute`, `no_action` | `createDunningRun`, `confirmDunningRun`, `createDisputeCase`, `updateDisputeCase`, `closeDisputeCase`, `createDunningBlock`, `releaseDunningBlock`; nothing in the contract sends to a customer |
 | `support` (diagnosis, T108b) | `internal/supportagent`, `erp agent support-diagnose -type KIND -id ID [WHAT HAPPENED]` | T108a's (`listConfigVersions`, `getConfigVersion`, `getSchema`, `getCurrentPrincipal`), `listAuditEvents`, `listOperations`, `listApprovalRequests`, each document's read (`getSupplierInvoice`, `getCustomerInvoice`, `getJournalEntry`, `getPurchaseOrder`, `getSalesOrder`, `getPaymentRun`, `getChangeRequest`, `getOperation`), the contract's search (`findOperations`) | on the document (its kind): `root_cause` | every write: its tools hold none |
 | `integration` | `internal/integrationagent`, `erp agent integration-monitor` | `listConnectors`, `getConnector`, `listWebhookSubscriptions`, `listWebhookDeliveries`, `getWebhookDelivery`, `listBankFiles`, `listOperations`, `getOperation`, `listMigrationRuns` | on `webhook_subscription`: `check_endpoint`, `investigate`, `redeliver`, `pause`; on `bank_file`: `retransmit`, `investigate`; on `connector`: `check_endpoint`, `investigate` | every write of connectors, webhook subscriptions and deliveries, bank files, migration runs and operations (enabling, disabling, pausing, resuming, redelivering, rotating a secret, transmitting a file, creating a connector among them) |
 | `support` (fix, T108c) | `erp agent support-fix -recommendation ID` | `getRecommendation`, `listConfigVersions`, `getConfigVersion`, `getChangeRequest`, `getOperation`; writes `createChangeRequest`, `updateChangeRequest`, `simulateChangeRequest` (`internal/changedraft`) | on `change_request`: `ready_to_submit`, `simulation_failed` | submitting, withdrawing or activating a change request, a decision on an approval or a recommendation, any write of master data or a document |
@@ -1394,6 +1394,42 @@ A later slice adds its row here and its section under "As built".
   ADR-0010), whoever created it. The tax agent keeps its own guards (its
   adjustment entries are a write the pattern does not hold); moving its
   recommendation half onto the pattern is left to the backlog.
+
+### Hardening 3 (review:batch77): one runner, one day, one bound
+
+- **The analytics agent's tools.** Its three tools (`list_metrics`,
+  `run_query`, `build_dashboard`) share the session's results and the
+  dashboard built, and the runner executes one turn's calls concurrently:
+  two queries in one turn wrote the results at once. Each call now runs
+  whole under the answer's mutex, as `apitools.Tool.Exclusive` does for
+  API tools (`TestAgentToolsOfOneTurnRunOneAtATime`, `-race`). The agent
+  runs on `llm.Runner` (`Params`, `RunTools`, `Result`, `Text`) rather than
+  its own copy of the request; `llm.RunTools` is the runner of an agent
+  whose tools answer in-process with no API session, and `llm.Error`, used
+  by nothing, is gone.
+- **An observed write the session did not record.** `apitools.Tool.Invoke`
+  calls the tool's observer with every answer the API gave before it
+  records the call, so a write the API took closes the run's guards (one
+  recommendation per object) even when the record fails and the call
+  returns `ErrNotRecorded`.
+- **The model's numbers.** A tool's input is decoded with its numbers as
+  their text (`apitools.DecodeInput`, used by `Execute` and `erp mcp`), so
+  an integer past 2^53 reaches the API unchanged; `apitools.Body` is the
+  one reading of an input's body object the agents' guards share, and
+  `recommend.Iterations` the one place an agent's default bound on model
+  requests is applied (the migration agent's 15 now a `MaxIterations` it
+  can be given). The cash forecast agent's guards refuse a proposal that
+  leaves out its company or period, which the API would refuse too.
+- **The day a run is on** (coordinator 2026-11-17, ERP practice). One
+  port, `apitools.Days`: a run of one company is dated in the company's
+  time zone, as the API judges every date of the company
+  (`getLegalEntityToday`, over `config.DocumentDay`), any other run in
+  UTC. The credit agent's "today" and the collections agent's default key
+  date are the company's; the analytics agent's is the asked company's
+  when the question is asked of one company (`-companies` naming one),
+  else UTC's; the access agent's stays UTC's (product owner 2026-11-16).
+  At 23:30 in Toronto the credit agent's run is on that day, no longer on
+  UTC's tomorrow.
 
 ## Defaults taken (for the product owner's digest)
 

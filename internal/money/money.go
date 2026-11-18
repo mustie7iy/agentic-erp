@@ -188,6 +188,15 @@ func Percent(amount Minor, pct int64) (Minor, error) {
 	return Scale(amount, strconv.FormatInt(pct, 10), 100)
 }
 
+// AbovePercent reports whether part is above pct percent of whole,
+// part * 100 > whole * pct, exactly: the products are taken in big
+// integers, so the largest amounts compare right (an order's consumption
+// against a limit of its budget, ADR-0064 §3, T60h).
+func AbovePercent(part, whole Minor, pct int64) bool {
+	left := new(big.Int).Mul(big.NewInt(int64(part)), big.NewInt(100))
+	return left.Cmp(new(big.Int).Mul(big.NewInt(int64(whole)), big.NewInt(pct))) > 0
+}
+
 // Abs returns the absolute value.
 func (m Minor) Abs() Minor {
 	if m < 0 {

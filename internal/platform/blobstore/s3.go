@@ -296,8 +296,12 @@ func (s S3) List(ctx context.Context, prefix string) ([]string, error) {
 	}
 }
 
-// Delete implements Eraser: an object under retention (Object Lock) is
-// refused by the service, which is ErrLocked here.
+// Delete implements Eraser. The bucket is versioned, as Object Lock
+// requires, and a DELETE without a version id is never refused by the
+// lock: S3 writes a delete marker, so the key reads as missing while a
+// locked version stays in the bucket until its retention ends. Delete
+// therefore never answers ErrLocked; a caller that must keep an object
+// readable does not delete it (the erasure keeps exports and anchors).
 func (s S3) Delete(ctx context.Context, key string) error {
 	if err := checkKey(key); err != nil {
 		return err
@@ -307,10 +311,7 @@ func (s S3) Delete(ctx context.Context, key string) error {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }() // only read from: closing frees the connection and cannot change the answer
-	switch {
-	case resp.StatusCode == http.StatusForbidden:
-		return fmt.Errorf("%w: %w", ErrLocked, s.failure(resp, http.MethodDelete, key))
-	case resp.StatusCode >= 300 && resp.StatusCode != http.StatusNotFound:
+	if resp.StatusCode >= 300 && resp.StatusCode != http.StatusNotFound {
 		return s.failure(resp, http.MethodDelete, key)
 	}
 	return nil

@@ -190,18 +190,16 @@ func (e *Endpoints) OpenCase(ctx context.Context, in CaseInput) (Case, error) {
 // the customer owes (a debit); any other line is refused, naming the
 // journal entry.
 func (e *Endpoints) openItem(ctx context.Context, le tenancy.Entity, ref ledger.ItemRef) (ledger.ReceivableItem, error) {
-	open, err := e.OpenItems.Receivable(ctx, le.ID, nil)
+	it, ok, err := e.OpenItems.ReceivableItem(ctx, le.ID, ref)
 	if err != nil {
-		return ledger.ReceivableItem{}, fmt.Errorf("collections: open customer items of company %s: %w", le.Code, err)
+		return ledger.ReceivableItem{}, fmt.Errorf("collections: open customer item of company %s: %w", le.Code, err)
 	}
-	for _, it := range open {
-		if it.ItemRef == ref && it.Amount > 0 {
-			return it, nil
-		}
+	if ok && it.Amount > 0 {
+		return it, nil
 	}
 	return ledger.ReceivableItem{}, problem.Invalid("collections.item_not_open", "journal_entry_id", fmt.Sprintf("Line %d of the journal entry "+
-		"of fiscal year %d is no open item a customer owes company %s: a dispute case is opened on an uncleared debit on a customer "+
-		"reconciliation account in the leading ledger.", ref.LineNo, ref.FiscalYear, le.Code))
+		"of fiscal year %d is no open item a customer owes company %s: a dispute case and an item's dunning block name an uncleared "+
+		"debit on a customer reconciliation account in the leading ledger.", ref.LineNo, ref.FiscalYear, le.Code))
 }
 
 // disputed reads the disputed amount: in the item's currency, more than

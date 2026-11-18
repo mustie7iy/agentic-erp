@@ -120,7 +120,8 @@ account and period, read by the ledger and shown by controlling
   (`controlling.order_budget`), changed with the caller's version and
   audited with the amounts before and after. The read shows budget, actual
   and what remains and says when the actual exceeds the budget; **no
-  posting is refused for it** (plan default 10; question 1 below).
+  posting is refused for it** (plan default 10; question 1 below) unless
+  the budget is given an availability control (T60h, As built).
 - **Settlement rule**: one receiver per order, a cost center of the
   order's company, taking the whole (`controlling.settlement_rule`).
 - **Settlement** posts through `ledger.Postings.Post` with
@@ -528,7 +529,8 @@ adding up to 100, all active and of one company.
      receiver's, so a settlement to a cost center of another profit
      center moves the cost between profit centers.
   8. A settlement is not reversed (plan, Later): the ledger refuses to
-     reverse an entry another context posted.
+     reverse an entry another context posted. Since T60i the order's
+     latest settlement is reversed through its own path (As built, T60i).
   9. An order is settled up to the period of its last settlement or a
      later one, never an earlier one (SAP's settlement likewise does not
      go back before the last settlement period; stated from memory, for
@@ -825,3 +827,158 @@ adding up to 100, all active and of one company.
   credited with 1,000.01 there and its rent still on account 510000, the
   centers' reports showing the assessment account's lines; a second run
   and a distribution of the same sender are refused.
+
+### T60h: budget supplements and returns, and availability control (migration 000357)
+The order budget variants of plan-depth-1 §T60h. SAP S/4HANA is the
+reference, stated from memory for the specialist to confirm: a budget
+supplement (KO24) and return (KO25) change the current budget, and the
+availability control of a budget profile has tolerance limits per
+activity group, each a usage percentage with an action (warning, warning
+with mail to the person responsible, error).
+- **Table** `controlling.order_budget` gains `warn_percent` and
+  `refuse_percent` (each 1-999, the warning below the refusal); a new
+  insert-only table, `controlling.order_budget_change`, keeps one row per
+  version of a budget from T60h on (budgets set before have no row for
+  their earlier versions: the amounts they replaced were never kept).
+  Schema test: `db/internal_order_test.go` (`TestOrderBudgetChangeRules`).
+- **API**: `POST /v1/internal-orders/{id}/budget-changes` (`kind`
+  `supplement` or `return`, a positive `amount` in the company's
+  currency, an optional `text` of up to 200 characters; `If-Match` the
+  budget's version; 201 with the change and the budget's new version as
+  `ETag`); `GET` on the same path lists the versions, latest first
+  (cursor over `version`). The budget's `PATCH` takes
+  `availability_control` beside `budget` (each optional, at least one;
+  null removes the control; an order without a budget needs `budget`),
+  and its read adds `consumed_percent` (absent for a budget of zero),
+  `availability_control` and `availability` (`within`, `above_warning`,
+  `above_refusal`).
+- **Consumption** is the order's actual costs over every year, the
+  leading ledger's balance of its lines (the same figure as the read's
+  `actual`), plus what the posting adds. Commitments are not counted:
+  orders on purchase requisitions and orders are in the order master's
+  "Later" and do not exist yet; once they do, they count here.
+- **The check** is a second method of `ledger.CostObjects`, `Consume`,
+  asked by the ledger's `assignOrders` after the orders are held, for the
+  orders a posting debits on balance (the local amounts of its lines on
+  the order total more than zero), when the posting reaches the leading
+  ledger: the actual is the leading ledger's, so an entry in parallel
+  ledgers alone is not checked (review round 1). The ledger draws the
+  posting group's entry ids before it asks, and passes the leading
+  entry's id. Controlling holds the budgets that
+  have a control `FOR UPDATE` in order id order, reads the actual under
+  that lock and returns the first order above its refusal limit, which
+  the ledger refuses on the first line naming it (422
+  `ledger.internal_order_invalid`, reason `budget_exceeded`); an order
+  above its warning limit is published as `InternalOrderBudgetWarned`
+  (every such posting, not only the first to cross the limit), naming
+  the leading entry (`journal_entry_id`), and posted. "Above" is strict: a consumption equal to a limit is within
+  it (`money.AbovePercent`, exact in big integers).
+- **The lock order** extends T60e's: period statuses `FOR SHARE`, orders
+  `FOR SHARE`, the orders' budgets `FOR UPDATE`, centers, number range.
+  A budget change takes the order `FOR UPDATE` and then its budget, so it
+  never holds the budget while a posting holds the order; two postings to
+  one order wait on the budget and the second reads the first's lines
+  (`TestInternalOrderAvailabilitySerialized`). A settlement holds its
+  order `FOR UPDATE` and credits it, so it never asks.
+- **A return** is refused below the order's actual costs (or below zero
+  for an order with a credit balance) (409
+  `controlling.order_budget_return_too_large`, naming what may be
+  returned): budget that is used is not returned (SAP likewise, from
+  memory). A `PATCH` may still set any budget of zero or more, below the
+  actual included, as T60c built.
+- **Events and audit**: `InternalOrderBudgetChanged` gains `kind`, the
+  limits after the change and the text; audit actions
+  `controlling.internal_order.supplement_budget` and `.return_budget`
+  beside `.set_budget`, each with the kind, the amounts and the limits
+  before and after. The warning is published, not audited: it changes
+  nothing of the order's, and the ledger audits the posting.
+- **Decided by default:**
+  1. The limits are per order budget, not in a budget profile per order
+     type (order types are in the order master's "Later") nor per
+     activity group (postings are the only activity there is).
+  2. A posting that lowers an order's consumption (a credit, a
+     settlement) and a reversal (which copies its original and is never
+     derived again, §2) are never refused or warned for the budget; a
+     budget lowered below the consumption, or a limit lowered, shows
+     `above_refusal` without refusing anything already posted.
+  3. The warning is an event, not a part of the posting's answer
+     (`JournalEntry` is the ledger's and carries no warnings); a warning
+     on the answer is in the "Later" list.
+  4. Supplements and returns are a person's (`x-agent: false`), under
+     `controlling.order.budget`, and need `ledger.entry.read` as the
+     budget's `PATCH` does; reading the history needs
+     `controlling.order.read` alone, since it shows no ledger amount.
+  5. A supplement or return needs a budget set (409
+     `controlling.order_budget_missing`); its text is optional.
+  6. A budget of zero with a control refuses or warns of any cost.
+- **Walkthrough**: `step_order_budget` extended: Carla supplements
+  `FAIR-<year>`'s budget by CAD 1,000.00 and returns CAD 2,000.00 (a
+  return of CAD 3,000.00 is refused: CAD 2,500.00 may be returned), gives
+  it a warning limit of 30 % and a refusal limit of 100 % (the order at
+  37.50 %, `above_warning`), lists its five versions; Alex's CAD 2,600.00
+  posting to the order is refused (`budget_exceeded`).
+
+### T60i: a settlement reversed (migration 000358)
+The settlement variant of plan-depth-1 §T60i. SAP S/4HANA's KO88 in
+reversal mode is the reference, stated from memory for the specialist to
+confirm: it reverses the last settlement run of a period, and an earlier
+run only once the later ones are reversed.
+- **Table** `controlling.order_settlement_reversal` (000358): one row per
+  reversed settlement (primary key; a foreign key to the settlement), the
+  reversal's entry (once) and its number; insert-only. Schema test:
+  `TestOrderSettlementReversalRules`.
+- **API**: `POST /v1/internal-orders/{id}/settlements/{settlement_id}:reverse`
+  (`controlling.order.settle` and `ledger.entry.read`, `x-agent: false`,
+  `If-Match` the order's version, which the reversal does not move; 200
+  with the settlement and its reversal). `InternalOrderSettlement` gains
+  `reversal_journal_entry_id`, `reversal_journal_entry_number`,
+  `reversed_at` and `reversed_by`, also in the listing. Event
+  `InternalOrderSettlementReversed`; audit action
+  `controlling.internal_order.reverse_settlement`.
+- **The reversal** is the ledger's (`ledger.Postings.Reverse`, the
+  settlement's entry reversed in every ledger it was posted to) on the
+  settlement's own posting date, so the settled period must still be
+  open (409 `ledger.period_not_open`); the lines copy the order and the
+  receiver, so the order's balance per account is what it was before
+  the settlement and the receiver's report gives the cost back.
+- **Refused**: a settlement that is none of the order's (404), an order
+  not released or closed (409, as for settling), a settlement reversed
+  already (409 `controlling.settlement_reversed`), and one that is not
+  the order's latest settlement in force (409
+  `controlling.settlement_not_latest`; latest by creation, which among
+  the settlements in force is also latest by period). Both are read under
+  the order's lock, so two reversals serialize and the second is refused
+  (`TestInternalOrderSettlementReversedOnce`).
+- **Settling after a reversal**: `notBeforeLastSettlement` reads only
+  settlements in force, so the order may be settled again up to the
+  reversed one's period or any period not before the last one in force.
+- **The ledger's `:reverse`** of a controlling entry names the path
+  (409 `ledger.entry_owned_elsewhere`): a settlement is reversed here, so
+  that its reversal is kept; a cycle run's entry is not reversed.
+- **The lock order**: the settlement's entry lock first (a new port
+  method, `ledger.Postings.LockEntries`, exclusive, as the ledger's
+  reversal takes it), then the order `FOR UPDATE`, then the ledger's
+  reversal (the entry lock again, held already; period statuses; the
+  order `FOR SHARE`, its own; the number range). The ledger's reversal of
+  a manual entry naming the order takes the entry lock and then the
+  order `FOR SHARE`, the same order, so the two cannot wait for each
+  other in a cycle when their entries share a lock bucket. While the
+  reversal waits for the entry lock it holds nothing of the order's: a
+  posting to the order goes through
+  (`TestInternalOrderSettlementReversalLockOrder`).
+- **Decided by default:**
+  1. The reversal is dated the settlement's own posting date, never a
+     later one: reversing into a later open period, when the settled
+     one is closed, is in the plan's "Later".
+  2. Only the latest settlement in force is reversed; earlier ones
+     after it (SAP likewise, from memory).
+  3. Reversing is a person's under `controlling.order.settle` (the plan
+     adds no permission), as settling is.
+  4. A closed order's settlement is not reversed: closing needed a zero
+     balance, and a reversal would leave a closed order holding costs.
+- **Walkthrough**: `step_order_settlement` extended: after settling
+  `FAIR-<year>`, Carla reverses the settlement (the order's totals CAD
+  3,000.00 debit, 1,500.00 credit, 1,500.00 balance; CC-1100's report
+  back where it was), a second reversal is refused, she settles the
+  order again (CC-1100 shows the CAD 1,500.00 once) and the listing
+  shows both settlements, the first reversed; the order is then closed.

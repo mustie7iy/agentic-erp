@@ -91,6 +91,8 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch path := r.URL.Path; path {
 	case "/v1/legal-entities":
 		answer(200, `{"items": [{"id": "`+le+`", "code": "3000"}]}`)
+	case "/v1/legal-entities/" + le + "/today":
+		answer(200, `{"legal_entity_id": "`+le+`", "date": "2026-11-15", "time_zone": "Asia/Dubai"}`)
 	case "/v1/accounts":
 		answer(200, `{"items": [{"id": "`+ar+`", "reconciliation_kind": "customer"}, {"id": "`+ap+`", "reconciliation_kind": "supplier"}]}`)
 	case "/v1/collection-worklist":
@@ -271,13 +273,14 @@ func TestAdviseRefusals(t *testing.T) {
 		key     string
 		want    string
 	}{
-		"a key date that is none": {client(t, &fakeAPI{}), "3000", "15.11.2026", "the key date is a date"},
-		"another company":         {client(t, &fakeAPI{}), "9999", keyDate, "no company 9999"},
-		"the worklist refused":    {client(t, &fakeAPI{status: map[string]int{"/v1/collection-worklist": 403}}), "3000", keyDate, "the collection worklist of company 3000"},
-		"the cases refused":       {client(t, &fakeAPI{status: map[string]int{"/v1/dispute-cases": 403}}), "3000", keyDate, "the open dispute cases of customer 100043"},
-		"the open items refused":  {client(t, &fakeAPI{status: map[string]int{"/v1/open-items": 403}}), "3000", keyDate, "the open items of customer 100043"},
-		"the accounts refused":    {client(t, &fakeAPI{status: map[string]int{"/v1/accounts": 403}}), "3000", keyDate, "the accounts of legal entity " + le},
-		"the API gone":            {gone, "3000", keyDate, "127.0.0.1:1"},
+		"a key date that is none":   {client(t, &fakeAPI{}), "3000", "15.11.2026", "the key date is a date"},
+		"another company":           {client(t, &fakeAPI{}), "9999", keyDate, "no company 9999"},
+		"the worklist refused":      {client(t, &fakeAPI{status: map[string]int{"/v1/collection-worklist": 403}}), "3000", keyDate, "the collection worklist of company 3000"},
+		"the cases refused":         {client(t, &fakeAPI{status: map[string]int{"/v1/dispute-cases": 403}}), "3000", keyDate, "the open dispute cases of customer 100043"},
+		"the open items refused":    {client(t, &fakeAPI{status: map[string]int{"/v1/open-items": 403}}), "3000", keyDate, "the open items of customer 100043"},
+		"the accounts refused":      {client(t, &fakeAPI{status: map[string]int{"/v1/accounts": 403}}), "3000", keyDate, "the accounts of legal entity " + le},
+		"the company's day refused": {client(t, &fakeAPI{status: map[string]int{"/v1/legal-entities/" + le + "/today": 403}}), "3000", "", "collectionsagent: company 3000"},
+		"the API gone":              {gone, "3000", keyDate, "127.0.0.1:1"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			res, err := (&collectionsagent.Agent{LLM: model.Runner(), API: c.api}).Advise(context.Background(), c.company, c.key)

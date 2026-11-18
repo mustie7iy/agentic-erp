@@ -142,10 +142,7 @@ func (a *Agent) Prepare(ctx context.Context, p Period) (recommend.Result, error)
 		prep.entries[id] = st.entry(id, p, acts[id])
 		objects[id] = PrincipalObject
 	}
-	iterations := a.MaxIterations
-	if iterations <= 0 {
-		iterations = 30
-	}
+	iterations := recommend.Iterations(a.MaxIterations, recommend.DefaultIterations)
 	task := recommend.Task{Purpose: fmt.Sprintf("Prepare the access review of %s to %s", p.From, p.To), Prompt: prep.prompt(st, principals),
 		Objects: objects, Check: prep.check}
 	res, err := recommend.Agent{Type: Type, Reads: Reads, System: reviewSystem, MaxIterations: max(iterations, len(principals)+10),

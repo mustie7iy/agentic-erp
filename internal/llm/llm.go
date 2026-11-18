@@ -67,7 +67,13 @@ func (r *Runner) Params(system string, user ...anthropic.BetaContentBlockParamUn
 	}
 }
 
-// RunTools runs an agent loop over the given tools and returns the final message.
+// RunTools runs an agent loop over tools its own code answers in-process,
+// with no session recorded through the API, and returns the final
+// message: the analytics agent's, whose tools read governed metrics and
+// compose a dashboard. An agent whose tools are API operations runs them
+// through apitools.Run instead, which records each call in its session,
+// offers only the tools of its autonomy level and runs a guarded tool's
+// calls whole (Exclusive).
 func (r *Runner) RunTools(ctx context.Context, tools []anthropic.BetaTool, params anthropic.BetaMessageNewParams, maxIterations int) (*anthropic.BetaMessage, error) {
 	runner := r.Client.Beta.Messages.NewToolRunner(tools, anthropic.BetaToolRunnerParams{BetaMessageNewParams: params, MaxIterations: maxIterations})
 	msg, err := runner.RunToCompletion(ctx)
@@ -107,9 +113,4 @@ func Result(v any) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 		text = string(b)
 	}
 	return anthropic.BetaToolResultBlockParamContentUnion{OfText: &anthropic.BetaTextBlockParam{Text: text}}, nil
-}
-
-// Error reports a tool failure back to the model so it can correct course.
-func Error(err error) (anthropic.BetaToolResultBlockParamContentUnion, error) {
-	return Result("error: " + err.Error())
 }

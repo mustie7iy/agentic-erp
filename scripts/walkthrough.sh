@@ -1634,7 +1634,10 @@ migrated_down_payment() {
 # customer invoices, incoming payments, quotations, sales orders, billing
 # documents and RFQs come from the pack since Canada 2026.9), the
 # right-of-use asset (1660) and lease liability (2650) accounts a lease's
-# activation posts to (T88b, ADR-0073 §7; no pack ships them),
+# activation posts to (T88b, ADR-0073 §7; no pack ships them), the
+# customer payment tolerance and its accounts 6850 and 4850 (T75f, SAP
+# OBA3: underpayments up to CAD 5.00 and 1% written off, overpayments up to
+# CAD 1.00 and 0.5% kept; no pack ships them),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1667,12 +1670,18 @@ PILOT_SETTINGS='
       {"number": "2650", "name": "Lease liabilities", "type": "liability"},
       {"number": "1669", "name": "Right-of-use assets, accumulated depreciation", "type": "asset"},
       {"number": "6720", "name": "Interest on lease liabilities", "type": "expense"},
-      {"number": "6730", "name": "Depreciation of right-of-use assets", "type": "expense"}]
+      {"number": "6730", "name": "Depreciation of right-of-use assets", "type": "expense"},
+      {"number": "6850", "name": "Customer payment differences", "type": "expense"},
+      {"number": "4850", "name": "Customer overpayments kept", "type": "revenue"}]
     | .account_determination.right_of_use_asset = "1660"
     | .account_determination.lease_liability = "2650"
     | .account_determination.lease_interest = "6720"
     | .account_determination.right_of_use_depreciation = "6730"
     | .account_determination.right_of_use_accumulated_depreciation = "1669"
+    | .account_determination.payment_difference_expense = "6850"
+    | .account_determination.payment_difference_revenue = "4850"
+    | .receivables.payment_tolerance = {"underpayment_amount": "5.00", "underpayment_percent": "1", "overpayment_amount": "1.00",
+        "overpayment_percent": "0.5"}
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
         "direction": "output", "kind": "standard", "category": "S", "components": [{"key": "gst", "jurisdiction": "CA",
         "account_key": "output", "account": "2300", "rates": [{"rate_percent": "5", "valid_from": "@PREV@-01-01"}]}]},
@@ -6175,9 +6184,12 @@ step_internal_order() {
 # §3, T60c): Carla gives the trade fair's order a budget, one overall
 # amount in Maple's currency, and reads what remains of it after the
 # expense step_internal_order posted. A budget below the actual costs is
-# shown as exceeded; nothing is refused for it.
+# shown as exceeded. She then supplements the budget and returns part of
+# it, each change a version kept in its history, and gives it an
+# availability control (T60h): a posting above its refusal limit is
+# refused.
 step_order_budget() {
-  heading "Step 50 — An order's budget: the trade fair's order is given a budget; what remains is the budget less the costs posted to the order, and a budget below them is shown as exceeded"
+  heading "Step 50 — An order's budget: the trade fair's order is given a budget, supplemented and partly returned; a posting above its availability control's refusal limit is refused"
   as carla
   local order line tag
   line='"order \(.internal_order_code) \(.internal_order_name): budget \(.budget.amount // "none"), actual \(.actual.amount), remaining \(.remaining.amount // "none") \(.actual.currency)\(if .exceeded then ", exceeded" else "" end) (version \(.version))"'
@@ -6201,6 +6213,44 @@ step_order_budget() {
   api 200 "$line" updateInternalOrderBudget -p "id=$order" -if-match "$tag" -body '{"budget": {"amount": "5000.00", "currency": "CAD"}}'
   api 200 "$line" getInternalOrderBudget -p "id=$order"
   expect "budget, actual and what remains" "$(field '"\(.version) \(.budget.amount) \(.actual.amount) \(.remaining.amount) \(.remaining.currency) \(.exceeded)"')" "2 5000.00 1500.00 3500.00 CAD false"
+  tag=$ETAG
+  local change expense bank
+  change='"budget version \(.version), \(.kind): \(.budget_before.amount // "none") -> \(.budget.amount) \(.budget.currency) (\(.change.amount))\(if .text then ", \(.text)" else "" end)"'
+  say "A second exhibition hall is booked. Carla supplements the budget by CAD 1,000.00 and later returns CAD 2,000.00 the"
+  say "fair will not need (T60h); each change is a new version of the budget, kept with the amounts before and after:"
+  api 201 "$change" createInternalOrderBudgetChange -p "id=$order" -if-match "$tag" \
+    -body '{"kind": "supplement", "amount": {"amount": "1000.00", "currency": "CAD"}, "text": "Second exhibition hall"}'
+  tag=$ETAG
+  expect "the supplement" "$(field '"\(.version) \(.kind) \(.budget_before.amount) \(.budget.amount) \(.change.amount)"')" "3 supplement 5000.00 6000.00 1000.00"
+  api 201 "$change" createInternalOrderBudgetChange -p "id=$order" -if-match "$tag" -body '{"kind": "return", "amount": {"amount": "2000.00", "currency": "CAD"}}'
+  tag=$ETAG
+  expect "the return" "$(field '"\(.version) \(.kind) \(.budget.amount) \(.change.amount)"')" "4 return 4000.00 -2000.00"
+  say "Budget that is used is not returned: of CAD 4,000.00 the fair has used CAD 1,500.00, so CAD 3,000.00 is refused:"
+  refused 409 controlling.order_budget_return_too_large createInternalOrderBudgetChange -p "id=$order" -if-match "$tag" \
+    -body '{"kind": "return", "amount": {"amount": "3000.00", "currency": "CAD"}}'
+  expect "what may be returned" "$(field .detail)" "At most 2500.00 CAD of the budget may be returned: the budget less the order's actual costs."
+  say "Carla gives the budget an availability control: a warning above 30 percent of it, a refusal above 100 percent."
+  say "Postings to the order are checked against it; the fair's CAD 1,500.00 is above the warning limit already:"
+  api 200 '"budget \(.budget.amount) \(.budget.currency), actual \(.actual.amount), consumed \(.consumed_percent)%, limits \(.availability_control.warn_percent)/\(.availability_control.refuse_percent): \(.availability) (version \(.version))"' \
+    updateInternalOrderBudget -p "id=$order" -if-match "$tag" -body '{"availability_control": {"warn_percent": 30, "refuse_percent": 100}}'
+  tag=$ETAG
+  expect "the budget's availability" "$(field '"\(.version) \(.budget.amount) \(.consumed_percent) \(.availability_control.warn_percent) \(.availability_control.refuse_percent) \(.availability)"')" \
+    "5 4000.00 37.50 30 100 above_warning"
+  api 200 '.items[] | "  version \(.version) \(.kind): \(.budget_before.amount // "none") -> \(.budget.amount) \(.budget.currency)\(if .availability_control then ", limits \(.availability_control.warn_percent)/\(.availability_control.refuse_percent)" else "" end)"' \
+    listInternalOrderBudgetChanges -p "id=$order"
+  expect "the budget's versions, latest first" "$(field '[.items[] | "\(.version) \(.kind)"] | join("; ")')" "5 set; 4 return; 3 supplement; 2 set; 1 set"
+  as alex
+  accounts
+  expense=$(account 510000)
+  bank=$(account 100000)
+  say "Alex posts the stand's lighting, CAD 2,600.00, to the order. With it the fair would cost CAD 4,100.00, above the"
+  say "budget's refusal limit, so the entry is refused and nothing is posted:"
+  refused 422 ledger.internal_order_invalid postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"2600.00\", \"currency\": \"CAD\"}, \"internal_order_id\": \"$order\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-2600.00\", \"currency\": \"CAD\"}}]}"
+  expect "why the entry is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "lines[0].internal_order_id budget_exceeded"
+  as carla
+  api 200 "$line" getInternalOrderBudget -p "id=$order"
+  expect "the order's actual costs, unchanged" "$(field .actual.amount)" 1500.00
   passed
 }
 
@@ -6224,7 +6274,9 @@ cents_plain() { printf '%d.%02d' $(($1 / 100)) $(($1 % 100)); }
 # settles the order up to this period: one entry moves the order's costs
 # to the receiver on the account they were posted on, the order's balance
 # is zero and the cost center's report shows the cost; settling again
-# posts nothing. The settled order is closed and takes no posting.
+# posts nothing. She reverses the settlement (T60i), which gives the order
+# its cost back, and settles it again. The settled order is closed and
+# takes no posting.
 step_order_settlement() {
   heading "Step 51 — An order's settlement: the trade fair's order names the cost center that receives its costs, is settled to it on the original account, and is closed"
   as carla
@@ -6286,9 +6338,24 @@ step_order_settlement() {
   api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(if .settled then "an entry posted" else "nothing to settle" end)"' \
     settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
   expect "a second settlement" "$(field '"\(.settled) \(.settlement // "none")"')" "false none"
-  api 200 '.items[] | "  settlement up to \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) to \(.receiver_cost_center_code), entry \(.journal_entry_number)"' \
+  say "Carla reverses the settlement, as when it was run too early (T60i): its entry is reversed on its own date, so"
+  say "the order holds the cost again and the cost center gives it back."
+  api 200 '"settlement up to \(.fiscal_year)/\(.fiscal_period) of \(.amount.amount) \(.amount.currency) reversed by entry \(.reversal_journal_entry_number)"' \
+    reverseInternalOrderSettlement -p "id=$order" -p "settlement_id=$settlement" -if-match "$tag"
+  expect "the reversal names its entry" "$(field '.reversal_journal_entry_id != null')" true
+  QUIET=1 api 200 '' listInternalOrderBalances -p "internal_order_id=$order" -p "fiscal_year=$YEAR"
+  expect "the order's balance restored" "$(field '"\(.totals.debit.amount) \(.totals.credit.amount) \(.totals.balance.amount)"')" "3000.00 1500.00 1500.00"
+  expect "the cost center's cost taken back, in cents" "$(( $(center_costs "$cc" "$expense") - before ))" 0
+  say "A settlement is reversed once:"
+  refused 409 controlling.settlement_reversed reverseInternalOrderSettlement -p "id=$order" -p "settlement_id=$settlement" -if-match "$tag"
+  say "She settles the order again; the reversed settlement no longer stands in the way:"
+  api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(.settlement.amount.amount) \(.settlement.amount.currency) to \(.settlement.receiver_cost_center_code)"' \
+    settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "settled again" "$(field '"\(.settled) \(.settlement.amount.amount)"')" "true 1500.00"
+  expect "the cost center's cost again, in cents" "$(( $(center_costs "$cc" "$expense") - before ))" 150000
+  api 200 '.items[] | "  settlement up to \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) to \(.receiver_cost_center_code), entry \(.journal_entry_number)\(if .reversal_journal_entry_number then ", reversed by \(.reversal_journal_entry_number)" else "" end)"' \
     listInternalOrderSettlements -p "id=$order"
-  expect "the order's settlements" "$(field '[.items[].id] | join(" ")')" "$settlement"
+  expect "the order's settlements, latest first" "$(field '[.items[] | (.reversal_journal_entry_number != null)] | map(tostring) | join(" ")')" "false true"
   say "Carla closes the settled order. A closed order takes no posting:"
   api 200 '"internal order \(.code): \(.status), version \(.version)"' closeInternalOrder -p "id=$order" -if-match "$tag"
   expect "the closed order's status" "$(field .status)" closed
@@ -11968,6 +12035,565 @@ enablement_help() {
   expect "the invoice" "$(field .status)" cancelled
 }
 
+# northwind_invoice NET posts Maple's invoice to Northwind for NET CAD
+# without tax, on today, as Ruth: INVOICE_ENTRY is its entry, its open
+# item line 1, due 30 days from today on Northwind's NT30.
+northwind_invoice() {
+  as ruth
+  api 201 '"customer invoice \(.document_number) to \(.customer_name): \(.gross_amount.amount) \(.currency)"' createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"description\": \"Consulting\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"$1\", \"currency\": \"CAD\"}}]}"
+  api 200 '"  posted as journal entry \(.journal_entry_number), due \(.net_due_date)"' postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" \
+    -body "{\"posting_date\": \"$TODAY\"}"
+  INVOICE_ENTRY=$(field .journal_entry_id)
+}
+
+# northwind_receipt AMOUNT is Northwind's payment of AMOUNT CAD on RBC's
+# next statement of the day, imported, matched as incoming and posted by
+# Tom as in step 54: RECEIPT is the entry that waits on 1015.
+northwind_receipt() {
+  local last st
+  as tom
+  QUIET=1 api 200 '' listBankStatements -p "house_bank_id=$RBC"
+  last=$(field '[.items[] | select(.closing_date == "'"$TODAY"'")] | max_by(.sequence | tonumber) | "\(.sequence) \(.closing_balance.amount)"')
+  rbc_incoming "$1" $((${last%% *} + 1)) "${last##* }"
+  QUIET=1 api 201 '' importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053-incoming.xml
+  st=$(field '.statements[0].id')
+  if [ -z "$st" ] || [ "$st" = null ]; then fail "the statement was not imported"; fi
+  QUIET=1 api 200 '' getBankStatement -p "id=$st"
+  QUIET=1 api 201 '' matchBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG" -body '{"incoming": true, "reason": "Northwind Traders pays."}'
+  api 200 '"  RBC statement line posted in journal entry \(.journal_entry_id[0:8])…, waiting on 1015"' \
+    postBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG"
+  RECEIPT=$(field .journal_entry_id)
+  if [ -z "$RECEIPT" ] || [ "$RECEIPT" = null ]; then fail "the incoming line was not posted"; fi
+}
+
+# step_partial_payment is T75f (ADR-0063 §6 As built): Northwind pays CAD
+# 600.00 of an invoice of 1,000.00 and disputes the rest. Ruth applies the
+# receipt with a residual item of 400.00, reason disputed: the invoice is
+# cleared, the residual is Northwind's open item, a line of the clearing
+# entry, due when the invoice was. A second invoice of 500.00 is paid
+# 499.97: the 0.03 short is within Maple's payment tolerance (step 2:
+# CAD 5.00 and 1%) and written off to 6850. A third receipt, 480.00 for an
+# invoice of 500.00, is 20.00 short, more than 1%: refused. Its receipt
+# and invoice wait for step_payment_on_account: PARTIAL_RESIDUAL is the
+# residual item ("year entry line"), SHORT_RECEIPT and SHORT_INVOICE_ENTRY
+# the refused application's receipt and invoice.
+step_partial_payment() {
+  heading "Step 109 — Partial payments: a receipt short of the invoice leaves a residual item with its reason, due when the invoice was; cents short within the company's payment tolerance are written off; a shortfall beyond it is refused"
+  local item body clearing due
+  [ -n "$CUSTOMER" ] || fail "step 47's customer is not there"
+  due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Maple invoices Northwind Traders CAD 1,000.00 for consulting:"
+  northwind_invoice 1000.00
+  say "Northwind pays CAD 600.00; its remittance disputes the second day's work, CAD 400.00:"
+  northwind_receipt 600.00
+  as ruth
+  say "Ruth applies the receipt to the invoice and leaves the disputed CAD 400.00 open as a residual item, reason"
+  say "disputed (T75f, SAP's residual item): the invoice is cleared, and the residual is a new open item of Northwind"
+  say "linked to it, due when the invoice was:"
+  item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$INVOICE_ENTRY\", \"line_no\": 1, \"residual\": {\"amount\": {\"amount\": \"400.00\", \"currency\": \"CAD\"}, \"reason\": \"disputed\", \"reason_text\": \"The second day of consulting is disputed.\"}}"
+  body="{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), difference \(.difference.amount)", (.items[] | "  item \(.item_no): reference \(.reference), \(.amount.amount) \(.amount.currency)\(if .residual then ", residual \(.residual.amount.amount) (\(.residual.reason): \(.residual.reason_text)) on line \(.residual.line_no) of entry \(.residual.journal_entry_number)" else "" end)")' \
+    createIncomingPayment -body "$body"
+  clearing=$(field .journal_entry_id)
+  expect "the payment" "$(field '"\(.amount.amount) \(.difference.amount) \(.items[0].amount.amount)"')" "600.00 0.00 1000.00"
+  expect "the residual" "$(field '.items[0].residual | "\(.amount.amount) \(.reason) \(.journal_entry_id) \(.line_no)"')" "400.00 disputed $clearing 3"
+  say "The clearing entry credits the invoice in full on 1200 and debits the residual back to Northwind:"
+  api 200 '(.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' getJournalEntry -p "id=$clearing"
+  expect "the clearing entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "600.00 -1000.00 400.00"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the residual open, the invoice cleared" \
+    "$(field "[.items[] | select(.journal_entry_id == \"$clearing\" or .journal_entry_id == \"$INVOICE_ENTRY\") | \"\(.journal_entry_id) \(.line_no) \(.amount.amount) \(.payment_terms.net_due_date)\"] | join(\", \")")" \
+    "$clearing 3 400.00 $due"
+  PARTIAL_RESIDUAL="${TODAY:0:4} $clearing 3"
+  say "A second invoice of CAD 500.00 is paid CAD 499.97. The CAD 0.03 short is within Maple's payment tolerance"
+  say "(underpayments up to CAD 5.00 and 1% of the items), so the invoice is cleared in full and the difference"
+  say "written off to 6850 Customer payment differences:"
+  northwind_invoice 500.00
+  northwind_receipt 499.97
+  as ruth
+  item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$INVOICE_ENTRY\", \"line_no\": 1}"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), difference \(.difference.amount) written off"' createIncomingPayment \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
+  expect "the difference" "$(field '.difference.amount')" 0.03
+  QUIET=1 api 200 '' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the clearing entry" "$(field '[.lines[] | "\(.account_id) \(.amount.amount)"] | join(", ")')" \
+    "$(account 1015) 499.97, $(account 1200) -500.00, $(account 6850) 0.03"
+  say "A third invoice of CAD 500.00 is paid CAD 480.00: CAD 20.00 short, more than 1% of the invoice. Applied in"
+  say "full it is refused, with the difference, and nothing posts:"
+  northwind_invoice 500.00
+  northwind_receipt 480.00
+  as ruth
+  item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$INVOICE_ENTRY\", \"line_no\": 1}"
+  refused 422 ledger.clearing_not_balanced createIncomingPayment \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
+  SHORT_RECEIPT=$RECEIPT SHORT_INVOICE_ENTRY=$INVOICE_ENTRY
+  passed
+}
+
+# step_payment_on_account is T75g (ADR-0063 §6 As built): the CAD 480.00
+# step 109 could not apply goes on Northwind's account as a credit, its
+# remittance naming no invoice. Ruth applies CAD 400.00 of it to the
+# disputed residual of step 109 once Northwind settles the dispute; CAD
+# 80.00 stay on account. Then she applies those to the CAD 500.00 invoice
+# step 109 left open, leaving CAD 420.00 of it as a residual item, reason
+# short_payment; nothing is left on account, and a further application is
+# refused.
+step_payment_on_account() {
+  heading "Step 110 — Payments on account: a receipt naming no invoice goes on the customer's account as a credit; applied later to open items in part, the rest staying on account, then in full"
+  local payment ref residual
+  [ -n "$SHORT_RECEIPT" ] && [ -n "$PARTIAL_RESIDUAL" ] || fail "step 109's receipt and residual are not there"
+  as ruth
+  say "Northwind's CAD 480.00 of step 109 names no invoice Ruth can match. She puts it on Northwind's account: a"
+  say "credit of Northwind's on 1200, which clears the receipt on 1015:"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), on account \(.on_account.amount.amount), open \(.on_account.open_amount.amount) on line \(.on_account.line_no) of entry \(.on_account.journal_entry_number)"' \
+    createIncomingPayment -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$SHORT_RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [], \"on_account\": true}"
+  payment=$(field .id)
+  expect "on account" "$(field '"\(.on_account.amount.amount) \(.on_account.open_amount.amount) \(.on_account.journal_entry_id) \(.on_account.line_no)"')" \
+    "480.00 480.00 $(field .journal_entry_id) 2"
+  local credit
+  credit=$(field .journal_entry_id)
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the credit among Northwind's open items" "$(field "[.items[] | select(.journal_entry_id == \"$credit\") | .amount.amount] | join(\" \")")" -480.00
+  read -r _ residual _ <<<"$PARTIAL_RESIDUAL"
+  say "Northwind settles the dispute of step 109 and asks Maple to use its credit. Ruth applies CAD 400.00 of it to the"
+  say "residual item; the CAD 80.00 left stay on account as a new credit line:"
+  ref="{\"fiscal_year\": ${PARTIAL_RESIDUAL%% *}, \"journal_entry_id\": \"$residual\", \"line_no\": ${PARTIAL_RESIDUAL##* }}"
+  api 201 '"incoming payment \(.document_number), version \(.version): application \(.applications[-1].application_no) applied \(.applications[-1].amount.amount), left \(.applications[-1].on_account_amount.amount) on account, entry \(.applications[-1].journal_entry_number)"' \
+    applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"posting_date\": \"$TODAY\", \"items\": [$ref]}"
+  expect "the application" "$(field '"\(.version) \(.applications[0].amount.amount) \(.applications[0].on_account_amount.amount) \(.on_account.open_amount.amount) \(.items[0].application_no)"')" \
+    "2 480.00 80.00 80.00 1"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the residual cleared" "$(field "[.items[] | select(.journal_entry_id == \"$residual\")] | length")" 0
+  say "The CAD 80.00 go to the CAD 500.00 invoice of step 109; Northwind still owes CAD 420.00 of it, a residual item"
+  say "with the reason short_payment. Nothing is left on account:"
+  ref="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$SHORT_INVOICE_ENTRY\", \"line_no\": 1, \"residual\": {\"amount\": {\"amount\": \"420.00\", \"currency\": \"CAD\"}, \"reason\": \"short_payment\"}}"
+  api 201 '"incoming payment \(.document_number), version \(.version): application \(.applications[-1].application_no) applied \(.applications[-1].amount.amount), left \(.applications[-1].on_account_amount.amount) on account", (.items[] | "  item \(.item_no) of application \(.application_no): \(.amount.amount)\(if .residual then ", residual \(.residual.amount.amount) (\(.residual.reason))" else "" end)")' \
+    applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"posting_date\": \"$TODAY\", \"items\": [$ref]}"
+  expect "the second application" "$(field '"\(.version) \(.applications[1].amount.amount) \(.applications[1].on_account_amount.amount) \(.on_account.open_amount.amount) \(.items[1].residual.amount.amount)"')" \
+    "3 80.00 0.00 0.00 420.00"
+  say "Read back, the payment shows both applications; a third is refused, nothing being left on account:"
+  QUIET=1 api 200 '' getIncomingPayment -p "id=$payment"
+  expect "the applications" "$(field '[.applications[] | "\(.application_no) \(.amount.amount)"] | join(", ")')" "1 480.00, 2 80.00"
+  refused 409 receivables.no_credit_on_account applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"items\": [$ref]}"
+  passed
+}
+
+# step_dunning_charges is T76d (ADR-0065 As built): Ruth creates Lakeshore
+# Hardware, a new customer of Maple, and posts it a small invoice on NT30
+# and a larger one on NT60. Ada gives Maple's dunning its procedure through
+# a tier 2 change: 7 grace days, no notice below CAD 50.00, interest at 9%
+# a year, level 2 charging CAD 15.00 and interest, level 3 CAD 25.00 and
+# interest. A run six days past the small invoice's due date leaves it out
+# for the grace days; one ten days past names Lakeshore's notice as below
+# the minimum; once both invoices are overdue Lakeshore's notice is
+# proposed at level 1, which charges nothing, and confirmed; twenty days
+# later the next run charges the notice level 2's CAD 15.00 and each
+# item's interest for its days overdue. The customer is the step's own,
+# so its notices hold whatever else is open; the key dates are the
+# requests'. step_dunning_blocks blocks the same invoices.
+step_dunning_charges() {
+  heading "Step 111 — Dunning charges and interest: the company's grace days, minimum amount, interest rate and charges per level through a governed change; an item within the grace days and a notice below the minimum left out; a notice charged its level's charge and its items' interest"
+  local customer small large ar base cr request run tag k1 k2 k3 k4 due1 due2
+  due1=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  due2=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 60 * 86400 | strftime("%Y-%m-%d")')
+  k1=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 36 * 86400 | strftime("%Y-%m-%d")')
+  k2=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
+  k3=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 80 * 86400 | strftime("%Y-%m-%d")')
+  k4=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 100 * 86400 | strftime("%Y-%m-%d")')
+  ar=$(account 1200)
+  as ruth
+  say "Lakeshore Hardware starts buying from Maple. Ruth creates it as a customer, on net 30 days, and Carla approves it:"
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Lakeshore Hardware\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$ar\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys spare parts from Maple\"}"
+  customer=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its first order"
+  as ruth
+  say "She posts it two invoices: CAD 30.00 for a gasket on its terms, due $due1, and CAD 600.00 for a pump on net 60"
+  say "days, due $due2:"
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
+    \"items\": [{\"description\": \"Gasket set\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"30.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"customer invoice \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the small invoice" "$(field '"\(.gross_amount.amount) \(.net_due_date)"')" "30.00 $due1"
+  small=$(field .journal_entry_id)
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
+    \"payment_term_code\": \"NT60\", \"items\": [{\"description\": \"Circulation pump\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"600.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"customer invoice \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the large invoice" "$(field '"\(.gross_amount.amount) \(.net_due_date)"')" "600.00 $due2"
+  large=$(field .journal_entry_id)
+  as ada
+  say "Ada completes Maple's dunning procedure (T76d): an item is dunned only once it is more than 7 days overdue,"
+  say "nobody is sent a notice for less than CAD 50.00, the second level charges CAD 15.00 and the third CAD 25.00, and"
+  say "both charge interest at 9% a year for the days overdue. Like the levels, it posts nothing: tier 2."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Dunning charges and interest\", rationale: \"Maple's dunning procedure (T76d)\", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == \"$CC\" then
+      .dunning += {grace_days: 7, minimum_amount: \"50.00\", interest_rate_percent: \"9.000\"}
+      | .dunning.levels |= map(if .level == 2 then . + {charge: \"15.00\", interest: true} elif .level == 3 then . + {charge: \"25.00\", interest: true} else . end)
+    else . end))}" "$WORK/last.json" >"$WORK/dunning-charges.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @dunning-charges.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The dunning charges, as agreed with the controller"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  as ruth
+  say "On $k1 the gasket invoice is 6 days overdue, within the grace days: Lakeshore gets no notice."
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), grace days \(.grace_days), minimum \(.minimum_amount.amount) \(.minimum_amount.currency), interest \(.interest_rate_percent)% a year"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k1\"}"
+  expect "the procedure the run applied" "$(field '"\(.grace_days) \(.minimum_amount.amount) \(.interest_rate_percent)"')" "7 50.00 9.000"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notices within the grace days" "$(field '.items | length')" 0
+  say "On $k2 it is 10 days overdue, but CAD 30.00 is below the minimum: the run counts Lakeshore's notice as below it."
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.below_minimum_notice_count) below the minimum (\(.below_minimum_amount.amount) \(.below_minimum_amount.currency))"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k2\"}"
+  expect "notices below the minimum" "$(field '.below_minimum_notice_count >= 1 and (.below_minimum_amount.amount | tonumber) >= 30')" true
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notices below the minimum" "$(field '.items | length')" 0
+  say "On $k3 both invoices are overdue, CAD 630.00 in all. Never dunned, they reach level 1, which charges nothing."
+  say "Ruth confirms the run:"
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.overdue_amount.amount) overdue, \(.charge_amount.amount) charges, \(.interest_amount.amount) interest, \(.total_amount.amount) \(.total_amount.currency) in all"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k3\"}"
+  run=$(field .id) tag=$ETAG
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level), \(.overdue_amount.amount) + \(.charge_amount.amount) + \(.interest_amount.amount) = \(.total_amount.amount) \(.total_amount.currency)"' \
+    listDunningNotices -p "id=$run" -p "customer_id=$customer"
+  expect "Lakeshore's first notice" "$(field '[.items[] | "\(.level) \(.overdue_amount.amount) \(.charge_amount.amount) \(.interest_amount.amount) \(.total_amount.amount)"] | join(", ")')" \
+    "1 630.00 0.00 0.00 630.00"
+  api 200 '"dunning run at \(.key_date): \(.status)"' confirmDunningRun -p "id=$run" -if-match "$tag"
+  say "Twenty days later, on $k4, the invoices are 70 and 40 days overdue and reach level 2: the notice is charged CAD 15.00,"
+  say "and each item interest at 9% for its days overdue, 30.00 x 9% x 70/365 = 0.52 and 600.00 x 9% x 40/365 = 5.92:"
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.charge_amount.amount) charges, \(.interest_amount.amount) interest"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k4\"}"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level), \(.overdue_amount.amount) + \(.charge_amount.amount) + \(.interest_amount.amount) = \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no): \(.reference), \(.days_overdue) days overdue, \(.local_amount.amount), level \(.previous_level) -> \(.level), interest \(.interest_amount.amount)")' \
+    listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's second notice" "$(field '[.items[] | "\(.level) \(.overdue_amount.amount) \(.charge_amount.amount) \(.interest_amount.amount) \(.total_amount.amount)"] | join(", ")')" \
+    "2 630.00 15.00 6.44 651.44"
+  expect "each item's interest" "$(field "[.items[].items[] | select(.journal_entry_id == \"$small\" or .journal_entry_id == \"$large\") | \"\(.days_overdue) \(.interest_amount.amount)\"] | sort | join(\", \")")" \
+    "40 5.92, 70 0.52"
+  # What step_dunning_blocks blocks: the customer, its two invoices and a key date both are overdue on.
+  LAKESHORE=$customer LAKESHORE_SMALL=$small LAKESHORE_LARGE=$large LAKESHORE_KEY=$k4
+  passed
+}
+
+# step_dunning_blocks is T76e (ADR-0065 As built): Lakeshore Hardware,
+# step_dunning_charges' customer, says the gasket of its small invoice
+# never arrived. Ruth blocks that invoice from dunning until the matter is
+# settled, and a run at step_dunning_charges' last key date names it as
+# blocked and duns the pump invoice alone; an end date already past is
+# refused. A colleague's proposal at that key date still duns the pump;
+# Ruth agrees a payment plan with Lakeshore and blocks the whole customer
+# for ten days, and the colleague's proposal is refused as stale. A run at
+# the key date duns nothing of Lakeshore's, each invoice named with its
+# block; once the customer's block has ended the pump is dunned again.
+# The gasket is found: Ruth releases its block, once, and the next run
+# duns both invoices. The key dates are the requests'; the end dates are
+# after today.
+step_dunning_blocks() {
+  heading "Step 112 — Dunning blocks: an invoice and a whole customer blocked from dunning with a reason and an end date; a run names the blocked items and duns the rest; a stale proposal refused; after the end date and after a release the items are dunned again"
+  local customer=$LAKESHORE small=$LAKESHORE_SMALL large=$LAKESHORE_LARGE key=$LAKESHORE_KEY item year line until whole whole_until after id tag twin twin_tag body
+  [ -n "$customer" ] || fail "step 111's customer is not there"
+  until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 120 * 86400 | strftime("%Y-%m-%d")')
+  whole_until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 110 * 86400 | strftime("%Y-%m-%d")')
+  after=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 115 * 86400 | strftime("%Y-%m-%d")')
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  item=$(field "[.items[] | select(.journal_entry_id == \"$small\")][0]")
+  [ "$item" != null ] || fail "the gasket invoice of step 111 is not open any more"
+  year=$(jq -r .fiscal_year <<<"$item") line=$(jq -r .line_no <<<"$item")
+  say "Lakeshore says the gasket set of its CAD 30.00 invoice never arrived. Until the warehouse has checked, Ruth"
+  say "blocks that invoice from dunning (T76e), with the reason, up to $until:"
+  body="{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"fiscal_year\": $year, \"journal_entry_id\": \"$small\", \"line_no\": $line,
+    \"reason\": \"Gasket delivery being checked by the warehouse\", \"valid_to\": \"$until\"}"
+  api 201 '"dunning block of \(.customer_number) \(.customer_name) in \(.company_code): \(.status), entry \(.document_number), until \(.valid_to): \(.reason)"' \
+    createDunningBlock -body "$body"
+  id=$(field .id) tag=$ETAG
+  expect "the block" "$(field '"\(.status) \(.customer_id) \(.journal_entry_id) \(.valid_to) \(.version)"')" "active $customer $small $until 1"
+  say "A block ends on a day still to come: one that ended yesterday would hold for no run, and is refused:"
+  refused 422 collections.invalid_block_end createDunningBlock -body "${body/$until/$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime - 86400 | strftime("%Y-%m-%d")')}"
+  say "A run at $key names the gasket invoice as blocked, outside its totals, and duns the pump invoice alone:"
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s), \(.blocked_item_count) blocked (\(.blocked_amount.amount) \(.blocked_amount.currency))", (.blocked_items[] | "  blocked: entry \(.document_number) (\(.reference)) of \(.customer_number), \(.days_overdue) days overdue, \(.local_amount.amount) \(.local_amount.currency)")' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  expect "the gasket invoice blocked" "$(field "[.blocked_items[] | select(.journal_entry_id == \"$small\") | .dunning_block_id] | join(\" \")")" "$id"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notice" "$(field '[.items[] | "\(.overdue_amount.amount) \([.items[].journal_entry_id] | join(" "))"] | join(", ")')" "600.00 $large"
+  say "A colleague starts a proposal at the same key date, which duns the pump. Then Lakeshore agrees a payment plan"
+  say "with Ruth, and she blocks the whole customer up to $whole_until:"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  twin=$(field .id) twin_tag=$ETAG
+  api 201 '"dunning block of \(.customer_number) \(.customer_name): \(.status), the whole customer, until \(.valid_to): \(.reason)"' \
+    createDunningBlock -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"reason\": \"Payment plan agreed\", \"valid_to\": \"$whole_until\"}"
+  whole=$(field .id)
+  expect "the customer's block names no item" "$(field '"\(.status) \(has("journal_entry_id"))"')" "active false"
+  say "The colleague's proposal would dun a customer blocked since it was started: it is stale."
+  refused 409 collections.proposal_stale confirmDunningRun -p "id=$twin" -if-match "$twin_tag"
+  say "A run at $key duns nothing of Lakeshore's, and names each invoice with the block that holds it:"
+  api 201 '"dunning run at \(.key_date): \(.blocked_item_count) blocked item(s)"' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  expect "Lakeshore's blocked invoices" \
+    "$(field "[.blocked_items[] | select(.customer_id == \"$customer\") | \"\(.journal_entry_id) \(.dunning_block_id)\"] | sort | join(\", \")")" \
+    "$(printf '%s\n' "$large $whole" "$small $id" | sort | paste -sd, - | sed 's/,/, /')"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notices" "$(field '.items | length')" 0
+  say "On $after the payment plan's block has ended: the pump is dunned again, the gasket still blocked."
+  api 201 '"dunning run at \(.key_date): \(.blocked_item_count) blocked item(s)"' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$after\"}"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Lakeshore's notice after the customer's block" "$(field '[.items[].items[].journal_entry_id] | join(" ")')" "$large"
+  say "The warehouse finds the gasket was delivered. Ruth releases its block, once:"
+  api 200 '"dunning block \(.status) by \(.released_by_name), version \(.version)"' releaseDunningBlock -p "id=$id" -if-match "$tag"
+  expect "the released block" "$(field '"\(.status) \(.version)"')" "released 2"
+  refused 409 collections.block_released releaseDunningBlock -p "id=$id" -if-match "$ETAG"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$after\"}"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level), \(.overdue_amount.amount) + \(.charge_amount.amount) + \(.interest_amount.amount) = \(.total_amount.amount) \(.total_amount.currency)"' \
+    listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "both invoices dunned again" "$(field '[.items[].items[].journal_entry_id] | sort | join(" ")')" "$(printf '%s\n' "$small" "$large" | sort | paste -sd' ' -)"
+  QUIET=1 api 200 '' listDunningBlocks -p "customer_id=$customer"
+  expect "Lakeshore's blocks" "$(field '[.items[] | "\(.id) \(.status)"] | join(", ")')" "$whole active, $id released"
+  passed
+}
+
+# step_sales_order_change is T78d (ADR-0067, As built T78d): Ruth sets
+# Northwind's credit limit 1,000.00 CAD above its exposure, so the step's
+# figures do not depend on what earlier steps left open. Sally creates an
+# order directly and, before confirming it, changes it in place: more
+# brackets at a lower price and a requested delivery date. The change is
+# kept, numbered, with its values before and after; a stale version is
+# refused. Once confirmed, the order may have a revenue contract (made
+# when it is confirmed), which holds its items' values: its delivery date
+# still changes. A second order is cancelled with a reason, once; the
+# delivered order of step 63 cannot be. Nothing is posted.
+# SALES_CHANGED_ORDER is the changed order, which step_billing_cancellation
+# delivers and bills.
+step_sales_order_change() {
+  heading "Step 113 — Sales orders changed and cancelled: an order's quantity, price and requested delivery date changed in place, the change kept with its values before and after; a stale version refused; an undelivered order cancelled once with a reason, a delivered one refused; nothing posted"
+  local customer=$CUSTOMER sales item order number second exposure limit id day later tag open
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ruth
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  exposure=$(field .exposure.amount)
+  limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 1000 }')
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  id=$(field '.items[0].id')
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth sets Northwind's limit at $limit CAD, 1,000.00 above what it owes and has on order:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  sales=$(account 4000)
+  item="{\"item_key\": \"BRACKET-M10\", \"description\": \"Machined bracket M10\", \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"15.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  say "Northwind orders 40 M10 brackets at 15.00. Sally creates the order directly: 600.00 net."
+  api 201 '"sales order \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [$item]}"
+  order=$(field .id)
+  number=$(field .document_number)
+  day=$(field .order_date)
+  expect "the new order's changes and requested delivery date" "$(field '"\(.changes) \(.requested_delivery_date // "none")"')" "0 none"
+  later=$(jq -rn --arg d "$day" '$d | strptime("%Y-%m-%d") | mktime + 14 * 86400 | strftime("%Y-%m-%d")')
+  say "Northwind calls back: 50 brackets, at 14.00 since they take more, delivered by $later. Sally changes the order in"
+  say "place at the version she read (ADR-0067, As built T78d). The item is priced again on the order's date: 50 at 14.00"
+  say "are 700.00; the order's net value is its items' again."
+  api 200 '"sales order \(.document_number): \(.status), version \(.version), change \(.changes), net \(.net_amount.amount), deliver by \(.requested_delivery_date)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount)")' \
+    changeSalesOrder -p "id=$order" -if-match '"1"' \
+    -body "{\"reason\": \"Northwind takes 50 at the price for 50\", \"requested_delivery_date\": \"$later\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"14.00\", \"currency\": \"CAD\"}}]}"
+  expect "the changed order" "$(field '"\(.status) \(.version) \(.changes) \(.net_amount.amount) \(.requested_delivery_date)"')" "draft 2 1 700.00 $later"
+  say "The change is kept, numbered within the order, with what it changed before and after:"
+  api 200 '.items[] | "  change \(.change_no) to version \(.version) by \(.created_by[0:8])…: \(.reason // "-"); net \(.net_amount_before.amount) > \(.net_amount_after.amount), deliver by \(.requested_delivery_date_before // "-") > \(.requested_delivery_date_after // "-")", (.items[] | "    item \(.item_no): \(.quantity_before.value) > \(.quantity_after.value) \(.quantity_after.unit), \(.unit_price_before.amount) > \(.unit_price_after.amount), \(.net_amount_before.amount) > \(.net_amount_after.amount)")' \
+    listSalesOrderChanges -p "id=$order"
+  expect "the order's change" \
+    "$(field '[.items[] | "\(.change_no) \(.version) \(.net_amount_before.amount)>\(.net_amount_after.amount) " + ([.items[] | "\(.quantity_before.value)>\(.quantity_after.value) \(.unit_price_before.amount)>\(.unit_price_after.amount)"] | join(" "))] | join(", ")')" \
+    "1 2 600.00>700.00 40>50 15.00>14.00"
+  say "Her earlier version is stale now: a change with it is refused."
+  refused 412 request.version_mismatch changeSalesOrder -p "id=$order" -if-match '"1"' -body '{"items": [{"item_no": 1, "quantity": {"value": "60", "unit": "EA"}}]}'
+  say "Sally confirms the order: 735.00 with GST, within the limit. A confirmed order has a revenue contract once"
+  say "revenue accounting makes it, which holds the items' values, so from then on only its delivery date changes:"
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match '"2"'
+  expect "the confirmed order" "$(field '"\(.status) \(.credit_block) \(.version)"')" "confirmed none 3"
+  later=$(jq -rn --arg d "$day" '$d | strptime("%Y-%m-%d") | mktime + 21 * 86400 | strftime("%Y-%m-%d")')
+  api 200 '"sales order \(.document_number): change \(.changes), deliver by \(.requested_delivery_date)"' changeSalesOrder -p "id=$order" -if-match '"3"' \
+    -body "{\"reason\": \"Northwind's warehouse opens a week later\", \"requested_delivery_date\": \"$later\"}"
+  expect "the order after its second change" "$(field '"\(.changes) \(.version) \(.requested_delivery_date) \(.net_amount.amount)"')" "2 4 $later 700.00"
+  say "A second order for 5 brackets was entered by mistake. Sally cancels it with a reason; it is cancelled once, and"
+  say "a cancelled order is not changed:"
+  api 201 '"sales order \(.document_number): \(.status)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [${item/\"40\"/\"5\"}]}"
+  second=$(field .id)
+  api 200 '"sales order \(.document_number): \(.status), \(.cancellation_reason), by \(.cancelled_by_name), version \(.version)"' cancelSalesOrder -p "id=$second" -if-match '"1"' \
+    -body '{"reason": "Entered twice by mistake"}'
+  expect "the cancelled order" "$(field '"\(.status) \(.version) \(.cancelled_by != null) \(.cancelled_at != null) \(.cancelled_by_name)"')" "cancelled 2 true true Sally Sales"
+  refused 409 sales.invalid_status cancelSalesOrder -p "id=$second" -if-match '"2"' -body '{"reason": "Again"}'
+  refused 409 sales.invalid_status changeSalesOrder -p "id=$second" -if-match '"2"' -body '{"items": [{"item_no": 1, "quantity": {"value": "6", "unit": "EA"}}]}'
+  say "Step 63's order is delivered, so it is not cancelled:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$SALES_ORDER"
+  refused 409 sales.order_delivered cancelSalesOrder -p "id=$SALES_ORDER" -if-match "$ETAG" -body '{"reason": "Too late"}'
+  say "Changing and cancelling orders posts nothing: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  SALES_CHANGED_ORDER=$order
+  passed
+}
+
+# step_billing_cancellation is T79c (ADR-0067, As built T79c): the order
+# of step_sales_order_change is delivered, and Ruth bills and posts it.
+# She cancels the posted document: a cancellation numbered from the
+# billing range, whose customer credit memo names the invoice and the
+# cancellation and moves receivables, revenue and GST back by exactly the
+# invoice's amounts; Northwind's open amount is where it was before the
+# billing. The order's items show nothing billed, a new billing document
+# bills them again, the cancelled one reading as it was billed; a second
+# cancellation is refused.
+step_billing_cancellation() {
+  heading "Step 114 — Billing documents cancelled: a posted billing document cancelled by a cancellation document whose credit memo reverses the invoice's receivable, revenue and GST exactly; the order's items billable again and billed by a new document; cancelled once"
+  local customer=$CUSTOMER order=$SALES_CHANGED_ORDER day doc number invoice cancel memo entry before after
+  [ -n "$order" ] || fail "step 113's order is not there"
+  as sally
+  day=$(company_day)
+  say "The 50 brackets of step 113's order leave; Sally confirms the delivery:"
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)"' confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}}]}"
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
+  before=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
+  say "Ruth bills the order and posts the billing document: 700.00 net, 35.00 GST, 735.00 owed."
+  api 201 '"billing document \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency)"' createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  doc=$(field .id)
+  number=$(field .document_number)
+  api 200 '"billing document \(.document_number): \(.status) as customer invoice \(.customer_invoice_number)"' postBillingDocument -p "id=$doc" -if-match '"1"'
+  invoice=$(field .customer_invoice_id)
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"
+  expect "the invoice's net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount)"')" "700.00 35.00 735.00"
+  say "The invoice was sent to the wrong address and is to be issued again. Ruth cancels the posted document (SAP's"
+  say "VF11): a cancellation numbered from the billing range, and a customer credit memo in accounts receivable naming"
+  say "the invoice, posted in the same transaction, which gives back the invoice's net, its GST and its gross to the cent."
+  api 200 '"billing document \(.document_number): \(.status), version \(.version); cancellation \(.cancellation.document_number) on \(.cancellation.cancellation_date): \(.cancellation.reason), credit memo \(.cancellation.customer_invoice_number), entry \(.cancellation.journal_entry_number)"' \
+    cancelBillingDocument -p "id=$doc" -if-match '"2"' -body '{"reason": "Issued to the wrong billing address"}'
+  expect "the cancelled document" "$(field '"\(.status) \(.version) \(.customer_invoice_id)"')" "cancelled 3 $invoice"
+  cancel=$(field .cancellation.id)
+  memo=$(field .cancellation.customer_invoice_id)
+  entry=$(field .cancellation.journal_entry_id)
+  [ "$(field .cancellation.document_number)" != "$number" ] || fail "the cancellation has the document's own number"
+  api 200 '"customer credit memo \(.document_number): \(.kind) \(.status), for \(.reference_invoice_number), from \(.source_document_number), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)"' \
+    getCustomerInvoice -p "id=$memo"
+  expect "the credit memo names the invoice and the cancellation" "$(field '"\(.kind) \(.status) \(.reference_invoice_id) \(.source_document_id)"')" \
+    "credit_memo posted $invoice $cancel"
+  expect "net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount)"')" "700.00 35.00 735.00"
+  say "The DG entry credits Northwind on 1200 and debits 4000 Sales and 2300 GST/HST payable: receivables, revenue and"
+  say "output tax moved back by exactly the invoice's amounts."
+  api 200 '"journal entry \(.document_number), \(.document_type)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' getJournalEntry -p "id=$entry"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-735.00 700.00 35.00"
+  expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $(account 4000) $(account 2300)"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=200
+  after=$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add // 0')
+  expect "Northwind's open amount, the invoice and its credit memo together" "$after" "$before"
+  say "The order's brackets are billable again; a new billing document bills them, and the cancelled one still reads as"
+  say "it was billed:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  expect "the order's billed quantity" "$(field '.items[0] | "\(.delivered_quantity.value) \(.billed_quantity.value)"')" "50 0"
+  api 201 '"billing document \(.document_number): \(.status), \(.items[0].quantity.value) \(.items[0].quantity.unit) at \(.items[0].unit_price.amount), net \(.net_amount.amount)"' \
+    createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  expect "the new document" "$(field '"\(.status) \(.items[0].quantity.value) \(.net_amount.amount)"')" "created 50 700.00"
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  expect "the cancelled document" "$(field '"\(.status) \(.items[0].unit_price.amount) \(.net_amount.amount)"')" "cancelled 14.00 700.00"
+  say "A document is cancelled once:"
+  refused 409 sales.invalid_status cancelBillingDocument -p "id=$doc" -if-match '"3"' -body '{"reason": "Again"}'
+  passed
+}
+
+# step_rfq_requisition is T82e (ADR-0069 As built, plan-depth-1 §T82e):
+# Ben raises a requisition for two items, needed in three weeks, and
+# Priya approves it; he then asks Tyrell and step 3's DP_SUPPLIER to
+# quote for it by an RFQ created from the requisition, which takes its
+# items, quantities, accounts and need date. The requisition is in
+# sourcing, naming the RFQ, until an award orders it. Then (T82f) both
+# suppliers quote; Ben awards the dearer one, which can deliver by the
+# need date, to a purchase order with his reason: the order carries the
+# quoted prices, the need date and the requisition, which is ordered.
+step_rfq_requisition() {
+  heading "Step 115 — An RFQ from a requisition: an approved requisition's items, quantities and need date taken into an RFQ; the requisition in sourcing, naming the RFQ; awarded with a reason to the dearer quotation as a purchase order naming the requisition, which is ordered"
+  as ben
+  local needed due expense req request rfq body valid tyrells award po
+  accounts
+  expense=$(account 6000)
+  needed=$(date_add "$(company_day)" 21)
+  due=$(date_add "$(company_day)" 7)
+  say "Ben needs monitors and docking stations for the new office in three weeks. He raises a requisition with his"
+  say "estimates and no supplier: purchasing is to find one."
+  api 201 '"requisition \(.document_number): \(.status), needed by \(.needed_by), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no): \(.quantity.value) \(.quantity.unit) \(.description) at \(.unit_price.amount) \(.unit_price.currency)")' createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"needed_by\": \"$needed\", \"items\": [
+      {\"description\": \"27-inch monitors\", \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"320.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"},
+      {\"description\": \"USB-C docking stations\", \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"180.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"}]}"
+  req=$(field .id)
+  api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
+  request=$(field .workflow_request_id)
+  approve priya "$request" "Equipment for the new office"
+  as ben
+  say "Ben asks for quotations on the requisition itself (T82e): he names it, the due date and the suppliers; the RFQ"
+  say "takes the requisition's items, quantities, units and accounts, its need date as each item's delivery date,"
+  say "and its currency:"
+  body="{\"legal_entity_id\": \"$LE\", \"requisition_id\": \"$req\", \"due_date\": \"$due\", \"supplier_ids\": [\"$SUPPLIER\", \"$DP_SUPPLIER\"]}"
+  api 201 '"RFQ \(.document_number) from requisition \(.requisition_document_number): \(.status), quotations in \(.currency) due \(.due_date)", (.items[] | "  item \(.item_no) \(.material_key) \(.description): \(.quantity.value) \(.quantity.unit) by \(.delivery_date), requisition item \(.requisition_item_no), on \(.account_number)")' \
+    createRfq -body "$body"
+  rfq=$(field .id)
+  expect "the RFQ from the requisition" "$(field '"\(.requisition_id) \(.currency) \(.status)"')" "$req CAD draft"
+  expect "its items, the requisition's" "$(field '[.items[] | "\(.description) \(.quantity.value) \(.quantity.unit) \(.delivery_date) \(.requisition_item_no) \(.account_number)"] | join(", ")')" \
+    "27-inch monitors 12 EA $needed 1 6000, USB-C docking stations 12 EA $needed 2 6000"
+  say "The requisition is in sourcing now and names the RFQ; it is not ordered directly or sourced twice:"
+  api 200 '"requisition \(.document_number): \(.status), sourced by RFQ \(.rfq_document_number)"' getRequisition -p "id=$req"
+  expect "the requisition in sourcing" "$(field '"\(.status) \(.rfq_id)"')" "in_sourcing $rfq"
+  refused 409 procurement.invalid_status createRfq -body "$body"
+  say "Items are the requisition's; an RFQ from it sends none of its own:"
+  refused 422 procurement.rfq_items_from_requisition createRfq -body "{\"legal_entity_id\": \"$LE\", \"requisition_id\": \"$req\", \"due_date\": \"$due\",
+    \"items\": [{\"material_key\": \"X\", \"description\": \"X\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}], \"supplier_ids\": [\"$SUPPLIER\"]}"
+  say "Ben publishes the RFQ; it is the one RFQ of the requisition:"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  api 200 '"RFQ \(.document_number): \(.status)"' publishRfq -p "id=$rfq" -if-match "$ETAG"
+  api 200 '.items[] | "  RFQ \(.document_number) from \(.requisition_document_number): \(.status)"' listRfqs -p "requisition_id=$req"
+  expect "the RFQs of the requisition" "$(field '[.items[].id] | join(" ")')" "$rfq"
+  valid=$(date_add "$(company_day)" 30)
+  say "Both suppliers quote. $DP_NAME is cheaper, 300.00 a monitor and 170.00 a dock; Tyrell asks 310.00 and 175.00 but"
+  say "is the one that can deliver by the need date:"
+  api 201 '"quotation \(.supplier_reference) of \(.supplier_number): total \(.total.amount) \(.total.currency)"' createSupplierQuotation -p "id=$rfq" \
+    -body "{\"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-Q-131\", \"valid_until\": \"$valid\", \"items\": [
+      {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"310.00\", \"currency\": \"CAD\"}}, {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"175.00\", \"currency\": \"CAD\"}}]}"
+  tyrells=$(field .id)
+  api 201 '"quotation \(.supplier_reference) of \(.supplier_number): total \(.total.amount) \(.total.currency)"' createSupplierQuotation -p "id=$rfq" \
+    -body "{\"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"CB-7790\", \"valid_until\": \"$valid\", \"items\": [
+      {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}}, {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"170.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '.suppliers[] | "  rank \(.rank): \(.supplier_number) \(.supplier_name), total \(.total.amount) \(.total.currency)"' getRfqComparison -p "id=$rfq"
+  expect "Tyrell ranked second" "$(field ".suppliers[] | select(.supplier_quotation_id == \"$tyrells\") | .rank")" 2
+  say "Ben awards the RFQ to Tyrell's quotation as a purchase order (T82f): an RFQ from a requisition is awarded to"
+  say "an order, which names the requisition, and an award to any quotation but the lowest records why it wins:"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  award="{\"quotation_id\": \"$tyrells\", \"award_to\": \"purchase_order\"}"
+  refused 422 procurement.rfq_from_requisition awardRfq -p "id=$rfq" -if-match "$ETAG" \
+    -body "{\"quotation_id\": \"$tyrells\", \"valid_from\": \"$(company_day)\", \"valid_to\": \"$valid\", \"reason\": \"Delivery date\"}"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  refused 422 procurement.award_reason_required awardRfq -p "id=$rfq" -if-match "$ETAG" -body "$award"
+  QUIET=1 api 200 '' getRfq -p "id=$rfq"
+  api 200 '"RFQ \(.document_number): \(.status) to purchase order \(.purchase_order_document_number), because: \(.award_reason)"' awardRfq -p "id=$rfq" -if-match "$ETAG" \
+    -body "{\"quotation_id\": \"$tyrells\", \"award_to\": \"purchase_order\", \"reason\": \"The only supplier that delivers by the need date\"}"
+  po=$(field .purchase_order_id)
+  expect "the RFQ awarded to an order, with its reason" "$(field '"\(.status) \(.award_reason)"')" "awarded The only supplier that delivers by the need date"
+  say "The draft order carries Tyrell, the quoted prices, the need date and the requisition, which is ordered now:"
+  api 200 '"purchase order \(.document_number) of \(.order_date) from requisition \(.requisition_id): \(.status), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) by \(.delivery_date)")' \
+    getPurchaseOrder -p "id=$po"
+  expect "the order" "$(field '"\(.supplier_id) \(.requisition_id) \(.order_date) \(.total_amount.amount) \(.total_amount.currency)"')" "$SUPPLIER $req $(company_day) 5820.00 CAD"
+  expect "its items" "$(field '[.items[] | "\(.unit_price.amount) \(.delivery_date)"] | join(", ")')" "310.00 $needed, 175.00 $needed"
+  api 200 '"requisition \(.document_number): \(.status)"' getRequisition -p "id=$req"
+  expect "the requisition" "$(field .status)" ordered
+  say "Ben releases the order as any other; within the requisition's approved total, it needs no further approval:"
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  api 200 '"purchase order \(.document_number): \(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  expect "the released order" "$(field .status)" released
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -13998,7 +14624,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_close'
 
 main() {
   stop_unseen

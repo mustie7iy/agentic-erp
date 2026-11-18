@@ -25,7 +25,7 @@ func rfqInputs(items []gen.RfqItemInput) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
 		out[i] = ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialKey: it.MaterialKey, Description: it.Description, Quantity: it.Quantity.Value,
-			Unit: it.Quantity.Unit, AccountID: it.AccountID}
+			Unit: it.Quantity.Unit, AccountID: it.AccountID, DeliveryDate: apitypes.Ptr[time.Time](it.DeliveryDate)}
 	}
 	return out
 }
@@ -35,11 +35,15 @@ func rfqToAPI(r RFQ) gen.Rfq {
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), DocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, CompanyCode: r.CompanyCode,
 		CompanyName: r.CompanyName, Currency: r.Currency,
 		DueDate: r.DueDate, Status: r.Status, ContractID: apitypes.OptUUID(r.ContractID), ContractDocumentNumber: apitypes.OptString(r.ContractNumber),
-		Items: make([]gen.RfqItem, len(r.Items)), Suppliers: make([]gen.RfqSupplier, len(r.Suppliers))}
+		RequisitionID: apitypes.OptUUID(r.RequisitionID), RequisitionDocumentNumber: apitypes.OptString(r.RequisitionNumber),
+		PurchaseOrderID: apitypes.OptUUID(r.PurchaseOrderID), PurchaseOrderDocumentNumber: apitypes.OptString(r.PurchaseOrderNumber),
+		AwardReason: apitypes.OptString(r.AwardReason),
+		Items:       make([]gen.RfqItem, len(r.Items)), Suppliers: make([]gen.RfqSupplier, len(r.Suppliers))}
 	for i, it := range r.Items {
 		out.Items[i] = gen.RfqItem{ItemNo: gen.NewOptInt32(it.No), MaterialKey: it.MaterialKey, Description: it.Description,
 			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, AccountID: it.AccountID,
-			AccountNumber: r.Accounts[it.AccountID].Number, AccountName: r.Accounts[it.AccountID].Name}
+			AccountNumber: r.Accounts[it.AccountID].Number, AccountName: r.Accounts[it.AccountID].Name,
+			DeliveryDate: apitypes.OptDate(it.DeliveryDate), RequisitionItemNo: apitypes.OptInt32(it.RequisitionItemNo)}
 	}
 	for i, s := range r.Suppliers {
 		out.Suppliers[i] = gen.RfqSupplier{SupplierID: s.ID, SupplierNumber: s.Number, SupplierName: s.Name}
@@ -49,8 +53,8 @@ func rfqToAPI(r RFQ) gen.Rfq {
 
 // CreateRfq implements POST /v1/rfqs.
 func (e *Endpoints) CreateRfq(ctx context.Context, req *gen.RfqCreate, _ gen.CreateRfqParams) (gen.CreateRfqRes, error) {
-	r, err := e.createRFQ(ctx, NewRFQ{LegalEntityID: req.LegalEntityID, Currency: req.Currency, DueDate: req.DueDate, Items: rfqInputs(req.Items),
-		Suppliers: req.SupplierIds})
+	r, err := e.createRFQ(ctx, NewRFQ{LegalEntityID: req.LegalEntityID, RequisitionID: apitypes.Ptr[uuid.UUID](req.RequisitionID),
+		Currency: req.Currency.Value, DueDate: req.DueDate, Items: rfqInputs(req.Items), Suppliers: req.SupplierIds})
 	if err != nil {
 		return nil, err
 	}
@@ -85,8 +89,8 @@ func (e *Endpoints) ListRfqs(ctx context.Context, params gen.ListRfqsParams) (ge
 	if err != nil {
 		return nil, err
 	}
-	le, supplier := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID)
-	ks, err := e.Pages.Keyset(rfqSort, fmt.Sprintf("listRfqs|%v|%v|%s|%s", le, supplier, params.Status.Value, params.DocumentNumber.Value),
+	le, supplier, req := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID), apitypes.Ptr[uuid.UUID](params.RequisitionID)
+	ks, err := e.Pages.Keyset(rfqSort, fmt.Sprintf("listRfqs|%v|%v|%s|%s|%v", le, supplier, params.Status.Value, params.DocumentNumber.Value, req),
 		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -97,8 +101,8 @@ func (e *Endpoints) ListRfqs(ctx context.Context, params gen.ListRfqsParams) (ge
 	}
 	q, args := ks.SQL(rfqSelect+` WHERE ($1 OR r.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR r.legal_entity_id = $3)
 		AND ($4::uuid IS NULL OR EXISTS (SELECT FROM procurement.rfq_supplier s WHERE s.tenant_id = r.tenant_id AND s.rfq_id = r.id AND s.supplier_id = $4))
-		AND ($5 = '' OR r.status = $5) AND ($6 = '' OR r.document_number = $6)`,
-		[]any{access.All, access.IDs, le, supplier, params.Status.Value, params.DocumentNumber.Value})
+		AND ($5 = '' OR r.status = $5) AND ($6 = '' OR r.document_number = $6) AND ($7::uuid IS NULL OR r.requisition_id = $7)`,
+		[]any{access.All, access.IDs, le, supplier, params.Status.Value, params.DocumentNumber.Value, req})
 	rows, _ := tx.Query(ctx, q, args...)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (RFQ, error) { return scanRFQ(r) })
 	if err != nil {
@@ -253,7 +257,9 @@ func (e *Endpoints) GetRfqComparison(ctx context.Context, params gen.GetRfqCompa
 
 // AwardRfq implements POST /v1/rfqs/{id}:award.
 func (e *Endpoints) AwardRfq(ctx context.Context, req *gen.RfqAward, params gen.AwardRfqParams) (gen.AwardRfqRes, error) {
-	r, err := e.awardRFQ(ctx, params.ID, etag.IfMatch(params.IfMatch), Award{QuotationID: req.QuotationID, ValidFrom: req.ValidFrom, ValidTo: req.ValidTo})
+	to := req.AwardTo.Or(AwardToContract)
+	r, err := e.awardRFQ(ctx, params.ID, etag.IfMatch(params.IfMatch), Award{QuotationID: req.QuotationID, To: to,
+		ValidFrom: apitypes.Ptr[time.Time](req.ValidFrom), ValidTo: apitypes.Ptr[time.Time](req.ValidTo), Reason: apitypes.Ptr[string](req.Reason)})
 	if err != nil {
 		return nil, err
 	}

@@ -7,10 +7,8 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 )
 
 // The tenant's access as it stands, read through the API before a
@@ -86,10 +84,10 @@ type standing struct {
 	grants      map[string][]grant
 }
 
-// today is the run's day, UTC's: the agent is given no read of the
-// database's date.
+// today is the run's day, UTC's, as access is judged on (product owner
+// 2026-11-16): the tenant's access is no one company's.
 func (a *Agent) today() string {
-	return clock.Now(a.Now).UTC().Format(time.DateOnly)
+	return apitools.Days{Now: a.Now}.UTC()
 }
 
 // standing reads the tenant's roles, every role assignment, past and to

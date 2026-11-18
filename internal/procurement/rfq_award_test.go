@@ -20,10 +20,11 @@ import (
 // The award of an RFQ (T82d, ADR-0069 §7). The RFQ of these tests asks
 // for 40 chairs and 12.5 desks in EUR; the tests' clock is 15 June 2026.
 
-// awardBody awards to the quotation with a contract for 2026-07-01 to
+// awardBody awards to the quotation, with a reason, since the tests award
+// Tyrell's, ranked second (T82f), and with a contract for 2026-07-01 to
 // 2027-06-30.
 func awardBody(quotation string) string {
-	return fmt.Sprintf(`{"quotation_id": %q, "valid_from": "2026-07-01", "valid_to": "2027-06-30"}`, quotation)
+	return fmt.Sprintf(`{"quotation_id": %q, "valid_from": "2026-07-01", "valid_to": "2027-06-30", "reason": "Delivers by the need date"}`, quotation)
 }
 
 // quoted is a published RFQ of the fixture's two suppliers with a
@@ -83,7 +84,8 @@ func TestAwardRFQ(t *testing.T) {
 	r, awardedTag := e.Must(200, "POST", path+":award", awardBody(tyrells), tag)
 	contract := "/v1/contracts/" + fmt.Sprint(r["contract_id"])
 	t.Run("the RFQ awarded", func(t *testing.T) {
-		for field, want := range map[string]any{"status": "awarded", "version": float64(3), "contract_document_number": "CT100000"} {
+		for field, want := range map[string]any{"status": "awarded", "version": float64(3), "contract_document_number": "CT100000",
+			"award_reason": "Delivers by the need date"} {
 			if r[field] != want {
 				t.Errorf("%s: got %v, want %v", field, r[field], want)
 			}
@@ -141,7 +143,7 @@ func TestAwardRFQ(t *testing.T) {
 		want := map[string]any{"rfq_id": id(r), "document_number": "RQ100000", "legal_entity_id": e.DE.String(), "legal_entity_code": "2000",
 			"supplier_quotation_id": tyrells, "supplier_id": e.Supplier.String(), "supplier_number": "BP90000001", "supplier_reference": "Q-457",
 			"contract_id": r["contract_id"], "contract_document_number": "CT100000", "valid_from": "2026-07-01", "valid_to": "2027-06-30",
-			"total": map[string]any{"amount": "20666.67", "currency": "EUR"}}
+			"total": map[string]any{"amount": "20666.67", "currency": "EUR"}, "reason": "Delivers by the need date"}
 		if !reflect.DeepEqual(awarded, []map[string]any{want}) {
 			t.Errorf("rfq_awarded events: got %v, want one, %v (the supplier by id and number, no name)", awarded, want)
 		}
@@ -206,7 +208,7 @@ func TestAwardRFQRefusals(t *testing.T) {
 		"a quotation of another RFQ":          {other, awardBody(tyrells), "*", 422, "procurement.quotation_not_of_rfq", "quotation_id"},
 		"an incomplete quotation":             {other, awardBody(id(part)), "*", 422, "procurement.quotation_incomplete", "quotation_id"},
 		"an expired quotation":                {other, awardBody(id(late)), "*", 422, "procurement.quotation_expired", "quotation_id"},
-		"validity that ends before it starts": {path, fmt.Sprintf(`{"quotation_id": %q, "valid_from": "2026-07-01", "valid_to": "2026-06-30"}`, tyrells), "*", 422, "procurement.invalid_validity", "valid_to"},
+		"validity that ends before it starts": {path, fmt.Sprintf(`{"quotation_id": %q, "valid_from": "2026-07-01", "valid_to": "2026-06-30", "reason": "R"}`, tyrells), "*", 422, "procurement.invalid_validity", "valid_to"},
 		"no quotation":                        {path, `{"valid_from": "2026-07-01", "valid_to": "2027-06-30"}`, "*", 400, "request.invalid_body", ""},
 		"no RFQ with the id":                  {"/v1/rfqs/" + uuid.NewString(), awardBody(tyrells), "*", 404, "request.not_found", ""},
 	} {
@@ -299,7 +301,7 @@ func TestAwardRFQOnce(t *testing.T) {
 	rfq := uuid.MustParse(strings.TrimPrefix(path, "/v1/rfqs/"))
 	award := func(quotation string) func(ctx context.Context) error {
 		return func(ctx context.Context) error {
-			_, err := h.AwardRfq(ctx, &gen.RfqAward{QuotationID: uuid.MustParse(quotation), ValidFrom: dateOf("2026-07-01"), ValidTo: dateOf("2027-06-30")},
+			_, err := h.AwardRfq(ctx, &gen.RfqAward{QuotationID: uuid.MustParse(quotation), ValidFrom: gen.NewOptDate(dateOf("2026-07-01")), ValidTo: gen.NewOptDate(dateOf("2027-06-30")), Reason: gen.NewOptString("Delivers by the need date")},
 				gen.AwardRfqParams{ID: rfq, IfMatch: "*"})
 			return err
 		}
@@ -332,7 +334,7 @@ func TestAwardRFQDatabaseFailures(t *testing.T) {
 	path, tyrells, _ := e.quoted(t)
 	rfq := uuid.MustParse(strings.TrimPrefix(path, "/v1/rfqs/"))
 	call := func(ctx context.Context) error {
-		_, err := h.AwardRfq(ctx, &gen.RfqAward{QuotationID: uuid.MustParse(tyrells), ValidFrom: dateOf("2026-07-01"), ValidTo: dateOf("2027-06-30")},
+		_, err := h.AwardRfq(ctx, &gen.RfqAward{QuotationID: uuid.MustParse(tyrells), ValidFrom: gen.NewOptDate(dateOf("2026-07-01")), ValidTo: gen.NewOptDate(dateOf("2027-06-30")), Reason: gen.NewOptString("Delivers by the need date")},
 			gen.AwardRfqParams{ID: rfq, IfMatch: "*"})
 		return err
 	}

@@ -233,6 +233,15 @@ type storedTerms struct {
 	pct1, pct2   *string
 }
 
+// scanWithTerms scans row into dest, then the terms columns that follow
+// them (termsColumns) and, after those, into rest; it returns the item's
+// terms, nil for none. what names the item in the error.
+func scanWithTerms(row pgx.Row, what string, dest []any, rest ...any) (*ItemTerms, error) {
+	var t storedTerms
+	err := errs.Wrapf(row.Scan(append(append(dest, t.fields()...), rest...)...), what)
+	return t.terms(), err
+}
+
 func (s *storedTerms) fields() []any {
 	return []any{&s.code, &s.baseline, &s.netDays, &s.days1, &s.pct1, &s.days2, &s.pct2}
 }
@@ -507,6 +516,21 @@ func keepItemData(ctx context.Context, tx pgx.Tx, entry Entry, in Posting) error
 // original posting date.
 func (p Postings) Reverse(ctx context.Context, entryID uuid.UUID, postingDate *time.Time, headerText *string) (Entry, error) {
 	return p.endpoints().reverseJournalEntry(ctx, entryID, func(Entry) error { return nil }, postingDate, headerText)
+}
+
+// LockEntries takes the entries' locks (lockEntries) before the caller
+// locks rows of its own that a reversal of one of them would wait for: a
+// controlling settlement's reversal holds its order FOR UPDATE, and the
+// ledger's own reversal of an entry naming the order takes the entry's
+// lock first and the order's FOR SHARE after it (ADR-0064 As built,
+// T60i), so the reversal of a settlement takes the entry's lock first
+// too. Reverse takes it again, which holds it already.
+func (Postings) LockEntries(ctx context.Context, ids []uuid.UUID) error {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	return lockEntries(ctx, tx, false, ids)
 }
 
 // IsCleared reports whether any line of the entry is cleared. Cleared is

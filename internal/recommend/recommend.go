@@ -74,11 +74,26 @@ type Agent struct {
 	// System is the agent's prompt: what it reads and when it recommends
 	// which kind. The pattern's rules are added to it.
 	System string
-	// MaxIterations bounds the model's requests in one run; default 30.
+	// MaxIterations bounds the model's requests in one run; default
+	// DefaultIterations.
 	MaxIterations int
 	// Contract offers the agent the contract's search too
 	// (apitools.Contract, a read the agent's own code answers; T108b).
 	Contract bool
+}
+
+// DefaultIterations bounds a recommending agent's requests in one run when
+// it sets no MaxIterations.
+const DefaultIterations = 30
+
+// Iterations is an agent's bound on the model's requests in one run: its
+// configured MaxIterations, or its default when it sets none (0 or less).
+// Every agent applies its default here (review:batch77).
+func Iterations(configured, fallback int) int {
+	if configured <= 0 {
+		return fallback
+	}
+	return configured
 }
 
 // Tools are the tools the agent may call: its reads, its writes and
@@ -191,10 +206,7 @@ func (a Agent) Run(ctx context.Context, model *llm.Runner, client *apitools.Clie
 	prompt := fmt.Sprintf("%s\n%sYour session id is %s.", t.Prompt, a.objects(t.Objects), s.ID)
 	r := &run{res: &res, session: s.ID, kinds: a.Kinds, task: t, figures: newFigures(prompt), recommended: map[string]bool{}}
 	r.hold(tools)
-	iterations := a.MaxIterations
-	if iterations <= 0 {
-		iterations = 30
-	}
+	iterations := Iterations(a.MaxIterations, DefaultIterations)
 	msg, err := apitools.Run(ctx, model, s, tools, model.Params(a.System+rules, anthropic.NewBetaTextBlock(prompt)), iterations)
 	if msg != nil {
 		res.Reply = llm.Text(msg)
@@ -306,7 +318,7 @@ func text(body map[string]any, field string) string {
 }
 
 func (r *run) admit(in map[string]any) error {
-	b, _ := in["body"].(map[string]any) // no body: refused below, as the API would
+	b := apitools.Body(in)
 	p := Proposed{ObjectType: text(b, "object_type"), ObjectID: text(b, "object_id"), Kind: text(b, "kind"), Content: text(b, "content")}
 	objectType, given := r.task.Objects[p.ObjectID]
 	switch {

@@ -331,7 +331,7 @@ func controllingEndpoints(cfg Config) *controlling.Endpoints {
 // taxFiling is the tax filing context as the API wires it.
 func taxFiling(cfg Config, library *countrypack.Library) *taxfiling.Endpoints {
 	return &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
-		Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}}
+		Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{Releases: payments.PeriodReleases{}}}
 }
 
 // loopbackOf is cfg's loopback, or a new one.
@@ -416,7 +416,7 @@ func Configuration(cfg Config) configuration.Dependencies {
 func Ledger(cfg Config) *ledger.Endpoints {
 	return &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, CostObjects: controlling.CostObjects{},
 		Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{},
-		PartnerNames: LedgerPartners{}, Now: cfg.Now, People: identity.Actors{}, PersonNames: LedgerPeople{}}
+		PartnerNames: LedgerPartners{}, Now: cfg.Now, People: identity.Actors{}, PersonNames: LedgerPeople{}, Releases: payments.PeriodReleases{}}
 }
 
 // Payments is the payments context as the API wires it, for the proposal
@@ -517,7 +517,7 @@ func salesAndCredit(cfg Config) (*sales.Endpoints, *credit.Endpoints) {
 		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Invoices: Receivables(cfg), Entries: ledger.OpenItems{},
 		Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Rates: ledger.Rates{LegalEntities: tenancy.Directory{}}, People: LedgerPeople{},
-		Uploads: uploads(cfg), OrderExtractor: cfg.OrderExtractor, Finder: partner.Payees{Keys: cfg.FieldKeys}, Now: cfg.Now}
+		Revenue: revenue.OrderContracts{}, Uploads: uploads(cfg), OrderExtractor: cfg.OrderExtractor, Finder: partner.Payees{Keys: cfg.FieldKeys}, Now: cfg.Now}
 	c := &credit.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Customers: partner.Customers{},
 		Partners: partner.Payees{}, Orders: s}
 	s.Credit = salesCredit{credit: c}
@@ -568,7 +568,7 @@ func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef
 // its ports.
 func Collections(cfg Config) *collections.Endpoints {
 	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
-		Settings: configuration.Settings{}, People: LedgerPeople{}}
+		Settings: configuration.Settings{}, People: LedgerPeople{}, Now: cfg.Now}
 }
 
 // Audit is the audit context as the API wires it (ADR-0011): its

@@ -32,7 +32,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
@@ -66,9 +65,10 @@ const MaxCustomers = 20
 
 // Never are the operations the agent never calls (ADR-0072): starting or
 // confirming a dunning run and opening, changing or closing a dispute
-// case; nothing in the contract sends a message to a customer, and its
-// tools hold none of these.
-var Never = []string{"createDunningRun", "confirmDunningRun", "createDisputeCase", "updateDisputeCase", "closeDisputeCase"}
+// case, placing or releasing a dunning block (T76e); nothing in the
+// contract sends a message to a customer, and its tools hold none of these.
+var Never = []string{"createDunningRun", "confirmDunningRun", "createDisputeCase", "updateDisputeCase", "closeDisputeCase",
+	"createDunningBlock", "releaseDunningBlock"}
 
 // Reads are the operations the agent reads with (ADR-0072 As built,
 // T105b): the plan's, the dunning runs a notice is listed under, a
@@ -158,7 +158,7 @@ type worklist struct {
 }
 
 // Advise runs one session on the company's collection worklist on the key
-// date ("" is today, UTC): it finds the company by its code, reads the
+// date ("" is today in the company's time zone): it finds the company by its code, reads the
 // worklist's first MaxCustomers customers and, for those with open
 // dispute cases, their open items and cases (anything the agent may not
 // read stops the run before a session starts), then offers the model the
@@ -166,15 +166,17 @@ type worklist struct {
 // recommending. A worklist without customers starts no session and says
 // so.
 func (a *Agent) Advise(ctx context.Context, company, keyDate string) (recommend.Result, error) {
-	if keyDate == "" {
-		keyDate = a.today()
-	}
-	if _, err := time.Parse(time.DateOnly, keyDate); err != nil {
+	if _, err := time.Parse(time.DateOnly, keyDate); keyDate != "" && err != nil {
 		return recommend.Result{}, fmt.Errorf("%w: not %q", ErrKeyDate, keyDate)
 	}
 	le, err := apitools.LegalEntity(ctx, a.API, company)
 	if err != nil {
 		return recommend.Result{}, err
+	}
+	if keyDate == "" {
+		if keyDate, err = (apitools.Days{API: a.API, Now: a.Now}).Of(ctx, le); err != nil {
+			return recommend.Result{}, fmt.Errorf("collectionsagent: company %s: %w", company, err)
+		}
 	}
 	resp, err := a.API.Do(ctx, http.MethodGet, "/v1/collection-worklist",
 		url.Values{"legal_entity_id": {le}, "key_date": {keyDate}, "page_size": {strconv.Itoa(MaxCustomers)}}, nil, "")
@@ -218,11 +220,6 @@ func (a *Agent) Advise(ctx context.Context, company, keyDate string) (recommend.
 	res, err := agent(a.MaxIterations).Run(ctx, a.LLM, a.API, task)
 	res.Names = names
 	return res, err
-}
-
-// today is the run's date, in UTC.
-func (a *Agent) today() string {
-	return clock.Now(a.Now).UTC().Format(time.DateOnly)
 }
 
 // openItem is a customer's open item as the run reads it: its journal

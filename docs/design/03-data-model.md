@@ -524,7 +524,12 @@ entry, by its debits, a service principal posts; above it the entry is
 parked for a person; without it the manual entry approval limit; posting-relevant) and its dunning levels
 (`dunning.levels`, optional, ADR-0065 §2: each a `level` numbered from 1 and
 the `days_overdue` an item must have reached for it, ascending, at most
-nine; operational, tier 2; a company without any has no dunning, §3.27). Its retention rules (`retention`, optional, ADR-0079 §2: per document kind, `journal_entry` or `personal_data`, once each, the whole `years` from 0 to 99 a document is kept after its fiscal year's last day; tier 3, two approvers, product owner 2026-11-13; none shipped, and a kind without a rule has nothing past retention, §3.32). The amounts are read with the digits of the
+nine, each with an optional `charge` in the company's currency and
+`interest` whether its items are charged interest; with them the
+procedure's `grace_days` 0-365, `minimum_amount` in the company's currency
+and annual `interest_rate_percent` above 0 and below 100 with three
+places, needed when a level charges interest, T76d; operational, tier 2;
+a company without levels has no dunning, §3.27). Its retention rules (`retention`, optional, ADR-0079 §2: per document kind, `journal_entry` or `personal_data`, once each, the whole `years` from 0 to 99 a document is kept after its fiscal year's last day; tier 3, two approvers, product owner 2026-11-13; none shipped, and a kind without a rule has nothing past retention, §3.32). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -1682,6 +1687,8 @@ erDiagram
   rfq ||--|{ rfq_supplier : invites
   rfq_supplier ||--o| supplier_quotation : quotes
   rfq |o--o| contract : "awarded to"
+  rfq |o--o| purchase_order : "awarded to"
+  requisition |o--o{ rfq : "sourced by"
   supplier_quotation ||--|{ supplier_quotation_item : prices
   rfq_item ||--o{ supplier_quotation_item : "priced by"
   contract ||--o{ schedule_line : schedules
@@ -1695,7 +1702,7 @@ erDiagram
     uuid contract_id
     char currency
     date requisition_date
-    text status
+    text status "draft | pending_approval | approved | rejected | cancelled | ordered | in_sourcing"
     uuid workflow_request_id
     int version }
   requisition_item { uuid requisition_id PK
@@ -1777,6 +1784,9 @@ erDiagram
     date due_date
     text status "draft | published | awarded"
     uuid contract_id FK "the contract an award created"
+    uuid purchase_order_id FK "the purchase order an award created (T82f)"
+    text award_reason "why the quotation won, when it was not ranked first"
+    uuid requisition_id FK "the requisition it was created from (T82e)"
     int version }
   rfq_item { uuid rfq_id PK
     int item_no PK
@@ -1784,7 +1794,9 @@ erDiagram
     text description
     numeric quantity
     text uom_code
-    uuid account_id }
+    uuid account_id
+    date delivery_date
+    int requisition_item_no "the requisition item it was taken from" }
   rfq_supplier { uuid rfq_id PK
     uuid supplier_id PK
     int invite_no }
@@ -3720,7 +3732,19 @@ erDiagram
   internal_order ||--o| order_budget : "budgeted by"
   order_budget { uuid internal_order_id PK
     bigint amount "local currency, minor units, zero or more"
+    smallint warn_percent "1-999, below refuse_percent"
+    smallint refuse_percent "1-999"
     int version }
+  internal_order ||--o{ order_budget_change : "changed by"
+  order_budget_change { uuid id PK
+    uuid internal_order_id FK
+    int budget_version "the budget's, once per order"
+    text kind "set, supplement, return"
+    bigint budget_before "NULL without a budget"
+    bigint budget_after
+    smallint warn_percent
+    smallint refuse_percent
+    text text }
   internal_order ||--o| settlement_rule : "settles to"
   settlement_rule { uuid internal_order_id PK
     uuid receiver_cost_center_id "ledger context" }
@@ -3735,6 +3759,10 @@ erDiagram
     text document_number
     bigint amount "local currency, minor units"
     int account_count }
+  order_settlement ||--o| order_settlement_reversal : "reversed by"
+  order_settlement_reversal { uuid settlement_id PK
+    uuid journal_entry_id "ledger context, once"
+    text document_number }
   allocation_cycle ||--|{ allocation_receiver : "charges"
   allocation_cycle ||--o{ allocation_run : "run by"
   allocation_cycle { uuid id PK
@@ -3765,9 +3793,11 @@ erDiagram
 | `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`). A batch written by a copy of another category's plan (`POST /v1/plan-categories/{id}:copy`, T93a, migration 000309; ADR-0050 §8 As built) names the category copied from and the percentage its amounts were multiplied by, both or neither (`plan_batch_copy_origin`): the percentage above 0 and at most 1000 (`plan_batch_copy_percentage`), the category an existing one (`plan_batch_copied_from`) and another than the batch's (`plan_batch_copy_other_category`); its key is generated (`copy-<id>`), and it replaces the target's whole plan of the company and year. A category that changes is held `FOR NO KEY UPDATE` (T93a), so the foreign key's check of the category copied from never waits for a batch, a copy or a lock of it |
 | `controlling.plan_line` | A line of a batch: one center (`plan_line_one_center`), a period 1-16, a P&L account, the amount in the company's local currency, an optional positive quantity with its unit (`plan_line_quantity_unit`); of its batch's category, company and year (foreign key). Never deleted: a later batch of the same category, company and year naming its center sets `replaced_by_batch_id` once (`plan_line_replaced_once`, `plan_line_replaced_later`), so the plan is the lines not replaced, one per category, company, year, center, account and period (`plan_line_once`, a partial unique index), and every earlier plan stays readable. Nothing is written or replaced on a locked category (`plan_category_open`, the category read FOR SHARE). A batch that would write or replace a cost center's line in a period sharing a day with a period of the center whose `ledger.cost_center_period.lock_plan` is set is refused (T56g2; checked in the service through the ledger's port, the centers held FOR KEY SHARE; no trigger reads across the context boundary) |
 | `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted. Journal lines name it (`ledger.journal_line.internal_order_id`, §3.7, T60b) without a foreign key: the ledger asks `controlling.CostObjects` (its port `ledger.CostObjects`) for the orders a posting names, which holds them `FOR SHARE`; the order's actual costs are those lines, read through `ledger.AssignmentBalances.OrderActuals` and stored nowhere else |
-| `controlling.order_budget` | An order's budget (ADR-0064 §3, T60c): at most one row per order (the primary key; `order_budget_order`, a foreign key to the order), one overall amount of zero or more (`order_budget_not_negative`) in minor units of the order's company's local currency, which a company keeps (000045). An order without a row has no budget. Replaced with the version its reader saw (`controlling.order.budget`; the order read FOR UPDATE, the version one more with every change, `platform.touch`), each change audited with the amounts before and after; never deleted. Nothing is refused for a budget: `GET /v1/internal-orders/{id}/budget` compares it with the order's balance in the leading ledger over every year (`ledger.AssignmentBalances.OrderBalance`) |
+| `controlling.order_budget` | An order's budget (ADR-0064 §3, T60c): at most one row per order (the primary key; `order_budget_order`, a foreign key to the order), one overall amount of zero or more (`order_budget_not_negative`) in minor units of the order's company's local currency, which a company keeps (000045). An order without a row has no budget. Replaced with the version its reader saw (`controlling.order.budget`; the order read FOR UPDATE, the version one more with every change, `platform.touch`), each change audited with the amounts before and after; never deleted. `GET /v1/internal-orders/{id}/budget` compares it with the order's balance in the leading ledger over every year (`ledger.AssignmentBalances.OrderBalance`). Since T60h (000357) it may carry an availability control, `warn_percent` and `refuse_percent` (each 1-999, `order_budget_warn_percent`, `order_budget_refuse_percent`; the warning below the refusal, `order_budget_warn_below_refuse`): a posting that adds to the order is checked against them (`controlling.CostObjects.Consume`, the row read FOR UPDATE after the order's FOR SHARE), refused above the refusal limit and published as a warning above the warning limit |
+| `controlling.order_budget_change` | The versions of an order's budget (ADR-0064 §3, T60h, 000357), insert-only (no version column of its own, so no `UPDATE` is granted, and no `DELETE`): one row per version the budget reached since T60h (`order_budget_change_version_once` on the order and `budget_version`), its kind (`set` by `PATCH`, `supplement`, `return`; `order_budget_change_kind`), the budget before (NULL when there was none) and after (zero or more, `order_budget_change_not_negative`) in minor units of the company's local currency, the limits after it, and a text of 1-200 characters (`order_budget_change_text`). A supplement raises a budget that exists and a return lowers one (`order_budget_change_direction`). Written in the transaction that writes the budget, under the order's FOR UPDATE |
 | `controlling.settlement_rule` | An order's settlement rule (ADR-0064 §3, T60d): at most one row per order (the primary key; `settlement_rule_order`, a foreign key to the order) naming its one receiver, a cost center (the ledger's; no foreign key crosses the schema: checked when the rule is set, through `ledger.AssignmentBalances.CostCenterRefs` and `CostCenterValidOn`, to be an active cost center of the order's company valid on the company's date), which takes the whole. An order without a row has no rule. Replaced with the order's version (`controlling.order.write`; the order read FOR UPDATE and its version moved with the rule), each change audited with the receivers before and after; the row's own `version` counts its replacements (`platform.touch`); never deleted |
 | `controlling.order_settlement` | A settlement of an order (ADR-0064 §3, T60e), insert-only (no `UPDATE` or `DELETE` granted): the order (`order_settlement_order`), its company, the fiscal year and regular period settled up to, the posting date (the period's last day), the receiving cost center and the journal entry (the ledger's; no foreign key crosses the schema; an entry is one settlement's, `order_settlement_entry_once`) with its document number, the amount moved in minor units of the company's local currency (the total of the accounts' balances, negative for a credit balance) and the number of accounts. The entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the settlement as its source document: per account the order credited and the receiver debited, so each account's balance is unchanged. The order is read FOR UPDATE from before its balance is read (`ledger.AssignmentBalances.OrderAccountBalances`) until the entry is posted; with nothing unsettled no row is written. A settled order, its balance zero on every account, is closed (`controlling.internal_order.status` `closed`, from `released` alone and for good, `internal_order_lifecycle`): a closed order takes no posting, and the entries that posted to it are no longer reversed |
+| `controlling.order_settlement_reversal` | A settlement reversed (ADR-0064 §3, T60i, 000358), insert-only (no `UPDATE` or `DELETE` granted): at most one row per settlement (the primary key; `order_settlement_reversal_settlement`, a foreign key to it), the reversal's journal entry (the ledger's, no foreign key; an entry reverses one settlement, `order_settlement_reversal_entry_once`) and its document number (`order_settlement_reversal_number`). Written with the reversal posted through `ledger.Postings.Reverse` on the settlement's own posting date, the settlement entry's lock taken first and then the order FOR UPDATE; only the order's latest settlement not reversed is reversed, and a reversed one no longer bounds the period of the next settlement |
 | `controlling.allocation_cycle` | An allocation cycle (ADR-0064 §5, T60f): a company's cycle with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `allocation_cycle_code_once`), a name, a `kind` (`distribution` or, since T60g, `assessment`), its sender cost center (the ledger's; no foreign key crosses the schema: sender and receivers are checked through `ledger.AssignmentBalances.CostCenterRefs` to be active cost centers of the company) and, exactly for an assessment, its `assessment_account_id` (`allocation_cycle_assessment_account`; the ledger's, checked through `ledger.AssignmentBalances.CostAccounts` to be an active secondary cost element of the company). It keeps its company, code, kind, sender and assessment account (`allocation_cycle_identity`, a trigger); never deleted. A run holds every cycle of its sender FOR UPDATE, in id order, before it reads the sender's costs, so the runs of one sender follow one another whichever of its cycles they are |
 | `controlling.allocation_receiver` | A receiver of a cycle, insert-only: its place in the cycle's list, the cost center, once per cycle (`allocation_receiver_once`), and its share in basis points, 1 to 10,000 (a percentage with two decimals). A cycle's shares add up to 10,000 and no receiver is its sender, held when the transaction that wrote the cycle or a receiver commits (`allocation_receiver_shares_whole`, `allocation_receiver_not_sender`, raised by deferred constraint triggers on both tables) |
 | `controlling.allocation_run` | A run of a cycle for a fiscal period, insert-only: the cycle with its company (foreign key), the fiscal year and regular period, the posting date (the period's last day), the journal entry (the ledger's; once, `allocation_run_entry_once`) with its document number, the amount moved off the sender in minor units of the company's local currency and the number of accounts. One run per cycle and period (`allocation_run_once`). A distribution's entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the run as its source document: per account the sender credited with its cost of the period (the ledger's actuals of the center on primary cost accounts) and each receiver debited with its share, split by `money.Allocate` so the shares add up to the cost to the minor unit. A sender without costs in the period posts nothing and no row is written |
@@ -4513,14 +4543,33 @@ erDiagram
     uuid receipt_account_id "ledger: the incoming payments clearing account"
     date posting_date
     char currency
-    bigint amount "above 0: the receipt's, the items' sum"
+    bigint amount "above 0: the receipt's"
+    bigint difference "written off within tolerance (T75f)"
+    bigint on_account_amount "T75g: left on account"
+    int on_account_line_no
+    uuid on_account_account_id "ledger: the customer's account"
     smallint clearing_entry_year
     uuid clearing_entry_id "ledger: cleared receipt and items" }
   incoming_payment_item { int item_no PK
     smallint fiscal_year
     uuid journal_entry_id "ledger: the open item"
     int line_no
-    bigint amount "debit positive; a credit negative" }
+    bigint amount "debit positive; a credit negative"
+    bigint residual_amount "T75f: what stayed open, under amount"
+    int residual_line_no "its line in the clearing entry"
+    text residual_reason
+    text residual_reason_text
+    int application_no "T75g: 0 the payment's own" }
+  incoming_payment ||--o{ incoming_payment_application : "credit applied"
+  incoming_payment_application { int application_no PK
+    date posting_date
+    uuid credit_entry_id "ledger: the credit consumed, once"
+    int credit_line_no
+    bigint amount "above 0"
+    bigint difference
+    bigint on_account_amount "left on account"
+    int on_account_line_no
+    uuid clearing_entry_id "ledger" }
 ```
 
 - `receivables.customer_invoice`: amounts are minor units of `currency`,
@@ -4563,11 +4612,36 @@ erDiagram
   each with the amount it stood at in the payment's currency, never zero
   (`incoming_payment_item_amount_not_zero`), a credit of the customer's
   negative; an open item is applied once (`incoming_payment_item_once`).
-  Insert-only. The items add up to the payment's amount, which the ledger
-  holds the application to (`ledger.Postings.ApplyReceipt`).
+  Insert-only. The items, less their residuals, add up to the payment's
+  amount and `difference`, which the ledger holds the application to
+  (`ledger.Postings.ApplyReceipt`). T75f (migration 000350): an item paid
+  in part names its residual item, a line of the clearing entry, with
+  what stayed open, more than zero and less than the item, which is a
+  debit, and its reason, all together (`incoming_payment_item_residual`;
+  a reason of 1 to 40 characters,
+  `incoming_payment_item_residual_reason_length`, and a free text of 1
+  to 200, `incoming_payment_item_residual_text_length`); the payment's
+  `difference`, 0 by default, is what the items net of their residuals
+  exceed the receipt by, written off within the company's payment
+  tolerance. The down migration is refused while either holds a value.
+  T75g (migration 000352): a payment's `on_account_amount` (default 0),
+  `on_account_line_no` and `on_account_account_id` are what it left on
+  the customer's account, its line in the clearing entry and the account,
+  all set or none (`incoming_payment_on_account`); an item's
+  `application_no` (default 0, `incoming_payment_item_application_no_check`)
+  names the application that applied it.
+- `receivables.incoming_payment_application` (T75g): an application of a
+  payment's credit on account, numbered from 1 per payment, with the
+  credit line it consumed, once (`incoming_payment_application_credit_once`),
+  what that stood at, above zero
+  (`incoming_payment_application_amount_positive`), the difference written
+  off, what it left on account with its line or zero without
+  (`incoming_payment_application_on_account`) and its clearing entry, one
+  application's (`incoming_payment_application_entry_once`). Insert-only.
+  The down migration is refused while anything was left on account.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
-  `IncomingPaymentApplied`).
+  `IncomingPaymentApplied`, `IncomingPaymentOnAccountApplied`).
 - Permissions `receivables.invoice.read`, `.write` and `.post`, and
   `receivables.payment.apply`.
 - In the ledger, `ledger.open_item_terms` keeps the terms of a customer
@@ -4597,7 +4671,12 @@ the dispute case: a customer's dispute of an amount of one of its open
 items, named by its journal line as a notice's item is, worked by a
 person and closed as accepted or rejected; closing posts nothing.
 T86b (migration 000325) leaves an item with an open case out of a run's
-notices and lists it on the run.
+notices and lists it on the run. T76d (migration 000353) applies the
+company's dunning procedure: a run keeps its grace days, minimum amount
+and interest rate, and charges its notices their level's charge and
+their items interest; nothing is posted. T76e (migration 000354) adds the
+dunning block: a customer, or one of its open items, that the company
+does not dun up to an end date; a run lists the items it holds back.
 
 ```mermaid
 erDiagram
@@ -4613,6 +4692,14 @@ erDiagram
     int item_count
     bigint overdue_amount "in currency"
     jsonb disputed_items "items left out for an open case"
+    smallint grace_days "0-365, the procedure's"
+    bigint minimum_amount "in currency, 0: none"
+    numeric interest_rate_percent "a year; null: none"
+    bigint charge_amount "the notices'"
+    bigint interest_amount "the notices'"
+    int below_minimum_count "notices left out"
+    bigint below_minimum_amount "their amount"
+    jsonb blocked_items "items left out for a block"
     int version }
   dunning_notice { uuid id PK
     uuid dunning_run_id FK
@@ -4620,7 +4707,9 @@ erDiagram
     text customer_number "when proposed"
     smallint level "1-9, the highest of its items"
     int item_count "above 0"
-    bigint overdue_amount "in the run's currency" }
+    bigint overdue_amount "in the run's currency"
+    bigint charge_amount "its level's"
+    bigint interest_amount "its items'" }
   dunning_notice_item { int item_no PK
     uuid dunning_run_id "its notice's"
     smallint fiscal_year "ledger: the journal line"
@@ -4636,13 +4725,27 @@ erDiagram
     bigint amount_lc "in the run's currency, as booked"
     smallint previous_level "0: never dunned"
     smallint level "1-9"
-    int previous_dunnings "times dunned when proposed" }
+    int previous_dunnings "times dunned when proposed"
+    bigint interest_amount "at its level, in the run's currency" }
   dunned_item { smallint fiscal_year PK "ledger: the journal line"
     uuid journal_entry_id PK
     int line_no PK
     uuid dunning_run_id PK "the confirmed run"
     smallint level "1-9"
     date dunning_date "the run's key date" }
+  dunning_block { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner"
+    text customer_number "when placed"
+    smallint fiscal_year "ledger: the item's line, or none"
+    uuid journal_entry_id
+    int line_no
+    text document_number
+    text reason
+    date valid_to "the last key date it holds for"
+    timestamptz released_at
+    uuid released_by
+    int version }
   dispute_case { uuid id PK
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner"
@@ -4679,14 +4782,30 @@ erDiagram
   stay; it may not delete a run. `disputed_items` (T86b, migration
   000325) lists the items the run left out for their open dispute
   cases, a JSON list (`dunning_run_disputed_items_check`), empty by
-  default; it is written with the run and not changed.
+  default; it is written with the run and not changed. T76d (migration
+  000353): the procedure the run applied, `grace_days` from 0 to 365
+  (`dunning_run_grace_days_check`), `minimum_amount` not negative
+  (`dunning_run_minimum_amount_check`) and `interest_rate_percent` above
+  0 and below 100 (`dunning_run_interest_rate_check`, null for none);
+  its `charge_amount` and `interest_amount`, not negative
+  (`dunning_run_charge_amount_check`,
+  `dunning_run_interest_amount_check`); the notices it left out below
+  the minimum, `below_minimum_count` and `below_minimum_amount`, not
+  negative (`dunning_run_below_minimum_count_check`,
+  `dunning_run_below_minimum_amount_check`), an amount only with notices
+  (which may amount to 0, an item booked at 0.00) and notices only with
+  a minimum (`dunning_run_below_minimum_check`). Each defaults to
+  none, and the application's update grant leaves them out.
 - `collections.dunning_notice`: one per customer in a run
   (`dunning_notice_customer_once`), at a level from 1 to 9
   (`dunning_notice_level_check`), with at least one item
   (`dunning_notice_item_count_check`) and its customer's number
   (`dunning_notice_customer_number_check`); insert-only
   (`platform.forbid_mutation`). The list reads a run's notices by
-  customer number (`dunning_notice_by_customer_number`).
+  customer number (`dunning_notice_by_customer_number`). Its
+  `charge_amount` (its level's charge) and `interest_amount` (its items')
+  are not negative (`dunning_notice_charge_amount_check`,
+  `dunning_notice_interest_amount_check`; T76d).
 - `collections.dunning_notice_item`: an open item of the ledger, named
   by its journal line and proposed once in a run
   (`dunning_notice_item_once_per_run`), in its notice's run
@@ -4702,7 +4821,9 @@ erDiagram
   number of its rows there then, which a confirmation compares with the
   number as it is to tell that another confirmed run dunned the item
   since; it is at least the previous level and 0 exactly when that is
-  (`dunning_notice_item_dunnings_check`).
+  (`dunning_notice_item_dunnings_check`). `interest_amount` (T76d), the
+  interest at its level, is not negative
+  (`dunning_notice_item_interest_amount_check`).
 - `collections.dunned_item` (T76b): an item at the level a confirmed run
   dunned it at, on the run's key date; one of the items that run proposed
   (`dunned_item_proposed_fkey`, into `dunning_notice_item`), once per run
@@ -4711,6 +4832,22 @@ erDiagram
   (`dunned_item_level_check`); insert-only. An item's level is the
   highest among its rows and its last dunning date the latest; an item at
   the highest level gets a row per confirmed run that took it.
+- `collections.dunning_block` (T76e, migration 000354): a customer, by
+  its number (`dunning_block_customer_number_check`), and either an open
+  item by its whole journal line with its document number or none of
+  them (`dunning_block_item_check`, `dunning_block_line_no_check`,
+  `dunning_block_document_number_check`); a reason of more than white
+  space, at most 500 characters (`dunning_block_reason_check`); released
+  with when and by whom or neither (`dunning_block_released_check`);
+  version from 1 (`dunning_block_version_check`). A released block is not
+  changed (the trigger `dunning_block_released_once`, for every role);
+  the application may set the release's columns, the version and
+  `updated_by` alone, and deletes none. A run reads a company's
+  unreleased blocks by end date (`dunning_block_in_force`), the list the
+  tenant's by creation (`dunning_block_by_created_at`).
+  `dunning_run.blocked_items` lists the items a run left out for a block,
+  a JSON list (`dunning_run_blocked_items_check`), empty by default,
+  written with the run and not changed.
 - `collections.dispute_case` (T86a, migration 000324): an open item of
   the ledger, named by its journal line (`dispute_case_line_no_check`),
   with its customer's number and its document number
@@ -4853,8 +4990,20 @@ erDiagram
     char currency
     text payment_term_code "the order's, else the customer's"
     bigint net_amount "sum of the items'"
-    text status "draft, confirmed"
+    text status "draft, confirmed, cancelled"
+    date requested_delivery_date "optional, on order_date or later (T78d)"
+    int changes "the changes kept (T78d)"
+    text cancellation_reason "when cancelled (T78d)"
     int version
+  }
+  sales_order ||--o{ sales_order_change : "is changed by"
+  sales_order_change { uuid id PK
+    uuid sales_order_id "unique with change_no"
+    int change_no "from 1 within the order"
+    int order_version "the order's after the change"
+    bigint net_amount_before
+    bigint net_amount_after
+    jsonb items "each item changed, before and after"
   }
   sales_order_item { uuid sales_order_id PK
     int item_no PK
@@ -4887,7 +5036,7 @@ erDiagram
     date billing_date
     char currency "the order's"
     bigint net_amount "sum of the items'"
-    text status "created, posted"
+    text status "created, posted, cancelled"
     date posting_date "when posted"
     uuid customer_invoice_id "receivables, when posted"
     text customer_invoice_number "when posted"
@@ -4901,6 +5050,15 @@ erDiagram
     int order_item_no "once per document"
     numeric quantity "above zero"
     bigint net_amount "above zero"
+  }
+  billing_document ||--o| billing_cancellation : "is cancelled by"
+  billing_cancellation { uuid id PK
+    uuid billing_document_id "unique"
+    text document_number "billing_document range, unique per company"
+    date cancellation_date
+    text reason
+    uuid customer_invoice_id "receivables credit memo, when the document was posted"
+    uuid journal_entry_id "ledger, with the credit memo"
   }
   billing_document ||--o{ returns_order : "is returned by"
   returns_order ||--|{ returns_order_item : "has"
@@ -5030,7 +5188,25 @@ erDiagram
   (`sales_order_one_per_upload`); written when the order is created and
   never changed. The same migration indexes `partner.tax_identifier` by
   `(tenant_id, value_fingerprint)` (`tax_identifier_by_fingerprint`), by
-  which capture finds a customer's tax number of any scheme.
+  which capture finds a customer's tax number of any scheme. T78d
+  (migration 000355; ADR-0067, As built T78d) adds changing and
+  cancelling: the status `cancelled`, with `cancellation_reason` (not
+  white space, at most 2,000 characters,
+  `sales_order_cancellation_reason_check`), `cancelled_at` and
+  `cancelled_by` set exactly when cancelled (`sales_order_cancelled`); an
+  optional `requested_delivery_date` on `order_date` or later
+  (`sales_order_requested_delivery`); `changes`, the number of changes
+  kept (`sales_order_changes_check`); `none` is the block of a draft
+  alone now (`sales_order_credit_block_confirmed`), so a cancelled order
+  keeps the block it had. The change rule (`sales_order_confirmed_once`)
+  admits besides: an order that is not cancelled changed, its status
+  kept, its `changes` moved by one to a change kept in
+  `sales.sales_order_change` under that number, its block kept or, when
+  confirmed, set to `blocked`; and an order that is not cancelled
+  cancelled once, while no item has anything delivered. A cancelled
+  order changes no more. The application may also update
+  `requested_delivery_date`, `net_amount`, `changes` and the
+  cancellation's three columns.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
@@ -5039,7 +5215,25 @@ erDiagram
   trigger alone (T78c) and `billed_quantity` by the billing document's
   (T79a). T85a (migration 000306) adds `returned_quantity`, 0 by
   default and at most `billed_quantity` (`sales_order_item_returned`),
-  moved by the returns order item's trigger alone.
+  moved by the returns order item's trigger alone. T78d (migration
+  000355) lets the application update an item's `quantity`,
+  `unit_price`, `price_unit`, `price_source`, `conditions` and
+  `net_amount` (what it names, its unit, account and tax code stay): the
+  trigger `sales_order_item_change`, on an update that sets one of them,
+  refuses an item with anything billed and an item of a cancelled order,
+  for the tables' owner too; a quantity stays at least what is delivered
+  (`sales_order_item_quantities`).
+- `sales.sales_order_change` (T78d, migration 000355): a change of an
+  order, numbered from 1 within it (`sales_order_change_no_positive`,
+  `sales_order_change_once`), with the order's version after it
+  (`sales_order_change_version_positive`), an optional reason (not white
+  space, at most 500 characters, `sales_order_change_reason_check`), its
+  net value before and after (above zero), its requested delivery date
+  and credit block before and after, and `items`, a JSON array of the
+  items changed, each with its quantity, unit price, price unit and net
+  value before and after (`sales_order_change_items_check`). Insert-only
+  (`platform.forbid_mutation`); the list reads an order's changes by
+  number.
 - `sales.delivery` (T78c, migration 000292): a confirmation that
   quantities of an order's items were delivered on `delivery_date`,
   numbered within its order (`delivery_no_positive`, `delivery_no_once`).
@@ -5092,10 +5286,31 @@ erDiagram
   and never above what is delivered (`sales_order_item_quantities`); the
   amounts billed of an order item never exceed its net value and are its
   net value once it is billed in full (`billing_document_item_amounts`).
-  What an item names, its unit price, account and tax code are read from
-  the order's item, which nothing changes. Insert-only
-  (`platform.forbid_mutation`); `billing_document_item_by_order_item`
-  serves what earlier documents billed of an order item.
+  What an item names, its account and tax code are read from the order's
+  item. T79c (migration 000356) keeps on the item the order item's
+  `unit_price`, `price_unit`, `price_source`, `conditions` and net value
+  (`order_net_amount`) when it is billed, filled by the trigger
+  `billing_document_item_pricing` (existing rows backfilled), since an
+  order item's price may change once nothing of it is billed (T78d);
+  `billing_document_item_amounts` counts the documents not cancelled.
+  Insert-only (`platform.forbid_mutation`);
+  `billing_document_item_by_order_item` serves what earlier documents
+  billed of an order item.
+- `sales.billing_cancellation` (T79c, migration 000356; ADR-0067, As
+  built T79c): a billing document's cancellation, one per document
+  (`billing_cancellation_once`), numbered once per company from the
+  `billing_document` range (`billing_cancellation_number_once`), with
+  its date, a reason (not white space, at most 500 characters) and,
+  exactly when the document was posted, the receivables credit memo that
+  reversed its invoice by id and number with the credit memo's journal
+  entry and year (`billing_cancellation_credit_memo`). Its trigger
+  `billing_cancellation_recorded` (the tables' owner) cancels the
+  document, created or posted with the credit memo
+  (`billing_cancellation_document_open`), takes the document's
+  quantities off the order items' `billed_quantity` and moves the
+  order's `version`. Insert-only. A billing document's status may now
+  be `cancelled`, keeping what it posted with (`billing_document_posted`
+  widened), set by that trigger alone (`billing_document_posted_once`).
 - `sales.returns_order` (T85a, migration 000306; ADR-0067, As built
   T85a): quantities of a posted billing document's items that the
   customer sends back, numbered once per company
@@ -5761,7 +5976,9 @@ erDiagram
   `lease_liability`, and `ledger.journal_entry` the source context
   `leases` (T88b, both checks validated by 000328); and the lease run's
   keys `lease_interest`, `right_of_use_depreciation` and
-  `right_of_use_accumulated_depreciation` (T88c, validated by 000333).
+  `right_of_use_accumulated_depreciation` (T88c, validated by 000333);
+  and the payment difference keys `payment_difference_expense` and
+  `payment_difference_revenue` (T75f, validated by 000351).
 - `leases.outbox`, `leases.inbox`: the context's events
   (`LeaseContractChanged`, `LeaseRunPosted`).
 - Permissions `leases.contract.read`, `.write` and `.activate`, and

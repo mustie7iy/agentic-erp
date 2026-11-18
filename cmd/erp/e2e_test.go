@@ -193,7 +193,7 @@ func TestEndToEnd(t *testing.T) {
 		llmtest.Final("Revenue is up."))
 	newAgent = func(*apitools.Client) *analytics.Agent {
 		r := ask.Runner()
-		return &analytics.Agent{Client: r.Client, Model: r.Model, Today: func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) }}
+		return &analytics.Agent{LLM: r, Days: apitools.Days{Now: func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) }}}
 	}
 	t.Cleanup(func() { newAgent = defaultAgent })
 	got = must(t, "ask", "-out", "reports", "revenue", "by", "year")

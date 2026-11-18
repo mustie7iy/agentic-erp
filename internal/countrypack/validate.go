@@ -115,6 +115,11 @@ func determination(ad *config.AccountDetermination) map[string]*string {
 		"fx_gain": &ad.FXGain, "fx_loss": &ad.FXLoss, "gr_ir": &ad.GRIR, "price_difference": &ad.PriceDifference,
 		"cash_discount": &ad.CashDiscount, "down_payment": &ad.DownPayment,
 		"contract_asset": &ad.ContractAsset, "contract_liability": &ad.ContractLiability,
+		// Every field, so a merge (mergeDetermination) keeps the ones no pack
+		// ships: a document's lease and payment difference accounts.
+		"right_of_use_asset": &ad.RightOfUseAsset, "lease_liability": &ad.LeaseLiability, "lease_interest": &ad.LeaseInterest,
+		"right_of_use_depreciation": &ad.RightOfUseDepreciation, "right_of_use_accumulated_depreciation": &ad.RightOfUseAccumulatedDepreciation,
+		"payment_difference_expense": &ad.PaymentDifferenceExpense, "payment_difference_revenue": &ad.PaymentDifferenceRevenue,
 	}
 }
 

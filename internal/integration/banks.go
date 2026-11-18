@@ -26,17 +26,6 @@ import (
 // canadian reports whether the bank account is in Canada.
 func canadian(b sap.LFBK) bool { return b.BANKS == "CA" }
 
-// firstBanks is each vendor's first bank account, the one loaded.
-func firstBanks(e *sap.Extract) map[string]sap.LFBK {
-	banks := map[string]sap.LFBK{}
-	for _, b := range e.LFBK {
-		if _, ok := banks[b.LIFNR]; !ok {
-			banks[b.LIFNR] = b
-		}
-	}
-	return banks
-}
-
 // supplierBank is the payments account a vendor's bank account becomes.
 // A Canadian bank key that is not a routing number leaves the routing
 // empty, which partner refuses; the quality gate refuses it first
@@ -53,6 +42,9 @@ func supplierBank(v sap.LFA1, b sap.LFBK, today time.Time) partner.BankInput {
 	switch {
 	case canadian(b):
 		in.AccountScheme = "ca"
+		// A key that is no routing number splits into nothing: the
+		// quality gate refuses it (vendorBanks) before any load, and the
+		// reconciliation compares the empty routing it would give.
 		in.InstitutionNumber, in.TransitNumber, _ = cabank.SplitBankKey(b.BANKL)
 	case bankfile.ValidIBAN(b.BANKN):
 		in.AccountScheme = "iban"
@@ -67,14 +59,20 @@ func supplierBank(v sap.LFA1, b sap.LFBK, today time.Time) partner.BankInput {
 // It warns of each vendor whose bank accounts an OData extract could not
 // tell, no business partner linking to it (review:T72d): the vendor loads
 // without them, which the reconciliation cannot see, since it compares
-// with the same extract.
+// with the same extract. And it warns of each vendor with more than one
+// bank account: only the one sap.LoadedBanks picks loads, as the
+// supplier's payments account (coordinator 2026-11-17, ERP practice).
 func (q *qualityCheck) vendorBanks() {
 	for _, lifnr := range q.e.VendorsWithoutPartner {
 		q.add(SevWarning, "LFBK", lifnr, "no business partner in the extract is vendor %q's, so its bank accounts were not read; it loads without them", q.vendor[lifnr].NAME1)
 	}
-	banks := firstBanks(q.e)
+	banks, count := sap.LoadedBanks(q.e)
 	for _, lifnr := range sortedKeys(banks) {
 		b := banks[lifnr]
+		if count[lifnr] > 1 {
+			q.add(SevWarning, "LFBK", lifnr, "vendor %q has %d bank accounts; only the one with the lowest bank details ID (%s, ending %s) loads, as its payments account",
+				q.vendor[lifnr].NAME1, count[lifnr], bankDetailsID(b), fieldcrypt.Last4(fieldcrypt.Normalize(b.BANKN)))
+		}
 		if !canadian(b) {
 			continue
 		}
@@ -86,6 +84,15 @@ func (q *qualityCheck) vendorBanks() {
 			q.add(SevError, "LFBK", lifnr, "the Canadian bank account number is not 7-12 digits")
 		}
 	}
+}
+
+// bankDetailsID is the bank details ID the quality gate names, or "none"
+// for a file extract's account, which has none.
+func bankDetailsID(b sap.LFBK) string {
+	if b.BKVID == "" {
+		return "none"
+	}
+	return b.BKVID
 }
 
 // bankAccount is a payments account as the reconciliation compares it:
@@ -112,14 +119,14 @@ func sapBankAccount(v sap.LFA1, b sap.LFBK) string {
 }
 
 // bankAccounts compares the payments bank account of each vendor set up in
-// the company: SAP's first one (LFBK), as it loads, with the supplier's
+// the company: SAP's one that loads (sap.LoadedBanks), with the supplier's
 // valid today. A vendor without one in SAP must have none on the platform.
 func (rc *reconciler) bankAccounts(ctx context.Context, s companyScope) error {
 	vendors := map[string]sap.LFA1{}
 	for _, v := range rc.ext.LFA1 {
 		vendors[v.LIFNR] = v
 	}
-	banks := firstBanks(rc.ext)
+	banks, _ := sap.LoadedBanks(rc.ext) // the quality gate warned of the accounts that do not load
 	sapSide, partnerOf := map[string]string{}, map[string]uuid.UUID{}
 	var ids []uuid.UUID
 	for _, c := range rc.ext.LFB1 {

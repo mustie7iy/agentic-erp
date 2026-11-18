@@ -21,10 +21,11 @@ import (
 )
 
 // The statuses of a sales order: a draft when created, confirmed once
-// (ADR-0067 §5).
+// (ADR-0067 §5), and cancelled once, with nothing delivered (T78d).
 const (
 	Draft     = "draft"
 	Confirmed = "confirmed"
+	Cancelled = "cancelled"
 )
 
 // OrderRange is the document type sales orders draw their numbers from
@@ -64,6 +65,9 @@ type OrderItem struct {
 // quotation it was created from, nil for an order created directly.
 // CreditBlock is NoBlock, Blocked or Released, the last with who released
 // the block, their name as it was then, and when (T77b).
+// DeliveryDate is the requested delivery date, nil when none is asked
+// for; Changes counts the order's changes; a Cancelled order names its
+// reason, who cancelled it and when (T78d).
 type Order struct {
 	ID                   uuid.UUID
 	DocumentNumber       string
@@ -75,8 +79,14 @@ type Order struct {
 	Currency             string
 	Exponent             int
 	PaymentTermCode      string
+	DeliveryDate         *time.Time
 	Net                  money.Minor
 	Status               string
+	Changes              int32
+	CancellationReason   *string
+	CancelledAt          *time.Time
+	CancelledBy          *uuid.UUID
+	CancelledByName      *string
 	CreditBlock          string
 	CreditReleasedBy     *uuid.UUID
 	CreditReleasedByName *string
@@ -93,14 +103,15 @@ type Order struct {
 }
 
 // OrderInput is a sales order as a client sends it: QuotationID alone, or
-// LegalEntityID, CustomerID, Currency and Items; PaymentTermCode with
-// either.
+// LegalEntityID, CustomerID, Currency and Items; PaymentTermCode and
+// DeliveryDate, the requested delivery date (T78d), with either.
 type OrderInput struct {
 	QuotationID     *uuid.UUID
 	LegalEntityID   *uuid.UUID
 	CustomerID      *uuid.UUID
 	Currency        *string
 	PaymentTermCode *string
+	DeliveryDate    *time.Time
 	Items           []ItemInput
 }
 
@@ -111,7 +122,8 @@ type OrderInput struct {
 func orderQuery(extra string) string {
 	return `SELECT o.id, o.document_number, o.legal_entity_id, o.customer_id, o.quotation_id,
 		(SELECT q.document_number FROM sales.quotation q WHERE q.tenant_id = o.tenant_id AND q.id = o.quotation_id), o.order_date, o.currency,
-		c.exponent, o.payment_term_code, o.net_amount, o.status, o.credit_block, o.credit_released_by, o.credit_released_by_name, o.credit_released_at, ` +
+		c.exponent, o.payment_term_code, o.requested_delivery_date, o.net_amount, o.status, o.changes, o.cancellation_reason, o.cancelled_at,
+		o.cancelled_by, o.cancelled_by_name, o.credit_block, o.credit_released_by, o.credit_released_by_name, o.credit_released_at, ` +
 		itemsJSON("sales_order_item", "sales_order_id", "o",
 			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text,
 				'returned_quantity', trim_scale(t.returned_quantity)::text`+extra) + `,
@@ -127,7 +139,8 @@ var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries + i
 func scanOrder(row pgx.Row) (Order, error) {
 	var o Order
 	header := []any{&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.CustomerID, &o.QuotationID, &o.QuotationNumber, &o.OrderDate, &o.Currency,
-		&o.Exponent, &o.PaymentTermCode, &o.Net, &o.Status, &o.CreditBlock, &o.CreditReleasedBy, &o.CreditReleasedByName, &o.CreditReleasedAt}
+		&o.Exponent, &o.PaymentTermCode, &o.DeliveryDate, &o.Net, &o.Status, &o.Changes, &o.CancellationReason, &o.CancelledAt, &o.CancelledBy, &o.CancelledByName,
+		&o.CreditBlock, &o.CreditReleasedBy, &o.CreditReleasedByName, &o.CreditReleasedAt}
 	err := row.Scan(append(header, &o.Items, &o.Capture, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy)...)
 	return o, errs.Wrapf(err, "scan sales order")
 }
@@ -203,6 +216,25 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	return o, true, nil
 }
 
+// Shared is Order under a share lock on the order's row (ADR-0008),
+// which the revenue context reads an order with before it makes the
+// order's contract (ADR-0067, As built T78d): a change or cancellation of
+// the order, which holds the row FOR UPDATE and then asks whether a
+// contract exists (RevenueContracts), waits for the contract's
+// transaction and then sees its contract, or the contract's reading waits
+// for the change and reads the order as it was left. The lock is taken by
+// a statement of its own, for the reason loadOrder takes its own.
+func (o Orders) Shared(ctx context.Context, id uuid.UUID) (Order, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return Order{}, false, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT FROM sales.sales_order WHERE id = $1 FOR SHARE`, id); err != nil {
+		return Order{}, false, fmt.Errorf("sales: share lock on sales order %s: %w", id, err)
+	}
+	return o.Order(ctx, id)
+}
+
 // ordered is what a new order is made of, from its quotation or from the
 // request: its company, its customer, its currency and date, its items
 // with their sum, and the request's field that names the customer.
@@ -246,6 +278,9 @@ func (e *Endpoints) makeOrder(ctx context.Context, in OrderInput, captured *Capt
 	if err != nil {
 		return Order{}, err
 	}
+	if err := deliveryDateFrom(in.DeliveryDate, src.doc.date); err != nil {
+		return Order{}, err
+	}
 	number, err := e.number(ctx, src.doc.le.ID, OrderRange, src.doc.date)
 	if err != nil {
 		return Order{}, err
@@ -256,10 +291,10 @@ func (e *Endpoints) makeOrder(ctx context.Context, in OrderInput, captured *Capt
 		upload = &captured.UploadID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, quotation_id, order_date,
-			currency, payment_term_code, net_amount, status, capture_upload_id, capture, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)`,
+			currency, payment_term_code, net_amount, status, capture_upload_id, capture, created_by, updated_by, requested_delivery_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15)`,
 		p.TenantID, id, number, src.doc.le.ID, src.customer, src.quotation, src.doc.date, src.doc.currency, term, src.net, Draft, upload, captured,
-		p.ID); err != nil {
+		p.ID, in.DeliveryDate); err != nil {
 		return Order{}, fmt.Errorf("sales: insert sales order %s: %w", id, err)
 	}
 	if err := insertItems(ctx, tx, "sales_order_item", "sales_order_id", p.TenantID, id, src.items); err != nil {
@@ -269,7 +304,7 @@ func (e *Endpoints) makeOrder(ctx context.Context, in OrderInput, captured *Capt
 	if err != nil {
 		return Order{}, err
 	}
-	return o, recordOrder(ctx, "sales.sales_order.create", o, src.doc.le, customer.Number, nil, nil)
+	return o, recordOrder(ctx, "sales.sales_order.create", o, src.doc.le, customer.Number, nil, nil, nil)
 }
 
 // source resolves what the order is made of: its quotation's, or the
@@ -426,7 +461,7 @@ func (e *Endpoints) ConfirmOrder(ctx context.Context, id uuid.UUID, ifMatch func
 		return Order{}, err
 	}
 	before := Draft
-	return confirmed, recordOrder(ctx, "sales.sales_order.confirm", confirmed, le, names[o.CustomerID].Number, &before, &check)
+	return confirmed, recordOrder(ctx, "sales.sales_order.confirm", confirmed, le, names[o.CustomerID].Number, &before, &check, nil)
 }
 
 // recordOrder adds the audit record of an order's change and publishes
@@ -434,16 +469,29 @@ func (e *Endpoints) ConfirmOrder(ctx context.Context, id uuid.UUID, ifMatch func
 // is its status before, nil when it had none. The event names the
 // customer by id and number, never by name (product owner, 2026-11-05),
 // and carries the net value, not the items. check is the credit check of
-// a confirmation, nil otherwise: the audit record says what was checked,
-// and an order it blocked is published as SalesOrderCreditBlocked too.
-func recordOrder(ctx context.Context, action string, o Order, le tenancy.Entity, customerNumber string, before *string, check *checked) error {
+// a confirmation or of a change, nil otherwise: the audit record says what
+// was checked, and an order it blocked is published as
+// SalesOrderCreditBlocked too. extra is more the audit record says (a
+// change's number, a cancellation's reason), nil for nothing more.
+func recordOrder(ctx context.Context, action string, o Order, le tenancy.Entity, customerNumber string, before *string, check *checked,
+	extra map[string]any) error {
 	net := money.EventAmount(o.Net, o.Currency, o.Exponent)
+	var delivery *string
+	if o.DeliveryDate != nil {
+		day := o.DeliveryDate.Format(time.DateOnly)
+		delivery = &day
+	}
 	payload := map[string]any{"sales_order_id": o.ID, "document_number": o.DocumentNumber, "legal_entity_id": o.LegalEntityID,
 		"legal_entity_code": le.Code, "customer_id": o.CustomerID, "customer_number": customerNumber, "quotation_id": o.QuotationID,
 		"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "net_amount": net,
-		"status": o.Status, "status_before": before, "credit_block": o.CreditBlock, "version": o.Version}
+		"status": o.Status, "status_before": before, "credit_block": o.CreditBlock, "version": o.Version, "changes": o.Changes,
+		"requested_delivery_date": delivery}
 	detail := map[string]any{"document_number": o.DocumentNumber, "customer_id": o.CustomerID, "quotation_id": o.QuotationID, "status": o.Status,
-		"status_before": before, "payment_term_code": o.PaymentTermCode, "net_amount": net, "items": len(o.Items), "credit_block": o.CreditBlock}
+		"status_before": before, "payment_term_code": o.PaymentTermCode, "net_amount": net, "items": len(o.Items), "credit_block": o.CreditBlock,
+		"requested_delivery_date": delivery}
+	for k, v := range extra {
+		detail[k] = v
+	}
 	if o.Capture != nil {
 		detail["capture_upload_id"] = o.Capture.UploadID
 	}

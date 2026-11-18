@@ -2,13 +2,15 @@ package analytics
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/toolrunner"
+
+	"github.com/mustie7iy/agentic-erp/internal/apitools"
+	"github.com/mustie7iy/agentic-erp/internal/llm"
 )
 
 // Alias is the model alias the analytics agent names unless ERP_AGENT_MODEL
@@ -19,16 +21,22 @@ const Alias = "erp-analytics"
 // dashboard. Its tools can only read governed metrics and compose specs;
 // all arithmetic happens in the engine.
 type Agent struct {
-	Client anthropic.Client
-	Model  string
-	Today  func() time.Time
+	// LLM calls the models: the cell's model gateway with the person's
+	// token, naming its analytics alias (ADR-0036).
+	LLM *llm.Runner
+	// Days is the date a question is asked on: the asked company's in its
+	// time zone when the session reads one company, else UTC's
+	// (coordinator 2026-11-17, ERP practice); without an API, UTC's.
+	Days apitools.Days
 }
 
-// NewAgent calls models with client, naming model: the cell's model
-// gateway with the person's token, and its analytics alias (ADR-0036).
-func NewAgent(client anthropic.Client, model string) *Agent {
-	return &Agent{Client: client, Model: model, Today: time.Now}
+// NewAgent calls models through r, taking the date from days.
+func NewAgent(r *llm.Runner, days apitools.Days) *Agent {
+	return &Agent{LLM: r, Days: days}
 }
+
+// MaxIterations bounds the model's requests in one answer.
+const MaxIterations = 12
 
 const analystPrompt = `You are the analytics agent of an ERP system. People ask business questions in plain language; you answer each one with a dashboard built from governed data.
 
@@ -63,18 +71,6 @@ type buildArgs struct {
 	Spec Spec `json:"spec" jsonschema:"required,description=Dashboard spec: title; question; assumptions; tiles [{label query_id measure where compare_where compare_label}]; charts [{title type(bar|line) query_id x series measure}]; tables [{title query_id compare{dim baseline current measure}}]; commentary; follow_ups"`
 }
 
-func toolText(v any) (anthropic.BetaToolResultBlockParamContentUnion, error) {
-	text, ok := v.(string)
-	if !ok {
-		b, err := json.Marshal(v)
-		if err != nil {
-			return anthropic.BetaToolResultBlockParamContentUnion{}, fmt.Errorf("analytics: encode tool result: %w", err)
-		}
-		text = string(b)
-	}
-	return anthropic.BetaToolResultBlockParamContentUnion{OfText: &anthropic.BetaTextBlockParam{Text: text}}, nil
-}
-
 // catalog is what list_metrics returns.
 func (m *Model) catalog() map[string]any {
 	type metricInfo struct {
@@ -96,39 +92,56 @@ func (m *Model) catalog() map[string]any {
 	}
 }
 
-// tools builds the agent's three tools. Their schemas are reflected from the
-// fixed argument types above, so construction either always succeeds or
-// always fails; TestAgentToolSurface proves it succeeds, which is why the
-// constructor errors are not handled at run time.
+// toolHandler answers a call of a tool with input T.
+type toolHandler[T any] func(context.Context, T) (anthropic.BetaToolResultBlockParamContentUnion, error)
+
+// exclusive runs a tool's calls one at a time under mu: the runner
+// executes the tool calls of one turn concurrently, and the tools share
+// the session's results and the dashboard built (review:batch77), as
+// apitools.Tool.Exclusive does for API tools.
+func exclusive[T any](mu *sync.Mutex, fn toolHandler[T]) toolHandler[T] {
+	return func(ctx context.Context, in T) (anthropic.BetaToolResultBlockParamContentUnion, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return fn(ctx, in)
+	}
+}
+
+// tools builds the agent's three tools, each call whole under one mutex.
+// Their schemas are reflected from the fixed argument types above, so
+// construction either always succeeds or always fails;
+// TestAgentToolSurface proves it succeeds, which is why the constructor
+// errors are not handled at run time.
 func (a *Agent) tools(s *Session, built **Report, createdBy string) []anthropic.BetaTool {
+	var mu sync.Mutex
 	list, _ := toolrunner.NewBetaToolFromJSONSchema("list_metrics",
 		"List the governed metrics, dimensions, calendar and defaults for everyday words.",
-		func(_ context.Context, _ listArgs) (anthropic.BetaToolResultBlockParamContentUnion, error) {
-			return toolText(s.Model.catalog())
-		})
+		exclusive(&mu, func(_ context.Context, _ listArgs) (anthropic.BetaToolResultBlockParamContentUnion, error) {
+			return llm.Result(s.Model.catalog())
+		}))
 	run, _ := toolrunner.NewBetaToolFromJSONSchema("run_query",
 		"Run a semantic query. Returns query_id, columns, rows (money in major units), data_through and the metric definitions used.",
-		func(ctx context.Context, in queryArgs) (anthropic.BetaToolResultBlockParamContentUnion, error) {
+		exclusive(&mu, func(ctx context.Context, in queryArgs) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 			q := Query{Measures: in.Measures, By: in.By, OrderBy: in.OrderBy, Desc: in.Desc, Limit: in.Limit}
 			for _, f := range in.Where {
 				q.Where = append(q.Where, Filter(f))
 			}
 			r, err := s.Run(ctx, q)
 			if err != nil {
-				return toolText("error: " + err.Error())
+				return llm.Result("error: " + err.Error())
 			}
-			return toolText(r)
-		})
+			return llm.Result(r)
+		}))
 	build, _ := toolrunner.NewBetaToolFromJSONSchema("build_dashboard",
 		"Validate and publish the dashboard. Returns problems to fix, or the report id when it is accepted.",
-		func(_ context.Context, in buildArgs) (anthropic.BetaToolResultBlockParamContentUnion, error) {
+		exclusive(&mu, func(_ context.Context, in buildArgs) (anthropic.BetaToolResultBlockParamContentUnion, error) {
 			rep, problems := s.Build(in.Spec, createdBy)
 			if len(problems) > 0 {
-				return toolText("Not accepted. Fix these and call build_dashboard again:\n- " + strings.Join(problems, "\n- "))
+				return llm.Result("Not accepted. Fix these and call build_dashboard again:\n- " + strings.Join(problems, "\n- "))
 			}
 			*built = rep
-			return toolText("Accepted as report " + rep.ID + ". Reply with a one or two sentence summary.")
-		})
+			return llm.Result("Accepted as report " + rep.ID + ". Reply with a one or two sentence summary.")
+		}))
 	return []anthropic.BetaTool{list, run, build}
 }
 
@@ -154,47 +167,25 @@ func (a *Agent) Ask(ctx context.Context, s *Session, question string) (*Answer, 
 func (a *Agent) answer(ctx context.Context, s *Session, prompt, question, earlier string) (*Answer, error) {
 	var built *Report
 	tools := a.tools(s, &built, "agent:analytics")
-	today := time.Now
-	if a.Today != nil {
-		today = a.Today
+	day, err := a.Days.OfCompanies(ctx, s.Principal.Companies)
+	if err != nil {
+		return nil, fmt.Errorf("analytics: the date of the question: %w", err)
 	}
-	ask := fmt.Sprintf("Today is %s. Question from %s:\n%s", today().Format("2 January 2006"), s.Principal.ID, question)
+	ask := fmt.Sprintf("Today is %s. Question from %s:\n%s", day, s.Principal.ID, question)
 	if earlier != "" {
 		ask = fmt.Sprintf("Today is %s.\n<earlier_exchange>\n%s\n</earlier_exchange>\nFollow-up question from %s:\n%s",
-			today().Format("2 January 2006"), earlier, s.Principal.ID, question)
+			day, earlier, s.Principal.ID, question)
 	}
-	runner := a.Client.Beta.Messages.NewToolRunner(tools, anthropic.BetaToolRunnerParams{
-		BetaMessageNewParams: anthropic.BetaMessageNewParams{
-			Model:     anthropic.Model(a.Model),
-			MaxTokens: 16000,
-			System: []anthropic.BetaTextBlockParam{{
-				Text:         prompt,
-				CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
-			}},
-			OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffortMedium},
-			Messages:     []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(ask))},
-		},
-		MaxIterations: 12,
-	})
-	msg, err := runner.RunToCompletion(ctx)
+	msg, err := a.LLM.RunTools(ctx, tools, a.LLM.Params(prompt, anthropic.NewBetaTextBlock(ask)), MaxIterations)
 	if err != nil {
 		return nil, fmt.Errorf("analytics: run agent: %w", err)
 	}
-	if msg.StopReason == anthropic.BetaStopReasonRefusal {
-		return nil, fmt.Errorf("model declined: %s", msg.StopDetails.Explanation)
-	}
 	if built == nil {
 		return nil, fmt.Errorf("the agent did not produce a dashboard")
-	}
-	var summary strings.Builder
-	for _, block := range msg.Content {
-		if t, ok := block.AsAny().(anthropic.BetaTextBlock); ok {
-			summary.WriteString(t.Text)
-		}
 	}
 	if built.Question == "" {
 		built.Question = question
 		built.Spec.Question = question
 	}
-	return &Answer{Report: built, Summary: checkedSummary(strings.TrimSpace(summary.String()), built.Spec, s.Results)}, nil
+	return &Answer{Report: built, Summary: checkedSummary(llm.Text(msg), built.Spec, s.Results)}, nil
 }

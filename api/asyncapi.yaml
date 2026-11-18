@@ -270,6 +270,7 @@ channels:
       RfqPublished: {$ref: '#/components/messages/RfqPublished'}
       SupplierQuotationRecorded: {$ref: '#/components/messages/SupplierQuotationRecorded'}
       RfqAwarded: {$ref: '#/components/messages/RfqAwarded'}
+      RfqAwardedToOrder: {$ref: '#/components/messages/RfqAwardedToOrder'}
       ScheduleLineChanged: {$ref: '#/components/messages/ScheduleLineChanged'}
       ScheduleLineCalledOff: {$ref: '#/components/messages/ScheduleLineCalledOff'}
   payables:
@@ -375,7 +376,9 @@ channels:
       PlanBatchApplied: {$ref: '#/components/messages/PlanBatchApplied'}
       InternalOrderChanged: {$ref: '#/components/messages/InternalOrderChanged'}
       InternalOrderBudgetChanged: {$ref: '#/components/messages/InternalOrderBudgetChanged'}
+      InternalOrderBudgetWarned: {$ref: '#/components/messages/InternalOrderBudgetWarned'}
       InternalOrderSettled: {$ref: '#/components/messages/InternalOrderSettled'}
+      InternalOrderSettlementReversed: {$ref: '#/components/messages/InternalOrderSettlementReversed'}
       AllocationCycleChanged: {$ref: '#/components/messages/AllocationCycleChanged'}
       AllocationRunPosted: {$ref: '#/components/messages/AllocationRunPosted'}
   assets:
@@ -427,13 +430,14 @@ channels:
   receivables:
     address: 'erp.{cell}.receivables.{tenant}.{event}'
     title: Accounts receivable events
-    description: Customer invoices and incoming payments applied (ADR-0063 §9).
+    description: Customer invoices, incoming payments applied and their credits on account applied (ADR-0063 §9).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       CustomerInvoiceChanged: {$ref: '#/components/messages/CustomerInvoiceChanged'}
       CustomerInvoicePosted: {$ref: '#/components/messages/CustomerInvoicePosted'}
       IncomingPaymentApplied: {$ref: '#/components/messages/IncomingPaymentApplied'}
+      IncomingPaymentOnAccountApplied: {$ref: '#/components/messages/IncomingPaymentOnAccountApplied'}
   collections:
     address: 'erp.{cell}.collections.{tenant}.{event}'
     title: Dunning and collections events
@@ -459,6 +463,7 @@ channels:
       SalesOrderCreditBlocked: {$ref: '#/components/messages/SalesOrderCreditBlocked'}
       SalesOrderCreditReleased: {$ref: '#/components/messages/SalesOrderCreditReleased'}
       BillingDocumentPosted: {$ref: '#/components/messages/BillingDocumentPosted'}
+      BillingDocumentCancelled: {$ref: '#/components/messages/BillingDocumentCancelled'}
       ReturnsOrderChanged: {$ref: '#/components/messages/ReturnsOrderChanged'}
       ReturnReceived: {$ref: '#/components/messages/ReturnReceived'}
       CreditMemoRequestChanged: {$ref: '#/components/messages/CreditMemoRequestChanged'}
@@ -650,6 +655,7 @@ operations:
       - $ref: '#/channels/procurement/messages/RfqPublished'
       - $ref: '#/channels/procurement/messages/SupplierQuotationRecorded'
       - $ref: '#/channels/procurement/messages/RfqAwarded'
+      - $ref: '#/channels/procurement/messages/RfqAwardedToOrder'
       - $ref: '#/channels/procurement/messages/ScheduleLineChanged'
       - $ref: '#/channels/procurement/messages/ScheduleLineCalledOff'
   publishPayablesEvents:
@@ -741,7 +747,9 @@ operations:
       - $ref: '#/channels/controlling/messages/PlanBatchApplied'
       - $ref: '#/channels/controlling/messages/InternalOrderChanged'
       - $ref: '#/channels/controlling/messages/InternalOrderBudgetChanged'
+      - $ref: '#/channels/controlling/messages/InternalOrderBudgetWarned'
       - $ref: '#/channels/controlling/messages/InternalOrderSettled'
+      - $ref: '#/channels/controlling/messages/InternalOrderSettlementReversed'
       - $ref: '#/channels/controlling/messages/AllocationCycleChanged'
       - $ref: '#/channels/controlling/messages/AllocationRunPosted'
   publishAssetsEvents:
@@ -790,6 +798,7 @@ operations:
       - $ref: '#/channels/receivables/messages/CustomerInvoiceChanged'
       - $ref: '#/channels/receivables/messages/CustomerInvoicePosted'
       - $ref: '#/channels/receivables/messages/IncomingPaymentApplied'
+      - $ref: '#/channels/receivables/messages/IncomingPaymentOnAccountApplied'
   publishCollectionsEvents:
     action: send
     title: Collections publishes
@@ -811,6 +820,7 @@ operations:
       - $ref: '#/channels/sales/messages/SalesOrderCreditBlocked'
       - $ref: '#/channels/sales/messages/SalesOrderCreditReleased'
       - $ref: '#/channels/sales/messages/BillingDocumentPosted'
+      - $ref: '#/channels/sales/messages/BillingDocumentCancelled'
       - $ref: '#/channels/sales/messages/ReturnsOrderChanged'
       - $ref: '#/channels/sales/messages/ReturnReceived'
       - $ref: '#/channels/sales/messages/CreditMemoRequestChanged'
@@ -3134,6 +3144,31 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000704", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_awarded.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-12-07T11:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
           payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_quotation_id": "0192a000-0000-7000-8000-000000000711", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "supplier_reference": "Q-2026-0457", "contract_id": "0192a000-0000-7000-8000-000000000721", "contract_document_number": "4600100000", "valid_from": "2027-01-01", "valid_to": "2027-12-31", "total": {"amount": "20666.67", "currency": "EUR"}}
+    RfqAwardedToOrder:
+      name: RfqAwardedToOrder
+      title: Request for quotation awarded to a purchase order
+      summary: "A request for quotation was awarded to one supplier's quotation, and a draft purchase order created from it."
+      description: |
+        Emitted by `rfqs/{id}:award` with `award_to` `purchase_order`
+        (T82f, ADR-0069 As built), once per RFQ: the quotation that won, the
+        draft purchase order created with its supplier (the RFQ's items at
+        the quoted prices), the requisition the RFQ was created from, if
+        any, which the order names, the quotation's total and the reason
+        recorded with the award, if any. The supplier is named by id and
+        number, never by name (a partner may be a person; product owner,
+        2026-11-05). The RFQ's other quotations are not awarded. Subject
+        is the RFQ id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.rfq_awarded_to_order.v1}
+      payload: {$ref: '#/components/schemas/RfqAwardedToOrderV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000705", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_awarded_to_order.v1", "subject": "0192a000-0000-7000-8000-000000000702", "time": "2026-12-07T11:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"rfq_id": "0192a000-0000-7000-8000-000000000702", "document_number": "RQ100001", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_quotation_id": "0192a000-0000-7000-8000-000000000712", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "supplier_reference": "Q-2026-0458", "purchase_order_id": "0192a000-0000-7000-8000-000000000722", "purchase_order_document_number": "4500100000", "order_date": "2026-12-07", "requisition_id": "0192a000-0000-7000-8000-000000000601", "requisition_document_number": "PR100000", "total": {"amount": "5820.00", "currency": "EUR"}, "reason": "The only supplier that delivers by the need date."}
     ScheduleLineChanged:
       name: ScheduleLineChanged
       title: Schedule line changed
@@ -3647,13 +3682,15 @@ components:
     InternalOrderBudgetChanged:
       name: InternalOrderBudgetChanged
       title: Internal order budget changed
-      summary: An internal order's budget was set or replaced.
+      summary: An internal order's budget was set, replaced, supplemented or returned.
       description: |
-        Emitted by `internal-orders/{id}/budget` (PATCH), ADR-0064 §3: the
-        order's budget, one overall amount in its legal entity's local
-        currency, with the amount it replaced. Nothing is refused for a
-        budget; `GET /v1/internal-orders/{id}/budget` compares it with the
-        order's actual costs. Subject is the internal order id.
+        Emitted by `internal-orders/{id}/budget` (PATCH, kind `set`) and
+        `internal-orders/{id}/budget-changes` (POST, kind `supplement` or
+        `return`, T60h), ADR-0064 §3: the order's budget, one overall
+        amount in its legal entity's local currency, with the amount it
+        replaced and its availability control. `GET
+        /v1/internal-orders/{id}/budget` compares it with the order's
+        actual costs. Subject is the internal order id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -3664,7 +3701,33 @@ components:
       examples:
         - name: replaced
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000604, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_budget_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-12T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, budget: {amount: '20000.00', currency: EUR}, previous_budget: {amount: '15000.00', currency: EUR}, version: 2}
+          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, budget: {amount: '20000.00', currency: EUR}, previous_budget: {amount: '15000.00', currency: EUR}, version: 2, kind: set, warn_percent: 90, refuse_percent: 105}
+    InternalOrderBudgetWarned:
+      name: InternalOrderBudgetWarned
+      title: Internal order budget warning
+      summary: A posting took an internal order's consumption above its budget's warning limit.
+      description: |
+        Emitted by the ledger's posting of an entry naming the order (T60h,
+        ADR-0064 §3), in the posting's transaction, when the entry adds to
+        the order's consumption and the consumption after it is above the
+        warning limit of the budget's availability control but not above
+        its refusal limit (a posting above that is refused). Emitted for
+        every such posting, so the person responsible can follow each one.
+        The entry is posted in the same transaction and published by the
+        ledger as JournalEntryPosted, whose id `journal_entry_id` names (the
+        leading ledger's entry; a posting to parallel ledgers alone is not
+        checked). Subject is the internal order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.internal_order_budget_warned.v1}
+      payload: {$ref: '#/components/schemas/InternalOrderBudgetWarnedV1'}
+      examples:
+        - name: warned
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000606, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_budget_warned.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-17T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, journal_entry_id: 0192a000-0000-7000-8000-000000000e43, budget: {amount: '20000.00', currency: EUR}, consumption: {amount: '18500.00', currency: EUR}, posted: {amount: '1500.00', currency: EUR}, consumed_percent: '92.50', warn_percent: 90}
     InternalOrderSettled:
       name: InternalOrderSettled
       title: Internal order settled
@@ -3688,6 +3751,28 @@ components:
         - name: settled
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000605, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_settled.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-30T16:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, settlement_id: 0192a000-0000-7000-8000-000000000c11, fiscal_year: 2026, fiscal_period: 11, posting_date: '2026-11-30', receiver_cost_center_id: 0192a000-0000-7000-8000-000000000202, receiver_cost_center_code: CC-2100, amount: {amount: '1500.00', currency: EUR}, account_count: 1, journal_entry_id: 0192a000-0000-7000-8000-000000000e41, journal_entry_number: '100000042'}
+    InternalOrderSettlementReversed:
+      name: InternalOrderSettlementReversed
+      title: Internal order settlement reversed
+      summary: An internal order's latest settlement was reversed.
+      description: |
+        Emitted by `internal-orders/{id}/settlements/{settlement_id}:reverse`,
+        T60i, ADR-0064 §3: the settlement's entry reversed on its own
+        posting date (the ledger also publishes JournalEntryReversed), so
+        the order holds the balance the settlement had moved and the
+        receiving cost center gives it back. Subject is the internal order
+        id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.internal_order_settlement_reversed.v1}
+      payload: {$ref: '#/components/schemas/InternalOrderSettlementReversedV1'}
+      examples:
+        - name: reversed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000607, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_settlement_reversed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-12-01T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, settlement_id: 0192a000-0000-7000-8000-000000000c11, fiscal_year: 2026, fiscal_period: 11, posting_date: '2026-11-30', receiver_cost_center_id: 0192a000-0000-7000-8000-000000000202, receiver_cost_center_code: CC-2100, amount: {amount: '1500.00', currency: EUR}, journal_entry_id: 0192a000-0000-7000-8000-000000000e41, reversal_journal_entry_id: 0192a000-0000-7000-8000-000000000e42, reversal_journal_entry_number: '100000043'}
     AllocationCycleChanged:
       name: AllocationCycleChanged
       title: Allocation cycle changed
@@ -4146,7 +4231,7 @@ components:
       examples:
         - name: proposed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_run_changed.v1, subject: 0192a000-0000-7000-8000-000000000f31, time: '2026-12-31T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', key_date: '2026-12-31', notice_count: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, status: proposed, status_before: null, version: 1}
+          payload: {dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', key_date: '2026-12-31', notice_count: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, status: proposed, status_before: null, version: 1}
     DunningNoticeIssued:
       name: DunningNoticeIssued
       x-webhook: true
@@ -4173,7 +4258,7 @@ components:
       examples:
         - name: issued
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f04, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_notice_issued.v1, subject: 0192a000-0000-7000-8000-000000000f32, time: '2026-12-31T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}}
+          payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 2, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, total_amount: {amount: '1072.77', currency: CAD}}
     DisputeCaseChanged:
       name: DisputeCaseChanged
       title: Dispute case changed
@@ -4236,7 +4321,8 @@ components:
         Emitted when an incoming payment waiting on a house bank's incoming
         payments clearing account is applied to a customer's open items
         (ADR-0063 §6, §9, T75c): one clearing entry cleared the receipt and
-        the items, which equal it exactly. It carries the amount and the
+        the items, which equal it, net of the residual items it left and the
+        payment difference it wrote off (T75f). It carries the amount and the
         number of items, not the items, and names the customer by id and
         number, never by name. `GET /v1/incoming-payments/{id}` returns the
         document, which never changes. Subject is the incoming payment id.
@@ -4250,7 +4336,32 @@ components:
       examples:
         - name: applied
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/receivables, type: com.example.erp.receivables.incoming_payment_applied.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {incoming_payment_id: 0192a000-0000-7000-8000-000000000f41, document_number: IP100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, posting_date: '2026-11-12', amount: {amount: '1050.00', currency: CAD}, receipt_journal_entry_id: 0192a000-0000-7000-8000-000000000f32, journal_entry_id: 0192a000-0000-7000-8000-000000000f33, journal_entry_year: 2026, journal_entry_number: '1400000001', item_count: 1}
+          payload: {incoming_payment_id: 0192a000-0000-7000-8000-000000000f41, document_number: IP100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, posting_date: '2026-11-12', amount: {amount: '1050.00', currency: CAD}, receipt_journal_entry_id: 0192a000-0000-7000-8000-000000000f32, journal_entry_id: 0192a000-0000-7000-8000-000000000f33, journal_entry_year: 2026, journal_entry_number: '1400000001', item_count: 1, residual_count: 0, difference: {amount: '0.00', currency: CAD}, on_account_amount: {amount: '0.00', currency: CAD}}
+    IncomingPaymentOnAccountApplied:
+      name: IncomingPaymentOnAccountApplied
+      x-webhook: true
+      title: Incoming payment on account applied
+      summary: A payment's credit on account was applied to a customer's open items.
+      description: |
+        Emitted when what an incoming payment left on the customer's
+        account is applied to the customer's open items (ADR-0063 §6 As
+        built, T75g): one clearing entry cleared the credit and the items,
+        leaving what they did not take on account. It carries the amounts
+        and the number of items, not the items, and names the customer by
+        id and number, never by name. `GET /v1/incoming-payments/{id}`
+        returns the payment with the application. Subject is the incoming
+        payment id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.receivables.incoming_payment_on_account_applied.v1}
+      payload: {$ref: '#/components/schemas/IncomingPaymentOnAccountAppliedV1'}
+      examples:
+        - name: applied
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f04, source: /erp/eu-1/receivables, type: com.example.erp.receivables.incoming_payment_on_account_applied.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-13T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {incoming_payment_id: 0192a000-0000-7000-8000-000000000f41, document_number: IP100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, application_no: 1, posting_date: '2026-11-13', amount: {amount: '480.00', currency: CAD}, difference: {amount: '0.00', currency: CAD}, on_account_amount: {amount: '80.00', currency: CAD}, journal_entry_id: 0192a000-0000-7000-8000-000000000f34, journal_entry_year: 2026, journal_entry_number: '1400000003', item_count: 1, residual_count: 0}
     QuotationChanged:
       name: QuotationChanged
       x-webhook: true
@@ -4282,11 +4393,13 @@ components:
       name: SalesOrderChanged
       x-webhook: true
       title: Sales order changed
-      summary: A sales order was created or confirmed.
+      summary: A sales order was created, confirmed, changed or cancelled.
       description: |
         Emitted at each change of a sales order's status (ADR-0067 §6,
         T78b): when it is created (`draft`, status_before null) and when it
-        is confirmed (`confirmed`, status_before `draft`). It carries the
+        is confirmed (`confirmed`, status_before `draft`); and when it is
+        changed (T78d: its status kept, status_before the same, `changes`
+        its number of changes) or cancelled (`cancelled`). It carries the
         order's net value, not its items, names the customer by id and
         number, never by name, and the quotation the order was created
         from (null for an order created directly). `credit_block` is the
@@ -4384,7 +4497,10 @@ components:
         checked against, and names the customer by id and number, never
         by name. The order is confirmed (SalesOrderChanged says so, with
         the same version) and takes no delivery until its block is
-        released (SalesOrderCreditReleased).
+        released (SalesOrderCreditReleased). It is emitted too when a
+        change raises a confirmed order's value beyond the limit (T78d):
+        the order is blocked again, and the amount checked is the
+        increase of its gross value.
         `GET /v1/sales-orders/{id}` returns the order at `version` or
         later. Subject is the sales order id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -4746,6 +4862,37 @@ components:
         - name: posted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001105, source: /erp/eu-1/sales, type: com.example.erp.sales.billing_document_posted.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T16:20:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, billing_date: '2026-11-20', posting_date: '2026-11-20', net_amount: {amount: '1500.00', currency: CAD}, tax_amount: {amount: '75.00', currency: CAD}, gross_amount: {amount: '1575.00', currency: CAD}, customer_invoice_id: 0192a000-0000-7000-8000-000000001411, customer_invoice_number: CI100007, journal_entry_id: 0192a000-0000-7000-8000-000000001511, journal_entry_year: 2026, journal_entry_number: DR100007, status: posted, status_before: created, version: 2}
+    BillingDocumentCancelled:
+      name: BillingDocumentCancelled
+      title: Billing document cancelled
+      summary: A billing document was cancelled, and a posted one's invoice reversed by a credit memo.
+      description: |
+        Emitted when a billing document is cancelled (ADR-0067, As built
+        T79c): a cancellation document was created, numbered from the
+        billing_document range, and the document's quantities are
+        billable again. For a posted document a customer credit memo
+        naming its invoice was entered and posted in accounts receivable
+        in the same transaction, reversing the invoice's net, tax and
+        gross; for a created one nothing was posted, and the credit
+        memo's fields are null. It carries the totals, not the items,
+        names the customer by id and number, never by name, and the
+        cancellation, the credit memo and its journal entry. The credit
+        memo's own events (CustomerInvoiceChanged, CustomerInvoicePosted)
+        are emitted beside it. It is not offered as a webhook event
+        (product owner 2026-11-12: none until a consumer asks).
+        `GET /v1/billing-documents/{id}` returns the document at
+        `version` or later. Subject is the billing document id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.billing_document_cancelled.v1}
+      payload: {$ref: '#/components/schemas/BillingDocumentCancelledV1'}
+      examples:
+        - name: posted document cancelled
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001107, source: /erp/eu-1/sales, type: com.example.erp.sales.billing_document_cancelled.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-21T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, cancellation_id: 0192a000-0000-7000-8000-000000001321, cancellation_number: BD100002, cancellation_date: '2026-11-21', reason: Billed at the wrong price., net_amount: {amount: '1500.00', currency: CAD}, tax_amount: {amount: '75.00', currency: CAD}, gross_amount: {amount: '1575.00', currency: CAD}, customer_invoice_id: 0192a000-0000-7000-8000-000000001412, customer_invoice_number: CI100008, reference_invoice_id: 0192a000-0000-7000-8000-000000001411, reference_invoice_number: CI100007, journal_entry_id: 0192a000-0000-7000-8000-000000001512, journal_entry_year: 2026, journal_entry_number: DG100001, status: cancelled, status_before: posted, version: 3}
     ReturnsOrderChanged:
       name: ReturnsOrderChanged
       title: Returns order changed
@@ -5532,6 +5679,8 @@ components:
         notice_count: {type: integer, description: 'The notices the run proposed, one per customer.'}
         item_count: {type: integer, description: 'The overdue items in those notices.'}
         overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
+        charge_amount: {$ref: '#/components/schemas/Money', description: "The dunning charges of the run's notices, in the company's currency (T76d); 0 when its levels charge none. Always sent since T76d; optional in v1 (ADR-0041)."}
+        interest_amount: {$ref: '#/components/schemas/Money', description: "The interest of the run's notices, in the company's currency (T76d); 0 when its levels charge none. Always sent since T76d; optional in v1 (ADR-0041)."}
         status: {type: string, description: "The run's status after the change. Open enum: proposed, confirmed."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was started, proposed when it was confirmed.'}
         version: {type: integer, description: "The run's version after the change."}
@@ -5549,6 +5698,9 @@ components:
         level: {type: integer, description: "The notice's dunning level, 1 to 9: the highest among its items."}
         item_count: {type: integer, description: "The customer's overdue items in the notice."}
         overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
+        charge_amount: {$ref: '#/components/schemas/Money', description: "The dunning charge of the notice's level, in the company's currency (T76d); 0 when the level charges none."}
+        interest_amount: {$ref: '#/components/schemas/Money', description: "The interest on the notice's items at the company's rate for their days overdue, in the company's currency (T76d); 0 when their levels charge none."}
+        total_amount: {$ref: '#/components/schemas/Money', description: 'What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted. The three amounts are always sent since T76d; optional in v1 (ADR-0041).'}
     DisputeCaseChangedV1:
       type: object
       required: [dispute_case_id, change, legal_entity_id, legal_entity_code, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, assignee_id, status, status_before, version]
@@ -5591,12 +5743,35 @@ components:
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
         posting_date: {$ref: '#/components/schemas/Date', description: The posting date of the clearing entry.}
-        amount: {$ref: '#/components/schemas/Money', description: "What was received and applied: the receipt's amount, the sum of the items'."}
+        amount: {$ref: '#/components/schemas/Money', description: "What was received: the receipt's amount."}
         receipt_journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the receipt, the entry the bank statement line posted.'}
         journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the clearing entry.'}
         journal_entry_year: {type: integer, description: "The clearing entry's fiscal year."}
         journal_entry_number: {type: string, description: "The clearing entry's document number."}
         item_count: {type: integer, description: "How many open items of the customer the payment was applied to."}
+        residual_count: {type: integer, description: "How many of those it paid in part, leaving a residual item of the customer (T75f)."}
+        difference: {$ref: '#/components/schemas/Money', description: "The payment difference written off within the company's payment tolerance: what the items, net of their residuals, exceed the receipt by; positive an underpayment, negative an overpayment, zero for none (T75f)."}
+        on_account_amount: {$ref: '#/components/schemas/Money', description: "What the payment left on the customer's account as a credit (T75g); zero for none."}
+    IncomingPaymentOnAccountAppliedV1:
+      type: object
+      required: [incoming_payment_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, application_no, posting_date, amount, difference, on_account_amount, journal_entry_id, journal_entry_year, journal_entry_number, item_count, residual_count]
+      properties:
+        incoming_payment_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.incoming_payment.id`.'}
+        document_number: {type: string, description: "The payment's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that received the payment.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        application_no: {type: integer, description: "The application's number in the payment, from 1."}
+        posting_date: {$ref: '#/components/schemas/Date', description: The posting date of the application's clearing entry.}
+        amount: {$ref: '#/components/schemas/Money', description: "The credit on account it applied, as it stood."}
+        difference: {$ref: '#/components/schemas/Money', description: "The underpayment it wrote off within the company's payment tolerance; zero for none."}
+        on_account_amount: {$ref: '#/components/schemas/Money', description: "What it left on account; zero when the items took the whole credit."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the clearing entry.'}
+        journal_entry_year: {type: integer, description: "The clearing entry's fiscal year."}
+        journal_entry_number: {type: string, description: "The clearing entry's document number."}
+        item_count: {type: integer, description: "How many open items of the customer it was applied to."}
+        residual_count: {type: integer, description: "How many of those it paid in part, leaving a residual item."}
     QuotationChangedV1:
       type: object
       required: [quotation_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, quotation_date, valid_until, net_amount, status, status_before, version]
@@ -5627,10 +5802,12 @@ components:
         order_date: {$ref: '#/components/schemas/Date', description: "The day it was created, the company's date."}
         payment_term_code: {type: string, description: 'The payment term the order is billed with.'}
         net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net values."}
-        status: {type: string, description: "The order's status after the change. Open enum: draft, confirmed."}
+        status: {type: string, description: "The order's status after the change. Open enum: draft, confirmed, cancelled."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         credit_block: {type: string, description: "The order's credit block after the change. Open enum: none, blocked, released. Always given from T77b on; not among the required fields, since a field added to a published event is not required of it (ADR-0041)."}
         version: {type: integer, description: "The order's version after the change."}
+        changes: {type: integer, description: "How many changes the order has had (`changeSalesOrder`, T78d); not among the required fields, since a field added to a published event is not required of it (ADR-0041)."}
+        requested_delivery_date: {type: [string, 'null'], format: date, description: "The day the customer asks to be delivered on; null when none is asked for (T78d)."}
     SalesOrderCreditBlockedV1:
       type: object
       required: [sales_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, gross_amount, checked_amount, limit, exposure, version]
@@ -5950,6 +6127,35 @@ components:
         journal_entry_number: {type: string, description: "The entry's document number."}
         status: {type: string, description: "The document's status after the change: posted."}
         status_before: {type: string, description: 'Its status before: created.'}
+        version: {type: integer, description: "The document's version after the change."}
+    BillingDocumentCancelledV1:
+      type: object
+      required: [billing_document_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, sales_order_id, sales_order_number, cancellation_id, cancellation_number, cancellation_date, reason, net_amount, tax_amount, gross_amount, customer_invoice_id, customer_invoice_number, reference_invoice_id, reference_invoice_number, journal_entry_id, journal_entry_year, journal_entry_number, status, status_before, version]
+      properties:
+        billing_document_id: {$ref: '#/components/schemas/Uuid', description: '`sales.billing_document.id`.'}
+        document_number: {type: string, description: "The billing document's number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that billed.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: 'The sales order billed: `sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        cancellation_id: {$ref: '#/components/schemas/Uuid', description: '`sales.billing_cancellation.id`: the credit memo names it as its source.'}
+        cancellation_number: {type: string, description: "The cancellation's document number, from the billing_document range."}
+        cancellation_date: {$ref: '#/components/schemas/Date', description: "The cancellation's date: the credit memo's date and posting date."}
+        reason: {type: string, description: Why the document was cancelled.}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The document's net value, which the credit memo reverses."}
+        tax_amount: {type: [object, 'null'], description: "The credit memo's output tax, the invoice's; null when the document was not posted.", allOf: [{$ref: '#/components/schemas/Money'}]}
+        gross_amount: {type: [object, 'null'], description: "The credit memo's gross amount, the invoice's; null when the document was not posted.", allOf: [{$ref: '#/components/schemas/Money'}]}
+        customer_invoice_id: {type: [string, 'null'], format: uuid, description: '`receivables.customer_invoice.id` of the credit memo; null when the document was not posted.'}
+        customer_invoice_number: {type: [string, 'null'], description: "The credit memo's document number; null when the document was not posted."}
+        reference_invoice_id: {type: [string, 'null'], format: uuid, description: 'The customer invoice the document posted as, which the credit memo credits; null when the document was not posted.'}
+        reference_invoice_number: {type: [string, 'null'], description: "That customer invoice's document number; null when the document was not posted."}
+        journal_entry_id: {type: [string, 'null'], format: uuid, description: "`ledger.journal_entry.id` of the credit memo's entry; null when the document was not posted."}
+        journal_entry_year: {type: [integer, 'null'], description: "The entry's fiscal year; null when the document was not posted."}
+        journal_entry_number: {type: [string, 'null'], description: "The entry's document number; null when the document was not posted."}
+        status: {type: string, description: "The document's status after the change: cancelled."}
+        status_before: {type: string, description: 'Its status before: created or posted.'}
         version: {type: integer, description: "The document's version after the change."}
     ReturnsOrderChangedV1:
       type: object
@@ -6416,6 +6622,24 @@ components:
         budget: {$ref: '#/components/schemas/Money', description: The budget after the change, in the legal entity's local currency.}
         previous_budget: {$ref: '#/components/schemas/Money', description: The budget before the change. Absent when the order had none.}
         version: {type: integer, description: 'The budget''s version after the change: 1 when first set.'}
+        kind: {type: string, description: 'How the budget changed (T60h). Open enum: set, supplement, return.'}
+        warn_percent: {type: integer, description: 'The warning limit of the availability control after the change, in percent of the budget. Absent without one.'}
+        refuse_percent: {type: integer, description: 'The refusal limit of the availability control after the change, in percent of the budget. Absent without one.'}
+        text: {type: string, description: Why the budget changed, as a supplement or return gave it. Absent without one.}
+    InternalOrderBudgetWarnedV1:
+      type: object
+      required: [internal_order_id, legal_entity_id, code, name, journal_entry_id, budget, consumption, posted, warn_percent]
+      properties:
+        internal_order_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.internal_order.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The order's code, unique in its legal entity.}
+        name: {type: string}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The posting''s entry in the leading ledger, `ledger.journal_entry.id` (its JournalEntryPosted, `GET /v1/journal-entries/{id}`).'}
+        budget: {$ref: '#/components/schemas/Money', description: The order's budget, in the legal entity's local currency.}
+        consumption: {$ref: '#/components/schemas/Money', description: 'The order''s consumption with the posting: its actual costs over every fiscal year (commitments are not counted yet).'}
+        posted: {$ref: '#/components/schemas/Money', description: 'What the posting adds to the order: its debits on the order less its credits.'}
+        consumed_percent: {type: string, description: 'The consumption in percent of the budget, two decimals. Absent when the budget is zero.'}
+        warn_percent: {type: integer, description: The warning limit the consumption is above, in percent of the budget.}
     InternalOrderSettledV1:
       type: object
       required: [internal_order_id, legal_entity_id, code, name, settlement_id, fiscal_year, fiscal_period, posting_date, receiver_cost_center_id, receiver_cost_center_code, amount, account_count, journal_entry_id, journal_entry_number]
@@ -6434,6 +6658,24 @@ components:
         account_count: {type: integer, description: How many accounts the settlement moved a balance on.}
         journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The settlement''s entry in the leading ledger, `ledger.journal_entry.id`.'}
         journal_entry_number: {type: string, description: The entry's document number.}
+    InternalOrderSettlementReversedV1:
+      type: object
+      required: [internal_order_id, legal_entity_id, code, name, settlement_id, fiscal_year, fiscal_period, posting_date, receiver_cost_center_id, receiver_cost_center_code, amount, journal_entry_id, reversal_journal_entry_id, reversal_journal_entry_number]
+      properties:
+        internal_order_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.internal_order.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The order's code, unique in its legal entity.}
+        name: {type: string}
+        settlement_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.order_settlement.id`.'}
+        fiscal_year: {type: integer, description: The fiscal year of the period the settlement was up to.}
+        fiscal_period: {type: integer, description: The period the settlement was up to.}
+        posting_date: {type: string, format: date, description: 'The settlement''s posting date, and the reversal''s.'}
+        receiver_cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The cost center that gives the costs back, `ledger.cost_center.id`.'}
+        receiver_cost_center_code: {type: string}
+        amount: {$ref: '#/components/schemas/Money', description: 'What the settlement had moved and the reversal moves back to the order, in the legal entity''s local currency.'}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The settlement''s entry, `ledger.journal_entry.id`.'}
+        reversal_journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The reversal''s entry in the leading ledger, `ledger.journal_entry.id`.'}
+        reversal_journal_entry_number: {type: string, description: The reversal entry's document number.}
     AllocationCycleChangedV1:
       type: object
       required: [allocation_cycle_id, legal_entity_id, code, name, kind, sender_cost_center_id, sender_cost_center_code, receivers, change]
@@ -6913,7 +7155,7 @@ components:
         payment_id: {$ref: '#/components/schemas/Uuid'}
         supplier_id: {$ref: '#/components/schemas/Uuid'}
         supplier_number: {type: string, description: "The business partner number of `supplier_id`, as BusinessPartnerCreated gives it. The supplier's name is not given: the event is offered to webhooks (ADR-0038, as built). Added within v1 (review:batch28); consumers ignore it if absent."}
-        reason_code: {type: string, description: 'Open enum; item_reversed or item_not_open, and, when a resumed release drops a payment not yet posted whose supplier can no longer be paid, the exclusion reasons of a proposal (supplier_blocked, payment_blocked, no_bank_account, bank_change_pending, bank_change_hold) or bank_account_changed, in v1.'}
+        reason_code: {type: string, description: 'Open enum; item_reversed or item_not_open, and, when a resumed release drops a payment not yet posted whose supplier can no longer be paid, the exclusion reasons of a proposal (supplier_blocked, payment_blocked, no_bank_account, bank_change_pending, bank_change_hold) or bank_account_changed, and tax_code_invalid when it drops a down payment whose tax can no longer be paid on the run date, in v1.'}
         amount: {$ref: '#/components/schemas/Money'}
         released_item_count: {type: integer, minimum: 0, description: Payment items deactivated (open items free for another run).}
         down_payment_request_id: {type: string, format: uuid, description: "The down payment request whose payment was dropped, free for another run; present only for a down payment's payment (a resumed release, ADR-0038 as built 2026-11-16). Added within v1; consumers ignore it if absent."}
@@ -7613,7 +7855,7 @@ components:
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it. Added within v1 (review:batch28); consumers ignore it if absent."}
         purchase_order_id: {"$ref": "#/components/schemas/Uuid"}
-        previous_status: {"type": "string", "description": "Open enum; approved in v1."}
+        previous_status: {"type": "string", "description": "Open enum: approved, or in_sourcing for a requisition ordered by the award of its RFQ (T82f)."}
         status: {"type": "string", "description": "Open enum; ordered in v1."}
     PurchaseOrderClosedV1:
       type: object
@@ -7665,6 +7907,8 @@ components:
         change: {"type": "string", "description": "Open enum: created, published, awarded."}
         item_count: {"type": "integer", "description": "The items asked for."}
         supplier_count: {"type": "integer", "description": "The suppliers invited."}
+        requisition_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.requisition.id`: the requisition the RFQ was created from (T82e), which is `in_sourcing` from then on; absent for an RFQ created with its own items. Added within v1."}
+        requisition_document_number: {"type": "string", "description": "That requisition's document number; absent with it. Added within v1."}
     RfqPublishedV1:
       type: object
       required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "currency", "due_date", "item_count", "suppliers"]
@@ -7676,6 +7920,8 @@ components:
         currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
         due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
         item_count: {"type": "integer", "description": "The items asked for."}
+        requisition_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.requisition.id`: the requisition the RFQ was created from (T82e); absent for an RFQ created with its own items. Added within v1."}
+        requisition_document_number: {"type": "string", "description": "That requisition's document number; absent with it. Added within v1."}
         suppliers:
           type: array
           description: "The suppliers invited, in the order they were named."
@@ -7718,6 +7964,26 @@ components:
         valid_from: {"$ref": "#/components/schemas/Date", "description": "The first day the contract is valid."}
         valid_to: {"$ref": "#/components/schemas/Date", "description": "The last day the contract is valid."}
         total: {"$ref": "#/components/schemas/Money", "description": "The quotation's total, the contract's target value, in the RFQ's currency."}
+        reason: {"type": "string", "description": "The reason recorded with the award (T82f): required when the quotation was not ranked first; absent when none was given. Added within v1."}
+    RfqAwardedToOrderV1:
+      type: object
+      required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "supplier_quotation_id", "supplier_id", "supplier_number", "supplier_reference", "purchase_order_id", "purchase_order_document_number", "order_date", "total"]
+      properties:
+        rfq_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.rfq.id`."}
+        document_number: {"type": "string", "description": "The RFQ's document number."}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplier_quotation_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.supplier_quotation.id`: the quotation that won."}
+        supplier_id: {"$ref": "#/components/schemas/Uuid", "description": "`partner.business_partner.id`: the supplier awarded."}
+        supplier_number: {"type": "string", "description": "The business partner's number."}
+        supplier_reference: {"type": "string", "description": "The supplier's own reference of its quotation."}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the draft purchase order the award created."}
+        purchase_order_document_number: {"type": "string", "description": "The purchase order's document number."}
+        order_date: {"$ref": "#/components/schemas/Date", "description": "The order's date: the legal entity's date today when it was awarded."}
+        requisition_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.requisition.id`: the requisition the RFQ was created from, which the order names and which is `ordered` now; absent for an RFQ with its own items."}
+        requisition_document_number: {"type": "string", "description": "That requisition's document number; absent with it."}
+        total: {"$ref": "#/components/schemas/Money", "description": "The quotation's total, the order's value, in the RFQ's currency."}
+        reason: {"type": "string", "description": "The reason recorded with the award: required when the quotation was not ranked first; absent when none was given."}
     ScheduleLineChangedV1:
       type: object
       required: ["schedule_line_id", "contract_id", "document_number", "legal_entity_id", "legal_entity_code", "supplier_id", "supplier_number", "line_no", "contract_item_no", "material_key", "delivery_date", "quantity", "amount", "status", "change"]

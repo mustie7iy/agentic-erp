@@ -35,9 +35,8 @@ type Anchor struct {
 // has moved since the last anchor, like erp-server runs it. Finding the
 // tenants runs as WorkerRole across tenants; each anchor is written in the
 // tenant's scope as AppRole: object first (locked for Retention), then the
-// row, then commit. A crash between the two leaves an object without a row;
-// the next round finds it, checks it says what the chain says, and records
-// it.
+// row. A crash between the two leaves an object without a row; the next
+// round finds it, checks it says what the chain says, and records it.
 type Anchorer struct {
 	Pool       *database.Pool
 	Store      blobstore.Store
@@ -73,56 +72,87 @@ func (a *Anchorer) pending(ctx context.Context) ([]uuid.UUID, error) {
 // ObjectName is the name of a tenant's anchor at seq within KindAnchors.
 func ObjectName(seq int64) string { return fmt.Sprintf("%012d.json", seq) }
 
-// anchor writes one tenant's current head.
+// anchor writes one tenant's current head: it reads the head, writes the
+// object, then records the row, each in its own step. No lock is held
+// while the store is called: every audited write of the tenant takes the
+// chain head's row lock (platform/audit), and a slow store would turn
+// those writes into lock timeouts. None is needed either: the hash at a
+// sequence never changes, a second replica writing the same head finds
+// the object (ErrExists) and checks it, and the row's primary key lets
+// only one of them record it (ON CONFLICT DO NOTHING).
 func (a *Anchorer) anchor(ctx context.Context, tenant uuid.UUID) (Anchor, error) {
-	tx, err := a.begin(ctx, database.Scope{Role: a.AppRole, TenantID: tenant})
-	if err != nil {
+	head, hash, due, err := a.readHead(ctx, tenant)
+	if err != nil || !due {
+		return head, err
+	}
+	key := blobstore.Key(tenant, blobstore.KindAnchors, ObjectName(head.Seq))
+	if err := a.writeObject(ctx, key, &head); err != nil {
 		return Anchor{}, err
 	}
+	return head, a.record(ctx, tenant, head, hash, key)
+}
+
+// readHead reads the tenant's chain head and whether it is past the last
+// anchor, in a read-only transaction that takes no lock.
+func (a *Anchorer) readHead(ctx context.Context, tenant uuid.UUID) (head Anchor, hash []byte, due bool, err error) {
+	tx, err := a.begin(ctx, database.Scope{Role: a.AppRole, TenantID: tenant, ReadOnly: true})
+	if err != nil {
+		return Anchor{}, nil, false, err
+	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	var head Anchor
-	var hash []byte
-	// The head is locked so a round never races a second replica on the same tenant.
-	if err := tx.QueryRow(ctx, `SELECT tenant_id, seq, hash FROM audit.chain_head WHERE tenant_id = $1 FOR UPDATE`, tenant).Scan(&head.TenantID, &head.Seq, &hash); err != nil {
-		return Anchor{}, fmt.Errorf("read chain head: %w", err)
+	if err := tx.QueryRow(ctx, `SELECT tenant_id, seq, hash FROM audit.chain_head WHERE tenant_id = $1`, tenant).Scan(&head.TenantID, &head.Seq, &hash); err != nil {
+		return Anchor{}, nil, false, fmt.Errorf("read chain head: %w", err)
 	}
 	head.Hash, head.AnchoredAt = hex.EncodeToString(hash), a.now().UTC().Truncate(time.Second)
 	var last int64
 	if err := tx.QueryRow(ctx, `SELECT coalesce(max(seq), 0) FROM audit.anchor WHERE tenant_id = $1`, tenant).Scan(&last); err != nil {
-		return Anchor{}, fmt.Errorf("read last anchor: %w", err)
+		return Anchor{}, nil, false, fmt.Errorf("read last anchor: %w", err)
 	}
-	if head.Seq <= last {
-		return head, nil // anchored by another replica meanwhile
-	}
-	key := blobstore.Key(tenant, blobstore.KindAnchors, ObjectName(head.Seq))
+	return head, hash, head.Seq > last, nil // not due: anchored by another replica meanwhile
+}
+
+// writeObject writes the anchor object, locked for Retention. An object
+// already there was written by a round that did not get to record it, or
+// by another replica: it must say what the chain says, and its time is
+// the anchor's.
+func (a *Anchorer) writeObject(ctx context.Context, key string, head *Anchor) error {
 	body, _ := json.Marshal(head) // ids, numbers and strings
 	opts := blobstore.PutOptions{ContentType: "application/json"}
 	if a.Retention > 0 {
 		opts.RetainUntil = head.AnchoredAt.Add(a.Retention)
 	}
-	switch err := a.Store.Put(ctx, key, body, opts); {
-	case errors.Is(err, blobstore.ErrExists):
-		// Written by a round that did not get to commit: it must say what the chain says.
-		stored, _, err := a.Store.Get(ctx, key)
-		if err != nil {
-			return Anchor{}, err
-		}
-		var prior Anchor
-		if json.Unmarshal(stored, &prior) != nil || prior.Hash != head.Hash || prior.Seq != head.Seq {
-			return Anchor{}, fmt.Errorf("audit: anchor %s exists with another hash: the chain or the anchor was tampered with", key)
-		}
-		head.AnchoredAt = prior.AnchoredAt
-	case err != nil:
-		return Anchor{}, err
+	err := a.Store.Put(ctx, key, body, opts)
+	if !errors.Is(err, blobstore.ErrExists) {
+		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit.anchor (tenant_id, seq, hash, object_ref, anchored_at) VALUES ($1, $2, $3, $4, $5)`,
-		tenant, head.Seq, hash, key, head.AnchoredAt); err != nil {
-		return Anchor{}, fmt.Errorf("record anchor %d: %w", head.Seq, err)
+	stored, _, err := a.Store.Get(ctx, key)
+	if err != nil {
+		return err
+	}
+	var prior Anchor
+	if json.Unmarshal(stored, &prior) != nil || prior.Hash != head.Hash || prior.Seq != head.Seq {
+		return fmt.Errorf("audit: anchor %s exists with another hash: the chain or the anchor was tampered with", key)
+	}
+	head.AnchoredAt = prior.AnchoredAt
+	return nil
+}
+
+// record inserts the anchor's row; one recorded by another replica
+// meanwhile stays as it is.
+func (a *Anchorer) record(ctx context.Context, tenant uuid.UUID, head Anchor, hash []byte, key string) error {
+	tx, err := a.begin(ctx, database.Scope{Role: a.AppRole, TenantID: tenant})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	if _, err := tx.Exec(ctx, `INSERT INTO audit.anchor (tenant_id, seq, hash, object_ref, anchored_at) VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (tenant_id, seq) DO NOTHING`, tenant, head.Seq, hash, key, head.AnchoredAt); err != nil {
+		return fmt.Errorf("record anchor %d: %w", head.Seq, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return head, fmt.Errorf("commit anchor %d: %w", head.Seq, err)
+		return fmt.Errorf("commit anchor %d: %w", head.Seq, err)
 	}
-	return head, nil
+	return nil
 }
 
 // RunOnce anchors every tenant whose head moved and returns how many.

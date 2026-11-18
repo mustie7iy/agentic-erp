@@ -11,8 +11,9 @@ import (
 )
 
 // TestCollectionsPermissions (T76a, migration 000273; T76c, 000278; T86a,
-// 000324; ADR-0065 §7): the dunning permissions, the worklist's and the
-// dispute cases' are seeded and are no approval permissions.
+// 000324; T76e, 000354; ADR-0065 §7): the dunning permissions, the
+// worklist's, the dispute cases' and the dunning blocks' are seeded and
+// are no approval permissions.
 func TestCollectionsPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'collections.%' AND NOT is_approval ORDER BY code`)
@@ -23,7 +24,7 @@ func TestCollectionsPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.write collections.dunning.read collections.dunning.run collections.worklist.read"; got != want {
+	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.write collections.dunning.block collections.dunning.read collections.dunning.run collections.worklist.read"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -527,4 +528,186 @@ func TestDunningRunDisputedItems(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDunningCharges (T76d, migration 000353): a run's grace days are 0 to
+// 365, its minimum amount, charges and interest are not negative, its
+// interest rate above 0 and below 100 percent; a run counts notices below
+// the minimum only with a minimum, and an amount below it only with
+// notices (which may amount to 0); a notice's
+// charge and interest and an item's interest are not negative. Each
+// defaults to none, as the previous version's rows have it, and the
+// application's update grant leaves them out.
+func TestDunningCharges(t *testing.T) {
+	need(t)
+	const run = `INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+		overdue_amount, created_by, updated_by%s) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 1, 1, 10000, $1, $1%s)`
+	const notice = `INSERT INTO collections.dunning_notice (tenant_id, id, dunning_run_id, customer_id, customer_number, level, item_count,
+		overdue_amount%s) VALUES ($1, $3, $2, gen_random_uuid(), 'BP1', 1, 1, 10000%s)`
+	const item = `INSERT INTO collections.dunning_notice_item (tenant_id, dunning_run_id, dunning_notice_id, item_no, fiscal_year, journal_entry_id,
+		line_no, document_number, document_date, net_due_date, days_overdue, currency, amount, amount_lc, previous_level, level, previous_dunnings%s)
+		VALUES ($1, $2, $3, 1, 2026, gen_random_uuid(), 1, 'DR1', '2026-03-01', '2026-03-31', 91, 'EUR', 10000, 10000, 0, 1, 0%s)`
+	for _, c := range []struct{ name, runCols, runVals, noticeCols, noticeVals, itemCols, itemVals, want string }{
+		{"none given", "", "", "", "", "", "", ""},
+		{"all given", ", grace_days, minimum_amount, interest_rate_percent, charge_amount, interest_amount, below_minimum_count, below_minimum_amount",
+			", 365, 2500, 99.999, 1500, 248, 1, 1250", ", charge_amount, interest_amount", ", 1500, 248", ", interest_amount", ", 248", ""},
+		{"negative grace days", ", grace_days", ", -1", "", "", "", "", "dunning_run_grace_days_check"},
+		{"more than a year's grace", ", grace_days", ", 366", "", "", "", "", "dunning_run_grace_days_check"},
+		{"a negative minimum", ", minimum_amount", ", -1", "", "", "", "", "dunning_run_minimum_amount_check"},
+		{"a rate of 0", ", interest_rate_percent", ", 0", "", "", "", "", "dunning_run_interest_rate_check"},
+		{"a rate of 100", ", interest_rate_percent", ", 100", "", "", "", "", "dunning_run_interest_rate_check"},
+		{"a rate of four places", ", interest_rate_percent", ", 9.1234", "", "", "", "", ""},
+		{"a negative charge", ", charge_amount", ", -1", "", "", "", "", "dunning_run_charge_amount_check"},
+		{"negative interest", ", interest_amount", ", -1", "", "", "", "", "dunning_run_interest_amount_check"},
+		{"a negative count below the minimum", ", minimum_amount, below_minimum_count, below_minimum_amount", ", 100, -1, 0", "", "", "", "", "dunning_run_below_minimum_count_check"},
+		{"a negative amount below the minimum", ", minimum_amount, below_minimum_count, below_minimum_amount", ", 100, 1, -1", "", "", "", "", "dunning_run_below_minimum_amount_check"},
+		{"a notice below the minimum amounting to 0", ", minimum_amount, below_minimum_count", ", 100, 1", "", "", "", "", ""},
+		{"an amount below the minimum without notices", ", minimum_amount, below_minimum_amount", ", 100, 1", "", "", "", "",
+			"dunning_run_below_minimum_check"},
+		{"notices below no minimum", ", below_minimum_count, below_minimum_amount", ", 1, 100", "", "", "", "", "dunning_run_below_minimum_check"},
+		{"a notice's negative charge", "", "", ", charge_amount", ", -1", "", "", "dunning_notice_charge_amount_check"},
+		{"a notice's negative interest", "", "", ", interest_amount", ", -1", "", "", "dunning_notice_interest_amount_check"},
+		{"an item's negative interest", "", "", "", "", ", interest_amount", ", -1", "dunning_notice_item_interest_amount_check"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, r, n := id(), id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				if err := all(tx, step(fmt.Sprintf(run, c.runCols, c.runVals), tenant, r), step(fmt.Sprintf(notice, c.noticeCols, c.noticeVals), tenant, r, n),
+					step(fmt.Sprintf(item, c.itemCols, c.itemVals), tenant, r, n)); err != nil {
+					return err
+				}
+				var got string
+				if err := tx.QueryRow(context.Background(), `SELECT concat_ws(' ', r.grace_days, r.minimum_amount, r.interest_rate_percent, r.charge_amount,
+						r.interest_amount, r.below_minimum_count, r.below_minimum_amount, n.charge_amount, n.interest_amount, i.interest_amount)
+					FROM collections.dunning_run r JOIN collections.dunning_notice n ON n.dunning_run_id = r.id
+					JOIN collections.dunning_notice_item i ON i.dunning_notice_id = n.id WHERE r.id = $1`, r).Scan(&got); err != nil {
+					return err
+				}
+				if c.runCols == "" && c.noticeCols == "" && c.itemCols == "" && got != "0 0 0 0 0 0 0 0 0" {
+					t.Errorf("defaults: got %s, want 0 0 0 0 0 0 0 0 0, no rate", got)
+				}
+				return nil
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("the application changes no charge", func(t *testing.T) {
+		tenant, r, n := id(), id(), id()
+		err := asApp(t, tenant, func(tx pgx.Tx) error {
+			return all(tx, step(fmt.Sprintf(run, "", ""), tenant, r), step(fmt.Sprintf(notice, "", ""), tenant, r, n),
+				step(`UPDATE collections.dunning_run SET charge_amount = 1, version = version + 1`))
+		})
+		failsWith(t, err, "permission denied")
+	})
+}
+
+// dunningBlock places a block of item $3's line 1 for tenant $1, id $2.
+const dunningBlock = `INSERT INTO collections.dunning_block (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year, journal_entry_id,
+	line_no, document_number, reason, valid_to, created_by, updated_by)
+	VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), 'BP1', 2026, $3, 1, 'DR1', 'Delivery checked', '2027-01-31', $1, $1)`
+
+// TestDunningBlockRules (T76e, migration 000354): a block names its
+// customer by number and an item by its whole journal line with its
+// document number, or none of them; its reason is more than white space
+// and at most 500 characters; a released block has when and by whom; the
+// application releases a block and changes nothing else of it, once;
+// it deletes none. A run's blocked items are a list, empty by default.
+func TestDunningBlockRules(t *testing.T) {
+	need(t)
+	type scene struct{ tenant, id, entry uuid.UUID }
+	place := func(s scene) stmt { return step(dunningBlock, s.tenant, s.id, s.entry) }
+	with := func(s scene, from, to string) stmt {
+		return step(strings.Replace(dunningBlock, from, to, 1), s.tenant, s.id, s.entry)
+	}
+	const release = `UPDATE collections.dunning_block SET released_at = now(), released_by = $1, version = version + 1, updated_by = $1 WHERE id = $2`
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"an item's block", func(s scene) []stmt { return []stmt{place(s)} }, ""},
+		{"a customer's block", func(s scene) []stmt {
+			return []stmt{with(s, "2026, $3, 1, 'DR1'", "NULL, NULLIF($3::uuid, $3::uuid), NULL, NULL")}
+		}, ""},
+		{"no customer number", func(s scene) []stmt { return []stmt{with(s, "'BP1'", "''")} }, "dunning_block_customer_number_check"},
+		{"line 0", func(s scene) []stmt { return []stmt{with(s, "$3, 1, 'DR1'", "$3, 0, 'DR1'")} }, "dunning_block_line_no_check"},
+		{"no document number", func(s scene) []stmt { return []stmt{with(s, "'DR1'", "''")} }, "dunning_block_document_number_check"},
+		{"a line without its year", func(s scene) []stmt { return []stmt{with(s, "2026, $3", "NULL, $3")} }, "dunning_block_item_check"},
+		{"a year alone", func(s scene) []stmt {
+			return []stmt{with(s, "2026, $3, 1, 'DR1'", "2026, NULLIF($3::uuid, $3::uuid), NULL, NULL")}
+		},
+			"dunning_block_item_check"},
+		{"a line without its document number", func(s scene) []stmt { return []stmt{with(s, "'DR1'", "NULL")} }, "dunning_block_item_check"},
+		{"a reason of white space", func(s scene) []stmt { return []stmt{with(s, "'Delivery checked'", "'  '")} }, "dunning_block_reason_check"},
+		{"a reason of 501 characters", func(s scene) []stmt { return []stmt{with(s, "'Delivery checked'", "repeat('x', 501)")} }, "dunning_block_reason_check"},
+		{"a reason of 500 characters", func(s scene) []stmt { return []stmt{with(s, "'Delivery checked'", "repeat('x', 500)")} }, ""},
+		{"version 0", func(s scene) []stmt {
+			return []stmt{step(strings.Replace(strings.Replace(dunningBlock, "valid_to, created_by", "valid_to, version, created_by", 1),
+				"'2027-01-31', $1", "'2027-01-31', 0, $1", 1), s.tenant, s.id, s.entry)}
+		}, "dunning_block_version_check"},
+		{"released", func(s scene) []stmt { return []stmt{place(s), step(release, s.tenant, s.id)} }, ""},
+		{"released without by whom", func(s scene) []stmt {
+			return []stmt{place(s), step(`UPDATE collections.dunning_block SET released_at = now(), version = version + 1 WHERE id = $1`, s.id)}
+		}, "dunning_block_released_check"},
+		{"released twice", func(s scene) []stmt {
+			return []stmt{place(s), step(release, s.tenant, s.id), step(release, s.tenant, s.id)}
+		},
+			"a released block is not changed"},
+		{"the end date changed", func(s scene) []stmt {
+			return []stmt{place(s), step(`UPDATE collections.dunning_block SET valid_to = '2027-12-31' WHERE id = $1`, s.id)}
+		}, "permission denied"},
+		{"the reason changed", func(s scene) []stmt {
+			return []stmt{place(s), step(`UPDATE collections.dunning_block SET reason = 'x' WHERE id = $1`, s.id)}
+		}, "permission denied"},
+		{"a block deleted", func(s scene) []stmt { return []stmt{place(s), step(`DELETE FROM collections.dunning_block`)} }, "permission denied"},
+		{"a run's blocked items an object", func(s scene) []stmt {
+			return []stmt{step(`INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+				overdue_amount, blocked_items, created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 0, 0, 0, '{}', $1, $1)`,
+				s.tenant, s.id)}
+		}, "dunning_run_blocked_items_check"},
+		{"a run's blocked items by default", func(s scene) []stmt {
+			return []stmt{step(`INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
+				overdue_amount, created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', 'proposed', 'EUR', 0, 0, 0, $1, $1)`, s.tenant, s.id),
+				step(`DO $$ BEGIN IF (SELECT blocked_items FROM collections.dunning_run) <> '[]'::jsonb THEN RAISE 'not empty'; END IF; END $$`)}
+		}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), id: id(), entry: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestDunningBlockReleasedForTheOwner (T76e, migration 000354): a
+// released block is not changed by any role, the table's owner included:
+// the trigger, not the grant, keeps it.
+func TestDunningBlockReleasedForTheOwner(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant, b := id(), id()
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()), step(dunningBlock, tenant, b, id()),
+		step(`UPDATE collections.dunning_block SET released_at = now(), released_by = $1, version = version + 1 WHERE id = $2`, tenant, b)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(ctx, `UPDATE collections.dunning_block SET valid_to = '2099-12-31' WHERE id = $1`, b)
+	failsWith(t, err, "a released block is not changed")
 }

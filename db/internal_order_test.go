@@ -1,6 +1,7 @@
 package db
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -325,6 +326,130 @@ func TestJournalLineInternalOrder(t *testing.T) {
 		}
 		if !valid {
 			t.Error("journal_line_by_internal_order: got invalid, want valid")
+		}
+	})
+}
+
+// Budget supplements and returns, and availability control (T60h,
+// migration 000357; ADR-0064 §3): a budget's limits, and every change of
+// it kept once per version, insert-only.
+
+const budgetChangeSQL = `INSERT INTO controlling.order_budget_change (tenant_id, id, internal_order_id, budget_version, kind, budget_before, budget_after,
+	warn_percent, refuse_percent, text, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+
+func TestOrderBudgetChangeRules(t *testing.T) {
+	need(t)
+	f := newOrders(t)
+	kept := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, orderBudgetSQL, f.tenant, f.released, 100_000, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, budgetChangeSQL, f.tenant, kept, f.released, 1, "set", nil, 100_000, 50, 100, nil, f.actor)
+	})
+	change := func(version int, kind string, before any, after int64, text any) []any {
+		return []any{f.tenant, id(), f.released, version, kind, before, after, nil, nil, text, f.actor}
+	}
+	long := strings.Repeat("x", 201)
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"a warning limit of zero": {`UPDATE controlling.order_budget SET warn_percent = 0, version = version + 1 WHERE internal_order_id = $1`, []any{f.released},
+			"order_budget_warn_percent"},
+		"a refusal limit of a thousand": {`UPDATE controlling.order_budget SET refuse_percent = 1000, version = version + 1 WHERE internal_order_id = $1`,
+			[]any{f.released}, "order_budget_refuse_percent"},
+		"a warning limit at the refusal limit": {`UPDATE controlling.order_budget SET warn_percent = 90, refuse_percent = 90, version = version + 1
+			WHERE internal_order_id = $1`, []any{f.released}, "order_budget_warn_below_refuse"},
+		"a change of no order":            {budgetChangeSQL, []any{f.tenant, id(), id(), 2, "set", nil, 1, nil, nil, nil, f.actor}, "order_budget_change_order"},
+		"a version kept twice":            {budgetChangeSQL, change(1, "set", nil, 5, nil), "order_budget_change_version_once"},
+		"a version of zero":               {budgetChangeSQL, change(0, "set", nil, 5, nil), "order_budget_change_budget_version_check"},
+		"a kind that is none":             {budgetChangeSQL, change(2, "transfer", 1, 5, nil), "order_budget_change_kind"},
+		"a negative budget":               {budgetChangeSQL, change(2, "set", 1, -1, nil), "order_budget_change_not_negative"},
+		"a supplement of no budget":       {budgetChangeSQL, change(2, "supplement", nil, 5, nil), "order_budget_change_direction"},
+		"a supplement that lowers":        {budgetChangeSQL, change(2, "supplement", 10, 5, nil), "order_budget_change_direction"},
+		"a return that raises":            {budgetChangeSQL, change(2, "return", 5, 10, nil), "order_budget_change_direction"},
+		"a return that keeps the budget":  {budgetChangeSQL, change(2, "return", 5, 5, nil), "order_budget_change_direction"},
+		"a return of no budget":           {budgetChangeSQL, change(2, "return", nil, 0, nil), "order_budget_change_direction"},
+		"an empty text":                   {budgetChangeSQL, change(2, "set", 1, 5, ""), "order_budget_change_text"},
+		"a text longer than the contract": {budgetChangeSQL, change(2, "set", 1, 5, long), "order_budget_change_text"},
+		"a change's warning limit of zero": {budgetChangeSQL, []any{f.tenant, id(), f.released, 2, "set", 1, 5, 0, nil, nil, f.actor},
+			"order_budget_change_warn_percent_check"},
+		"a change's refusal limit of a thousand": {budgetChangeSQL, []any{f.tenant, id(), f.released, 2, "set", 1, 5, nil, 1000, nil, f.actor},
+			"order_budget_change_refuse_percent_check"},
+		"a change changed": {`UPDATE controlling.order_budget_change SET budget_after = 1 WHERE id = $1`, []any{kept}, "permission denied"},
+		"a change deleted": {`DELETE FROM controlling.order_budget_change WHERE id = $1`, []any{kept}, "permission denied"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, f.try(t, c.sql, c.args...), c.want)
+		})
+	}
+	t.Run("a supplement, a return to zero and a text of 200 characters", func(t *testing.T) {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			for _, args := range [][]any{change(2, "supplement", 100_000, 150_000, strings.Repeat("x", 200)), change(3, "return", 150_000, 0, nil)} {
+				if err := exec(tx, budgetChangeSQL, args...); err != nil {
+					return err
+				}
+			}
+			return exec(tx, `UPDATE controlling.order_budget SET warn_percent = 1, refuse_percent = 999, version = version + 1 WHERE internal_order_id = $1`,
+				f.released)
+		})
+	})
+	t.Run("another tenant sees none", func(t *testing.T) {
+		var n int
+		mustApp(t, id(), func(tx pgx.Tx) error {
+			return tx.QueryRow(t.Context(), `SELECT count(*) FROM controlling.order_budget_change`).Scan(&n)
+		})
+		if n != 0 {
+			t.Errorf("budget changes another tenant sees: got %d, want 0", n)
+		}
+	})
+}
+
+// A settlement reversed (T60i, migration 000358; ADR-0064 §3): once per
+// settlement, with its own entry, insert-only.
+
+const settlementReversalSQL = `INSERT INTO controlling.order_settlement_reversal (tenant_id, settlement_id, journal_entry_id, document_number, created_by)
+	VALUES ($1, $2, $3, $4, $5)`
+
+func TestOrderSettlementReversalRules(t *testing.T) {
+	need(t)
+	f := newOrders(t)
+	settled, other, entry := id(), id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		for _, args := range [][]any{{f.tenant, settled, f.released, f.entity, 5, f.cc, id(), "100000001", 500, 1, f.actor},
+			{f.tenant, other, f.released, f.entity, 6, f.cc, id(), "100000002", 500, 1, f.actor}} {
+			if err := exec(tx, orderSettlementSQL, args...); err != nil {
+				return err
+			}
+		}
+		return exec(tx, settlementReversalSQL, f.tenant, settled, entry, "100000003", f.actor)
+	})
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"a settlement reversed twice":     {settlementReversalSQL, []any{f.tenant, settled, id(), "1", f.actor}, "order_settlement_reversal_pkey"},
+		"a reversal of no settlement":     {settlementReversalSQL, []any{f.tenant, id(), id(), "1", f.actor}, "order_settlement_reversal_settlement"},
+		"an entry reversing two":          {settlementReversalSQL, []any{f.tenant, other, entry, "1", f.actor}, "order_settlement_reversal_entry_once"},
+		"a reversal without its number":   {settlementReversalSQL, []any{f.tenant, other, id(), "", f.actor}, "order_settlement_reversal_number"},
+		"a reversal without its entry":    {settlementReversalSQL, []any{f.tenant, other, nil, "1", f.actor}, "journal_entry_id"},
+		"a reversal changed":              {`UPDATE controlling.order_settlement_reversal SET document_number = '9' WHERE settlement_id = $1`, []any{settled}, "permission denied"},
+		"a reversal deleted (taken back)": {`DELETE FROM controlling.order_settlement_reversal WHERE settlement_id = $1`, []any{settled}, "permission denied"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, f.try(t, c.sql, c.args...), c.want)
+		})
+	}
+	t.Run("another tenant sees none", func(t *testing.T) {
+		var n int
+		mustApp(t, id(), func(tx pgx.Tx) error {
+			return tx.QueryRow(t.Context(), `SELECT count(*) FROM controlling.order_settlement_reversal`).Scan(&n)
+		})
+		if n != 0 {
+			t.Errorf("reversals another tenant sees: got %d, want 0", n)
 		}
 	})
 }

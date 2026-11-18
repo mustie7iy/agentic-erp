@@ -108,7 +108,9 @@ func proposal(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Notice, error) {
 // recorded of them now (ADR-0065 §8): an item that is no longer open was
 // cleared since the run proposed it, and one dunned more often than when
 // the run proposed it was dunned by another confirmed run since. Either
-// makes the proposal stale. The times an item was dunned are compared,
+// makes the proposal stale, as does an item that a dunning block holds
+// for the run's key date: placed since the run, since it would have left
+// the item out (T76e). The times an item was dunned are compared,
 // not its level: a confirmation leaves the level of an item at the
 // highest level, or short of the next level's days, as it was.
 func (e *Endpoints) fresh(ctx context.Context, tx pgx.Tx, run Run, notices []Notice) error {
@@ -135,35 +137,47 @@ func (e *Endpoints) fresh(ctx context.Context, tx pgx.Tx, run Run, notices []Not
 	if err != nil {
 		return err
 	}
-	var cleared, moved int
+	itemBlocks, customerBlocks, err := blocksInForce(ctx, tx, run.LegalEntityID, run.KeyDate)
+	if err != nil {
+		return err
+	}
+	var cleared, moved, blocked int
 	for _, n := range notices {
+		_, customerBlocked := customerBlocks[n.CustomerID]
 		for _, it := range n.Items {
+			_, itemBlocked := itemBlocks[it.ItemRef]
 			switch {
 			case !isOpen[it.ItemRef]:
 				cleared++
 			case levels[it.ItemRef].Times != it.PreviousDunnings:
 				moved++
+			case customerBlocked || itemBlocked:
+				blocked++
 			}
 		}
 	}
-	if cleared+moved == 0 {
+	if cleared+moved+blocked == 0 {
 		return nil
 	}
-	return problem.Conflict("collections.proposal_stale", fmt.Sprintf("The proposal is stale: of its %d items, %d cleared and %d dunned by another run "+
-		"since it was started. Start a new run.", len(refs), cleared, moved))
+	return problem.Conflict("collections.proposal_stale", fmt.Sprintf("The proposal is stale: of its %d items, %d cleared, %d dunned by another run "+
+		"and %d blocked from dunning since it was started. Start a new run.", len(refs), cleared, moved, blocked))
 }
 
 // issued are the events of a confirmed run's notices, DunningNoticeIssued
 // one per customer in the notices' order. Each names its customer by id
 // and number, never by name (product owner, 2026-11-05), and carries the
-// notice's totals, not its items.
+// notice's totals, not its items: what is overdue, its charge and
+// interest (T76d) and what it asks for in all.
 func issued(r Run, le tenancy.Entity, notices []Notice) []outbox.Event {
 	events := make([]outbox.Event, len(notices))
 	for i, n := range notices {
 		events[i] = outbox.Event{Context: "collections", Name: "dunning_notice_issued", AggregateType: "collections.dunning_notice", AggregateID: n.ID,
 			Payload: map[string]any{"dunning_notice_id": n.ID, "dunning_run_id": r.ID, "legal_entity_id": r.LegalEntityID, "legal_entity_code": le.Code,
 				"customer_id": n.CustomerID, "customer_number": n.CustomerNumber, "dunning_date": r.KeyDate.Format(time.DateOnly), "level": n.Level,
-				"item_count": n.ItemCount, "overdue_amount": money.EventAmount(n.OverdueAmount, r.Currency, r.Exponent)}}
+				"item_count": n.ItemCount, "overdue_amount": money.EventAmount(n.OverdueAmount, r.Currency, r.Exponent),
+				"charge_amount":   money.EventAmount(n.ChargeAmount, r.Currency, r.Exponent),
+				"interest_amount": money.EventAmount(n.InterestAmount, r.Currency, r.Exponent),
+				"total_amount":    money.EventAmount(n.Total(), r.Currency, r.Exponent)}}
 	}
 	return events
 }

@@ -139,6 +139,37 @@ type LFBK struct {
 	// A6 [M]); which forms the pilot's system holds is to be profiled
 	// before the load.
 	BANKL string `json:"BANKL,omitempty"`
+	// BKVID is the business partner's bank details ID (BUT0BK-BKVID), which
+	// an OData extract reads as A_BusinessPartnerBank's BankIdentification,
+	// the entity's key beside the partner; a file extract's LFBK has none.
+	// It orders a vendor's accounts so that the one loaded is the same on
+	// every run (LoadedBanks). The SAP specialist named the property
+	// (po:2026-11-09, A7 [M], to verify in the pilot's $metadata).
+	BKVID string `json:"BKVID,omitempty"`
+}
+
+// LoadedBanks is each vendor's bank account the load gives the supplier
+// as its payments account: the lowest by bank details ID (BKVID) and then
+// by LFBK's key (bank country, bank key, account number), never the first
+// in extract order, which a paged extract does not fix (coordinator
+// 2026-11-17, ERP practice; ADR-0034 As built). Count is the number of
+// accounts each vendor has, so that the quality gate can warn of the
+// others, which do not load.
+func LoadedBanks(e *Extract) (banks map[string]LFBK, count map[string]int) {
+	banks, count = map[string]LFBK{}, map[string]int{}
+	for _, b := range e.LFBK {
+		count[b.LIFNR]++
+		if cur, ok := banks[b.LIFNR]; !ok || bankOrder(b) < bankOrder(cur) {
+			banks[b.LIFNR] = b
+		}
+	}
+	return banks, count
+}
+
+// bankOrder is the key LoadedBanks orders a vendor's accounts by; the
+// fields are joined by a byte that sorts before any character they hold.
+func bankOrder(b LFBK) string {
+	return b.BKVID + "\x00" + b.BANKS + "\x00" + b.BANKL + "\x00" + b.BANKN
 }
 
 // EKKO - purchasing document header.

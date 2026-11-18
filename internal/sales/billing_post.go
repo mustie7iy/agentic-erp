@@ -21,7 +21,11 @@ import (
 // the billing document, the date it posted on and the amount it billed of
 // the item, with the customer invoice it posted as and that invoice's
 // journal entry. Revenue recognition reads it (T81d). A billing document
-// not yet posted is not among them.
+// not yet posted is not among them. A posted document cancelled (T79c)
+// stays among them, and its cancellation is one more, negative: the
+// cancellation's number and date, the item's amount less, and the credit
+// memo that reversed the invoice with its entry, so the billings to a day
+// add up to what is billed then.
 type ItemBilling struct {
 	BillingDocumentID uuid.UUID   `json:"billing_document_id"`
 	DocumentNumber    string      `json:"document_number"`
@@ -33,13 +37,21 @@ type ItemBilling struct {
 
 // itemBillings is the key an order item's posted billings are read under,
 // for itemsJSON: by posting date, then by the documents' numbers, which
-// are unique in the order's company. The date is written as an instant at
-// midnight UTC, as itemDeliveries writes one.
-const itemBillings = `, 'billings', coalesce((SELECT json_agg(json_build_object('billing_document_id', b.id, 'document_number', b.document_number,
-		'posting_date', to_char(b.posting_date, 'YYYY-MM-DD"T00:00:00Z"'), 'net_amount', i.net_amount,
-		'customer_invoice_id', b.customer_invoice_id, 'journal_entry_id', b.journal_entry_id) ORDER BY b.posting_date, b.document_number)
-	FROM sales.billing_document_item i JOIN sales.billing_document b ON b.tenant_id = i.tenant_id AND b.id = i.billing_document_id
-	WHERE i.tenant_id = t.tenant_id AND i.sales_order_id = t.sales_order_id AND i.order_item_no = t.item_no AND b.status = 'posted'), '[]')`
+// are unique in the order's company (a cancellation's is of the same
+// range). The date is written as an instant at midnight UTC, as
+// itemDeliveries writes one. A document that posted has a posting date,
+// cancelled since or not; a cancellation with a credit memo reverses one.
+const itemBillings = `, 'billings', coalesce((SELECT json_agg(json_build_object('billing_document_id', x.id, 'document_number', x.number,
+		'posting_date', to_char(x.day, 'YYYY-MM-DD"T00:00:00Z"'), 'net_amount', x.net, 'customer_invoice_id', x.invoice, 'journal_entry_id', x.entry)
+		ORDER BY x.day, x.number)
+	FROM (SELECT b.id, b.document_number AS number, b.posting_date AS day, i.net_amount AS net, b.customer_invoice_id AS invoice, b.journal_entry_id AS entry
+		FROM sales.billing_document_item i JOIN sales.billing_document b ON b.tenant_id = i.tenant_id AND b.id = i.billing_document_id
+		WHERE i.tenant_id = t.tenant_id AND i.sales_order_id = t.sales_order_id AND i.order_item_no = t.item_no AND b.posting_date IS NOT NULL
+		UNION ALL
+		SELECT b.id, c.document_number, c.cancellation_date, -i.net_amount, c.customer_invoice_id, c.journal_entry_id
+		FROM sales.billing_document_item i JOIN sales.billing_document b ON b.tenant_id = i.tenant_id AND b.id = i.billing_document_id
+		JOIN sales.billing_cancellation c ON c.tenant_id = b.tenant_id AND c.billing_document_id = b.id
+		WHERE i.tenant_id = t.tenant_id AND i.sales_order_id = t.sales_order_id AND i.order_item_no = t.item_no AND c.customer_invoice_id IS NOT NULL) x), '[]')`
 
 // PostBilling posts a created billing document, once (ADR-0067 §9, T79b):
 // it enters a customer invoice in receivables with the document's items,

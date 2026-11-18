@@ -197,7 +197,7 @@ func (e *Endpoints) OpenFiscalPeriod(ctx context.Context, params gen.OpenFiscalP
 
 // CloseFiscalPeriod implements POST /v1/fiscal-periods/{id}:close.
 func (e *Endpoints) CloseFiscalPeriod(ctx context.Context, params gen.CloseFiscalPeriodParams) (gen.CloseFiscalPeriodRes, error) {
-	p, err := ClosePeriod(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	p, err := ClosePeriod(ctx, e.Releases, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (e *Endpoints) CloseFiscalPeriod(ctx context.Context, params gen.CloseFisca
 
 // LockFiscalPeriod implements POST /v1/fiscal-periods/{id}:lock.
 func (e *Endpoints) LockFiscalPeriod(ctx context.Context, params gen.LockFiscalPeriodParams) (gen.LockFiscalPeriodRes, error) {
-	p, err := LockPeriod(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	p, err := LockPeriod(ctx, e.Releases, params.ID, etag.IfMatch(params.IfMatch))
 	if err != nil {
 		return nil, err
 	}

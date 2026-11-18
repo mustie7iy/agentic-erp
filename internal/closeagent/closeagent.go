@@ -31,6 +31,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
 // Alias is the model alias the close agent runs on (ADR-0058 §12), which
@@ -299,10 +300,7 @@ func (a *Agent) run(ctx context.Context, c periodClose, t task) (Result, error) 
 	}
 	prompt := fmt.Sprintf("Period close %s: company %s (legal entity %s), fiscal year %d, period %d, ending %s.\n%sYour session id is %s.",
 		c.ID, c.CompanyCode, c.LegalEntityID, c.FiscalYear, c.FiscalPeriod, c.PeriodEnd, t.prompt, s.ID)
-	iterations := a.MaxIterations
-	if iterations <= 0 {
-		iterations = 40
-	}
+	iterations := recommend.Iterations(a.MaxIterations, 40)
 	msg, err := apitools.Run(ctx, a.LLM, s, tools, a.LLM.Params(t.system, anthropic.NewBetaTextBlock(prompt)), iterations)
 	if msg != nil {
 		res.Reply = llm.Text(msg)
@@ -312,7 +310,7 @@ func (a *Agent) run(ctx context.Context, c periodClose, t task) (Result, error) 
 
 // sameClose refuses a proposal whose body names another close.
 func sameClose(input map[string]any, closeID string) error {
-	body, _ := input["body"].(map[string]any) // no body: the API refuses it as it refuses any
+	body := apitools.Body(input)
 	if id, ok := body["close_id"]; ok && fmt.Sprint(id) != closeID {
 		return ErrOtherClose
 	}
@@ -322,7 +320,7 @@ func sameClose(input map[string]any, closeID string) error {
 // sameBasis refuses a comment whose body names a basis the run does not
 // explain.
 func sameBasis(input map[string]any, bases []string) error {
-	body, _ := input["body"].(map[string]any) // no body: the API refuses it as it refuses any
+	body := apitools.Body(input)
 	if b, ok := body["basis"]; ok && !slices.Contains(bases, fmt.Sprint(b)) {
 		return ErrOtherBasis
 	}

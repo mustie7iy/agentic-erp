@@ -5804,10 +5804,11 @@ paths:
       tags:
         - ledger
       summary: Close a fiscal period
-      description: "Closes the period for postings. Requires status `open`."
+      description: "Closes the period for postings. Requires status `open`. Refused while a payment run of the company is being released, or stopped and waiting to be resumed, with payments dated in the period not posted yet (409 `ledger.payment_release_pending`, naming the runs): resume the release (`:release`) and let it finish first."
       x-permission: ledger.period.manage
       x-problem-codes:
         - ledger.invalid_period_status
+        - ledger.payment_release_pending
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -5851,11 +5852,12 @@ paths:
       tags:
         - ledger
       summary: Lock a fiscal period
-      description: "Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as a closed one does, and `:open` cannot reopen it; only an approved unlock request returns it to `closed`. Requires status `closed`, so the postings under way have finished. Human-only."
+      description: "Locks the period for good: a locked period refuses postings, reversals and clearings dated in it, as a closed one does, and `:open` cannot reopen it; only an approved unlock request returns it to `closed`. Requires status `closed`, so the postings under way have finished, and no payment run of the company being released, or stopped and waiting to be resumed, with payments dated in the period not posted yet (409 `ledger.payment_release_pending`). Human-only."
       x-permission: ledger.period.lock
       x-agent: false
       x-problem-codes:
         - ledger.invalid_period_status
+        - ledger.payment_release_pending
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -8412,7 +8414,7 @@ paths:
       tags:
         - controlling
       summary: Get an internal order's budget against its actual costs
-      description: "The budget of one internal order against its actual costs (ADR-0064 §3), in the order's legal entity's local currency: the budget, one overall amount for the order; the actual, the balance of the leading ledger's journal lines that name the order over every fiscal year, exact at the moment of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so. An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a budget is shown here and refuses no posting. The `ETag` is the budget's version, the one `PATCH` takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      description: "The budget of one internal order against its actual costs (ADR-0064 §3), in the order's legal entity's local currency: the budget, one overall amount for the order; the actual, the balance of the leading ledger's journal lines that name the order over every fiscal year, exact at the moment of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so. An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a budget refuses no posting unless the budget has an availability control (T60h): then `availability_control` gives its limits and `availability` says where the actual stands against them; a posting above the refusal limit is refused. The `ETag` is the budget's version, the one `PATCH` takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
       x-permission: controlling.order.read
       x-also-permissions:
         - ledger.entry.read
@@ -8444,7 +8446,7 @@ paths:
       tags:
         - controlling
       summary: Set an internal order's budget
-      description: "Sets or replaces the budget of an internal order (ADR-0064 §3): one overall amount, zero or more, in the order's legal entity's local currency (422 `controlling.order_budget_invalid`, whose field error names `budget.currency` or `budget.amount`). JSON Merge Patch (RFC 7396) of the order's budget, whose one field, `budget`, is replaced whole. `If-Match` is the budget's version as `GET` gave it, `\"0\"` for an order whose budget was never set; the order is read under a row lock, so of two changes at one version the second is refused (412). The budget may be set on an order in any status and may be below the order's actual costs: nothing is refused for it. Set directly by permission, with no approval request. Audited with the amounts before and after, and published as InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so the caller also needs `ledger.entry.read`. Agents may not set a budget."
+      description: "Sets or replaces the budget of an internal order (ADR-0064 §3), its availability control (T60h), or both. JSON Merge Patch (RFC 7396) of the order's budget: `budget`, one overall amount, zero or more, in the order's legal entity's local currency, is replaced whole (422 `controlling.order_budget_invalid`, whose field error names `budget.currency` or `budget.amount`); `availability_control`, the warning and refusal limits, is replaced whole, and null removes it (422 `controlling.order_budget_invalid` on `availability_control.warn_percent` when the warning limit is not below the refusal limit). An order whose budget was never set needs `budget` (422 `controlling.order_budget_invalid` on `budget`), and a patch naming neither field is refused the same way. `If-Match` is the budget's version as `GET` gave it, `\"0\"` for an order whose budget was never set; the order is read under a row lock, so of two changes at one version the second is refused (412). The budget may be set on an order in any status and may be below the order's actual costs. Set directly by permission, with no approval request. Each patch is one new version of the budget, kept in its history (`GET /v1/internal-orders/{id}/budget-changes`, kind `set`), audited with the amounts and limits before and after, and published as InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so the caller also needs `ledger.entry.read`. Agents may not set a budget."
       x-permission: controlling.order.budget
       x-also-permissions:
         - ledger.entry.read
@@ -8483,6 +8485,99 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}/budget-changes":
+    get:
+      operationId: listInternalOrderBudgetChanges
+      tags:
+        - controlling
+      summary: List the changes of an internal order's budget
+      description: "The versions of one internal order's budget (ADR-0064 §3, T60h), latest first: each change with its kind (`set` by `PATCH /v1/internal-orders/{id}/budget`, `supplement` or `return` by `POST`), the budget before and after it, the availability control after it, its text, who made it and when. A change is never changed or removed. Changes made before T60h are not kept, so a budget's history may start after its version 1. An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `version`."
+      x-permission: controlling.order.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of the budget's changes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderBudgetChangePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createInternalOrderBudgetChange
+      tags:
+        - controlling
+      summary: Supplement or return an internal order's budget
+      description: "Supplements an internal order's budget or returns part of it (ADR-0064 §3, T60h): `kind` `supplement` adds the amount to the budget, `return` takes it off. The amount is positive and in the order's legal entity's local currency (422 `controlling.order_budget_invalid` on `amount.amount` or `amount.currency`). The order needs a budget set first (409 `controlling.order_budget_missing`). A return never takes the budget below the order's actual costs, the debits less the credits of the leading ledger's lines naming it over every fiscal year, nor below zero (409 `controlling.order_budget_return_too_large`, naming what may be returned): budget that is used is not returned. `If-Match` is the budget's version as `GET /v1/internal-orders/{id}/budget` gave it; the order is read under a row lock, so of two changes at one version the second is refused (412). The change is one new version of the budget, kept with the budget before and after it and an optional text, audited and published as InternalOrderBudgetChanged; the answer's `ETag` is the budget's new version, the `If-Match` of the next change. The availability control is kept as it is. Changed directly by permission, with no approval request; the amounts are budget amounts, and the return's check reads the actual costs, so the caller also needs `ledger.entry.read`. An order of a legal entity the caller cannot act in is answered as missing (404). Agents may not change a budget."
+      x-permission: controlling.order.budget
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - controlling.order_budget_invalid
+        - controlling.order_budget_missing
+        - controlling.order_budget_return_too_large
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The supplement or return.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalOrderBudgetChangeCreate"
+      responses:
+        "201":
+          description: "The change, the budget's new version."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderBudgetChange"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
         "422":
@@ -8698,7 +8793,7 @@ paths:
       tags:
         - controlling
       summary: List an internal order's settlements
-      description: "The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it was posted on, the receiving cost center with its code, the amount moved in the legal entity's local currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`), which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      description: "The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it was posted on, the receiving cost center with its code, the amount moved in the legal entity's local currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`), which shows the lines, and its reversal when it was reversed (T60i). A settlement is never changed. An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
       x-permission: controlling.order.read
       x-also-permissions:
         - ledger.entry.read
@@ -8729,6 +8824,100 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/internal-orders/{id}/settlements/{settlement_id}:reverse":
+    post:
+      operationId: reverseInternalOrderSettlement
+      tags:
+        - controlling
+      summary: Reverse an internal order's settlement
+      description: "Reverses an internal order's latest settlement (ADR-0064 §3, T60i): the settlement's journal entry is reversed through the ledger in every ledger it was posted to, dated the settlement's own posting date, the settled period's last day, so the period must still be open (409 `ledger.period_not_open`). Per account the order is debited and the receiving cost center credited again: the order's balance is what it was before the settlement, and the cost center's report gives the cost back. The reversed settlement no longer bounds the period the order is next settled up to, and the order may be settled again. Only the order's latest settlement that is not reversed is reversed (409 `controlling.settlement_not_latest`: reverse the later ones first), and once (409 `controlling.settlement_reversed`). The order must be released (409 `controlling.internal_order_not_released`) and not closed (409 `controlling.internal_order_closed`). `If-Match` is the order's version, as `:settle` takes it; a reversal does not move it. The order is held under a row lock, so two reversals never reverse one settlement twice. Kept on the settlement (`GET /v1/internal-orders/{id}/settlements`), audited and published as InternalOrderSettlementReversed. A settlement that is none of the order's, or an order of a legal entity the caller cannot act in, is answered as missing (404). The amounts are ledger amounts, so besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not reverse a settlement."
+      x-permission: controlling.order.settle
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.number_range_exhausted
+        - controlling.internal_order_closed
+        - controlling.internal_order_not_released
+        - controlling.settlement_not_latest
+        - controlling.settlement_reversed
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unknown_unit
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: settlement_id
+          in: path
+          required: true
+          description: "The settlement (`GET /v1/internal-orders/{id}/settlements`)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The settlement, with its reversal."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderSettlement"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/internal-orders/{id}:close":
     post:
       operationId: closeInternalOrder
@@ -10399,6 +10588,7 @@ paths:
               - rejected
               - cancelled
               - ordered
+              - in_sourcing
         - name: requester_id
           in: query
           required: false
@@ -12516,6 +12706,13 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: requisition_id
+          in: query
+          required: false
+          description: "Only the RFQs created from this requisition (T82e)."
+          schema:
+            type: string
+            format: uuid
         - name: status
           in: query
           required: false
@@ -12552,7 +12749,7 @@ paths:
       tags:
         - procurement
       summary: Create a request for quotation
-      description: "Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the date they are due, the items asked for (a quantity and unit each, no price) and the suppliers invited. Each item names what is bought by a description and a material key, once per RFQ (422 `procurement.duplicate_material_key`), and the account it is bought on, one the legal entity can post to. Each supplier is named once (422 `procurement.rfq_supplier_repeated`) and must be one an order could be placed with in the legal entity: an active business partner in the supplier role, set up in the legal entity and not blocked for posting (422 `procurement.supplier_not_usable`, the field error naming `supplier_ids[i]`). The due date is not before the legal entity's date today in its company's time zone (422 `procurement.rfq_due_date_past`, naming that date and zone). The RFQ is numbered from the company's `rfq` number range for that date's fiscal year. A draft is not changed: it is published (`:publish`) as created. Audited, and published as RfqChanged."
+      description: "Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the date they are due, the items asked for (a quantity and unit each, no price) and the suppliers invited. Each item names what is bought by a description and a material key, once per RFQ (422 `procurement.duplicate_material_key`), and the account it is bought on, one the legal entity can post to. Each supplier is named once (422 `procurement.rfq_supplier_repeated`) and must be one an order could be placed with in the legal entity: an active business partner in the supplier role, set up in the legal entity and not blocked for posting (422 `procurement.supplier_not_usable`, the field error naming `supplier_ids[i]`). The due date is not before the legal entity's date today in its company's time zone (422 `procurement.rfq_due_date_past`, naming that date and zone). The RFQ is numbered from the company's `rfq` number range for that date's fiscal year. A draft is not changed: it is published (`:publish`) as created. An RFQ from a requisition (`requisition_id`, T82e) takes its items from it and none are sent (422 `procurement.rfq_items_from_requisition` otherwise): every live item of an `approved` requisition of the legal entity (409 `procurement.invalid_status`; 422 `procurement.requisition_mismatch` for another legal entity or currency; 422 `procurement.requisition_on_contract` for one naming a contract, which is ordered as a release against it) becomes an item of the RFQ in its order, with its description, quantity, unit and account, its catalog key as material key (or `<requisition number>/<item no>` for an item without one or sharing it with another), the requisition's need date as delivery date and its item number as `requisition_item_no`; the currency defaults to the requisition's. The requisition is read under a row lock and becomes `in_sourcing`, naming the RFQ, in the same transaction, so a second RFQ from it is refused (409 `procurement.invalid_status`); while in sourcing it is neither ordered directly nor cancelled. Without a requisition, `currency` and `items` are required (422 `request.validation_failed`). Audited, and published as RfqChanged."
       x-permission: procurement.rfq.manage
       x-problem-codes:
         - config.no_number_range
@@ -12563,8 +12760,12 @@ paths:
         - procurement.duplicate_material_key
         - procurement.invalid_item_no
         - procurement.invalid_quantity
+        - procurement.invalid_status
         - procurement.legal_entity_not_active
+        - procurement.requisition_mismatch
+        - procurement.requisition_on_contract
         - procurement.rfq_due_date_past
+        - procurement.rfq_items_from_requisition
         - procurement.rfq_supplier_repeated
         - procurement.supplier_not_usable
         - procurement.unknown_currency
@@ -12777,7 +12978,7 @@ paths:
       tags:
         - procurement
       summary: Award a request for quotation
-      description: "Awards a `published` RFQ to one of its quotations as a whole, at the version the caller read (`If-Match`), once (ADR-0069 §7): the RFQ is read under a row lock, so of two awards one succeeds and the other finds the RFQ `awarded` (409 `procurement.invalid_status`, as for a draft), while the same request with its `Idempotency-Key` again answers the same RFQ and contract. The quotation must be one of this RFQ (422 `procurement.quotation_not_of_rfq`) that the comparison ranks: it prices every RFQ item (422 `procurement.quotation_incomplete`) and is valid on the legal entity's date today in its company's time zone (422 `procurement.quotation_expired`, naming that date and zone); it need not be the lowest. Its supplier must still be one an order could be placed with (422 `procurement.supplier_not_usable`). Each of these refusals names `quotation_id`. The award creates a draft contract with the quotation's supplier, as `POST /v1/contracts` would with its checks, number and audit record: in the RFQ's currency, valid from `valid_from` to `valid_to` (422 `procurement.invalid_validity`), its items the RFQ's items at the quoted prices and its target value the quotation's total; what the contract's own checks refuse is refused as there, naming the contract's field: an item's account the legal entity can no longer post to (422 `procurement.account_not_postable`, `items[i].account_id`, the RFQ's item) and a quotation whose total rounds to zero, since a contract's target value is above zero (422 `procurement.invalid_amount`, `target_value.amount`). The RFQ becomes `awarded` and names the contract (`contract_id`, `contract_document_number`), the quotation becomes `awarded` and the RFQ's other quotations `not_awarded`, all in one transaction. The contract is a draft: it is released with `contracts/{id}:release` as any other. No approval is asked for. Human-only: an award commits the company to a supplier. Audited, and published as RfqAwarded, which names the supplier by id and number, and RfqChanged."
+      description: "Awards a `published` RFQ to one of its quotations as a whole, at the version the caller read (`If-Match`), once (ADR-0069 §7): the RFQ is read under a row lock, so of two awards one succeeds and the other finds the RFQ `awarded` (409 `procurement.invalid_status`, as for a draft), while the same request with its `Idempotency-Key` again answers the same RFQ and contract. The quotation must be one of this RFQ (422 `procurement.quotation_not_of_rfq`) that the comparison ranks: it prices every RFQ item (422 `procurement.quotation_incomplete`) and is valid on the legal entity's date today in its company's time zone (422 `procurement.quotation_expired`, naming that date and zone); it need not be the lowest. Its supplier must still be one an order could be placed with (422 `procurement.supplier_not_usable`). Each of these refusals names `quotation_id`. The award creates a draft contract with the quotation's supplier, as `POST /v1/contracts` would with its checks, number and audit record: in the RFQ's currency, valid from `valid_from` to `valid_to` (422 `procurement.invalid_validity`), its items the RFQ's items at the quoted prices and its target value the quotation's total; what the contract's own checks refuse is refused as there, naming the contract's field: an item's account the legal entity can no longer post to (422 `procurement.account_not_postable`, `items[i].account_id`, the RFQ's item) and a quotation whose total rounds to zero, since a contract's target value is above zero (422 `procurement.invalid_amount`, `target_value.amount`). The RFQ becomes `awarded` and names the contract (`contract_id`, `contract_document_number`), the quotation becomes `awarded` and the RFQ's other quotations `not_awarded`, all in one transaction. The contract is a draft: it is released with `contracts/{id}:release` as any other. With `award_to` `purchase_order` (T82f) the award creates a draft purchase order instead, as `POST /v1/purchase-orders` would with its checks, number and audit record: with the quotation's supplier and its payment terms, in the RFQ's currency, dated the legal entity's date today, its items the RFQ's at the quoted prices and price units with their delivery dates and, for an RFQ from a requisition, naming the requisition, whose items' account assignments they take and which becomes `ordered`; the RFQ names the order (`purchase_order_id`, `purchase_order_document_number`) and is released with `purchase-orders/{id}:release` as any other. `valid_from` and `valid_to` are required for a contract and not sent for an order (422 `request.validation_failed`). An RFQ from a requisition is awarded to a purchase order only (422 `procurement.rfq_from_requisition`, naming `award_to`). An award to a purchase order also needs `procurement.order.create`, as `POST /v1/purchase-orders` does (403 `identity.permission_missing`). A quotation not ranked first needs a `reason` (422 `procurement.award_reason_required`, naming `reason`); a reason given is kept as `award_reason`. No approval is asked for. Human-only: an award commits the company to a supplier. Audited, and published as RfqAwarded for a contract or RfqAwardedToOrder for a purchase order, each naming the supplier by id and number, and RfqChanged."
       x-permission: procurement.rfq.award
       x-agent: false
       x-problem-codes:
@@ -12786,23 +12987,41 @@ paths:
         - config.number_range_exhausted
         - ledger.no_fiscal_period
         - procurement.account_not_postable
+        - procurement.amount_too_large
+        - procurement.award_reason_required
         - procurement.contract_renewed
         - procurement.currency_mismatch
         - procurement.duplicate_material_key
+        - procurement.invalid_account_assignment
         - procurement.invalid_amount
+        - procurement.invalid_change
+        - procurement.invalid_contract
+        - procurement.invalid_contract_item
         - procurement.invalid_item_no
+        - procurement.invalid_org_unit
+        - procurement.invalid_quantity
         - procurement.invalid_renewal
         - procurement.invalid_status
+        - procurement.invalid_tolerance
         - procurement.invalid_validity
         - procurement.legal_entity_not_active
         - procurement.quotation_exists
         - procurement.quotation_expired
         - procurement.quotation_incomplete
         - procurement.quotation_not_of_rfq
+        - procurement.requisition_mismatch
+        - procurement.requisition_ordered
+        - procurement.rfq_from_requisition
         - procurement.supplier_not_usable
         - procurement.unknown_currency
+        - procurement.unknown_payment_term
+        - procurement.unknown_tax_code
         - procurement.unknown_unit
         - request.invalid_amount
+        - request.invalid_extension
+        - request.rule_refused
+        - request.rule_unevaluable
+        - request.validation_failed
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -17764,6 +17983,198 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/dunning-blocks:
+    get:
+      operationId: listDunningBlocks
+      tags:
+        - collections
+      summary: List dunning blocks
+      description: "The dunning blocks of the companies the caller may act in (ADR-0065 As built, T76e), each as `getDunningBlock` gives it: with its company's code and name, its customer's number and name, the open item it blocks (none for a block of the whole customer), its reason, its end date and its status. Filtered by company, customer and status. Sortable by: `created_at` (default, the latest first)."
+      x-permission: collections.dunning.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the blocks of this customer (business partner id), of the customer and of its items.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only blocks in this status.
+          schema:
+            type: string
+            description: "Dunning block status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - released
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of dunning blocks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningBlockPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createDunningBlock
+      tags:
+        - collections
+      summary: Block a customer or one of its open items from dunning
+      description: "Places a dunning block (ADR-0065 As built, T76e): the customer (`customer_id`), or one of its open items named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names it), is not dunned in the company, for a reason, up to an end date. The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`); the customer a business partner of the tenant (422 `request.reference_not_found` naming `customer_id`); an item an open item on a customer reconciliation account of the company in the leading ledger that this customer owes (422 `collections.item_not_open` naming `journal_entry_id`); the journal line is named whole or not at all (422 `request.validation_failed`). `valid_to` is the last key date the block holds for: not before the company's today and at most 2100-12-31 (422 `collections.invalid_block_end` naming `valid_to`). `reason` is a text of more than white space (422 `request.validation_failed`). The block is created `active`. A dunning run started while it is active, at a key date up to `valid_to`, leaves the blocked items out of its notices and names them in `blocked_items`; a run proposed before the block is refused as stale when it is confirmed (`confirmDunningRun`). Several blocks of one customer or item may be active at once; each holds until its own end date or release. Placing a block posts nothing and changes nothing on the items. Audited. A retry with the same `Idempotency-Key` answers the block placed. Human-only (`x-agent: false`)."
+      x-permission: collections.dunning.block
+      x-agent: false
+      x-problem-codes:
+        - collections.invalid_block_end
+        - collections.item_not_open
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The dunning block to place.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DunningBlockCreate"
+            examples:
+              item:
+                summary: An invoice blocked while the customer checks a delivery
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  fiscal_year: 2026
+                  journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  line_no: 1
+                  reason: The customer checks the delivery with its warehouse
+                  valid_to: "2027-01-31"
+              customer:
+                summary: A customer blocked during a payment plan
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  reason: Payment plan agreed until the end of January
+                  valid_to: "2027-01-31"
+      responses:
+        "201":
+          description: "Created; the new dunning block."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningBlock"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-blocks/{id}":
+    get:
+      operationId: getDunningBlock
+      tags:
+        - collections
+      summary: Get a dunning block
+      description: "One dunning block (ADR-0065 As built, T76e) with its company's code and name, its customer's number and name, the open item it blocks by journal line and document number (none for a block of the whole customer), its reason, its end date and its status, and once released who released it when. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: collections.dunning.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The dunning block.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningBlock"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-blocks/{id}:release":
+    post:
+      operationId: releaseDunningBlock
+      tags:
+        - collections
+      summary: Release a dunning block
+      description: "Releases an `active` dunning block once, before its end date (ADR-0065 As built, T76e), at the version the caller read (`If-Match`; 412 when another change came first): the block is read under a row lock and becomes `released`; a run started from then on duns the items again. A released block is refused (409 `collections.block_released`). A block past its end date is released too, which changes nothing for runs. Audited. A retry with the same `Idempotency-Key` answers the released block. A block of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: collections.dunning.block
+      x-agent: false
+      x-problem-codes:
+        - collections.block_released
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The dunning block, released."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningBlock"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/dunning-runs:
     get:
       operationId: listDunningRuns
@@ -17825,7 +18236,7 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items` (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. The company's dunning procedure applies as the configuration has it when the run is started, and the run keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`, and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -17914,7 +18325,7 @@ paths:
       tags:
         - collections
       summary: Confirm a dunning run
-      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`), nothing of it is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -19637,7 +20048,7 @@ paths:
       tags:
         - receivables
       summary: Apply an incoming payment to a customer's open items
-      description: "Applies an incoming payment to a customer's open items, in full and exactly (ADR-0063 §6, T75c; plan default 4). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency; together they equal the receipt exactly (422 `ledger.clearing_not_balanced`): no partial payment, no difference and no cash discount. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused. An application is not undone in the first version. Human-only (`x-agent: false`)."
+      description: "Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency. An item paid in part names its `residual`: what stays open of it, more than zero and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422 `receivables.currency_mismatch`), with a reason (422 `receivables.unknown_residual_reason`) and, if wanted, a free text that is not white space alone (422 `request.validation_failed`). Together the items, net of their residuals, equal the receipt, but for a payment difference within the company's payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's currency and a percent of the items applied, the lower binding; none configured, none allowed); anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; each residual is a new open item of the customer, a debit line of that entry on the item's account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item did; a difference is a line on the company's `payment_difference_expense` account (an underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422 `ledger.no_payment_difference_account` without it); what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). With `on_account`, what the receipt leaves after the items, the whole receipt when there are none, is posted to the customer's reconciliation account (its company data, 422 `receivables.customer_not_usable` without it) as a credit of the customer's at the receipt's rate, a line of the clearing entry, which `applyIncomingPaymentOnAccount` applies later; an overpayment is then left on account rather than kept within the tolerance, and something must be left (422 `receivables.nothing_left_on_account`); without it the items are required (422 `ledger.no_items`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused. An application is not undone in the first version. Human-only (`x-agent: false`)."
       x-permission: receivables.payment.apply
       x-agent: false
       x-problem-codes:
@@ -19656,6 +20067,7 @@ paths:
         - ledger.entry_reversed
         - ledger.internal_order_closed
         - ledger.internal_order_invalid
+        - ledger.invalid_residual
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.legal_entity_not_active
@@ -19663,6 +20075,7 @@ paths:
         - ledger.no_fiscal_period
         - ledger.no_fx_account
         - ledger.no_items
+        - ledger.no_payment_difference_account
         - ledger.not_a_receipt
         - ledger.not_an_open_item
         - ledger.not_open_item_managed
@@ -19681,8 +20094,15 @@ paths:
         - ledger.trading_partner_conflict
         - ledger.trading_partner_invalid
         - ledger.unknown_unit
+        - receivables.amount_not_positive
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.nothing_left_on_account
         - receivables.receipt_already_applied
         - receivables.receipt_not_open
+        - receivables.unknown_residual_reason
+        - request.invalid_amount
+        - request.validation_failed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -19703,6 +20123,27 @@ paths:
                     - fiscal_year: 2026
                       journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
                       line_no: 1
+              on_account:
+                summary: A receipt with no remittance left on the customer's account
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  receipt_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                  items: []
+                  on_account: true
+              part_paid:
+                summary: A receipt that pays an invoice in part, the rest disputed
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  receipt_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                  items:
+                    - fiscal_year: 2026
+                      journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
+                      line_no: 1
+                      residual:
+                        amount: {amount: "400.00", currency: CAD}
+                        reason: disputed
       responses:
         "201":
           description: "Created; the incoming payment applied."
@@ -19737,7 +20178,7 @@ paths:
       tags:
         - receivables
       summary: Get an incoming payment applied
-      description: "One incoming payment applied (ADR-0063 §6, T75c) with its company's code and name, its customer's number and name, its amount, the receipt it applied (the journal entry the statement line posted, with its number, the incoming payments clearing account's number and name and the bank statement and line that posted it), the clearing entry that cleared receipt and items, and the items it was applied to, each with its journal entry's number and reference and the amount it stood at, a credit of the customer's negative. One of a company the caller may not act in is not found."
+      description: "One incoming payment applied (ADR-0063 §6, T75c; T75f, T75g: its residual items, its difference, what it left on account and that credit's applications) with its company's code and name, its customer's number and name, its amount, the receipt it applied (the journal entry the statement line posted, with its number, the incoming payments clearing account's number and name and the bank statement and line that posted it), the clearing entry that cleared receipt and items, and the items it was applied to, each with its journal entry's number and reference and the amount it stood at, a credit of the customer's negative. One of a company the caller may not act in is not found."
       x-permission: receivables.invoice.read
       x-problem-codes: []
       parameters:
@@ -19760,6 +20201,112 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/incoming-payments/{id}/applications":
+    post:
+      operationId: applyIncomingPaymentOnAccount
+      tags:
+        - receivables
+      summary: Apply an incoming payment's credit on account to open items
+      description: "Applies what an incoming payment left on the customer's account (T75g, `createIncomingPayment` with `on_account`) to the customer's open items, as SAP clears an account with a payment on account. The credit applied is the one still open: the payment's own before any application, else what the last application left; one that is no longer open, all applied or cleared otherwise, is refused (409 `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared` when another request cleared it meanwhile, as two applications racing for it end). The items are the customer's open items in the company, invoices and credits, in the payment's currency, refused as `createIncomingPayment` refuses them, each naming its place in the request as the field `items[i]`, and each may name a `residual` as there. Together, net of their residuals, they may be less than the credit: what is left stays on account as a new credit of the customer's, a line of the application's clearing entry, at the credit's rate. More than the credit is refused (422 `ledger.clearing_not_balanced`) but for an underpayment within the company's payment tolerance, written off to its `payment_difference_expense` account. One clearing entry, document type `DZ`, `source_context` `receivables`, its source document the payment, offsets the credit and the items at the amounts they were booked at and clears them all; an exchange difference is realized as `createIncomingPayment` realizes one. The posting date is the request's, else today, the company's date in its time zone, in an open period and on or after the latest posting date of the credit and the items. The application is numbered in the payment from 1; its items join the payment's items with its number. The payment's `version` moves with each application (`ETag`), and the answer is the payment with the application, which its `applications` list last. Audited, and published as IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`)."
+      x-permission: receivables.payment.apply
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.clearing_before_item
+        - ledger.clearing_not_balanced
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.duplicate_item
+        - ledger.entry_reversed
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_residual
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.mixed_items
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_items
+        - ledger.no_payment_difference_account
+        - ledger.not_a_receipt
+        - ledger.not_an_open_item
+        - ledger.not_open_item_managed
+        - ledger.not_the_customers_item
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_item
+        - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unknown_unit
+        - receivables.amount_not_positive
+        - receivables.currency_mismatch
+        - receivables.no_credit_on_account
+        - receivables.unknown_residual_reason
+        - request.invalid_amount
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The items to apply the credit to.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncomingPaymentApplicationCreate"
+            examples:
+              residual:
+                summary: Part of the credit applied to a residual item
+                value:
+                  items:
+                    - fiscal_year: 2026
+                      journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d73"
+                      line_no: 3
+      responses:
+        "201":
+          description: "Created; the payment with the application, last in its `applications`."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomingPayment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/unapplied-receipts:
@@ -20121,6 +20668,7 @@ paths:
             x-extensible-enum:
               - draft
               - confirmed
+              - cancelled
         - name: credit_block
           in: query
           required: false
@@ -20179,6 +20727,7 @@ paths:
         - sales.currency_mismatch
         - sales.customer_not_usable
         - sales.invalid_quantity
+        - sales.invalid_requested_delivery_date
         - sales.items_required
         - sales.no_price
         - sales.quotation_not_accepted
@@ -20444,7 +20993,7 @@ paths:
       tags:
         - sales
       summary: Confirm a sales order
-      description: "Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is not changed or cancelled in the first version. Nothing is posted. The confirmation checks the customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax its items' tax codes give on the order's date, in the company's currency (an order in another currency at the average rate valid on its date), is compared with the customer's credit limit in the company less its exposure, its open items and its other confirmed orders not yet billed, as `getCreditExposure` gives them. An order that is within the limit, and every order of a customer without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same, with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one customer confirmed at once are checked one after the other, so they cannot both take the room only one fits. The order is not checked again after its confirmation. The value must be calculable: a tax code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an order in another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422 `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the limit and the exposure when the customer has a limit, and published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only (`x-agent: false`)."
+      description: "Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is changed (`changeSalesOrder`) and cancelled (`cancelSalesOrder`) as a draft is. Nothing is posted. The confirmation checks the customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax its items' tax codes give on the order's date, in the company's currency (an order in another currency at the average rate valid on its date), is compared with the customer's credit limit in the company less its exposure, its open items and its other confirmed orders not yet billed, as `getCreditExposure` gives them. An order that is within the limit, and every order of a customer without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same, with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one customer confirmed at once are checked one after the other, so they cannot both take the room only one fits. The order is not checked again after its confirmation. The value must be calculable: a tax code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an order in another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422 `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the limit and the exposure when the customer has a limit, and published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only (`x-agent: false`)."
       x-permission: sales.order.confirm
       x-agent: false
       x-problem-codes:
@@ -20494,11 +21043,12 @@ paths:
       tags:
         - sales
       summary: Release a sales order's credit block
-      description: "Releases the credit block of a sales order that was confirmed over its customer's credit limit (ADR-0066, T77b), at the version the caller read (`If-Match`): the order is read under a row lock and its `credit_block` moves from `blocked` to `released`, once, with who released it, by id and name, and when (`credit_released_by`, `credit_released_by_name`, `credit_released_at`). From then on the order takes deliveries and is billed as any confirmed order, and it counts in the customer's exposure, which may then exceed the limit: the release is the credit manager's decision, whatever the amount. An order without a block, or whose block is already released, is refused (409 `sales.order_not_credit_blocked`). The release is by its own permission, `sales.order.credit_release`; no rule sets the person who releases apart from the one who confirmed the order. Nothing is checked again and nothing is posted. Audited, and published as SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released order. Human-only (`x-agent: false`)."
+      description: "Releases the credit block of a sales order that was confirmed over its customer's credit limit (ADR-0066, T77b), at the version the caller read (`If-Match`): the order is read under a row lock and its `credit_block` moves from `blocked` to `released`, once, with who released it, by id and name, and when (`credit_released_by`, `credit_released_by_name`, `credit_released_at`). From then on the order takes deliveries and is billed as any confirmed order, and it counts in the customer's exposure, which may then exceed the limit: the release is the credit manager's decision, whatever the amount. An order without a block, or whose block is already released, is refused (409 `sales.order_not_credit_blocked`), and a cancelled one too (409 `sales.invalid_status`). The release is by its own permission, `sales.order.credit_release`; no rule sets the person who releases apart from the one who confirmed the order. Nothing is checked again and nothing is posted. Audited, and published as SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released order. Human-only (`x-agent: false`)."
       x-permission: sales.order.credit_release
       x-agent: false
       x-problem-codes:
         - request.version_mismatch
+        - sales.invalid_status
         - sales.order_not_credit_blocked
         - sales.quotation_ordered
       parameters:
@@ -20716,6 +21266,187 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/sales-orders/{id}:change":
+    post:
+      operationId: changeSalesOrder
+      tags:
+        - sales
+      summary: Change a sales order
+      description: "Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date. The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`). Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422 `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and the unit price given, in the order's currency, with its price unit; what is not given stays. A changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the order's date: an entered price stays entered, an item priced from the price records takes the record valid on that date again, with the pricing procedure's discounts; its account and tax code are checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first (`cancelBillingDocument`). A confirmed order with a revenue contract (`createRevenueContract`, or made when the order is confirmed) keeps its items' quantities and prices (409 `sales.revenue_contract_exists`): the contract holds their values, and follows no change of them; its requested delivery date still changes. `requested_delivery_date` is on or after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A change that raises a confirmed order's net value checks the customer's credit for the increase, as a confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier release; a lower value leaves the block as it is. The change is kept, numbered within the order, with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`)."
+      x-permission: sales.order.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - credit.amount_too_large
+        - ledger.no_exchange_rate
+        - request.invalid_amount
+        - request.validation_failed
+        - request.version_mismatch
+        - sales.account_not_postable
+        - sales.amount_not_positive
+        - sales.amount_too_large
+        - sales.currency_mismatch
+        - sales.invalid_quantity
+        - sales.invalid_requested_delivery_date
+        - sales.invalid_status
+        - sales.item_repeated
+        - sales.no_price
+        - sales.nothing_changed
+        - sales.order_item_billed
+        - sales.quantity_below_delivered
+        - sales.quotation_ordered
+        - sales.revenue_contract_exists
+        - sales.tax_jurisdiction_not_supported
+        - sales.unit_mismatch
+        - sales.unknown_currency
+        - sales.unknown_order_item
+        - sales.unknown_tax_code
+        - sales.unknown_unit
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: What changes.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesOrderChangeRequest"
+            examples:
+              quantity_and_price:
+                summary: An item's quantity and price
+                value:
+                  reason: The customer ordered more at the agreed price.
+                  items:
+                    - item_no: 1
+                      quantity:
+                        value: "150"
+                        unit: EA
+                      unit_price:
+                        amount: "12.00"
+                        currency: CAD
+      responses:
+        "200":
+          description: "The sales order, changed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sales-orders/{id}:cancel":
+    post:
+      operationId: cancelSalesOrder
+      tags:
+        - sales
+      summary: Cancel a sales order
+      description: "Cancels a `draft` or `confirmed` sales order of which nothing is delivered (ADR-0067, As built T78d), at the version the caller read (`If-Match`), with a reason: the order is read under a row lock and moves to `cancelled` once, naming the reason, who cancelled it and when. An order already cancelled is refused (409 `sales.invalid_status`), as is one with a quantity delivered (409 `sales.order_delivered`) and a confirmed one with a revenue contract (409 `sales.revenue_contract_exists`), whose obligations hold the order's values: since only what is delivered is billed, nothing of a cancelled order is billed. A cancelled order takes no change, delivery or billing document, and leaves the customer's open orders (`getCreditExposure`). The quotation it came from stays ordered. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the cancelled order. Human-only (`x-agent: false`)."
+      x-permission: sales.order.write
+      x-agent: false
+      x-problem-codes:
+        - request.validation_failed
+        - request.version_mismatch
+        - sales.invalid_status
+        - sales.order_delivered
+        - sales.quotation_ordered
+        - sales.revenue_contract_exists
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why the order is cancelled.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonInput"
+      responses:
+        "200":
+          description: "The sales order, cancelled."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sales-orders/{id}/changes":
+    get:
+      operationId: listSalesOrderChanges
+      tags:
+        - sales
+      summary: List a sales order's changes
+      description: "The changes of a sales order (ADR-0067, As built T78d), each as `changeSalesOrder` made it: its number within the order, the order's version after it, its reason, who made it and when, and what it changed with its values before and after: the net value, the requested delivery date, the credit block and each item changed. A change is kept as it was made and never altered. An order of a company the caller may not act in is not found (404), as one that does not exist. Sortable by: `change_no`."
+      x-permission: sales.order.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the order's changes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesOrderChangePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/sales-orders/{id}/deliveries":
     get:
       operationId: listSalesDeliveries
@@ -20852,6 +21583,8 @@ paths:
             description: "Billing document status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - created
+              - posted
+              - cancelled
         - $ref: "#/components/parameters/DocumentNumber"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
@@ -21917,7 +22650,7 @@ paths:
       tags:
         - sales
       summary: Post a billing document as a customer invoice
-      description: "Posts a `created` billing document, once (ADR-0067 §9, T79b), at the version the caller read (`If-Match`): a customer invoice is entered in accounts receivable and posted, in the same transaction as the document's change, so either all of it happens or none. The invoice has the document's company, customer and currency, the billing date as its invoice date, which is its tax date, the sales order's payment term, and the document's items one for one, each with its description, account, amount and tax code; it names the billing document as its source (`source_document_id`, `source_document_number`). Accounts receivable calculates the output tax at the billing date's rates and posts the entry (document type `DR`, `source_context` `receivables`): it debits the customer's reconciliation account in the company with the invoice's gross amount, which is the customer's open item (`GET /v1/open-items`) with the order's payment term, and credits each item's account with its amount and output tax per tax code. The invoice's net amount is the document's to the minor unit, and its gross is net and tax exactly. Revenue is recognized as billed. The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The document becomes `posted` and names its `posting_date`, its `customer_invoice_id` and `customer_invoice_number` and the invoice's `journal_entry_id`, `journal_entry_year` and `journal_entry_number`; an audit record and BillingDocumentPosted are written with it, beside the invoice's own (CustomerInvoiceChanged, CustomerInvoicePosted). The document's row is read under a lock: of two requests to post one document, one posts it and the other meets another version (412). One that is not `created` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted document. What accounts receivable or the ledger refuses leaves the document `created` and nothing posted, and is answered with their code, the document's number leading the detail and the document's own fields named: a customer that is not active, no longer a customer or blocked for posting in the company (422 `receivables.customer_not_usable`, `customer_id`) or whose data in the company is no longer there (the same code, without a field); an item's account that can no longer be posted (422 `receivables.account_not_postable`, `items[i].account_id`) or asks for a cost center the item does not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer an output tax code of the company with a rate on the billing date (422 `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the first version, so a document refused for an item's account or tax code cannot be posted until the configuration allows it again. A posted billing document is not reversed or cancelled in the first version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`)."
+      description: "Posts a `created` billing document, once (ADR-0067 §9, T79b), at the version the caller read (`If-Match`): a customer invoice is entered in accounts receivable and posted, in the same transaction as the document's change, so either all of it happens or none. The invoice has the document's company, customer and currency, the billing date as its invoice date, which is its tax date, the sales order's payment term, and the document's items one for one, each with its description, account, amount and tax code; it names the billing document as its source (`source_document_id`, `source_document_number`). Accounts receivable calculates the output tax at the billing date's rates and posts the entry (document type `DR`, `source_context` `receivables`): it debits the customer's reconciliation account in the company with the invoice's gross amount, which is the customer's open item (`GET /v1/open-items`) with the order's payment term, and credits each item's account with its amount and output tax per tax code. The invoice's net amount is the document's to the minor unit, and its gross is net and tax exactly. Revenue is recognized as billed. The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The document becomes `posted` and names its `posting_date`, its `customer_invoice_id` and `customer_invoice_number` and the invoice's `journal_entry_id`, `journal_entry_year` and `journal_entry_number`; an audit record and BillingDocumentPosted are written with it, beside the invoice's own (CustomerInvoiceChanged, CustomerInvoicePosted). The document's row is read under a lock: of two requests to post one document, one posts it and the other meets another version (412). One that is not `created` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted document. What accounts receivable or the ledger refuses leaves the document `created` and nothing posted, and is answered with their code, the document's number leading the detail and the document's own fields named: a customer that is not active, no longer a customer or blocked for posting in the company (422 `receivables.customer_not_usable`, `customer_id`) or whose data in the company is no longer there (the same code, without a field); an item's account that can no longer be posted (422 `receivables.account_not_postable`, `items[i].account_id`) or asks for a cost center the item does not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer an output tax code of the company with a rate on the billing date (422 `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or `journal_dr` number range (422 `config.no_number_range`). A document refused for an item's account or tax code is posted once the configuration allows it again, or cancelled (`cancelBillingDocument`). A posted billing document is cancelled by `cancelBillingDocument`, which posts a credit memo; the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`)."
       x-permission: sales.billing.post
       x-agent: false
       x-problem-codes:
@@ -22021,6 +22754,139 @@ paths:
       responses:
         "200":
           description: "The billing document, posted."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/billing-documents/{id}:cancel":
+    post:
+      operationId: cancelBillingDocument
+      tags:
+        - sales
+      summary: Cancel a billing document
+      description: "Cancels a `created` or `posted` billing document, once (ADR-0067, As built T79c), at the version the caller read (`If-Match`), with a reason, as SAP's billing cancellation does: a cancellation document is created, numbered from the company's `billing_document` number range of its date's fiscal year. A created document posted nothing, so its cancellation posts nothing either. For a posted one, accounts receivable enters and posts a customer credit memo in the same transaction (`kind` `credit_memo`, document type `DG`) naming the document's customer invoice (`reference_invoice_id`) and the cancellation as its source, with the invoice's items one for one: each item's account, amount and the output tax the invoice's item bore, so receivables, revenue and output tax move back by exactly the invoice's net, tax and gross. Its credit line is the customer's open credit item; it is not cleared against the invoice, which stays open until it is cleared (`createClearing`) or paid. Either way the document becomes `cancelled`, names its `cancellation`, and what it billed of the order's items is billable again: each order item's `billed_quantity` falls by the document's quantity and the order's `version` moves, and a later billing document bills the delivered quantities at the order's prices as the cumulative rule says over the documents not cancelled. `cancellation_date` is the cancellation's date and, for a posted document, the credit memo's date, which is its tax date, and posting date, in an open period (409 `ledger.period_not_open`); absent: today, the company's date in its time zone; it is not before the billing date, nor before the posting date of a posted one (422 `sales.invalid_cancellation_date`). The document's row and then its order's are read under a lock: of two requests to cancel one document one does and the other meets another version (412). A cancelled document is refused (409 `sales.invalid_status`), as is one a returns order or a credit memo request that is not rejected names (409 `sales.billing_document_referenced`): those are settled first. What accounts receivable or the ledger refuses leaves the document as it was and is answered with their code, the document's number leading the detail and the document's own fields named, as `postBillingDocument` answers. Audited, and published as BillingDocumentCancelled, beside the credit memo's own events. A retry with the same `Idempotency-Key` answers the cancelled document. Human-only (`x-agent: false`)."
+      x-permission: sales.billing.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.credit_exceeds_invoice
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
+        - receivables.invalid_status
+        - receivables.items_required
+        - receivables.no_tax_account
+        - receivables.reference_not_allowed
+        - receivables.tax_changed
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
+        - receivables.unknown_currency
+        - receivables.unknown_kind
+        - receivables.unknown_payment_term
+        - receivables.unknown_tax_code
+        - request.invalid_amount
+        - request.validation_failed
+        - request.version_mismatch
+        - sales.billing_document_referenced
+        - sales.invalid_cancellation_date
+        - sales.invalid_status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Why and when the document is cancelled.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingDocumentCancel"
+            examples:
+              cancel:
+                summary: Cancelled today
+                value:
+                  reason: Billed at the wrong price.
+      responses:
+        "200":
+          description: "The billing document, cancelled."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -23339,6 +24205,7 @@ paths:
         - closing.tasks_open
         - config.not_bootstrapped
         - ledger.invalid_period_status
+        - ledger.payment_release_pending
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -24081,6 +24948,7 @@ paths:
         - closing.year_periods_not_locked
         - config.not_bootstrapped
         - ledger.invalid_period_status
+        - ledger.payment_release_pending
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -28977,6 +29845,7 @@ paths:
       x-problem-codes:
         - config.not_bootstrapped
         - ledger.invalid_period_status
+        - ledger.payment_release_pending
         - request.version_mismatch
         - tax.confirmation_required
         - tax.fiscal_period_open
@@ -40364,7 +41233,7 @@ components:
         internal_order_id:
           type: string
           format: uuid
-          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
+          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`, `budget_exceeded`: the entry would take the order's consumption above its budget's refusal limit, T60h). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
         trading_partner_id:
           type: string
           format: uuid
@@ -43989,6 +44858,21 @@ components:
           type: boolean
           description: "Whether the actual exceeds the budget. False while the budget was never set."
           readOnly: true
+        consumed_percent:
+          type: string
+          description: "The actual in percent of the budget, a decimal with two places (\"30.00\"), negative when the credits exceed the debits. Absent while the budget was never set and while it is zero. Commitments are not counted yet (T60h)."
+          readOnly: true
+        availability_control:
+          $ref: "#/components/schemas/InternalOrderAvailabilityControl"
+          description: "The budget's availability control (T60h): its warning and refusal limits. Absent while it has none: then nothing is refused or warned about for the budget."
+        availability:
+          type: string
+          description: "Where the actual stands against the availability control's limits, present exactly with `availability_control`: `within` (above neither limit), `above_warning` (above the warning limit and not the refusal limit), `above_refusal` (above the refusal limit, possible after the budget or the limit was lowered, or through postings that are never checked: a reversal). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - within
+            - above_warning
+            - above_refusal
+          readOnly: true
         updated_at:
           type: string
           format: date-time
@@ -44015,22 +44899,203 @@ components:
             amount: "18500.00"
             currency: EUR
           exceeded: false
+          consumed_percent: "7.50"
+          availability_control:
+            warn_percent: 90
+            refuse_percent: 105
+          availability: within
           updated_at: "2026-11-12T10:00:00Z"
           updated_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderAvailabilityControl:
+      type: object
+      description: "An order budget's availability control (ADR-0064 §3, T60h): limits on the order's consumption, its actual costs (commitments are not counted yet), each a whole percentage of the budget. A posting that adds to the order's consumption is refused when the consumption after it is above the refusal limit (422 `ledger.internal_order_invalid` with the reason `budget_exceeded`), and accepted and published as InternalOrderBudgetWarned when it is above the warning limit. Either limit may be left out; the warning limit is below the refusal limit."
+      minProperties: 1
+      properties:
+        warn_percent:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 999
+          description: "The warning limit, in percent of the budget."
+        refuse_percent:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 999
+          description: "The refusal limit, in percent of the budget; above 100 it tolerates a consumption beyond the budget."
+      additionalProperties: false
+      examples:
+        - warn_percent: 90
+          refuse_percent: 105
     InternalOrderBudgetUpdate:
       type: object
-      description: "The budget an internal order is given (a merge patch of its budget: `budget` is replaced whole)."
-      required:
-        - budget
+      description: "The budget an internal order is given, its availability control, or both (a merge patch of its budget: `budget` and `availability_control` are each replaced whole). At least one is named; an order without a budget needs `budget`."
       properties:
         budget:
           $ref: "#/components/schemas/Money"
           description: "One overall amount for the order, zero or more, in the legal entity's local currency."
+        availability_control:
+          type:
+            - object
+            - "null"
+          description: "The warning and refusal limits, each a whole percentage of the budget from 1 to 999, the warning limit below the refusal limit; replaced whole. Send null to remove the availability control."
+          minProperties: 1
+          properties:
+            warn_percent:
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 999
+              description: "The warning limit, in percent of the budget."
+            refuse_percent:
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 999
+              description: "The refusal limit, in percent of the budget."
+          additionalProperties: false
       additionalProperties: false
       examples:
         - budget:
             amount: "20000.00"
             currency: EUR
+          availability_control:
+            warn_percent: 90
+            refuse_percent: 105
+    InternalOrderBudgetChangeCreate:
+      type: object
+      description: "A supplement to an internal order's budget or a return of part of it (T60h)."
+      required:
+        - kind
+        - amount
+      properties:
+        kind:
+          type: string
+          description: "`supplement` adds the amount to the budget; `return` takes it off (422 `controlling.order_budget_invalid` on `kind`, code `unsupported`, for another value). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - supplement
+            - return
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The amount supplemented or returned, positive, in the legal entity's local currency."
+        text:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: "Why the budget changes, kept with the change."
+      additionalProperties: false
+      examples:
+        - kind: supplement
+          amount:
+            amount: "2500.00"
+            currency: EUR
+          text: Second exhibition hall booked
+    InternalOrderBudgetChange:
+      type: object
+      description: "One version of an internal order's budget (ADR-0064 §3, T60h): how it changed. Never changed."
+      required:
+        - id
+        - internal_order_id
+        - version
+        - kind
+        - budget
+        - change
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The change's id.
+          readOnly: true
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order (`GET /v1/internal-orders/{id}`)."
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+          description: "The budget's version the change made."
+          readOnly: true
+        kind:
+          type: string
+          description: "`set` (the budget or its availability control set by `PATCH`), `supplement` or `return`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - set
+            - supplement
+            - return
+          readOnly: true
+        budget_before:
+          $ref: "#/components/schemas/Money"
+          description: "The budget before the change, in the legal entity's local currency. Absent when the order had none."
+          readOnly: true
+        budget:
+          $ref: "#/components/schemas/Money"
+          description: "The budget after the change."
+          readOnly: true
+        change:
+          $ref: "#/components/schemas/Money"
+          description: "How much the budget moved: the budget after less the budget before (the whole budget when there was none); positive for a supplement, negative for a return, zero when only the availability control changed."
+          readOnly: true
+        availability_control:
+          $ref: "#/components/schemas/InternalOrderAvailabilityControl"
+          description: "The availability control after the change. Absent when the budget had none."
+        text:
+          type: string
+          description: "Why the budget changed, as the supplement or return gave it. Absent on a change without one."
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the change was made (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: The principal who made it.
+          readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000c21"
+          internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+          version: 3
+          kind: supplement
+          budget_before:
+            amount: "20000.00"
+            currency: EUR
+          budget:
+            amount: "22500.00"
+            currency: EUR
+          change:
+            amount: "2500.00"
+            currency: EUR
+          availability_control:
+            warn_percent: 90
+            refuse_percent: 105
+          text: Second exhibition hall booked
+          created_at: "2026-11-17T10:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderBudgetChangePage:
+      type: object
+      description: One page of an internal order budget's changes.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InternalOrderBudgetChange"
+          description: The changes on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     InternalOrderSettlementRule:
       type: object
       description: "The settlement rule of an internal order (ADR-0064 §3): one receiver, a cost center of the order's legal entity, taking the whole."
@@ -44131,7 +45196,7 @@ components:
           fiscal_period: 11
     InternalOrderSettlement:
       type: object
-      description: "A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled balance up to a period to the receiving cost center, account by account. Never changed."
+      description: "A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled balance up to a period to the receiving cost center, account by account. Never changed; its reversal (T60i) is shown beside it."
       required:
         - id
         - internal_order_id
@@ -44213,6 +45278,25 @@ components:
           type: string
           format: uuid
           description: The principal who settled it.
+          readOnly: true
+        reversal_journal_entry_id:
+          type: string
+          format: uuid
+          description: "The entry that reversed the settlement's entry (`GET /v1/journal-entries/{id}`), dated the settlement's posting date. Absent while the settlement is not reversed."
+          readOnly: true
+        reversal_journal_entry_number:
+          type: string
+          description: "The reversal entry's document number. Absent while the settlement is not reversed."
+          readOnly: true
+        reversed_at:
+          type: string
+          format: date-time
+          description: "When the settlement was reversed (UTC). Absent while it is not."
+          readOnly: true
+        reversed_by:
+          type: string
+          format: uuid
+          description: "The principal who reversed it. Absent while it is not."
           readOnly: true
       examples:
         - id: "0192a000-0000-7000-8000-000000000c11"
@@ -46335,11 +47419,21 @@ components:
                 - rejected
                 - cancelled
                 - ordered
+                - in_sourcing
               readOnly: true
             workflow_request_id:
               type: string
               format: uuid
               description: Approval request (workflow context), once submitted.
+              readOnly: true
+            rfq_id:
+              type: string
+              format: uuid
+              description: "The request for quotation last created from the requisition (T82e), at `/v1/rfqs/{rfq_id}`; while the requisition is `in_sourcing` it is the RFQ sourcing it. Absent when none was."
+              readOnly: true
+            rfq_document_number:
+              type: string
+              description: "That RFQ's document number; absent with it."
               readOnly: true
             items:
               type: array
@@ -47666,6 +48760,10 @@ components:
           type: string
           format: uuid
           description: General ledger account the item is bought on.
+        delivery_date:
+          type: string
+          format: date
+          description: "The date the item is wanted by; none when omitted. A purchase order an award creates takes it as its item's delivery date (T82f)."
       additionalProperties: false
       examples:
         - material_key: CHAIR-ERGO-01
@@ -47713,6 +48811,15 @@ components:
         account_name:
           type: string
           description: The account's name.
+        delivery_date:
+          type: string
+          format: date
+          description: "The date the item is wanted by: as sent, or the need date of the requisition the RFQ was created from; absent for none."
+        requisition_item_no:
+          type: integer
+          format: int32
+          description: "The item of the RFQ's requisition this item was taken from (T82e); absent for an RFQ not created from a requisition."
+          minimum: 1
       examples:
         - material_key: CHAIR-ERGO-01
           description: Office chairs, ergonomic
@@ -47805,6 +48912,28 @@ components:
               type: string
               description: "That contract's document number; absent until the RFQ is awarded."
               readOnly: true
+            purchase_order_id:
+              type: string
+              format: uuid
+              description: "The draft purchase order an award to a purchase order created (T82f), at `/v1/purchase-orders/{purchase_order_id}`; absent otherwise."
+              readOnly: true
+            purchase_order_document_number:
+              type: string
+              description: "That purchase order's document number; absent with it."
+              readOnly: true
+            award_reason:
+              type: string
+              description: "The reason recorded with the award; absent when none was given (a quotation ranked first needs none)."
+              readOnly: true
+            requisition_id:
+              type: string
+              format: uuid
+              description: "The requisition the RFQ was created from (T82e), at `/v1/requisitions/{requisition_id}`; absent for an RFQ created with its own items."
+              readOnly: true
+            requisition_document_number:
+              type: string
+              description: "That requisition's document number; absent with it."
+              readOnly: true
             items:
               type: array
               items:
@@ -47846,21 +48975,23 @@ components:
               supplier_name: Tyrell Office Products
     RfqCreate:
       type: object
-      description: Create a draft request for quotation.
+      description: "Create a draft request for quotation, with its own items or from a requisition (`requisition_id`)."
       required:
         - legal_entity_id
-        - currency
         - due_date
-        - items
         - supplier_ids
       properties:
         legal_entity_id:
           type: string
           format: uuid
           description: Legal entity.
+        requisition_id:
+          type: string
+          format: uuid
+          description: "An approved requisition of the legal entity the RFQ is created from (T82e): its items become the RFQ's, and `items` is not sent."
         currency:
           type: string
-          description: The currency quotations are given in.
+          description: "The currency quotations are given in; required without `requisition_id`, and the requisition's (its default) with it."
           pattern: "^[A-Z]{3}$"
           example: EUR
         due_date:
@@ -47871,7 +49002,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RfqItemInput"
-          description: The items asked for.
+          description: "The items asked for; required without `requisition_id`, not sent with it."
           minItems: 1
           maxItems: 1000
         supplier_ids:
@@ -47899,24 +49030,33 @@ components:
             - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d58"
     RfqAward:
       type: object
-      description: "Award an RFQ to one of its quotations: the quotation that wins and the validity of the draft contract created from it."
+      description: "Award an RFQ to one of its quotations: the quotation that wins, what the award creates (a draft contract, valid from `valid_from` to `valid_to`, or a draft purchase order) and, for a quotation not ranked first, the reason."
       required:
         - quotation_id
-        - valid_from
-        - valid_to
       properties:
         quotation_id:
           type: string
           format: uuid
           description: "The supplier quotation awarded (its `id` in `rfqs/{id}/quotations`, `supplier_quotation_id` in the comparison): one of this RFQ, complete and not expired."
+        award_to:
+          type: string
+          description: "What the award creates: a draft `contract` (the default) or a draft `purchase_order` (T82f); another value is refused (422 `request.validation_failed`). An RFQ created from a requisition is awarded to a purchase order. Open enumeration: values may be added within /v1."
+          x-extensible-enum:
+            - contract
+            - purchase_order
         valid_from:
           type: string
           format: date
-          description: The first day the contract is valid.
+          description: "The first day the contract is valid; required for an award to a contract, not sent for one to a purchase order."
         valid_to:
           type: string
           format: date
-          description: "The last day the contract is valid; on or after `valid_from`."
+          description: "The last day the contract is valid; on or after `valid_from`; required with it."
+        reason:
+          type: string
+          description: "Why this quotation wins: required when it is not ranked first in the comparison (the lowest total), optional otherwise. Kept on the RFQ (`award_reason`)."
+          minLength: 1
+          maxLength: 500
       additionalProperties: false
       examples:
         - quotation_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d43"
@@ -50434,7 +51574,7 @@ components:
           readOnly: true
         reason_code:
           type: string
-          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid; a release resumed after its operation failed or was cancelled with payments posted excludes, for the reasons a proposal would and with `bank_account_changed` when the bank account in force on the run date is not the one the payment was proposed to, a supplier whose payment not yet posted it dropped because the supplier can no longer be paid as proposed (a down payment's by its request). `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4), naming the code and both rates (`tax_code`, `request_tax_rate_percent`, `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c). A supplier's items that fix a payment method are judged apart from its others, per fixed method (`payment_method`), for every reason here, and are left out when the method cannot pay them, never paid by another: `method_not_active` (the method is not an active payment method of the company), `no_house_bank` (no active house bank in the run currency is ranked for it) and `fixed_method_in_bank_run` (the run was proposed for one house bank, which pays by no method: propose a run without a house bank to pay them). The supplier's `payment_methods` do not restrict a fixed method: they restrict the run order alone, and an item fixing a method they lack is paid by it."
+          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid; a release resumed after its operation failed or was cancelled with payments posted excludes, for the reasons a proposal would and with `bank_account_changed` when the bank account in force on the run date is not the one the payment was proposed to, a supplier whose payment not yet posted it dropped because the supplier can no longer be paid as proposed (a down payment's by its request), and, with `tax_code_invalid`, a down payment request whose payment not yet posted it dropped because its tax can no longer be paid on the run date. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4), naming the code and both rates (`tax_code`, `request_tax_rate_percent`, `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c). A supplier's items that fix a payment method are judged apart from its others, per fixed method (`payment_method`), for every reason here, and are left out when the method cannot pay them, never paid by another: `method_not_active` (the method is not an active payment method of the company), `no_house_bank` (no active house bank in the run currency is ranked for it) and `fixed_method_in_bank_run` (the run was proposed for one house bank, which pays by no method: propose a run without a house bank to pay them). The supplier's `payment_methods` do not restrict a fixed method: they restrict the run order alone, and an item fixing a method they lack is paid by it."
           x-extensible-enum:
             - supplier_blocked
             - payment_blocked
@@ -55063,12 +56203,99 @@ components:
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in the configuration."}
         key_date: {type: string, format: date, description: "The date the items' days overdue are counted on. An item due on this date is not overdue. 2100-12-31 at the latest."}
+    DunningBlockCreate:
+      type: object
+      description: "Block a customer, or one of its open items, from dunning in a company. It is created `active`."
+      required: [legal_entity_id, customer_id, reason, valid_to]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company that is not to dun: a legal entity the caller may act in."}
+        customer_id: {type: string, format: uuid, description: "The customer (a business partner): blocked whole, or, with the journal line, the owner of the blocked item."}
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2100, description: "The fiscal year of the blocked item's journal entry; absent for a block of the whole customer."}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the blocked open item (as `listOpenItems` and a dunning notice's item name it); absent for a block of the whole customer."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the blocked open item; absent for a block of the whole customer."}
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the customer or the item is not dunned."}
+        valid_to: {type: string, format: date, description: "The last key date the block holds for: not before the company's today, at most 2100-12-31."}
+    DunningBlock:
+      description: "A dunning block (collections, ADR-0065 As built, T76e): a customer, or one of its open items, that a company does not dun up to an end date."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, reason, valid_to, status]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company that does not dun.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number when the block was placed.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            fiscal_year: {type: integer, format: int32, description: "The fiscal year of the blocked item's journal entry; absent when the whole customer is blocked.", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the blocked item (`GET /v1/journal-entries/{id}`); absent when the whole customer is blocked.", readOnly: true}
+            line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the blocked item; absent when the whole customer is blocked.", readOnly: true}
+            document_number: {type: string, description: "The journal entry's document number; absent when the whole customer is blocked.", readOnly: true}
+            reason: {type: string, description: "Why the customer or the item is not dunned.", readOnly: true}
+            valid_to: {type: string, format: date, description: "The last key date the block holds for: a run at a later key date duns the items again.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [active, released]
+              description: "`active`: a run at a key date up to `valid_to` leaves the blocked items out; `released`: released before (`releaseDunningBlock`), and holds for no run. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            released_at: {type: string, format: date-time, description: "When the block was released; absent while it is active.", readOnly: true}
+            released_by: {type: string, format: uuid, description: "Who released it; absent while it is active.", readOnly: true}
+            released_by_name: {type: string, description: "The name of who released it, as it is now; absent while it is active.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d93"
+          version: 1
+          created_at: "2026-12-01T09:12:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-12-01T09:12:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          fiscal_year: 2026
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          line_no: 1
+          document_number: "1800000007"
+          reason: The customer checks the delivery with its warehouse
+          valid_to: "2027-01-31"
+          status: active
+    DunningBlockPage:
+      type: object
+      description: One page of dunning blocks.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/DunningBlock"}
+          description: The dunning blocks on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    DunningRunBlockedItem:
+      type: object
+      description: "An item a dunning run left out for a dunning block (T76e): a customer's open item overdue on the run's key date that would have reached a dunning level, as the run read it."
+      required: [dunning_block_id, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, net_due_date, days_overdue, amount, local_amount]
+      properties:
+        dunning_block_id: {type: string, format: uuid, description: "The block that held the item when the run was started, the item's own or its customer's (`GET /v1/dunning-blocks/{id}`).", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
+        reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+        net_due_date: {type: string, format: date, description: "The item's net due date: by the payment terms it was posted with, or, posted without any, its document date.", readOnly: true}
+        days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency."}
+        local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
     DunningRun:
       description: "A dunning run (collections, ADR-0065 §3): a company's customer items overdue on a key date, proposed for dunning."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, disputed_item_count, disputed_amount, disputed_items]
+          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, charge_amount, interest_amount, total_amount, grace_days, minimum_amount, below_minimum_notice_count, below_minimum_amount, disputed_item_count, disputed_amount, disputed_items, blocked_item_count, blocked_amount, blocked_items]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customers the run duns.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -55083,12 +56310,27 @@ components:
             notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
             item_count: {type: integer, format: int32, minimum: 0, description: "The overdue items in those notices.", readOnly: true}
             overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were booked."}
+            charge_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `charge_amount`, in the company's currency (T76d); 0 when their levels charge none."}
+            interest_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `interest_amount`, in the company's currency (T76d); 0 when their levels charge none."}
+            total_amount: {$ref: "#/components/schemas/Money", description: "What the notices ask for in all: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted."}
+            grace_days: {type: integer, format: int32, minimum: 0, maximum: 365, description: "The company's grace days when the run was started (`companies[].dunning.grace_days`, T76d): an item overdue by no more days was not proposed; 0 for none, and for runs started before grace days existed.", readOnly: true}
+            minimum_amount: {$ref: "#/components/schemas/Money", description: "The company's minimum amount when the run was started (`companies[].dunning.minimum_amount`, T76d), in its currency: a notice whose `overdue_amount` would have been below it was not proposed; 0 for none."}
+            interest_rate_percent: {type: string, pattern: "^[0-9]{1,2}\\.[0-9]{3}$", description: "The company's annual dunning interest rate when the run was started (`companies[].dunning.interest_rate_percent`, T76d), in percent with three places; absent when it has none.", readOnly: true}
+            below_minimum_notice_count: {type: integer, format: int32, minimum: 0, description: "The customers whose notice the run left out because its overdue amount was below `minimum_amount` (T76d); their items are in no notice, are not recorded as dunned when the run is confirmed, and count in none of the run's other totals.", readOnly: true}
+            below_minimum_amount: {$ref: "#/components/schemas/Money", description: "What those notices' items add up to in the company's currency, as they were booked; 0 when none was below the minimum."}
             disputed_item_count: {type: integer, format: int32, minimum: 0, description: "The items the run left out for their open dispute cases (`disputed_items`); 0 when none was disputed.", readOnly: true}
             disputed_amount: {$ref: "#/components/schemas/Money", description: "What those items add up to in the company's currency, as they were booked (the sum of `disputed_items[].local_amount`): held back from dunning, not counted in `overdue_amount`."}
             disputed_items:
               type: array
               items: {$ref: "#/components/schemas/DunningRunDisputedItem"}
               description: "The items the run would have proposed but left out, each for its open dispute case (T86b), by customer and item; in no notice and in none of the run's totals. Empty when none was disputed, and for runs started before dispute cases existed."
+              readOnly: true
+            blocked_item_count: {type: integer, format: int32, minimum: 0, description: "The items the run left out for a dunning block (`blocked_items`); 0 when none was blocked.", readOnly: true}
+            blocked_amount: {$ref: "#/components/schemas/Money", description: "What those items add up to in the company's currency, as they were booked (the sum of `blocked_items[].local_amount`): not dunned, not counted in `overdue_amount`."}
+            blocked_items:
+              type: array
+              items: {$ref: "#/components/schemas/DunningRunBlockedItem"}
+              description: "The items the run would have proposed but left out, each for an active dunning block of the item or its customer whose end date is on or after the key date (T76e), by customer and item; in no notice and in none of the run's totals. An item both blocked and disputed is listed here alone. Empty when none was blocked, and for runs started before dunning blocks existed."
               readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
@@ -55106,8 +56348,19 @@ components:
           notice_count: 1
           item_count: 1
           overdue_amount: {amount: "1050.00", currency: CAD}
+          charge_amount: {amount: "15.00", currency: CAD}
+          interest_amount: {amount: "7.77", currency: CAD}
+          total_amount: {amount: "1072.77", currency: CAD}
+          grace_days: 3
+          minimum_amount: {amount: "25.00", currency: CAD}
+          interest_rate_percent: "9.000"
+          below_minimum_notice_count: 1
+          below_minimum_amount: {amount: "12.50", currency: CAD}
           disputed_item_count: 1
           disputed_amount: {amount: "400.00", currency: CAD}
+          blocked_item_count: 0
+          blocked_amount: {amount: "0.00", currency: CAD}
+          blocked_items: []
           disputed_items:
             - dispute_case_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
               customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
@@ -55151,7 +56404,7 @@ components:
     DunningNoticeItem:
       type: object
       description: "An item of a dunning notice: a customer's open item overdue on the run's key date, as the run read it."
-      required: [item_no, fiscal_year, journal_entry_id, line_no, document_number, document_date, net_due_date, days_overdue, amount, local_amount, previous_level, level]
+      required: [item_no, fiscal_year, journal_entry_id, line_no, document_number, document_date, net_due_date, days_overdue, amount, local_amount, previous_level, level, interest_amount]
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the notice.", readOnly: true}
         fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
@@ -55166,10 +56419,11 @@ components:
         local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
         previous_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The dunning level the item was last dunned at when the run was started, the highest a confirmed run recorded for it; 0 for an item never dunned.", readOnly: true}
         level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The dunning level the item would reach: the last level whose days overdue it has reached, one above `previous_level` at most.", readOnly: true}
+        interest_amount: {$ref: "#/components/schemas/Money", description: "The interest on the item at `level`, in the company's currency (T76d): when the level charges interest (`companies[].dunning.levels[].interest`), `local_amount` × the run's `interest_rate_percent` ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero; 0 otherwise. A level above the configured ones takes the highest configured level's rule."}
     DunningNotice:
       type: object
       description: "A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer."
-      required: [id, dunning_run_id, customer_id, customer_number, customer_name, level, item_count, overdue_amount, items]
+      required: [id, dunning_run_id, customer_id, customer_number, customer_name, level, item_count, overdue_amount, charge_amount, interest_amount, total_amount, items]
       properties:
         id: {type: string, format: uuid, description: "The notice's id.", readOnly: true}
         dunning_run_id: {type: string, format: uuid, description: "The run that proposed it (`GET /v1/dunning-runs/{id}`).", readOnly: true}
@@ -55179,6 +56433,9 @@ components:
         level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The notice's dunning level: the highest among its items.", readOnly: true}
         item_count: {type: integer, format: int32, minimum: 1, description: "The notice's items.", readOnly: true}
         overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `local_amount`, in the company's currency."}
+        charge_amount: {$ref: "#/components/schemas/Money", description: "The dunning charge of the notice's level (`companies[].dunning.levels[].charge`, T76d), in the company's currency; 0 when the level charges none. A level above the configured ones (kept from a confirmed run after the company dropped levels) takes the highest configured level's charge and interest."}
+        interest_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `interest_amount`, in the company's currency (T76d)."}
+        total_amount: {$ref: "#/components/schemas/Money", description: "What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted."}
         items:
           type: array
           items: {$ref: "#/components/schemas/DunningNoticeItem"}
@@ -55193,6 +56450,9 @@ components:
           level: 1
           item_count: 1
           overdue_amount: {amount: "1050.00", currency: CAD}
+          charge_amount: {amount: "0.00", currency: CAD}
+          interest_amount: {amount: "0.00", currency: CAD}
+          total_amount: {amount: "1050.00", currency: CAD}
           items:
             - item_no: 1
               fiscal_year: 2026
@@ -55207,6 +56467,7 @@ components:
               local_amount: {amount: "1050.00", currency: CAD}
               previous_level: 0
               level: 1
+              interest_amount: {amount: "0.00", currency: CAD}
     DunningNoticePage:
       type: object
       description: One page of a dunning run's notices.
@@ -55317,7 +56578,7 @@ components:
           is_within_limit: true
     IncomingPaymentCreate:
       type: object
-      description: "Apply an incoming payment to a customer's open items, in full and exactly."
+      description: "Apply an incoming payment to a customer's open items, leaving what they do not take on the customer's account if asked."
       required: [legal_entity_id, customer_id, receipt_journal_entry_id, items]
       additionalProperties: false
       properties:
@@ -55327,30 +56588,79 @@ components:
         posting_date: {type: string, format: date, description: "The posting date of the clearing entry; absent: today, the company's date in its time zone (`companies[].time_zone`)."}
         items:
           type: array
-          minItems: 1
+          minItems: 0
           maxItems: 999
           uniqueItems: true
-          items: {$ref: "#/components/schemas/ClearingItemRef"}
-          description: "The customer's open items the payment is applied to (`GET /v1/open-items`), invoices and credits; together they equal the receipt exactly, in its currency."
+          items: {$ref: "#/components/schemas/IncomingPaymentItemRef"}
+          description: "The customer's open items the payment is applied to (`GET /v1/open-items`), invoices and credits, each with a residual item if it is paid in part; together, net of their residuals, they equal the receipt, in its currency, but for a difference within the company's payment tolerance and, with `on_account`, what is left on account. Empty only with `on_account`."
+        on_account: {type: boolean, default: false, description: "Leave what the receipt has left after the items, the whole receipt when there are none, on the customer's account as a credit of the customer's (T75g): an open item that `applyIncomingPaymentOnAccount` applies later. Something must be left (422 `receivables.nothing_left_on_account`)."}
+    IncomingPaymentItemRef:
+      type: object
+      description: "An open item an incoming payment is applied to (fiscal_year, journal_entry_id, line_no), with what stays open of it when it is paid in part."
+      required: [fiscal_year, journal_entry_id, line_no]
+      additionalProperties: false
+      properties:
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2999, description: "Fiscal year of the item's journal entry."}
+        journal_entry_id: {type: string, format: uuid, description: "The item's journal entry."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The item's line in the entry."}
+        residual: {$ref: "#/components/schemas/IncomingPaymentResidualCreate"}
+      examples:
+        - fiscal_year: 2026
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
+          line_no: 1
+          residual:
+            amount: {amount: "400.00", currency: CAD}
+            reason: disputed
+            reason_text: The workshop's second day is disputed.
+    IncomingPaymentResidualCreate:
+      type: object
+      description: "What stays open of an item the payment pays in part: a residual item of the customer for the amount, linked to the item, with the item's due date (T75f)."
+      required: [amount, reason]
+      additionalProperties: false
+      properties:
+        amount: {$ref: "#/components/schemas/Money", description: "What stays open, in the receipt's currency: more than zero and less than the item, which is an amount the customer owes (an invoice)."}
+        reason:
+          type: string
+          x-extensible-enum: [short_payment, disputed, deduction, other]
+          description: "Why the item is paid in part. `short_payment`: the customer paid less without saying why; `disputed`: the customer disputes the rest; `deduction`: the customer deducted something it claims (a return, a fee); `other`: anything else, which `reason_text` says. Open enumeration: values may be added within /v1; one that is not known is refused."
+        reason_text: {type: string, minLength: 1, maxLength: 200, description: "A free text on the reason, as the remittance or the customer gave it."}
+    IncomingPaymentResidual:
+      type: object
+      description: "The residual item an incoming payment left of an item it paid in part: a line of the clearing entry, an open item of the customer on the item's account, due when the item was."
+      required: [amount, reason, fiscal_year, journal_entry_id, journal_entry_number, line_no]
+      properties:
+        amount: {$ref: "#/components/schemas/Money", description: "What stayed open of the item, in the payment's currency."}
+        reason:
+          type: string
+          x-extensible-enum: [short_payment, disputed, deduction, other]
+          description: "Why the item was paid in part (`IncomingPaymentResidualCreate.reason`). Open enumeration: clients accept values they do not know."
+          readOnly: true
+        reason_text: {type: string, description: "The free text on the reason; absent when none was given.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "Fiscal year of the residual item's journal entry, the clearing entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The clearing entry the residual item is a line of (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        journal_entry_number: {type: string, description: "That entry's document number.", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The residual item's line in the entry: `GET /v1/open-items` lists it while it is open.", readOnly: true}
     IncomingPaymentItem:
       type: object
       description: "An open item an incoming payment was applied to, identified by (fiscal_year, journal_entry_id, line_no)."
-      required: [item_no, fiscal_year, journal_entry_id, line_no, journal_entry_number, reference, amount]
+      required: [item_no, application_no, fiscal_year, journal_entry_id, line_no, journal_entry_number, reference, amount]
       properties:
-        item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the payment, in the order of the request.", readOnly: true}
+        item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the payment, in the order of the requests.", readOnly: true}
+        application_no: {type: integer, format: int32, minimum: 0, description: "The application that applied the item: 0 for the payment itself, else the number of the application of its credit on account (`applications`).", readOnly: true}
         fiscal_year: {type: integer, format: int32, description: "Fiscal year of the item's journal entry.", readOnly: true}
         journal_entry_id: {type: string, format: uuid, description: "The item's journal entry (`GET /v1/journal-entries/{id}`).", readOnly: true}
         line_no: {type: integer, format: int32, minimum: 1, description: "The item's line in the entry.", readOnly: true}
         journal_entry_number: {type: string, description: "The entry's document number.", readOnly: true}
         reference: {type: string, description: "The entry's reference, a customer invoice's document number for one; its document number when it has none.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "The amount the item stood at, in the payment's currency: positive for what the customer owed (an invoice), negative for a credit of the customer's."}
+        residual: {$ref: "#/components/schemas/IncomingPaymentResidual", description: "The residual item the payment left of the item, paid in part; absent when the payment cleared it in full."}
     IncomingPayment:
       description: "An incoming payment applied to a customer's open items (accounts receivable, ADR-0063 §6): a receipt from a house bank's incoming payments clearing account, cleared with the items by one journal entry. It is written once and never changed, so its `version` is 1."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
           required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, posting_date, currency, amount,
-            receipt_journal_entry_id, receipt_journal_entry_year, receipt_journal_entry_number, receipt_account_id, receipt_account_number,
+            difference, applications, receipt_journal_entry_id, receipt_journal_entry_year, receipt_journal_entry_number, receipt_account_id, receipt_account_number,
             receipt_account_name, journal_entry_id, journal_entry_year, journal_entry_number, items]
           properties:
             document_number: {type: string, description: "The document number, from the company's `incoming_payment` number range.", readOnly: true}
@@ -55362,7 +56672,14 @@ components:
             customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
             posting_date: {type: string, format: date, description: "The posting date of the clearing entry.", readOnly: true}
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The payment's currency (ISO 4217), the receipt's and every item's.", readOnly: true}
-            amount: {$ref: "#/components/schemas/Money", description: "What was received and applied: the receipt's amount, the sum of the items' amounts."}
+            amount: {$ref: "#/components/schemas/Money", description: "What was received: the receipt's amount. It is the items' amounts less their residuals and less `difference`."}
+            difference: {$ref: "#/components/schemas/Money", description: "The payment difference written off within the company's payment tolerance (`companies[].receivables.payment_tolerance`): what the items applied with the receipt, net of their residuals, exceed it by. Positive: an underpayment, posted to the company's `payment_difference_expense` account; negative: an overpayment, kept on its `payment_difference_revenue` account; zero when the items equal the receipt."}
+            on_account: {$ref: "#/components/schemas/IncomingPaymentOnAccount", description: "What the payment left on the customer's account and what of it is still open; absent when it left nothing."}
+            applications:
+              type: array
+              items: {$ref: "#/components/schemas/IncomingPaymentApplication"}
+              description: "The applications of the payment's credit on account, in their order; empty when there were none."
+              readOnly: true
             receipt_journal_entry_id: {type: string, format: uuid, description: "The receipt: the journal entry the bank statement line posted (`GET /v1/journal-entries/{id}`).", readOnly: true}
             receipt_journal_entry_year: {type: integer, format: int32, description: "The receipt entry's fiscal year.", readOnly: true}
             receipt_journal_entry_number: {type: string, description: "The receipt entry's document number.", readOnly: true}
@@ -55397,6 +56714,8 @@ components:
           posting_date: "2026-11-12"
           currency: CAD
           amount: {amount: "1050.00", currency: CAD}
+          difference: {amount: "0.00", currency: CAD}
+          applications: []
           receipt_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
           receipt_journal_entry_year: 2026
           receipt_journal_entry_number: "100000042"
@@ -55408,12 +56727,53 @@ components:
           journal_entry_number: "1400000001"
           items:
             - item_no: 1
+              application_no: 0
               fiscal_year: 2026
               journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
               line_no: 1
               journal_entry_number: "1800000001"
               reference: CI100001
               amount: {amount: "1050.00", currency: CAD}
+    IncomingPaymentOnAccount:
+      type: object
+      description: "What an incoming payment left on the customer's account (T75g): a credit of the customer's on its reconciliation account, a line of the payment's clearing entry, which each application of it consumes, leaving what the items do not take as a new credit line."
+      required: [amount, open_amount]
+      properties:
+        amount: {$ref: "#/components/schemas/Money", description: "What the payment left on account, in its currency."}
+        open_amount: {$ref: "#/components/schemas/Money", description: "What of it is still open on account: the credit the last application left, or the payment's own before any; zero when it is all applied, or was cleared otherwise (a manual clearing, or netted as a credit item by another payment)."}
+        fiscal_year: {type: integer, format: int32, description: "Fiscal year of the open credit's journal entry; absent when nothing is open.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry the open credit is a line of (`GET /v1/journal-entries/{id}`); absent when nothing is open.", readOnly: true}
+        journal_entry_number: {type: string, description: "That entry's document number; absent when nothing is open.", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The open credit's line in the entry, an open item of the customer (`GET /v1/open-items`); absent when nothing is open.", readOnly: true}
+    IncomingPaymentApplication:
+      type: object
+      description: "An application of a payment's credit on account to the customer's open items (T75g): one clearing entry cleared the credit and the items, leaving what they did not take on account."
+      required: [application_no, posting_date, amount, difference, on_account_amount, journal_entry_id, journal_entry_year, journal_entry_number, created_at, created_by]
+      properties:
+        application_no: {type: integer, format: int32, minimum: 1, description: "The application's number in the payment, from 1.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The posting date of its clearing entry.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The credit on account it applied, as it stood."}
+        difference: {$ref: "#/components/schemas/Money", description: "The payment difference it wrote off within the company's payment tolerance: what the items, net of their residuals, exceed the credit by; zero for none."}
+        on_account_amount: {$ref: "#/components/schemas/Money", description: "What it left on account: the credit less the items, net of their residuals; zero when the items took it all."}
+        journal_entry_id: {type: string, format: uuid, description: "Its clearing entry (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The clearing entry's fiscal year.", readOnly: true}
+        journal_entry_number: {type: string, description: "The clearing entry's document number.", readOnly: true}
+        created_at: {type: string, format: date-time, description: "When it was applied.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "Who applied it (`GET /v1/principal-names`).", readOnly: true}
+    IncomingPaymentApplicationCreate:
+      type: object
+      description: "Apply a payment's credit on account to the customer's open items."
+      required: [items]
+      additionalProperties: false
+      properties:
+        posting_date: {type: string, format: date, description: "The posting date of the clearing entry; absent: today, the company's date in its time zone."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          uniqueItems: true
+          items: {$ref: "#/components/schemas/IncomingPaymentItemRef"}
+          description: "The customer's open items the credit is applied to, invoices and credits, each with a residual item if it is paid in part; together, net of their residuals, at most the credit, but for an underpayment within the company's payment tolerance. What they leave stays on account."
     IncomingPaymentPage:
       type: object
       description: One page of incoming payments applied.
@@ -55606,6 +56966,7 @@ components:
         customer_id: {type: string, format: uuid, description: "The customer: an active business partner with the customer role and data in the company. Required without `quotation_id`, refused with it."}
         currency: {type: string, pattern: "^[A-Z]{3}$", description: "The order's currency (ISO 4217), every item's. Required without `quotation_id`, refused with it."}
         payment_term_code: {type: string, minLength: 1, maxLength: 20, description: "The payment term the order is billed with: a configured term; absent: the customer's in the company."}
+        requested_delivery_date: {type: string, format: date, description: "The day the customer asks to be delivered on: the order's date, the company's date today, or later (422 `sales.invalid_requested_delivery_date`). Absent: none is asked for."}
         items:
           type: array
           minItems: 1
@@ -55622,6 +56983,106 @@ components:
             delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
             billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's unit; at most `delivered_quantity`."}
             returned_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity the returns orders for the order's billing documents take (`createReturnsOrder`), drafts included, in the item's unit; at most `billed_quantity`."}
+    SalesOrderChangeRequest:
+      type: object
+      description: "What a change of a sales order changes (`changeSalesOrder`): items' quantities and unit prices and the requested delivery date; what is absent stays."
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the order changes; kept with the change."}
+        requested_delivery_date: {type: [string, "null"], format: date, description: "The day the customer asks to be delivered on: the order's date or later; `null` clears it."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/SalesOrderItemChange"}
+          description: "The items that change, each named by its number, once."
+    SalesOrderItemChange:
+      type: object
+      description: "A change of one item of a sales order: its new quantity, its new unit price, or both."
+      required: [item_no]
+      additionalProperties: false
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The order's item that changes."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The new quantity, more than zero, in the item's own unit, and not below what is delivered of it. Absent: the quantity stays."}
+        unit_price: {$ref: "#/components/schemas/Money", description: "The new net price per `price_unit`, in the order's currency, entered (`price_source` `manual`) and final, as an entered price is (`SalesItemCreate`). Absent: an entered price stays, and a price from the price records is taken again on the order's date."}
+        price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the new unit price refers to; 1 when absent. It is sent with `unit_price` alone (422 `request.validation_failed` naming `items[i].price_unit`)."}
+    SalesOrderChange:
+      type: object
+      description: "A change of a sales order (ADR-0067, As built T78d), as it was made: never altered."
+      required: [id, change_no, sales_order_id, version, net_amount_before, net_amount_after, credit_block_before, credit_block_after, items, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, description: "The change's id.", readOnly: true}
+        change_no: {type: integer, format: int32, minimum: 1, description: "The change's number within the order, from 1.", readOnly: true}
+        sales_order_id: {type: string, format: uuid, description: "The order changed.", readOnly: true}
+        version: {type: integer, format: int32, description: "The order's version after the change.", readOnly: true}
+        reason: {type: string, description: "Why the order changed; absent when none was given.", readOnly: true}
+        net_amount_before: {$ref: "#/components/schemas/Money", description: "The order's net value before the change."}
+        net_amount_after: {$ref: "#/components/schemas/Money", description: "The order's net value after it."}
+        requested_delivery_date_before: {type: string, format: date, description: "The requested delivery date before the change; absent when there was none.", readOnly: true}
+        requested_delivery_date_after: {type: string, format: date, description: "The requested delivery date after it; absent when there is none.", readOnly: true}
+        credit_block_before:
+          type: string
+          x-extensible-enum: [none, blocked, released]
+          description: "The order's credit block before the change. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        credit_block_after:
+          type: string
+          x-extensible-enum: [none, blocked, released]
+          description: "Its credit block after it: `blocked` when the change raised a confirmed order's value beyond the customer's limit. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/SalesOrderChangeItem"}
+          description: "The items the change changed, by item number; none when it changed the requested delivery date alone."
+          readOnly: true
+        created_at: {type: string, format: date-time, description: "When the change was made.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "Who made it (`GET /v1/principals/{id}`).", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          change_no: 1
+          sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          version: 3
+          reason: The customer ordered more at the agreed price.
+          net_amount_before: {amount: "1500.00", currency: CAD}
+          net_amount_after: {amount: "1800.00", currency: CAD}
+          credit_block_before: none
+          credit_block_after: none
+          items:
+            - item_no: 1
+              quantity_before: {value: "120", unit: EA}
+              quantity_after: {value: "150", unit: EA}
+              unit_price_before: {amount: "12.50", currency: CAD}
+              unit_price_after: {amount: "12.00", currency: CAD}
+              price_unit_before: 1
+              price_unit_after: 1
+              net_amount_before: {amount: "1500.00", currency: CAD}
+              net_amount_after: {amount: "1800.00", currency: CAD}
+          created_at: "2026-11-19T11:00:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    SalesOrderChangeItem:
+      type: object
+      description: "An item a change changed, with its quantity, unit price, price unit and net value before and after."
+      required: [item_no, quantity_before, quantity_after, unit_price_before, unit_price_after, price_unit_before, price_unit_after, net_amount_before, net_amount_after]
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The order's item.", readOnly: true}
+        quantity_before: {$ref: "#/components/schemas/Quantity", description: "Its quantity before."}
+        quantity_after: {$ref: "#/components/schemas/Quantity", description: "Its quantity after."}
+        unit_price_before: {$ref: "#/components/schemas/Money", description: "Its unit price before."}
+        unit_price_after: {$ref: "#/components/schemas/Money", description: "Its unit price after."}
+        price_unit_before: {type: integer, format: int32, minimum: 1, description: "Its price unit before.", readOnly: true}
+        price_unit_after: {type: integer, format: int32, minimum: 1, description: "Its price unit after.", readOnly: true}
+        net_amount_before: {$ref: "#/components/schemas/Money", description: "Its net value before."}
+        net_amount_after: {$ref: "#/components/schemas/Money", description: "Its net value after."}
+    SalesOrderChangePage:
+      type: object
+      description: One page of a sales order's changes.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/SalesOrderChange"}
+          description: The changes on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     SalesOrderUploadCreate:
       type: object
       description: "What a direct upload of a customer's purchase order will carry."
@@ -55693,12 +57154,12 @@ components:
           x-extensible-enum: [manual, price_list]
           description: "`manual`: the item took the price printed; `price_list`: none was printed and the item took its item key's price record (its `unit_price` on the order's item). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
     SalesOrder:
-      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed, when its credit block is released (`releaseSalesOrderCreditBlock`) and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed, and with each returns order created for one of its billing documents (`createReturnsOrder`), which changes what they show as returned."
+      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed, when its credit block is released (`releaseSalesOrderCreditBlock`) and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed, and with each returns order created for one of its billing documents (`createReturnsOrder`), which changes what they show as returned. It moves too with each change (`changeSalesOrder`), its cancellation (`cancelSalesOrder`) and each billing document of it cancelled (`cancelBillingDocument`)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
           required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, order_date,
-            currency, payment_term_code, net_amount, status, credit_block, items]
+            currency, payment_term_code, net_amount, status, credit_block, changes, items]
           properties:
             document_number: {type: string, description: "The document number, from the company's `sales_order` number range.", readOnly: true}
             legal_entity_id: {type: string, format: uuid, description: "The company that took the order.", readOnly: true}
@@ -55715,9 +57176,15 @@ components:
             net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' net values."}
             status:
               type: string
-              x-extensible-enum: [draft, confirmed]
-              description: "`draft`: created; `confirmed`: confirmed, once (`:confirm`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [draft, confirmed, cancelled]
+              description: "`draft`: created; `confirmed`: confirmed, once (`:confirm`); `cancelled`: cancelled, once, with nothing delivered (`:cancel`, T78d). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
+            requested_delivery_date: {type: string, format: date, description: "The day the customer asks to be delivered on; absent when none is asked for. Changed by `changeSalesOrder`.", readOnly: true}
+            changes: {type: integer, format: int32, minimum: 0, description: "How many changes the order has had (`changeSalesOrder`); they are listed by `listSalesOrderChanges`.", readOnly: true}
+            cancellation_reason: {type: string, description: "Why the order was cancelled; absent unless `status` is `cancelled`.", readOnly: true}
+            cancelled_by: {type: string, format: uuid, description: "Who cancelled it (`GET /v1/principals/{id}`); absent unless `status` is `cancelled`.", readOnly: true}
+            cancelled_by_name: {type: string, description: "The name of who cancelled it, as it was when they cancelled it; absent unless `status` is `cancelled`.", readOnly: true}
+            cancelled_at: {type: string, format: date-time, description: "When it was cancelled; absent unless `status` is `cancelled`.", readOnly: true}
             credit_block:
               type: string
               x-extensible-enum: [none, blocked, released]
@@ -55939,8 +57406,35 @@ components:
         posting_date: {type: string, format: date, description: "The posting date of the customer invoice the document posts as; absent: today, the company's date in its time zone (`companies[].time_zone`)."}
       examples:
         - posting_date: "2026-11-20"
+    BillingDocumentCancel:
+      type: object
+      description: "Cancel a billing document (`cancelBillingDocument`)."
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the document is cancelled; kept on its cancellation."}
+        cancellation_date: {type: string, format: date, description: "The cancellation's date, and a posted document's credit memo's date and posting date: not before the billing date, nor the posting date. Absent: today, the company's date in its time zone."}
+      examples:
+        - reason: Billed at the wrong price.
+    BillingCancellation:
+      type: object
+      description: "The cancellation of a billing document (ADR-0067, As built T79c): a document of its own, with the customer credit memo that reversed a posted document's invoice."
+      required: [id, document_number, cancellation_date, reason, created_at, created_by]
+      readOnly: true
+      properties:
+        id: {type: string, format: uuid, description: "The cancellation's id: the credit memo's `source_document_id`."}
+        document_number: {type: string, description: "Its document number, from the company's `billing_document` number range."}
+        cancellation_date: {type: string, format: date, description: "Its date, and a posted document's credit memo's date and posting date."}
+        reason: {type: string, description: "Why the document was cancelled."}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer credit memo that reversed the document's invoice (`GET /v1/customer-invoices/{id}`); absent for a document cancelled before it was posted."}
+        customer_invoice_number: {type: string, description: "The credit memo's document number; absent as `customer_invoice_id` is."}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry the credit memo posted (`GET /v1/journal-entries/{id}`); absent as `customer_invoice_id` is."}
+        journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year; absent as `customer_invoice_id` is."}
+        journal_entry_number: {type: string, description: "The entry's document number; absent as `customer_invoice_id` is."}
+        created_at: {type: string, format: date-time, description: "When the document was cancelled."}
+        created_by: {type: string, format: uuid, description: "Who cancelled it (`GET /v1/principals/{id}`)."}
     BillingDocumentItem:
-      description: "An item of a billing document (ADR-0067 §9): what is billed of one item of the sales order. `quantity` is the quantity billed and `net_amount` its amount in this document; what is sold, the unit price, `price_source`, the account and the tax code are the order item's. `conditions` are the order item's too, for its whole ordered quantity: their amounts add up to the order item's net value, of which this item's `net_amount` is the share billed, so a discounted item's amount is less than its quantity at the unit price."
+      description: "An item of a billing document (ADR-0067 §9): what is billed of one item of the sales order. `quantity` is the quantity billed and `net_amount` its amount in this document; what is sold, the account and the tax code are the order item's; the unit price, `price_source` and `conditions` are the order item's as they were when it was billed (T79c: an order item's price changes once nothing of it is billed, `changeSalesOrder`). `conditions` are for the order item's whole ordered quantity: their amounts add up to the order item's net value then, of which this item's `net_amount` is the share billed, so a discounted item's amount is less than its quantity at the unit price."
       allOf:
         - $ref: "#/components/schemas/SalesItem"
         - type: object
@@ -55971,8 +57465,8 @@ components:
             net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' amounts."}
             status:
               type: string
-              x-extensible-enum: [created, posted]
-              description: "`created`: created, not posted. `posted`: posted as a customer invoice (`postBillingDocument`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [created, posted, cancelled]
+              description: "`created`: created, not posted. `posted`: posted as a customer invoice (`postBillingDocument`). `cancelled`: cancelled, once, from either (`cancelBillingDocument`, T79c): a posted one keeps what it posted with and names the credit memo that reversed it in `cancellation`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             posting_date: {type: string, format: date, description: "The date the document posted on, its customer invoice's posting date. Absent until posted.", readOnly: true}
             customer_invoice_id: {type: string, format: uuid, description: "The customer invoice the document posted as (`GET /v1/customer-invoices/{id}`): it shows the tax, the gross amount and the net due date. Absent until posted.", readOnly: true}
@@ -55980,6 +57474,7 @@ components:
             journal_entry_id: {type: string, format: uuid, description: "The journal entry the customer invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year. Absent until posted.", readOnly: true}
             journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
+            cancellation: {$ref: "#/components/schemas/BillingCancellation", description: "The document's cancellation; absent unless `status` is `cancelled`."}
             items:
               type: array
               items: {$ref: "#/components/schemas/BillingDocumentItem"}

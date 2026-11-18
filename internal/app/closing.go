@@ -16,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
+	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -121,7 +122,7 @@ func (closingLedger) LockYear(ctx context.Context, legalEntity uuid.UUID, fiscal
 }
 
 func (closingLedger) Lock(ctx context.Context, period uuid.UUID, version int32) error {
-	_, err := ledger.ClosePeriods{}.Lock(ctx, period, version)
+	_, err := ledger.ClosePeriods{Releases: payments.PeriodReleases{}}.Lock(ctx, period, version)
 	return err
 }
 

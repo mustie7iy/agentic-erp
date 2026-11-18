@@ -13,10 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -74,23 +72,37 @@ type MovedFlow struct {
 	ValueDate string      `json:"value_date"`
 	Source    string      `json:"source"`
 	Certainty string      `json:"certainty"`
-	Amount    gen.Money   `json:"amount"`
+	Amount    Recorded    `json:"amount"`
 	Base      []ShareJSON `json:"base"`
 	Proposed  []ShareJSON `json:"proposed"`
 }
 
 // ShareJSON is a flow's share of a liquidity item ("" for none).
 type ShareJSON struct {
-	Item   string    `json:"liquidity_item"`
-	Amount gen.Money `json:"amount"`
+	Item   string   `json:"liquidity_item"`
+	Amount Recorded `json:"amount"`
 }
 
 // ItemTotal is what the moved flows of a currency give an item before
 // and after the proposal.
 type ItemTotal struct {
-	Item     string    `json:"liquidity_item"`
-	Base     gen.Money `json:"base"`
-	Proposed gen.Money `json:"proposed"`
+	Item     string   `json:"liquidity_item"`
+	Base     Recorded `json:"base"`
+	Proposed Recorded `json:"proposed"`
+}
+
+// Recorded is an amount as the evidence records it, in the API's shape
+// ({"amount": "1234.56", "currency": "EUR"}, ADR-0005), kept apart from
+// the API's types: the evidence is stored, and reads back the same
+// whatever the contract becomes.
+type Recorded struct {
+	Amount   string `json:"amount"`
+	Currency string `json:"currency"`
+}
+
+// recorded is the amount in currency cur of exp minor-unit digits.
+func recorded(amount money.Minor, cur string, exp int) Recorded {
+	return Recorded{Amount: amount.Plain(exp), Currency: cur}
 }
 
 // recordedSummary is the simulation's summary as recorded: no count, since
@@ -225,13 +237,13 @@ func (r reader) moves(ctx context.Context, tx pgx.Tx, out CompanyMoves, moved []
 		}
 		if i < maxMovedListed {
 			out.Flows = append(out.Flows, MovedFlow{ValueDate: m.date.Format("2006-01-02"), Source: m.source, Certainty: m.certainty,
-				Amount: apitypes.Money(m.amount, m.currency, exp), Base: sharesJSON(m.was, m.currency, exp), Proposed: sharesJSON(m.is, m.currency, exp)})
+				Amount: recorded(m.amount, m.currency, exp), Base: sharesJSON(m.was, m.currency, exp), Proposed: sharesJSON(m.is, m.currency, exp)})
 		}
 	}
 	for _, k := range slices.SortedFunc(maps.Keys(totals), func(a, b key) int { return cmp.Or(cmp.Compare(a.currency, b.currency), cmp.Compare(a.item, b.item)) }) {
 		t := totals[k]
-		out.Totals = append(out.Totals, ItemTotal{Item: k.item, Base: apitypes.Money(t[0], k.currency, exps[k.currency]),
-			Proposed: apitypes.Money(t[1], k.currency, exps[k.currency])})
+		out.Totals = append(out.Totals, ItemTotal{Item: k.item, Base: recorded(t[0], k.currency, exps[k.currency]),
+			Proposed: recorded(t[1], k.currency, exps[k.currency])})
 	}
 	if r.sums.overflow {
 		return out, errForecastTooLarge()
@@ -243,7 +255,7 @@ func (r reader) moves(ctx context.Context, tx pgx.Tx, out CompanyMoves, moved []
 func sharesJSON(ss []Share, cur string, exp int) []ShareJSON {
 	out := make([]ShareJSON, len(ss))
 	for i, s := range ss {
-		out[i] = ShareJSON{Item: s.Item, Amount: apitypes.Money(s.Amount, cur, exp)}
+		out[i] = ShareJSON{Item: s.Item, Amount: recorded(s.Amount, cur, exp)}
 	}
 	return out
 }

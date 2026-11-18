@@ -1622,3 +1622,198 @@ capture creates a draft order at the printed price; a person confirms.
   `sales.order.capture`) and an invoice's with `getUpload`, each answering
   404 for an upload of the other purpose.
 
+
+### T78d Sales order changed and cancelled (migration 000355)
+
+`docs/design/plan-depth-1.md` §T78d (product owner 2026-11-17: the
+variants start). It lifts §5's "an order is not changed or cancelled in
+the first version" for what the slice names; SAP's VA02 change in place
+with its change documents, and its cancellation of an order with nothing
+delivered, are the reference.
+
+- `internal/sales/order_change.go` (`ChangeOrder`, `CancelOrder`,
+  `changeItems`, `planItems`, `writeChange`), `order_change_api.go`
+  (`changeSalesOrder`, `cancelSalesOrder`, `listSalesOrderChanges`);
+  `credit.go`'s `increaseCheck`; `orders.go` reads and writes the new
+  columns and `createSalesOrder` takes `requested_delivery_date`.
+- Migration 000355: on `sales.sales_order` the status `cancelled` with
+  its reason, who and when (`sales_order_cancelled`), an optional
+  `requested_delivery_date` on the order's date or later, and `changes`,
+  the number of changes kept; the change rule admits an order that is not
+  cancelled changed with a change kept under its next number, its status
+  kept and, when confirmed, its block set to `blocked`, and cancelled
+  once while nothing is delivered (`sales_order_confirmed_once`); the
+  trigger `sales_order_item_change` keeps an item with anything billed,
+  or of a cancelled order, as it is; table `sales.sales_order_change`,
+  insert-only. Schema tests in `db/sales_change_test.go`
+  (`TestSalesOrderChangeRules`).
+- `POST /v1/sales-orders/{id}:change` (`sales.order.write`, `If-Match`,
+  idempotent, human-only): items by number with a new quantity and/or
+  unit price, and `requested_delivery_date` (`null` clears it). Each
+  item changed is checked and priced again by T78a's `itemCheck.item` on
+  the order's date; an item that comes out as it was is no change, and a
+  request that changes nothing is 422 `sales.nothing_changed`. Refusals:
+  a cancelled order 409 `sales.invalid_status`; an unknown or repeated
+  item 422 `sales.unknown_order_item`, `sales.item_repeated`; another
+  unit `sales.unit_mismatch`; an item with anything billed 422
+  `sales.order_item_billed` naming `items[i]`; a quantity below what is
+  delivered 422 `sales.quantity_below_delivered`; a requested delivery
+  date before the order's date 422 `sales.invalid_requested_delivery_date`
+  (on `createSalesOrder` too); a confirmed order with a revenue contract
+  changing an item's quantity or price 409 `sales.revenue_contract_exists`
+  (its requested delivery date still changes); T78a's item refusals. The
+  kept change lists its items by item number.
+- `POST /v1/sales-orders/{id}:cancel` (`sales.order.write`, `If-Match`,
+  idempotent, human-only, a `reason`): 409 `sales.invalid_status` for an
+  order already cancelled, 409 `sales.order_delivered` for one with a
+  quantity delivered, 409 `sales.revenue_contract_exists` for a confirmed
+  one with a revenue contract. A cancelled order takes no change,
+  confirmation, delivery, billing document or credit release (409
+  `sales.invalid_status`; it keeps the block it had) and leaves the
+  customer's open orders (`OpenOrders` reads confirmed ones), with who
+  cancelled it by id and by name then (`cancelled_by_name`, as a credit
+  release keeps its releaser's).
+- **The revenue contract.** A contract holds the order items' net values
+  as its obligations' (ADR-0068 §3) and follows no change of them, so a
+  changed price or quantity, or a cancellation, would leave what is
+  recognized and what is billed never meeting. Sales declares the port
+  `RevenueContracts` (`HasContract`), the revenue context answers it
+  (`revenue.OrderContracts`) and `app.Sales` wires it: revenue already
+  imports sales, so the dependency's direction does not change. A
+  confirmed order with a contract, draft or active, keeps its items'
+  quantities and prices and is not cancelled (money rule, decided by
+  default as the safer one and listed for the product owner); a draft
+  order has none. Since a contract is made for every confirmed order in
+  its company's currency shortly after its confirmation, an item's
+  quantity or price in practice changes while the order is a draft, or
+  in the moments before its contract is made. The check is serialized
+  with the contract's making (ADR-0008): revenue reads the order under a
+  share lock (`sales.Orders.Shared`, revenue's `basisOf`) before it
+  inserts the contract, and a change or cancellation holds the order FOR
+  UPDATE before it asks, so one waits for the other and sees what it
+  committed (`TestOrderChangeRacingContract`).
+- `GET /v1/sales-orders/{id}/changes`: the changes by number, each with
+  the order's version after it, its reason, who and when, and its net
+  value, requested delivery date, credit block and items changed before
+  and after.
+- The order is read under its row lock (ADR-0008) before anything else
+  of it; the change is inserted before the order's update, which the
+  change rule finds, and the items are updated under the same lock. A
+  change and a delivery of one order wait for one another
+  (`TestOrderChangeRacingDelivery`).
+- `SalesOrderChanged` for a change (status kept, `status_before` the
+  same) and for a cancellation (`cancelled`), with `changes` and
+  `requested_delivery_date` added to the payload (optional, ADR-0041);
+  the audit records `sales.sales_order.change` (change number, reason,
+  items changed, net value before) and `sales.sales_order.cancel`
+  (reason).
+- Walkthrough step 113 (`step_sales_order_change`): Ruth sets
+  Northwind's limit 1,000.00 above its exposure; Sally creates an order,
+  changes its quantity, price and requested delivery date while it is a
+  draft and reads the change back; a stale version is refused; she
+  confirms it and changes its delivery date again (the revenue contract
+  made on confirmation, asynchronously, keeps its values, so the step
+  changes none); a second order is cancelled once, by name; step 63's
+  delivered order refuses a cancellation. The credit check of an
+  increase (blocked again, then released) is shown by
+  `TestOrderChangeCreditCheck`, where no contract is made.
+- **Decided by default:** (1) a change is a custom method (`:change`),
+  not `PATCH`, since a confirmed order is no draft (04 §4.3); (2) only an
+  item's quantity and price and the requested delivery date (a header
+  date, SAP's VBAK-VDATU; per item dates stay with schedule lines) change;
+  items are not added or removed and the payment term stays; (3) an item
+  with anything billed keeps its quantity and price, so billed amounts
+  never need working out again (cancel the billing document first,
+  T79c); (4) a changed item is priced again on the order's date: an
+  entered price stays entered, a price-list price is determined again
+  with the procedure's discounts, and its account and tax code are
+  checked again; (5) a change that raises a confirmed, unblocked order's
+  value checks the increase of its gross value against the limit, the
+  exposure already holding the order as it was, and blocks the order
+  again over it, clearing an earlier release (the audit trail keeps
+  it); a blocked order is not checked again; (6) `:change` and `:cancel`
+  take `sales.order.write` (no new permission); (7) a cancelled order's
+  quotation stays ordered; (8) a confirmed order with a revenue contract
+  keeps its items' values and is not cancelled (above); a contract that
+  follows an order's change is later.
+
+### T79c Billing document cancelled (migration 000356)
+
+`docs/design/plan-depth-1.md` §T79c (product owner 2026-11-17). It lifts
+§9's "a posted document is not reversed or cancelled in the first
+version"; SAP's billing cancellation (VF11, a cancellation document of
+its own whose accounting document reverses the invoice) is the reference.
+
+- `internal/sales/billing_cancel.go` (`CancelBilling`, `cancellable`,
+  `cancellation`, `reversal`, `insertCancellation`), `billing_api.go`
+  (`cancelBillingDocument`, the document's `cancellation`); `billing.go`
+  bills over the documents not cancelled and reads an item's pricing as
+  billed; `billing_post.go`'s published billings and `segments.go`'s net
+  revenue count a cancellation.
+- Migration 000356: table `sales.billing_cancellation` (one per document,
+  numbered once per company from the `billing_document` range, a date, a
+  reason, and a credit memo with its entry exactly when the document was
+  posted; insert-only); its trigger cancels the document (created or
+  posted, never anything else), takes the document's quantities off the
+  order items' `billed_quantity` and moves the order's version, as the
+  tables' owner; the status `cancelled`, a cancelled document keeping
+  what it posted with (`billing_document_posted` widened,
+  `billing_document_posted_once` admitting the cancellation's trigger
+  alone); `billing_document_item` keeps the unit price, price unit,
+  price source, conditions and the order item's net value it was billed
+  at, filled by a trigger from the order item (existing rows backfilled);
+  `billing_document_item_amounts` counts the documents not cancelled.
+  Schema tests in `db/sales_cancel_test.go` (`TestBillingCancellationRules`).
+- `POST /v1/billing-documents/{id}:cancel` (`sales.billing.post`,
+  `If-Match`, idempotent, human-only; `reason`, optional
+  `cancellation_date`). A posted document's invoice is reversed by a
+  receivables credit memo (kind `credit_memo`, DG) naming the invoice and
+  the cancellation as its source, the invoice's items one for one with
+  the tax each bore (`ItemInput.Tax`, as T85d gives it), so its net, tax
+  and gross are the invoice's to the minor unit; it is dated, and posts
+  on, the cancellation's date. Refusals: a cancelled document 409
+  `sales.invalid_status`; one a returns order or a credit memo request
+  not rejected names 409 `sales.billing_document_referenced`; a date
+  before the billing or posting date 422 `sales.invalid_cancellation_date`;
+  a blank reason 422 `request.validation_failed`; what receivables or the
+  ledger refuses, with their code, the document's number leading the
+  detail and its fields named (`asPosting`).
+- Locks (ADR-0008): the document FOR UPDATE, then its order FOR UPDATE,
+  the order the returns order and credit memo request creations lock
+  before they read the document, so a follow-on document and a
+  cancellation are serialized; PostCredit locks its request, then the
+  order. Two cancellations of one document: one cancels, the other gets
+  412 (`TestBillingCancelsRacing`).
+- `BillingDocumentCancelled` (not `x-webhook`, product owner 2026-11-12):
+  the cancellation by id and number, its date and reason, the net value
+  and, for a posted document, the credit memo's tax and gross, the credit
+  memo, the invoice it credits (id and number) and its entry. The audit record
+  `sales.billing_document.cancel`.
+- `sales.Orders.Order`: a cancelled posted document stays among an
+  item's billings, and its cancellation is one more, negative, on its
+  date (number, credit memo and entry its own), so revenue recognition's
+  billed-to-date (T81d) falls by it on that day. Net revenue by segment
+  (T92a) takes the document's gross and discount off on the
+  cancellation's date; a document's discount share leaves out documents
+  cancelled before it was created.
+- Walkthrough step 114 (`step_billing_cancellation`): step 113's order
+  delivered, billed, posted and cancelled; the credit memo reverses 1200,
+  4000 and 2300 by the invoice's 735.00, 700.00 and 35.00; Northwind's
+  open amount is back where it was; a new document bills the 50 brackets
+  again while the cancelled one reads as it was billed; a second
+  cancellation is refused. `TestCancelledBillingKeepsItsPrice` shows a
+  price corrected between (an order without a revenue contract).
+- **Decided by default:** (1) `:cancel` serves a created and a posted
+  document alike (SAP's VF11 for both), a custom method creating a new
+  document as 04 §4.3's corrections do; (2) the cancellation takes its
+  number from the `billing_document` range, as SAP's S1 does, so no new
+  range is configured; (3) the credit memo is not cleared against the
+  invoice: both stay open until cleared (`createClearing`) or paid, as
+  T85d's credit memo; (4) the tax given back is what the invoice bore
+  (product owner 2026-11-12, what was billed is credited), held by the
+  ledger to the code's rate on the cancellation's date; (5) a document a
+  returns order or an unrejected credit memo request names is not
+  cancelled; (6) cancelling takes `sales.billing.post`; (7) the revenue
+  contract is not changed, its run reading the negative billing; (8) the
+  analytical store's `sales_lines` (ADR-0044, the analytics context's
+  extract) lists posted documents only, so a cancelled one leaves it.

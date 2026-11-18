@@ -138,8 +138,12 @@ func (e Env) SalesVolume(tb testing.TB, legalEntity uuid.UUID, customers, orders
 		SELECT o.tenant_id, md5('b' || o.id)::uuid, 'BD' || substr(o.document_number, 3), o.legal_entity_id, o.customer_id, o.id, o.order_date + 5, o.currency,
 			o.net_amount, 'created', o.created_by, o.created_by
 		FROM sales.sales_order o WHERE o.tenant_id = $1`, e.Tenant.ID)
-	exec(`INSERT INTO sales.billing_document_item (tenant_id, billing_document_id, item_no, sales_order_id, order_item_no, quantity, net_amount)
-		SELECT i.tenant_id, md5('b' || i.sales_order_id)::uuid, i.item_no, i.sales_order_id, i.item_no, i.quantity, i.net_amount
+	// Without triggers, the pricing billing_document_item_pricing copies
+	// from the order item (000356) is written here.
+	exec(`INSERT INTO sales.billing_document_item (tenant_id, billing_document_id, item_no, sales_order_id, order_item_no, quantity, net_amount,
+			unit_price, price_unit, price_source, conditions, order_net_amount)
+		SELECT i.tenant_id, md5('b' || i.sales_order_id)::uuid, i.item_no, i.sales_order_id, i.item_no, i.quantity, i.net_amount,
+			i.unit_price, i.price_unit, i.price_source, i.conditions, i.net_amount
 		FROM sales.sales_order_item i WHERE i.tenant_id = $1`, e.Tenant.ID)
 	exec(`RESET session_replication_role`)
 	e.postBilling(tb, nil)

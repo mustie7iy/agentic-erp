@@ -1,7 +1,9 @@
 // Package blobstoretest is a test double of an S3-compatible service: an
 // in-memory bucket over HTTP that checks Signature Version 4, honours
 // If-None-Match: * and records object-lock headers (refusing a locked write
-// without a checksum, as S3 does), so the write-once store
+// without a checksum, as S3 does), and is versioned as Object Lock requires
+// (a DELETE writes a delete marker and keeps the version, locked or not),
+// so the write-once store
 // of ADR-0016 can be tested without a service (06-engineering-process §6.6).
 package blobstoretest
 
@@ -11,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,6 +52,9 @@ type Server struct {
 	// Objects by key; read it through Object or Keys while the server
 	// serves, since handlers write it concurrently.
 	Objects map[string]Object
+	// Noncurrent are the versions a DELETE hid behind a delete marker, by
+	// key, oldest first; read it through Versions while the server serves.
+	Noncurrent map[string][]Object
 	// Fail makes every call answer this status with an S3 error document
 	// (0: serve normally); FailPlain answers it with a non-XML body.
 	Fail      int
@@ -68,7 +74,7 @@ type Server struct {
 // New starts a server that stops when the test ends.
 func New(tb testing.TB) *Server {
 	tb.Helper()
-	s := &Server{Objects: map[string]Object{}}
+	s := &Server{Objects: map[string]Object{}, Noncurrent: map[string][]Object{}}
 	srv := httptest.NewServer(http.HandlerFunc(s.serve))
 	tb.Cleanup(srv.Close)
 	s.URL = srv.URL
@@ -81,6 +87,13 @@ func (s *Server) Object(key string) (Object, bool) {
 	defer s.mu.Unlock()
 	o, ok := s.Objects[key]
 	return o, ok
+}
+
+// Versions returns the versions of key that deletes hid, oldest first.
+func (s *Server) Versions(key string) []Object {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.Noncurrent[key])
 }
 
 // Keys lists the stored keys.
@@ -137,13 +150,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 func (s *Server) object(w http.ResponseWriter, r *http.Request, key string, body []byte) {
 	switch r.Method {
 	case http.MethodDelete:
+		// A versioned bucket (Object Lock requires one) answers a DELETE
+		// without a version id with a delete marker, whatever the lock: the
+		// key reads as missing and its version is kept, locked or not.
 		if o, exists := s.Objects[key]; exists {
-			if until, err := time.Parse(time.RFC3339, o.RetainUntil); err == nil && s.now().Before(until) {
-				s.answer(w, http.StatusForbidden, "AccessDenied", "Access Denied because object protected by object lock.")
-				return
-			}
+			s.Noncurrent[key] = append(s.Noncurrent[key], o)
 			delete(s.Objects, key)
 		}
+		w.Header().Set("x-amz-delete-marker", "true")
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodHead:
 		o, exists := s.Objects[key]

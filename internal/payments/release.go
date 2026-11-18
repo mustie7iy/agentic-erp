@@ -41,9 +41,10 @@ import (
 // cancelled with some payments posted is released again by the same call,
 // which resumes the work: payments already posted are skipped and stand,
 // and a payment not posted whose supplier can no longer be paid is dropped
-// (product owner 2026-11-16), where refusing would leave the run releasing
-// for good, since a run with payments posted is neither rejected nor
-// proposed again.
+// (product owner 2026-11-16), as is a down payment whose tax can no longer
+// be paid on the run date (coordinator 2026-11-17), where refusing would
+// leave the run releasing for good, since a run with payments posted is
+// neither rejected nor proposed again.
 func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, comment string) (operations.Operation, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -78,7 +79,7 @@ func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func
 		// progress on its release operation, which would set a queued one
 		// running, where no dispatcher takes it up; the failed or cancelled
 		// one it reports on here takes no progress.
-		if dropped, err = e.dropUnpaidSuppliers(ctx, tx, p, r, pays); err != nil {
+		if dropped, err = e.dropUnpayable(ctx, tx, p, r, pays); err != nil {
 			return operations.Operation{}, err
 		}
 	} else if err := e.recheck(ctx, r, pays); err != nil {
@@ -96,12 +97,16 @@ func (e *Endpoints) StartRelease(ctx context.Context, id uuid.UUID, ifMatch func
 		"resumed": resumed, "dropped": dropped})
 }
 
-// dropUnpaidSuppliers drops, from a releasing run being resumed, each
-// payment not posted yet whose supplier can no longer be paid as proposed
-// (supplierReasons), and returns how many it dropped. Posted payments are
-// not checked again: their entries stand, and their bank file is produced
-// with the release (product owner 2026-11-16).
-func (e *Endpoints) dropUnpaidSuppliers(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, r Run, pays []Payment) (int, error) {
+// dropUnpayable drops, from a releasing run being resumed, each payment
+// not posted yet whose supplier can no longer be paid as proposed
+// (supplierReasons), and each down payment whose input tax can no longer
+// be paid on the run date (checkTax: its code no longer valid then, or
+// its rate changed), and returns how many it dropped. Either would be
+// refused for good at posting (ledger.unknown_tax_code for the tax), and
+// the release with it. Posted payments are not checked again: their
+// entries stand, and their bank file is produced with the release
+// (product owner 2026-11-16).
+func (e *Endpoints) dropUnpayable(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, r Run, pays []Payment) (int, error) {
 	var unposted []Payment
 	for _, pay := range pays {
 		if pay.JournalEntryID == nil {
@@ -121,14 +126,33 @@ func (e *Endpoints) dropUnpaidSuppliers(ctx context.Context, tx pgx.Tx, actor re
 	}
 	dropped := 0
 	for _, pay := range unposted {
-		if reason := reasons[pay.ID]; reason != "" {
-			if err := e.dropPayment(ctx, tx, actor, r, pay, reason); err != nil {
+		reason, check, err := e.dropReason(ctx, r, pay, reasons[pay.ID])
+		if err != nil {
+			return dropped, err
+		}
+		if reason != "" {
+			if err := e.dropPayment(ctx, tx, actor, r, pay, reason, check); err != nil {
 				return dropped, err
 			}
 			dropped++
 		}
 	}
 	return dropped, nil
+}
+
+// dropReason is why a resumed release drops payment pay not posted yet:
+// its supplier's reason, else, for a down payment, tax_code_invalid with
+// the check naming the code and rates when its tax can no longer be paid
+// on the run date; "" when it still posts.
+func (e *Endpoints) dropReason(ctx context.Context, r Run, pay Payment, supplier string) (string, taxCheck, error) {
+	if supplier != "" || pay.Kind != KindDownPayment {
+		return supplier, taxCheck{}, nil
+	}
+	_, check, err := e.requestTax(ctx, r, pay)
+	if err != nil || check.code == nil {
+		return "", taxCheck{}, err
+	}
+	return TaxCodeInvalid, check, nil
 }
 
 // releasable: a proposed run, or a releasing one whose release operation
@@ -219,7 +243,7 @@ func (e *Endpoints) PostPayment(ctx context.Context, r Run, pay uuid.UUID) (post
 		return false, err
 	}
 	if len(unpayable) > 0 {
-		return false, e.dropPayment(ctx, tx, actor, r, p, itemReason(unpayable))
+		return false, e.dropPayment(ctx, tx, actor, r, p, itemReason(unpayable), taxCheck{})
 	}
 	hb, err := payingBank(ctx, tx, r, p)
 	if err != nil {
@@ -293,24 +317,27 @@ func itemReason(unpayable map[ledger.ItemRef]string) string {
 // dropPayment takes a payment that cannot post out of its releasing run:
 // an item it settles was reversed, or is no longer open, since the
 // proposal (neither changes back), or, when the release is resumed, its
-// supplier can no longer be paid as proposed. Its supplier is excluded with
-// the reason (for a payment of items fixing a method, those items alone),
+// supplier can no longer be paid as proposed, or a down payment's tax on
+// the run date (check, naming the code and rates as the proposal's
+// exclusion does; zero otherwise). Its supplier is excluded with the
+// reason (for a payment of items fixing a method, those items alone),
 // its items are freed here and in the ledger, the run's total no longer
 // counts it, and the release goes on with the other payments, so a run is
 // never stuck releasing on a payment no retry can post. The run is read
 // FOR UPDATE by the release step and by :release, and a dropped payment is
 // skipped by every later step, so it is dropped once.
-func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, r Run, p Payment, reason string) error {
+func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, r Run, p Payment, reason string, check taxCheck) error {
 	// The exclusion is of the group the payment pays: the supplier's items
 	// fixing its method, those that fix none, or the down payment request
 	// it pays (dropped).
 	if _, err := tx.Exec(ctx, `WITH fixed AS (INSERT INTO payments.method_exclusion (tenant_id, id, payment_run_id, supplier_id, payment_method, reason_code, amount)
 			SELECT $1, $6, $2, $3, $7, $4, $5 WHERE $8 AND $9::uuid IS NULL),
-		request AS (INSERT INTO payments.request_exclusion (tenant_id, payment_run_id, down_payment_request_id, supplier_id, reason_code, amount)
-			SELECT $1, $2, $9, $3, $4, $5 WHERE $9::uuid IS NOT NULL)
+		request AS (INSERT INTO payments.request_exclusion (tenant_id, payment_run_id, down_payment_request_id, supplier_id, reason_code, amount,
+				tax_code, request_tax_rate, run_tax_rate)
+			SELECT $1, $2, $9, $3, $4, $5, $10, $11::numeric, $12::numeric WHERE $9::uuid IS NOT NULL)
 		INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
 		SELECT $1, $2, $3, $4, $5 WHERE NOT $8 AND $9::uuid IS NULL`, actor.TenantID, r.ID, p.SupplierID, reason, p.Amount, uuid.Must(uuid.NewV7()), p.Method,
-		p.MethodFixed, p.RequestID); err != nil {
+		p.MethodFixed, p.RequestID, check.code, check.requestRate, check.runRate); err != nil {
 		return fmt.Errorf("payments: exclude supplier %s from run %s: %w", p.SupplierID, r.ID, err)
 	}
 	freed, err := tx.Exec(ctx, `UPDATE payments.payment_item SET is_active = false WHERE payment_id = $1 AND is_active`, p.ID)
@@ -489,10 +516,11 @@ func (e *Endpoints) FailRelease(ctx context.Context, r Run, why *problem.Problem
 		"cancelled": cancelled})
 }
 
-// recheck refuses the release of a proposed run when a supplier can no
-// longer be paid as proposed: blocked since, bank details changed or about
-// to, or held. Nothing is posted yet, so the run is rejected and proposed
-// again.
+// recheck refuses the release of a proposed run (StartRelease calls it
+// for no other) when a supplier can no longer be paid as proposed: blocked
+// since, bank details changed or about to, or held; a cash discount
+// lapsed, a request's tax or an item no longer payable. Nothing is posted
+// yet, so the run is rejected and proposed again.
 func (e *Endpoints) recheck(ctx context.Context, r Run, pays []Payment) error {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
@@ -552,11 +580,12 @@ func (e *Endpoints) supplierReasons(ctx context.Context, r Run, pays []Payment, 
 // day is the paying company's date in its time zone (companyDay, product
 // owner 2026-10-31, T72n3), which the refusal names: a Toronto company's
 // evening of the last day still earns it, a Dubai company's first hours of
-// the next day no longer do. A releasing run being resumed is not refused:
-// some of its payments may have posted already.
+// the next day no longer do. recheck is of a proposed run alone: a
+// releasing run being resumed is not refused, since some of its payments
+// may have posted already.
 func (e *Endpoints) recheckDiscounts(ctx context.Context, r Run, pays []Payment, doc *config.Config) error {
 	first := slices.IndexFunc(pays, func(p Payment) bool { return p.DiscountUntil != nil })
-	if r.Status != Proposed || first < 0 {
+	if first < 0 {
 		return nil
 	}
 	today, loc, err := e.companyDay(ctx, r, doc)
@@ -620,13 +649,11 @@ var unpayableText = map[string]string{ledger.ItemReversed: "reversed", ledger.It
 // recheckItems refuses the release of a proposed run with an item that
 // can no longer be paid: reversed, or no longer open, since the proposal.
 // Nothing is posted yet, so the run is rejected and proposed again. A
-// releasing run being resumed is not refused: its posted payments cleared
-// their items, and its release drops a payment that can never post
-// (dropPayment), where a refusal would leave the run releasing for good.
+// releasing run being resumed is not rechecked (recheck is of a proposed
+// run alone): its posted payments cleared their items, and its release
+// drops a payment that can never post (dropPayment), where a refusal would
+// leave the run releasing for good.
 func (e *Endpoints) recheckItems(ctx context.Context, r Run, pays []Payment) error {
-	if r.Status != Proposed {
-		return nil
-	}
 	var items []ledger.ItemRef
 	for _, pay := range pays {
 		items = append(items, itemRefs(pay)...)

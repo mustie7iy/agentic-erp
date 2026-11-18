@@ -165,7 +165,7 @@ func TestInternalOrderBudgetUpdateOnce(t *testing.T) {
 	id := uuid.MustParse(p.order(t, "FAIR-26"))
 	set := func(amount string) func(ctx context.Context) error {
 		return func(ctx context.Context) error {
-			_, err := h.UpdateInternalOrderBudget(ctx, &gen.InternalOrderBudgetUpdate{Budget: gen.Money{Amount: amount, Currency: "EUR"}},
+			_, err := h.UpdateInternalOrderBudget(ctx, &gen.InternalOrderBudgetUpdate{Budget: gen.NewOptMoney(gen.Money{Amount: amount, Currency: "EUR"})},
 				gen.UpdateInternalOrderBudgetParams{ID: id, IfMatch: `"0"`})
 			return err
 		}

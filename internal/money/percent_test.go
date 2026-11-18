@@ -82,3 +82,29 @@ func TestPercentOfSigns(t *testing.T) {
 		})
 	}
 }
+
+// TestAbovePercent: strictly above, exact at the boundary, with a zero
+// whole, and at the extremes of int64 without overflow.
+func TestAbovePercent(t *testing.T) {
+	cases := map[string]struct {
+		part, whole Minor
+		pct         int64
+		want        bool
+	}{
+		"below":                    {89, 100, 90, false},
+		"at the limit":             {90, 100, 90, false},
+		"above by a minor unit":    {9001, 10000, 90, true},
+		"beyond a whole of zero":   {1, 0, 100, true},
+		"nothing of zero":          {0, 0, 100, false},
+		"a credit":                 {-5, 100, 1, false},
+		"the largest at 999":       {math.MaxInt64, math.MaxInt64, 999, false},
+		"the largest over the one": {math.MaxInt64, 1, 999, true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := AbovePercent(c.part, c.whole, c.pct); got != c.want {
+				t.Errorf("AbovePercent(%d, %d, %d): got %v, want %v", c.part, c.whole, c.pct, got, c.want)
+			}
+		})
+	}
+}

@@ -674,7 +674,7 @@ func TestAnalyticsErrors(t *testing.T) {
 	ask := llmtest.New(t)
 	newAgent = func(*apitools.Client) *analytics.Agent {
 		r := ask.Runner()
-		return &analytics.Agent{Client: r.Client, Model: r.Model}
+		return &analytics.Agent{LLM: r}
 	}
 	t.Cleanup(func() { newAgent = defaultAgent })
 	fails(t, "script exhausted", "ask", "how", "much")
@@ -980,13 +980,13 @@ func TestAgentsUseTheGateway(t *testing.T) {
 	env := map[string]string{}
 	getenv = func(k string) string { return env[k] }
 	t.Cleanup(func() { getenv = os.Getenv })
-	if a := defaultAgent(c); a.Model != analytics.Alias {
-		t.Errorf("analytics: got %s, want %s", a.Model, analytics.Alias)
+	if a := defaultAgent(c); a.LLM.Model != analytics.Alias {
+		t.Errorf("analytics: got %s, want %s", a.LLM.Model, analytics.Alias)
 	}
 	env["ERP_AGENT_MODEL"] = "erp-default"
 	t.Setenv("ERP_AGENT_MODEL", "erp-default")
-	if a := defaultAgent(c); a.Model != "erp-default" {
-		t.Errorf("analytics with ERP_AGENT_MODEL: got %s, want erp-default", a.Model)
+	if a := defaultAgent(c); a.LLM.Model != "erp-default" {
+		t.Errorf("analytics with ERP_AGENT_MODEL: got %s, want erp-default", a.LLM.Model)
 	}
 }
 
@@ -1080,7 +1080,7 @@ func TestAskContinue(t *testing.T) {
 		llmtest.Tool("run_query", map[string]any{"measures": []string{"invoice_count"}}), dashboard, llmtest.Final("All."))
 	newAgent = func(*apitools.Client) *analytics.Agent {
 		r := ask.Runner()
-		return &analytics.Agent{Client: r.Client, Model: r.Model}
+		return &analytics.Agent{LLM: r}
 	}
 	t.Cleanup(func() { newAgent = defaultAgent })
 	got := must(t, "ask", "-companies", "2000", "-out", "reports", "how", "many")

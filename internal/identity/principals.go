@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -326,6 +327,9 @@ func BlockPrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 	if err != nil {
 		return Principal{}, err
 	}
+	if err := lockBlockers(ctx, tx, actor.ID, id); err != nil {
+		return Principal{}, err
+	}
 	p, err := getPrincipal(ctx, tx, id, true)
 	if err != nil {
 		return Principal{}, err
@@ -349,6 +353,41 @@ func BlockPrincipal(ctx context.Context, id uuid.UUID, ifMatch func(int32) error
 	return updated, audit.Record(ctx, "identity.principal.block", "identity.principal", id, map[string]any{"reason": reason},
 		outbox.Event{Context: "identity", Name: "principal_blocked", AggregateType: "identity.principal", AggregateID: id,
 			Payload: map[string]any{"principal_id": id, "kind": p.Kind, "previous_status": p.Status, "status": Blocked}})
+}
+
+// lockBlockers locks the principal to block (FOR UPDATE) and the actor
+// (FOR SHARE, which leaves the actor's other writes free), in id order,
+// and refuses an actor that is no longer active. Locking the principal
+// alone, two administrators blocking each other at once would each lock
+// only the other and both commit, leaving neither active; under these
+// locks the second waits for the first and then finds itself blocked
+// (ADR-0008). The id order keeps the two from deadlocking. An actor
+// blocking itself (refused next) takes its row FOR UPDATE at once: two
+// such requests each holding it FOR SHARE and then upgrading would
+// deadlock.
+func lockBlockers(ctx context.Context, tx pgx.Tx, actor, id uuid.UUID) error {
+	order := []uuid.UUID{actor, id}
+	switch c := bytes.Compare(id[:], actor[:]); {
+	case c == 0:
+		order = []uuid.UUID{id}
+	case c < 0:
+		order = []uuid.UUID{id, actor}
+	}
+	for _, p := range order {
+		q := `SELECT status FROM identity.principal WHERE id = $1 FOR UPDATE`
+		if p != id {
+			q = `SELECT status FROM identity.principal WHERE id = $1 FOR SHARE`
+		}
+		var status string
+		switch err := tx.QueryRow(ctx, q, p).Scan(&status); {
+		case errors.Is(err, pgx.ErrNoRows): // the target is answered 404 next; an actor without a row (a system) is not a principal to block
+		case err != nil:
+			return fmt.Errorf("identity: lock principal %s: %w", p, err)
+		case p == actor && status != Active:
+			return problem.Forbidden("identity.principal_blocked", "You were blocked or deprovisioned while this request ran; it blocks no one.")
+		}
+	}
+	return nil
 }
 
 func changedFields(pairs ...any) []string {

@@ -107,8 +107,14 @@ func TestScheduledRun(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", f, run[f], want)
 		}
 	}
-	if run["results"] != nil || len(fmt.Sprint(run["sha256"])) != 64 || run["run_as_name"] == "" {
-		t.Errorf("listed run: got %v, want no results, a SHA-256 and the owner's name", run)
+	if run["results"] != nil {
+		t.Errorf("listed run's results: got %v, want none in a list", run["results"])
+	}
+	if got := len(fmt.Sprint(run["sha256"])); got != 64 {
+		t.Errorf("listed run's SHA-256: got %d characters, want 64", got)
+	}
+	if run["run_as_name"] == "" {
+		t.Errorf("listed run's owner name: got none, want the owner's")
 	}
 	runID := apitest.String(t, run, "id")
 	got, _ := e.Must(200, "GET", "/v1/report-runs/"+runID, "", "")
@@ -123,8 +129,13 @@ func TestScheduledRun(t *testing.T) {
 		t.Errorf("CSV: got %d %s, want 2000's revenue", csv.Code, csv.Body)
 	}
 	events := apitest.Published(t, e.Tenant, outbox.Event{Context: "analytics", Name: "report_run_completed"})
-	if len(events) != 1 || events[0]["status"] != "succeeded" || events[0]["report_run_id"] != runID || events[0]["sha256"] != run["sha256"] {
-		t.Errorf("events: got %v, want the run's", events)
+	if len(events) != 1 {
+		t.Fatalf("events: got %v, want the run's one", events)
+	}
+	for f, want := range map[string]any{"status": "succeeded", "report_run_id": runID, "sha256": run["sha256"]} {
+		if events[0][f] != want {
+			t.Errorf("event %s: got %v, want %v", f, events[0][f], want)
+		}
 	}
 	if a := e.auditedRun(t, runID); len(a) != 1 || !strings.HasPrefix(a[0], "analytics.report_run.complete") {
 		t.Errorf("audit: got %v, want the run's", a)
@@ -137,9 +148,12 @@ func TestScheduledRun(t *testing.T) {
 	if got := xlsx.Header().Get("Content-Type"); xlsx.Code != 200 || got != analytics.XLSXMediaType {
 		t.Fatalf("workbook: got %d %s, want 200 %s", xlsx.Code, got, analytics.XLSXMediaType)
 	}
-	if sheet := sheetOf(t, xlsx.Body.Bytes()); !strings.Contains(sheet, `<sheet name="Report"`) || !strings.Contains(sheet, `<c r="B2" s="1"><v>500.00</v></c>`) ||
-		!strings.Contains(sheet, `<t xml:space="preserve">EUR</t>`) {
-		t.Errorf("workbook: got %s, want 2000's 500.00 EUR on the sheet Report", sheet)
+	sheet := sheetOf(t, xlsx.Body.Bytes())
+	for what, want := range map[string]string{"the sheet Report": `<sheet name="Report"`, "500.00 as a number": `<c r="B2" s="1"><v>500.00</v></c>`,
+		"its currency": `<t xml:space="preserve">EUR</t>`} {
+		if !strings.Contains(sheet, want) {
+			t.Errorf("workbook: got %s, want %s (%s)", sheet, what, want)
+		}
 	}
 	e.Problem(422, "analytics.unknown_query", "GET", "/v1/report-runs/"+runID+"?format=xlsx&query_id=nope", "", "")
 	path := filepath.Join(e.root, filepath.FromSlash(blobstore.Key(e.Tenant.ID, blobstore.KindReportRuns, runID+".json")))
@@ -273,8 +287,11 @@ func TestScheduledRunFails(t *testing.T) {
 		runID := apitest.String(t, run, "id")
 		got, _ := e.Must(200, "GET", "/v1/report-runs/"+runID, "", "")
 		failure, _ := got["failure"].(map[string]any)
-		if failure["code"] != "analytics.report_metric_removed" || got["results"] != nil || got["sha256"] != nil {
-			t.Errorf("failed run: got %v, want its problem and no results", got)
+		if failure["code"] != "analytics.report_metric_removed" {
+			t.Errorf("failed run's problem: got %v, want analytics.report_metric_removed", failure["code"])
+		}
+		if got["results"] != nil || got["sha256"] != nil {
+			t.Errorf("failed run: got results %v and SHA-256 %v, want neither", got["results"], got["sha256"])
 		}
 		e.Problem(409, "analytics.report_run_failed", "GET", "/v1/report-runs/"+runID+"?format=csv", "", "")
 		page, _ := e.Must(200, "GET", "/v1/report-runs?status=succeeded", "", "")

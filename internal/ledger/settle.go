@@ -14,7 +14,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -109,10 +108,10 @@ func payable(ctx context.Context, what, filter string, args ...any) ([]PayableIt
 		ORDER BY l.partner_id, l.fiscal_year, l.journal_entry_id, l.line_no`, args...)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PayableItem, error) {
 		var p PayableItem
-		var t storedTerms
-		err := errs.Wrapf(r.Scan(append([]any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.PostingDate, &p.Currency,
-			&p.Amount, &p.Number, &p.PaymentMethod}, append(t.fields(), &p.Withholding)...)...), "scan payable item")
-		p.Terms, p.Document = t.terms(), p.EntryID
+		var err error
+		p.Terms, err = scanWithTerms(r, "scan payable item", []any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate,
+			&p.PostingDate, &p.Currency, &p.Amount, &p.Number, &p.PaymentMethod}, &p.Withholding)
+		p.Document = p.EntryID
 		return p, err
 	})
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/llm"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 )
 
 // Repeats is how often each case runs (ADR-0039).
@@ -192,9 +193,18 @@ func spent(ctx context.Context, admin *apitools.Client, alias string) (money.Mic
 		return 0, "", []string{}, nil
 	}
 	cur, _ := at(usage, "cost.currency")
-	// The cost is in USD, the prices' currency (getAiUsage), so in cents; a
-	// currency other than the suite's is refused when the run is summed.
-	minor, err := money.ParseDecimal(text(amount), 2)
+	// The cost is in the prices' currency (getAiUsage), parsed with that
+	// currency's digits (review:batch77); a currency other than the
+	// suite's is refused when the run is summed.
+	code := text(cur)
+	if code == "" || code == "null" {
+		code = Currency // read as the prices' only for Report.add to refuse it: a cost in no stated currency stops the run
+	}
+	exp, known := currency.SeededExponent(code)
+	if !known {
+		return 0, "", nil, fmt.Errorf("eval: the usage's cost is in %s, which is no currency", code)
+	}
+	minor, err := money.ParseDecimal(text(amount), exp)
 	if err != nil {
 		return 0, "", nil, fmt.Errorf("eval: the usage's cost %s: %w", text(amount), err)
 	}

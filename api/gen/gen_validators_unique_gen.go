@@ -85,3 +85,123 @@ func validateUniqueClearingItemRef(items []ClearingItemRef) (err error) {
 
 	return nil
 }
+
+// validateUniqueIncomingPaymentItemRef checks for duplicate items using hash-based detection.
+func validateUniqueIncomingPaymentItemRef(items []IncomingPaymentItemRef) (err error) {
+	if len(items) <= 1 {
+		return nil
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(*validate.DepthLimitError); ok {
+				err = e
+			} else {
+				panic(r)
+			}
+		}
+	}()
+
+	type entry struct {
+		item  IncomingPaymentItemRef
+		index int
+	}
+	buckets := make(map[uint64][]entry, len(items))
+
+	for i, item := range items {
+		hash := item.Hash()
+		bucket := buckets[hash]
+
+		for _, existing := range bucket {
+			if item.Equal(existing.item, 0) {
+				return &validate.DuplicateItemsError{
+					Indices: []int{existing.index, i},
+				}
+			}
+		}
+
+		buckets[hash] = append(bucket, entry{item: item, index: i})
+	}
+
+	return nil
+}
+
+// validateUniqueIncomingPaymentResidualCreate checks for duplicate items using hash-based detection.
+func validateUniqueIncomingPaymentResidualCreate(items []IncomingPaymentResidualCreate) (err error) {
+	if len(items) <= 1 {
+		return nil
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(*validate.DepthLimitError); ok {
+				err = e
+			} else {
+				panic(r)
+			}
+		}
+	}()
+
+	type entry struct {
+		item  IncomingPaymentResidualCreate
+		index int
+	}
+	buckets := make(map[uint64][]entry, len(items))
+
+	for i, item := range items {
+		hash := item.Hash()
+		bucket := buckets[hash]
+
+		for _, existing := range bucket {
+			if item.Equal(existing.item, 0) {
+				return &validate.DuplicateItemsError{
+					Indices: []int{existing.index, i},
+				}
+			}
+		}
+
+		buckets[hash] = append(bucket, entry{item: item, index: i})
+	}
+
+	return nil
+}
+
+// validateUniqueMoney checks for duplicate items using hash-based detection.
+func validateUniqueMoney(items []Money) (err error) {
+	if len(items) <= 1 {
+		return nil
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(*validate.DepthLimitError); ok {
+				err = e
+			} else {
+				panic(r)
+			}
+		}
+	}()
+
+	type entry struct {
+		item  Money
+		index int
+	}
+	buckets := make(map[uint64][]entry, len(items))
+
+	for i, item := range items {
+		hash := item.Hash()
+		bucket := buckets[hash]
+
+		for _, existing := range bucket {
+			if item.Equal(existing.item, 0) {
+				return &validate.DuplicateItemsError{
+					Indices: []int{existing.index, i},
+				}
+			}
+		}
+
+		buckets[hash] = append(bucket, entry{item: item, index: i})
+	}
+
+	return nil
+}

@@ -122,42 +122,33 @@ func start(w operations.Waiting, queue string) workflow.Start {
 }
 
 // RunOnce dispatches every pending proposal and returns how many it started.
+//
+// A round reads what to start in one read-only transaction and closes it
+// before calling the engine, and records each started workflow in a
+// transaction of its own: no row lock (an operation's, an approval
+// request's) is held across a call to the engine, so a slow engine never
+// keeps a person deciding a request waiting on the dispatcher. Recording
+// apart from the start is safe because the workflow id is derived from
+// the business key: a round that starts and fails to record is followed by
+// one that starts the same id, which the engine answers as known.
 func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
-	tx, err := d.begin(ctx, database.Scope{Role: d.WorkerRole})
+	r, err := d.read(ctx)
 	if err != nil {
 		return 0, err
 	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	jobs, err := queued(ctx, tx)
+	n, failures, err := d.startRecorded(ctx, r.recorded)
 	if err != nil {
-		return 0, err
+		return n, err
 	}
-	n := 0
-	var failures []error
-	for _, j := range jobs {
-		s := start(j, d.Queue)
-		id := s.ID
-		started, err := d.Client.Start(ctx, s)
-		if err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		if _, err := tx.Exec(ctx, `UPDATE platform.operation SET workflow_id = $3, version = version + 1 WHERE tenant_id = $1 AND id = $2`, j.TenantID, j.ID, id); err != nil {
-			return n, fmt.Errorf("dispatcher: recording the workflow of operation %s: %w", j.ID, err)
-		}
-		if started {
-			n++
-		}
-	}
-	for _, step := range []func(context.Context, pgx.Tx) (int, error){d.watch, d.fetch, d.fetchEInvoices} {
-		k, err := step(ctx, tx)
+	for _, p := range []struct {
+		due  periodic
+		done *time.Time
+	}{{r.statements, &d.fetched}, {r.einvoices, &d.einvoicesFetched}} {
+		k, err := d.startPeriodic(ctx, p.due, p.done)
 		n += k
 		if err != nil {
 			failures = append(failures, err)
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return n, fmt.Errorf("dispatcher: committing the started workflows: %w", err)
 	}
 	for _, step := range []func(context.Context) (int, error){d.recur, d.snapshot} {
 		k, err := step(ctx)
@@ -167,6 +158,118 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 		}
 	}
 	return n, errors.Join(failures...)
+}
+
+// recorded is a workflow to start and how to record it once started.
+type recorded struct {
+	start  workflow.Start
+	record func(context.Context, pgx.Tx) error
+}
+
+// periodic are a period's scheduled starts; due is false when the period
+// was started already by this dispatcher, or none is configured.
+type periodic struct {
+	at     time.Time
+	due    bool
+	starts []workflow.Start
+}
+
+// roundReads is what a round starts, as read before the engine is called.
+type roundReads struct {
+	recorded   []recorded // queued operations, then unwatched approval requests
+	statements periodic
+	einvoices  periodic
+}
+
+// read reads a round's work in one read-only transaction, closed before
+// any workflow starts.
+func (d *Dispatcher) read(ctx context.Context) (roundReads, error) {
+	tx, err := d.begin(ctx, database.Scope{Role: d.WorkerRole, ReadOnly: true})
+	if err != nil {
+		return roundReads{}, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	var r roundReads
+	jobs, err := queued(ctx, tx)
+	if err != nil {
+		return roundReads{}, err
+	}
+	for _, j := range jobs {
+		s := start(j, d.Queue)
+		r.recorded = append(r.recorded, recorded{start: s, record: recordOperation(j, s.ID)})
+	}
+	watches, err := d.watches(ctx, tx)
+	if err != nil {
+		return roundReads{}, err
+	}
+	r.recorded = append(r.recorded, watches...)
+	if r.statements, err = d.fetches(ctx, tx); err != nil {
+		return roundReads{}, err
+	}
+	if r.einvoices, err = d.einvoiceFetches(ctx, tx); err != nil {
+		return roundReads{}, err
+	}
+	return r, nil
+}
+
+// recordOperation records the workflow started for a queued operation.
+func recordOperation(j operations.Waiting, workflowID string) func(context.Context, pgx.Tx) error {
+	return func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE platform.operation SET workflow_id = $3, version = version + 1 WHERE tenant_id = $1 AND id = $2`,
+			j.TenantID, j.ID, workflowID); err != nil {
+			return fmt.Errorf("dispatcher: recording the workflow of operation %s: %w", j.ID, err)
+		}
+		return nil
+	}
+}
+
+// startRecorded starts each workflow and records it in a transaction of
+// its own. A refused start does not stop the others and is returned among
+// failures; a failed record stops the round (err).
+func (d *Dispatcher) startRecorded(ctx context.Context, work []recorded) (n int, failures []error, err error) {
+	for _, w := range work {
+		started, err := d.Client.Start(ctx, w.start)
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if err := d.inTx(ctx, w.record); err != nil {
+			return n, failures, err
+		}
+		if started {
+			n++
+		}
+	}
+	return n, failures, nil
+}
+
+// inTx runs fn in a transaction of the worker role and commits it.
+func (d *Dispatcher) inTx(ctx context.Context, fn func(context.Context, pgx.Tx) error) error {
+	tx, err := d.begin(ctx, database.Scope{Role: d.WorkerRole})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	if err := fn(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("dispatcher: committing a started workflow: %w", err)
+	}
+	return nil
+}
+
+// startPeriodic starts a due period's workflows and, when none failed,
+// marks the period done for this dispatcher.
+func (d *Dispatcher) startPeriodic(ctx context.Context, p periodic, done *time.Time) (int, error) {
+	if !p.due {
+		return 0, nil
+	}
+	n, err := d.startAll(ctx, p.starts)
+	if err == nil {
+		*done = p.at
+	}
+	return n, err
 }
 
 // queued reads the operations waiting for a workflow: payment proposals
@@ -204,100 +307,89 @@ func DeadlineWorkflowID(tenant, request uuid.UUID) string {
 	return fmt.Sprintf("%s-approval_request-%s-deadline", tenant, request)
 }
 
-// watch starts a deadline workflow for every pending approval request that
-// has none and records it on the request; with no escalation period it
-// watches none.
-func (d *Dispatcher) watch(ctx context.Context, tx pgx.Tx) (int, error) {
+// watches lists a deadline workflow for every pending approval request
+// that has none, recorded on the request once started; with no escalation
+// period it watches none.
+func (d *Dispatcher) watches(ctx context.Context, tx pgx.Tx) ([]recorded, error) {
 	if d.Deadline <= 0 {
-		return 0, nil
+		return nil, nil
 	}
 	pending, err := approvals.Unwatched(ctx, tx)
 	if err != nil {
-		return 0, fmt.Errorf("dispatcher: %w", err)
+		return nil, fmt.Errorf("dispatcher: %w", err)
 	}
-	n := 0
-	var failures []error
-	for _, q := range pending {
+	watches := make([]recorded, len(pending))
+	for i, q := range pending {
 		id := DeadlineWorkflowID(q.TenantID, q.ID)
-		started, err := d.Client.Start(ctx, workflow.Start{ID: id, Queue: d.Queue, Name: DeadlineWorkflow,
-			Args: []any{DeadlineInput{TenantID: q.TenantID, RequestID: q.ID, After: d.Deadline, Max: d.Escalations}}})
-		if err != nil {
-			failures = append(failures, err)
-			continue
-		}
-		if err := approvals.Watched(ctx, tx, q.TenantID, q.ID, id); err != nil {
-			return n, fmt.Errorf("dispatcher: %w", err)
-		}
-		if started {
-			n++
+		watches[i] = recorded{
+			start: workflow.Start{ID: id, Queue: d.Queue, Name: DeadlineWorkflow,
+				Args: []any{DeadlineInput{TenantID: q.TenantID, RequestID: q.ID, After: d.Deadline, Max: d.Escalations}}},
+			record: func(ctx context.Context, tx pgx.Tx) error {
+				if err := approvals.Watched(ctx, tx, q.TenantID, q.ID, id); err != nil {
+					return fmt.Errorf("dispatcher: %w", err)
+				}
+				return nil
+			},
 		}
 	}
-	return n, errors.Join(failures...)
+	return watches, nil
 }
 
-// fetch starts, once per period, a statement fetch for every active house
-// bank whose bank channel names statement directories (ADR-0047, T49d).
-// The workflow id names the period, so the engine starts each once however
-// many replicas dispatch; a period started with no failure is not looked
-// at again by this dispatcher. With no period it fetches none.
-func (d *Dispatcher) fetch(ctx context.Context, tx pgx.Tx) (int, error) {
+// fetches lists, once per period, a statement fetch for every active
+// house bank whose bank channel names statement directories (ADR-0047,
+// T49d). The workflow id names the period, so the engine starts each once
+// however many replicas dispatch; a period started with no failure is not
+// looked at again by this dispatcher. With no period it fetches none.
+func (d *Dispatcher) fetches(ctx context.Context, tx pgx.Tx) (periodic, error) {
 	if d.Statements <= 0 {
-		return 0, nil
+		return periodic{}, nil
 	}
 	slot := clock.Now(d.Now).UTC().Truncate(d.Statements)
 	if slot.Equal(d.fetched) {
-		return 0, nil
+		return periodic{}, nil
 	}
 	channels, err := integration.StatementChannels(ctx, tx)
 	if err != nil {
-		return 0, fmt.Errorf("dispatcher: %w", err)
+		return periodic{}, fmt.Errorf("dispatcher: %w", err)
 	}
 	banks, err := payments.ChannelBanks(ctx, tx)
 	if err != nil {
-		return 0, fmt.Errorf("dispatcher: %w", err)
+		return periodic{}, fmt.Errorf("dispatcher: %w", err)
 	}
-	var starts []workflow.Start
+	p := periodic{at: slot, due: true}
 	for _, b := range banks {
 		if channels[integration.TenantConnector{TenantID: b.TenantID, ID: b.ConnectorID}] {
-			starts = append(starts, workflow.Start{ID: FetchWorkflowID(b.TenantID, b.HouseBankID, slot), Queue: d.Queue, Name: FetchWorkflow,
+			p.starts = append(p.starts, workflow.Start{ID: FetchWorkflowID(b.TenantID, b.HouseBankID, slot), Queue: d.Queue, Name: FetchWorkflow,
 				Args: []any{FetchInput{TenantID: b.TenantID, HouseBankID: b.HouseBankID}}})
 		}
 	}
-	n, err := d.startAll(ctx, starts)
-	if err == nil {
-		d.fetched = slot
-	}
-	return n, err
+	return p, nil
 }
 
-// fetchEInvoices starts, once per period, an e-invoice fetch from every
+// einvoiceFetches lists, once per period, an e-invoice fetch from every
 // active einvoice_provider connector of an active tenant (ADR-0061 §4).
-// As fetch's, the workflow id names the connector and the period, so the
+// As fetches', the workflow id names the connector and the period, so the
 // engine starts each once however many replicas dispatch, and a period
 // started with no failure is not looked at again. With no period it
 // fetches none.
-func (d *Dispatcher) fetchEInvoices(ctx context.Context, tx pgx.Tx) (int, error) {
+func (d *Dispatcher) einvoiceFetches(ctx context.Context, tx pgx.Tx) (periodic, error) {
 	if d.EInvoices <= 0 {
-		return 0, nil
+		return periodic{}, nil
 	}
 	period := clock.Now(d.Now).UTC().Truncate(d.EInvoices)
 	if period.Equal(d.einvoicesFetched) {
-		return 0, nil
+		return periodic{}, nil
 	}
 	connectors, err := integration.EInvoiceConnectors(ctx, tx)
 	if err != nil {
-		return 0, fmt.Errorf("dispatcher: %w", err)
+		return periodic{}, fmt.Errorf("dispatcher: %w", err)
 	}
-	starts := make([]workflow.Start, len(connectors))
+	p := periodic{at: period, due: true, starts: make([]workflow.Start, len(connectors))}
 	for i, c := range connectors {
-		starts[i] = workflow.Start{ID: ScheduledEInvoiceFetchWorkflowID(c.TenantID, c.ID, period), Queue: d.Queue, Name: ScheduledEInvoiceFetchWorkflow,
+		p.starts[i] = workflow.Start{ID: ScheduledEInvoiceFetchWorkflowID(c.TenantID, c.ID, period), Queue: d.Queue, Name: ScheduledEInvoiceFetchWorkflow,
 			Args: []any{ScheduledEInvoiceFetchInput(c.TenantID, c.ID, period)}}
 	}
-	n, err := d.startAll(ctx, starts)
-	if err == nil {
-		d.einvoicesFetched = period
-	}
-	return n, err
+	return p, nil
 }
 
 // startAll starts each workflow and says how many the engine started (one

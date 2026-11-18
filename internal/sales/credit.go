@@ -294,16 +294,69 @@ func (e *Endpoints) creditCheck(ctx context.Context, tx pgx.Tx, o Order, le tena
 	if c.gross, c.amount, err = v.value(ctx, openOrder{Number: o.DocumentNumber, Date: o.OrderDate, Currency: o.Currency, Lines: lines}); err != nil {
 		return checked{}, err
 	}
+	if err := e.askCredit(ctx, o, le, &c); err != nil {
+		return checked{}, err
+	}
+	return c, companyExponent(ctx, tx, le, &c)
+}
+
+// askCredit asks credit whether c's amount is within the order's
+// customer's limit and blocks c when it is not.
+func (e *Endpoints) askCredit(ctx context.Context, o Order, le tenancy.Entity, c *checked) error {
+	var err error
 	if c.answer, err = e.Credit.Check(ctx, le.ID, o.CustomerID, c.amount); err != nil {
-		return checked{}, fmt.Errorf("sales: credit check of sales order %s: %w", o.DocumentNumber, err)
+		return fmt.Errorf("sales: credit check of sales order %s: %w", o.DocumentNumber, err)
 	}
 	if !c.answer.Within {
 		c.block = Blocked
 	}
-	if c.exp, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil { // a legal entity's currency exists
-		return checked{}, fmt.Errorf("sales: currency of company %s: %w", le.Code, err)
+	return nil
+}
+
+// companyExponent gives c the company currency's minor-unit digits, in
+// which the audit record writes the check's amounts.
+func companyExponent(ctx context.Context, tx pgx.Tx, le tenancy.Entity, c *checked) error {
+	exp, err := currency.Exponent(ctx, tx, le.LocalCurrency, nil) // a legal entity's currency exists
+	if err != nil {
+		return fmt.Errorf("sales: currency of company %s: %w", le.Code, err)
 	}
-	return c, nil
+	c.exp = exp
+	return nil
+}
+
+// increaseCheck checks a change that raises a confirmed order's value
+// against its customer's credit limit (ADR-0066; ADR-0067, As built
+// T78d): the increase of the order's gross value in the company's
+// currency, the items after the change valued as the items before it
+// are, with the customer's exposure, which holds the order's open part
+// before the change already. An increase that is not within the limit
+// blocks the order again; a customer without a limit is never blocked.
+func (e *Endpoints) increaseCheck(ctx context.Context, tx pgx.Tx, o Order, after []OrderItem, le tenancy.Entity) (checked, error) {
+	v, err := e.valuation(ctx, le)
+	if err != nil {
+		return checked{}, err
+	}
+	value := func(items []OrderItem) (money.Minor, money.Minor, error) {
+		lines := make([]openLine, len(items))
+		for i, it := range items {
+			lines[i] = openLine{ItemNo: it.ItemNo, Net: it.Net, TaxCode: it.TaxCode}
+		}
+		return v.value(ctx, openOrder{Number: o.DocumentNumber, Date: o.OrderDate, Currency: o.Currency, Lines: lines})
+	}
+	c := checked{block: NoBlock}
+	var inCompany [2]money.Minor // before and after the change
+	for i, items := range [][]OrderItem{o.Items, after} {
+		if c.gross, inCompany[i], err = value(items); err != nil {
+			return checked{}, err
+		}
+	}
+	c.amount = inCompany[1] - inCompany[0] // two amounts in range, neither negative
+	if c.amount > 0 {                      // a change that does not raise the value in the company's currency takes no room
+		if err := e.askCredit(ctx, o, le, &c); err != nil {
+			return checked{}, err
+		}
+	}
+	return c, companyExponent(ctx, tx, le, &c)
 }
 
 // blockedEvent is SalesOrderCreditBlocked for the confirmed order: its
@@ -350,6 +403,9 @@ func (e *Endpoints) ReleaseCreditBlock(ctx context.Context, id uuid.UUID, ifMatc
 	}
 	if err := ifMatch(o.Version); err != nil {
 		return Order{}, err
+	}
+	if o.Status == Cancelled {
+		return Order{}, problem.Conflict("sales.invalid_status", "Sales order "+o.DocumentNumber+" is cancelled; its credit block is not released.")
 	}
 	if o.CreditBlock != Blocked {
 		return Order{}, problem.Conflict("sales.order_not_credit_blocked",

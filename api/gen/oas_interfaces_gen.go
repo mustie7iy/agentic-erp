@@ -61,6 +61,10 @@ type ApplyCountryPackRes interface {
 	applyCountryPackRes()
 }
 
+type ApplyIncomingPaymentOnAccountRes interface {
+	applyIncomingPaymentOnAccountRes()
+}
+
 type ApplyPlanBatchRes interface {
 	applyPlanBatchRes()
 }
@@ -109,6 +113,10 @@ type CancelAssetRes interface {
 	cancelAssetRes()
 }
 
+type CancelBillingDocumentRes interface {
+	cancelBillingDocumentRes()
+}
+
 type CancelContractRes interface {
 	cancelContractRes()
 }
@@ -145,6 +153,10 @@ type CancelRevaluationRunRes interface {
 	cancelRevaluationRunRes()
 }
 
+type CancelSalesOrderRes interface {
+	cancelSalesOrderRes()
+}
+
 type CancelSupplierInvoiceRes interface {
 	cancelSupplierInvoiceRes()
 }
@@ -155,6 +167,10 @@ type CaptureSalesOrderRes interface {
 
 type CaptureSupplierInvoiceRes interface {
 	captureSupplierInvoiceRes()
+}
+
+type ChangeSalesOrderRes interface {
+	changeSalesOrderRes()
 }
 
 type CheckCloseTaskRes interface {
@@ -325,6 +341,10 @@ type CreateDownPaymentRequestRes interface {
 	createDownPaymentRequestRes()
 }
 
+type CreateDunningBlockRes interface {
+	createDunningBlockRes()
+}
+
 type CreateDunningRunRes interface {
 	createDunningRunRes()
 }
@@ -355,6 +375,10 @@ type CreateHierarchyRes interface {
 
 type CreateIncomingPaymentRes interface {
 	createIncomingPaymentRes()
+}
+
+type CreateInternalOrderBudgetChangeRes interface {
+	createInternalOrderBudgetChangeRes()
 }
 
 type CreateInternalOrderRes interface {
@@ -835,6 +859,10 @@ type GetDisputeCaseRes interface {
 
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
+}
+
+type GetDunningBlockRes interface {
+	getDunningBlockRes()
 }
 
 type GetDunningRunRes interface {
@@ -1417,6 +1445,10 @@ type ListDownPaymentRequestsRes interface {
 	listDownPaymentRequestsRes()
 }
 
+type ListDunningBlocksRes interface {
+	listDunningBlocksRes()
+}
+
 type ListDunningNoticesRes interface {
 	listDunningNoticesRes()
 }
@@ -1487,6 +1519,10 @@ type ListIntercompanyDifferencesRes interface {
 
 type ListInternalOrderBalancesRes interface {
 	listInternalOrderBalancesRes()
+}
+
+type ListInternalOrderBudgetChangesRes interface {
+	listInternalOrderBudgetChangesRes()
 }
 
 type ListInternalOrderSettlementsRes interface {
@@ -1715,6 +1751,10 @@ type ListRolesRes interface {
 
 type ListSalesDeliveriesRes interface {
 	listSalesDeliveriesRes()
+}
+
+type ListSalesOrderChangesRes interface {
+	listSalesOrderChangesRes()
 }
 
 type ListSalesOrdersRes interface {
@@ -1985,6 +2025,10 @@ type ReleaseCreditMemoRequestRes interface {
 	releaseCreditMemoRequestRes()
 }
 
+type ReleaseDunningBlockRes interface {
+	releaseDunningBlockRes()
+}
+
 type ReleaseInternalOrderRes interface {
 	releaseInternalOrderRes()
 }
@@ -2083,6 +2127,10 @@ type ReverseAssetTransferRes interface {
 
 type ReverseGoodsReceiptRes interface {
 	reverseGoodsReceiptRes()
+}
+
+type ReverseInternalOrderSettlementRes interface {
+	reverseInternalOrderSettlementRes()
 }
 
 type ReverseJournalEntryRes interface {

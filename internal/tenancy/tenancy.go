@@ -133,7 +133,10 @@ func getOU(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (OrgUnit, er
 	}
 	q := `SELECT ` + ouColumns + ` FROM tenancy.org_unit WHERE id = $1`
 	if lock {
-		q += ` FOR UPDATE`
+		// NO KEY UPDATE, as the update of its columns takes: a FOR UPDATE
+		// would wait for, and be waited on by, a move under this unit,
+		// whose parent foreign key holds it FOR KEY SHARE (ADR-0008).
+		q += ` FOR NO KEY UPDATE`
 	}
 	u, err := scanOU(tx.QueryRow(ctx, q, id))
 	if err = authz.Visible(err, access, u.LegalEntityID, problem.NotFoundOf("org unit"), "tenancy: read org unit %s", id); err != nil {
@@ -348,6 +351,19 @@ func checkParent(ctx context.Context, tx pgx.Tx, legalEntity, self uuid.UUID, pa
 	return nil
 }
 
+// lockOrgTree serializes the moves within a legal entity's org unit tree
+// until the transaction ends. Each move locks only its own unit, so two
+// moves made at once (a under b, b under a) would each check ancestors
+// that the other is changing and together commit a cycle; under this lock
+// the second checks the tree after the first committed (ADR-0008).
+func lockOrgTree(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('tenancy.org_unit_tree:' || platform.require_tenant() || ':' || $1::text, 0))`,
+		legalEntity); err != nil {
+		return fmt.Errorf("tenancy: lock the org unit tree of legal entity %s: %w", legalEntity, err)
+	}
+	return nil
+}
+
 // OrgUnitChange is a merge patch of an org unit.
 type OrgUnitChange struct {
 	Name     *string
@@ -374,6 +390,9 @@ func UpdateOrgUnit(ctx context.Context, id uuid.UUID, ifMatch func(int32) error,
 	}
 	if ch.Parent {
 		parent = ch.ParentID
+		if err := lockOrgTree(ctx, tx, u.LegalEntityID); err != nil {
+			return OrgUnit{}, err
+		}
 		if err := checkParent(ctx, tx, u.LegalEntityID, u.ID, parent); err != nil {
 			return OrgUnit{}, err
 		}

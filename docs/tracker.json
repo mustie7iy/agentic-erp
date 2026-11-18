@@ -925,6 +925,20 @@
        },
        {
         "s": "D",
+        "t": "A vendor's payments bank account is the same on every run: the one with the lowest bank details ID (A_BusinessPartnerBank's BankIdentification, then LFBK's key), not the first in extract order, which an OData extract paged without $orderby did not fix; the quality gate warns of every vendor with more than one account (R5 B1 of the batch 77 review; coordinator 2026-11-17, ERP practice)",
+        "r": "sap.LoadedBanks, LFBK.BKVID · integration load, vendorBanks, bankAccounts · TestLoadedBanks · TestVendorWithTwoBankAccounts · ADR-0034 As built",
+        "src": "review:batch77",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A migration run extracts its company codes in sorted order and every OData page is ordered by its entity set's keys ($orderby), so two runs of a scope read, check and load in the same order and $skip paging neither repeats nor misses a row (R5 B2 of the batch 77 review)",
+        "r": "integration prepare (company codes sorted) · sap.EntityMapping.Keys, ODataSource.fetch $orderby · TestODataPagesInKeyOrder · TestRunExtractsCompaniesInOrder · ADR-0034 As built",
+        "src": "review:batch77",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "House banks show their Canadian routing (pre-existing finding on T72d, API-consumer classes): listHouseBanks returns institution and transit numbers, and account_last4 is not described as of the IBAN",
         "r": "api/openapi.yaml HouseBank · internal/payments",
         "src": "review:T72d",
@@ -1097,8 +1111,15 @@
      {
       "s": "D",
       "t": "A resumed release (:release of a run whose release failed or was cancelled with payments posted) checks again only the payments not posted and drops each whose supplier can no longer be paid as proposed, its items back to open and the supplier excluded with the reason (bank_account_changed new), a down payment's by its request; before, it refused the whole run, which stayed releasing for good (R4 B1 of the batch 76 review).",
-      "r": "internal/payments StartRelease, dropUnpaidSuppliers, supplierReasons, dropPayment, dropped (down payments) · migrations 000348-000349 · api/openapi.yaml exclusion reason_code · api/asyncapi.yaml PaymentExcludedV1 · ADR-0038 as built · TestResumedReleaseDropsUnpayableSuppliers · db TestExclusionReasons",
+      "r": "internal/payments StartRelease, dropUnpaidSuppliers (dropUnpayable since review:batch77), supplierReasons, dropPayment, dropped (down payments) · migrations 000348-000349 · api/openapi.yaml exclusion reason_code · api/asyncapi.yaml PaymentExcludedV1 · ADR-0038 as built · TestResumedReleaseDropsUnpayableSuppliers · db TestExclusionReasons",
       "src": "po:2026-11-16 · review:batch76",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A payment run's release stopped with payments posted is no longer stuck for good by its period or a down payment's tax code (R4 B1 of the batch 77 review): closing or locking the run date's period is refused (409 ledger.payment_release_pending) while a run of the company is releasing with payments not posted yet dated in it, and a resumed release drops a down payment whose tax can no longer be paid on the run date (tax_code_invalid, its request excluded).",
+      "r": "internal/ledger releasing.go (PaymentReleases, noRelease), periods.go ClosePeriod/LockPeriod, ClosePeriods and ReturnPeriods Releases · internal/payments releasing.go PeriodReleases, release.go dropUnpayable/dropReason, downpayments.go requestTax · api/openapi.yaml closeFiscalPeriod, lockFiscalPeriod, signOffPeriodClose, signOffYearClose, fileTaxReturn problem codes and exclusion reason_code · api/asyncapi.yaml PaymentExcludedV1 · ADR-0038 as built · TestReleaseHoldsItsPeriodOpen, TestResumedReleaseDropsAnEndedTaxCode, TestNoRelease",
+      "src": "review:batch77",
       "c": []
      }
     ]
@@ -1156,9 +1177,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "An AR accountant applies a receipt that is less than the invoices it pays: a residual item keeps the rest open, linked to the invoice with a reason, or a difference within the company's payment tolerance is written off (an overpayment within tolerance kept as revenue)",
+        "r": "T75f · docs/design/plan-depth-1.md §T75f · residual on POST /v1/incoming-payments items, companies[].receivables.payment_tolerance, account determination payment_difference_expense and payment_difference_revenue · db/migrations/000350, 000351 · ledger.Postings.ApplyReceipt (internal/ledger/receiptdiff.go) · walkthrough step_partial_payment · ADR-0063 §6 and As built",
+        "src": "split:T75c · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "An AR accountant puts a receipt, or what it leaves after the invoices, on the customer's account as an unapplied credit, and later applies that credit to the customer's open items in full or in part",
+        "r": "T75g · docs/design/plan-depth-1.md §T75g · on_account on POST /v1/incoming-payments, POST /v1/incoming-payments/{id}/applications · db/migrations/000352 · receivables.incoming_payment_application · IncomingPaymentOnAccountApplied · walkthrough step_payment_on_account · ADR-0063 §6 and As built",
+        "src": "split:T75c · adr:ADR-0063",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: incoming payment variants: partial payments and residual items, payments on account, payment differences and tolerances, one receipt for several customers, a receipt in another currency than the items, undoing an application, matching by rule and agent proposals from statement lines, receipts without a statement, direct debits, refunds (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T75c, Later",
+        "t": "later: incoming payment variants: one receipt for several customers, a receipt in another currency than the items, undoing an application, matching by rule and agent proposals from statement lines, receipts without a statement, direct debits, refunds, reason codes from configuration, output tax corrected on a payment difference (partial payments with residual items, payment differences and tolerances, and payments on account are T75f and T75g; after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75c, Later · docs/design/plan-depth-1.md §recv, Later",
         "src": "po:2026-11-10 · design:03 §3.16 · adr:ADR-0047",
         "c": []
        }
@@ -2038,6 +2073,13 @@
       "r": "T64 · ADR-0058 §7 · T64d · done by T64d (sign-off locks the period through T32) under Financial close designed",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "The web workspace explains a period close, lock, sign-off or tax filing refused with ledger.payment_release_pending (409, a payment run of the company still releasing with unposted payments dated in the period) only with the generic refusal: PeriodProblems has no message for the code (found in the batch 77 integration review).",
+      "r": "internal/web/i18n problems.go PeriodProblems · locales en.json, fr-CA.json · internal/web close.go, period.go, close_checks.go explainIn · ADR-0038 As built (coordinator 2026-11-17, decision 1)",
+      "src": "review:batch77",
+      "c": []
      }
     ]
    },
@@ -2779,7 +2821,14 @@
        },
        {
         "s": "T",
-        "t": "later: revenue contract variants: combining several orders into one contract and one order into several, obligations that are not order items (bundles, implied promises, options and material rights, warranties), contract modifications, contracts in a foreign currency, contracts without a sales order, principal or agent, costs to obtain and fulfil a contract, disclosures, taking contracts over from SAP RAR (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "A revenue contract follows a change of its sales order: changed quantities or prices update its obligations' order values and the transaction price's allocation, and a cancelled order ends the contract's unrecognized obligations (split from the revenue contract variants placeholder after T78d).",
+        "r": "T81e · split from docs/design/plan-breadth-week2.md §T81a, Later · T78d sales order change and cancel · ADR-0068",
+        "src": "split:T81a",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: revenue contract variants: combining several orders into one contract and one order into several, obligations that are not order items (bundles, implied promises, options and material rights, warranties), contract modifications other than a change or cancellation of the sales order, contracts in a foreign currency, contracts without a sales order, principal or agent, costs to obtain and fulfil a contract, disclosures, taking contracts over from SAP RAR (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T81a, Later · contracts created automatically are built with T81a (product owner 2026-11-12, ADR-0068 §4)",
         "src": "po:2026-11-10 · po:2026-11-12 · design:01 §1.2",
         "c": []
@@ -2967,9 +3016,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A credit controller's dunning run charges each notice its level's dunning charge and interest on the items of the levels that charge it, at the company's annual rate for the days overdue; it leaves out items within the company's grace days and the notices below its minimum amount, which it counts",
+        "r": "T76d · docs/design/plan-depth-1.md §T76d · db/migrations/000353 · companies[].dunning grace_days, minimum_amount, interest_rate_percent, levels[].charge, .interest (tier 2) · dunning_run, dunning_notice, dunning_notice_item charges and interest · DunningRun, DunningNotice, DunningNoticeItem · DunningNoticeIssued, DunningRunChanged · walkthrough step_dunning_charges · ADR-0065 As built",
+        "src": "split:T76b · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A credit controller blocks a customer or one of its open items from dunning in a company, with a reason and an end date, and releases the block; a dunning run leaves blocked items out and names them, and a proposal with an item blocked since is stale",
+        "r": "T76e · docs/design/plan-depth-1.md §T76e · db/migrations/000354 · collections.dunning_block · dunning_run.blocked_items · POST /v1/dunning-blocks · GET /v1/dunning-blocks · GET /v1/dunning-blocks/{id} · POST /v1/dunning-blocks/{id}:release · collections.dunning.block · walkthrough step_dunning_blocks · ADR-0065 As built",
+        "src": "split:T76b · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: dunning variants: charges and interest, letters and e-mails, grace days and minimum amounts, dunning blocks, procedures per customer, scheduled and large runs as a workflow, cancelling a confirmed run (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T76b, Later",
+        "t": "later: dunning variants: letters and e-mails, procedures per customer, charges and minimum amounts per currency, posting dunning charges and interest, blocks in the collection worklist, scheduled and large runs as a workflow, cancelling a confirmed run (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T76b, Later · docs/design/plan-depth-1.md §T76e, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
@@ -3480,9 +3543,16 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A controller supplements an order's budget or returns part of it, each change a version kept with its amounts before and after, and gives the budget an availability control: a posting taking the order's consumption above the refusal limit is refused, one above the warning limit accepted and published as a warning",
+        "r": "T60h · docs/design/plan-depth-1.md §T60h · migration 000357 · internal/controlling/budgetchanges.go, availability.go · ledger.CostObjects.Consume · ADR-0064 As built T60h · scripts/walkthrough.sh step_order_budget",
+        "src": "split:T60c · adr:ADR-0064",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: order budget variants: budgets per year, supplements, returns and transfers, availability control with tolerances, commitments counted, approval of budget changes (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T60c, Later",
+        "t": "later: order budget variants: budgets per year, transfers, commitments counted against the budget, tolerances by activity group in a budget profile, approval of budget changes, a warning on the posting's own answer",
+        "r": "docs/design/plan-breadth-week1.md §T60c, Later · docs/design/plan-depth-1.md §T60h, Later",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        }
@@ -3501,9 +3571,16 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A controller reverses an order's latest settlement in its settled period: the order's balance is restored, the receiver's cost taken back, and the order can be settled again",
+        "r": "T60i · docs/design/plan-depth-1.md §T60i · migration 000358 · internal/controlling/settlementreversal.go · ledger.Postings.LockEntries · ADR-0064 As built T60i · scripts/walkthrough.sh step_order_settlement",
+        "src": "split:T60e · adr:ADR-0064",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: order settlement variants: settling many orders in one run, reversing a settlement, settlement to assets under construction and G/L accounts, settlement through a settlement cost element, settlement as a close task (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T60e, Later",
+        "t": "later: order settlement variants: settling many orders in one run, settlement to assets under construction and G/L accounts, settlement through a settlement cost element, settlement as a close task, reversing into a later period when the settled one is closed",
+        "r": "docs/design/plan-breadth-week1.md §T60e, Later · docs/design/plan-depth-1.md §T60i, Later",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        }
@@ -4460,8 +4537,22 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A buyer creates an RFQ from an approved requisition: its items, quantities, units, accounts and need date become the RFQ's, the RFQ names the requisition, and the requisition is in sourcing until an award orders it (POST /v1/rfqs with requisition_id)",
+        "r": "T82e · docs/design/plan-depth-1.md §T82e · migrations 000359, 000360 · internal/procurement/rfq_requisition.go, rfq.go · POST /v1/rfqs requisition_id · ADR-0069 As built · walkthrough step_rfq_requisition",
+        "src": "split:T82b · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: RFQ variants: an RFQ from a requisition, suppliers answering themselves through a portal or the supplier network, several rounds and revised quotations, sealed bids, auctions, attachments and questions, sending the RFQ as a document, cancelling or closing an RFQ without an award, quotations in another currency (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "A buyer cancels or closes an RFQ without an award, with a reason: a requisition it was created from leaves sourcing (approved again, available to a new RFQ or an order), and the change is audited and published as an event (split from the RFQ variants placeholder).",
+        "r": "T82g · split from docs/design/plan-breadth-week2.md §T82b, Later · T82e (a requisition in sourcing) · ADR-0069",
+        "src": "split:T82b",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: RFQ variants: a requisition sourced in part or several requisitions in one RFQ, suppliers answering themselves through a portal or the supplier network, several rounds and revised quotations, sealed bids, auctions, attachments and questions, sending the RFQ as a document, quotations in another currency (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T82b, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
@@ -4509,10 +4600,24 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The buyer awards an RFQ to one quotation as a draft purchase order in place of a contract, the order at the quoted prices and naming the requisition the RFQ came from; an award to any quotation but the lowest needs a recorded reason (POST /v1/rfqs/{id}:award with award_to purchase_order, reason)",
+        "r": "T82f · docs/design/plan-depth-1.md §T82f · migrations 000361, 000362 · internal/procurement/rfq_award.go, rfq_award_order.go · RfqAwardedToOrder · ADR-0069 As built · walkthrough step_rfq_requisition",
+        "src": "split:T82d · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: award variants: award to a purchase order in place of a contract, splitting an award between suppliers or by item, approval of an award above an amount, a recorded reason when the lowest quotation does not win, notifying the suppliers not awarded, withdrawing an award (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: award variants: an award of a requisition's RFQ to a contract, splitting an award between suppliers or by item, approval of an award above an amount, notifying the suppliers not awarded, withdrawing an award (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T82d, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Cancelling a purchase order created by an RFQ's award moves its requisition back without an event, and the RFQ still names the cancelled order as its award (found in the batch 78 rfq lane review).",
+        "r": "internal/procurement order cancel (requisition back from ordered) · rfq_award_order.go · T82f · ADR-0007 outbox · ADR-0069",
+        "src": "review:batch78",
         "c": []
        }
       ]
@@ -4766,8 +4871,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A sales representative changes an open sales order (an item's quantity and price, the requested delivery date), each change kept with its values before and after, and cancels an order of which nothing is delivered, with a reason (POST /v1/sales-orders/{id}:change, :cancel)",
+        "r": "T78d · docs/design/plan-depth-1.md §T78d · db/migrations/000355 · sales.sales_order_change · POST /v1/sales-orders/{id}:change · GET /v1/sales-orders/{id}/changes · POST /v1/sales-orders/{id}:cancel · walkthrough step_sales_order_change · ADR-0067 As built",
+        "src": "split:T78b · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: sales order variants: changing or cancelling an order and its versions, sales organizations and sales areas, partner functions, order types, schedule lines and requested delivery dates per item, incompletion checks, approval, the order confirmation as a document, custom fields, taking open orders over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: sales order variants: adding and removing items and changing the payment term, cancelling an order with deliveries (a reason for rejection per item), sales organizations and sales areas, partner functions, order types, schedule lines and requested delivery dates per item, incompletion checks, approval, the order confirmation as a document, custom fields, taking open orders over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T78b, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
@@ -4927,8 +5039,15 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A billing clerk cancels a billing document: a created one simply, a posted one by a cancellation document whose customer credit memo reverses the invoice's receivable, revenue and output tax exactly; the order's items are billable again (POST /v1/billing-documents/{id}:cancel)",
+        "r": "T79c · docs/design/plan-depth-1.md §T79c · db/migrations/000356 · sales.billing_cancellation · POST /v1/billing-documents/{id}:cancel · BillingDocumentCancelled · walkthrough step_billing_cancellation · ADR-0067 As built",
+        "src": "split:T79a · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: billing document variants: cancelling a billing document, collective billing and invoice splits, billing plans, milestones and down payment requests, pro forma invoices, billing without delivery, intercompany billing, the billing due list as a scheduled run, the invoice as a document sent to the customer and as an e-invoice (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: billing document variants: collective billing and invoice splits, billing plans, milestones and down payment requests, pro forma invoices, billing without delivery, intercompany billing, the billing due list as a scheduled run, the invoice as a document sent to the customer and as an e-invoice (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T79a, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
@@ -4949,7 +5068,7 @@
        },
        {
         "s": "T",
-        "t": "later: billing posting variants: revenue account determination by customer and item group, reversal of a posted billing document, credit and debit memos from billing, posting to a profit center or segment derived from the sales organization, cost of goods sold, rebate accruals, a tax date other than the billing date (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: billing posting variants: revenue account determination by customer and item group, credit and debit memos from billing, posting to a profit center or segment derived from the sales organization, cost of goods sold, rebate accruals, a tax date other than the billing date (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T79b, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
@@ -6714,6 +6833,13 @@
        },
        {
         "s": "T",
+        "t": "A scheduled report run stores its results object before it keeps the run; when the run is then not kept (the report removed or unscheduled meanwhile, or the day kept by another replica) the object stays in the store with no run naming it and is never deleted (R3 of the batch 77 review).",
+        "r": "internal/analytics/reports runs.go runReport (Objects.Put before keep) · T95b · ADR-0039 retention",
+        "src": "review:batch77",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "later: scheduled delivery variants: delivery by email and to a file share (needs email transmission, not built), delivery only when a condition holds, bursting one report per company or cost center, retention of old runs, a schedule in the web workspace (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week3.md §T95b, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
@@ -6917,6 +7043,13 @@
        },
        {
         "s": "T",
+        "t": "The purchase-to-pay event log has no activity for procurement.requisition.in_sourcing (T82e: an RFQ created from the requisition), so a case sourced by an RFQ shows no sourcing step between approval and the order (found in the batch 78 rfq lane review).",
+        "r": "internal/processmining log.go activities · T103a · T82e",
+        "src": "review:batch78",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "later: event log variants: event logs from SAP's document tables (needs the SAP specialist for the tables and fields), the order-to-cash and record-to-report flows, the log in XES, activities below the document level (changes, approvals per step), the log in the analytical store (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week3.md §T103a, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
@@ -7072,6 +7205,13 @@
           "r": "internal/offboarding exportTable, tenantTable.order (primary key from pg_index; the row's text without one) · TestResumedExportReadsInKeyOrder · TestExportOrder · ADR-0021",
           "src": "review:batch76",
           "c": []
+         },
+         {
+          "s": "D",
+          "t": "The erasure never deletes the tenant's export or its audit anchors and counts them kept: a versioned S3 bucket under Object Lock answers a DELETE without a version with a delete marker, so they vanished from reads (the export could not be reinstated, the verifier reported tampering), and a store without retention deleted them outright; production refuses ERP_OBJECT_RETENTION 0 or shorter than ERP_OFFBOARD_GRACE, and the S3 test double answers a DELETE of a locked object as S3 does (R2 B1 of the batch 77 review).",
+          "r": "offboarding eraseObjects · blobstore.S3.Delete · blobstoretest (delete markers, Versions) · config checkRetention · TestErasureKeepsExportAndAnchors · TestListAndDelete · TestProductionFailsClosed · ADR-0021 As built 2026-11-17",
+          "src": "review:batch77",
+          "c": []
          }
         ]
        },
@@ -7173,6 +7313,20 @@
       "t": "Cancelling an operation tells the workflow engine only once the cancellation has committed (reqctx.OnCommit): a request that failed after the engine call left the operation running with its workflow cancelled (R2 B2 of the batch 76 review).",
       "r": "internal/operations CancelOperation · reqctx.OnCommit · ADR-0012 · TestCancelOperation",
       "src": "review:batch76",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "No row lock is held across a call to an external service: the audit anchorer held the tenant's chain head FOR UPDATE across the object store's write, which every audited write of the tenant waits for, so a slow store turned them into lock timeouts; it now reads the head unlocked, writes the object, then records the row ON CONFLICT DO NOTHING. The dispatcher recorded each started workflow (operation, approval request) in the transaction that went on calling the engine; each is now recorded in a transaction of its own (R2 B2 of the batch 77 review).",
+      "r": "audit.Anchorer anchor, readHead, writeObject, record · workflows.Dispatcher RunOnce, read, startRecorded · approvals.Watched · TestAnchoringHoldsNoLockAcrossTheStore · TestAnchoringRecordFails · TestDispatcher (no row lock is held across a call to the engine) · TestApprovalDeadline (no request is locked across a call to the engine) · ADR-0011 As built 2026-11-17 · ADR-0012 As built",
+      "src": "review:batch77",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "approvals.Watched and the dispatcher's recordOperation set workflow_id and move the version without a guard on workflow_id IS NULL: a second record for the same row (two dispatcher rounds, or a replica's, finding it unrecorded) moves the version again, so a client holding the ETag it read gets a spurious 412 (found in the batch 77 hplat review).",
+      "r": "internal/approvals escalate.go Watched · internal/workflows dispatch.go recordOperation · ADR-0008 version guard · ADR-0012 idempotent records",
+      "src": "review:batch77",
       "c": []
      }
     ]
@@ -7570,6 +7724,13 @@
       "t": "Agent tools whose guards or observers share a run's state run each call whole: the runner executes a turn's tool calls concurrently, and the cash forecast, close, reconciliation, configuration, test and migration agents counted, listed and checked without a lock (the pattern's and the tax agent's tools already held one); a session whose tools cannot be built is ended, failed, not left running, and tools are found by name, never by position",
       "r": "apitools.Session.Tools · Tool.Exclusive in cashagent, closeagent, reconagent, delivery/configagent, testagent, migrationagent · supportagent, enablementagent help · TestExplainTogether, TestAccrualsTogether, TestReviewHeldToTheLine, TestHandleOwnChangesOnly, TestReviewHeldToTheChange, TestAssessStartsOnlyItsRehearsals (-race) · TestSessionTools · ADR-0072 as built (hardening 2)",
       "src": "review:batch76",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The analytics agent's tools run each call whole: the runner executes a turn's tool calls concurrently, and two queries in one turn wrote the session's results at once (erp ask, the analytics evaluation); the agent runs on llm.Runner (R6 B1 of the batch 77 review)",
+      "r": "internal/analytics Agent.tools (exclusive), llm.Runner Params and RunTools · TestAgentToolsOfOneTurnRunOneAtATime (-race) · ADR-0072 as built (hardening 3)",
+      "src": "review:batch77",
       "c": []
      },
      {
@@ -10840,6 +11001,20 @@
       "r": "internal/sap odata.go (the mapping's comment) · found by go-reviewer in the step bstat, round 1 (Pre-existing)",
       "src": "review:batch63",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "A migration run's prepare holds its transaction and the run's row lock (FOR UPDATE) across the OData extract, page by page for minutes at worst; batch 77 moved only Settings.Hold after it: the extract belongs before the run's lock or in a transaction of its own (found in the batch 77 hinteg review; bug class: a lock held across slow work).",
+      "r": "internal/integration runs.go prepare, prepareAs (e.extract) · REVIEW.md locks · bug class: a row lock held across an external call",
+      "src": "review:batch77",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "ACDOCA's OData pages are ordered by CompanyCode, FiscalYear, AccountingDocument and LedgerGLLineItem but not the ledger: with more than one ledger in the extract two lines share that key, so the page order is not total and a line can be read twice or missed across pages (found in the batch 77 hinteg review, T56h5).",
+      "r": "internal/sap odata.go entity map ACDOCA Keys (Ledger) · $orderby · T56h5 · SAP specialist A16 (leading ledger at export)",
+      "src": "review:batch77",
+      "c": []
      }
     ]
    },
@@ -11445,6 +11620,13 @@
        },
        {
         "s": "T",
+        "t": "A configuration change request names its author and a configuration version who activated it only by id (ChangeRequest.author_id, ConfigVersion.activated_by): their names beside them, as other resources give a principal's (R3 of the batch 77 review, API-consumer class: an identifier without the name its consumer needs).",
+        "r": "api/openapi.yaml ChangeRequest, ConfigVersion · internal/configuration api.go (crToAPI, versionToAPI) · ADR-0050 names beside ids",
+        "src": "review:batch77",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "The tax agent's recommendation half still hand-writes what recommend.Agent now provides (a recommendation held to the run's object); the accounts payable exceptions agent was moved onto it in batch 77 (R6 of the batch 76 review).",
         "r": "internal/taxagent · internal/recommend Agent · ADR-0072 as built (hardening 2)",
         "src": "review:batch76",
@@ -11511,6 +11693,13 @@
         "t": "getMemoRecord lists the 422 response it gives since the one company-date helper refuses a memo record whose legal entity the directory does not know (request.reference_not_found); every other operation whose call graph reaches config.EntityDay lists 422 already",
         "r": "found in batch 28's integration review: api/openapi.yaml getMemoRecord listed no 422 · checked by the operations whose handler reaches config.EntityDay in TestProblemCodes' call graph: acceptMemoRecordProposal, approveApprovalRequest, assignProfitCenter, cancelMemoRecord, createCostCenter, createMemoRecord, getMemoRecord, listMemoRecords, lockCostCenter, lockProfitCenter, moveCostCenter, moveProfitCenter, postSupplierInvoice, proposeMemoRecord, realiseMemoRecord, redateCostCenter, redateProfitCenter, rejectMemoRecordProposal, releasePaymentRun, reverseGoodsReceipt, reverseSupplierInvoice, submitRequisition, updateMemoRecord; listMemoRecords reaches it only through readDaysOf's filter, which answers an empty page rather than refusing, so it gives no 422 · built: getMemoRecord's 422 response (additive, oasdiff) and its description · ADR-0051 as built (one company-date helper) · no walkthrough step: a contract fix",
         "src": "review:batch28",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The savings opportunity agent's default period (no period given) ends on today's date in UTC, not the company's day (coordinator decision 4 of 17 November, ADR-0052): a Canadian company's evening, or a UAE company's early morning, reads the wrong year to date.",
+        "r": "internal/savingsagent savingsagent.go period (clock.Now(a.Now).UTC()) · config.EntityDay · ADR-0052 · ADR-0072 As built",
+        "src": "review:batch77",
         "c": []
        }
       ]

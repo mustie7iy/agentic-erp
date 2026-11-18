@@ -142,7 +142,7 @@ func (d *declined) problem() *problem.Problem {
 // (revenue.order_not_confirmed) and one in another currency than its
 // company's local currency (revenue.foreign_currency).
 func (e *Endpoints) basisOf(ctx context.Context, orderID uuid.UUID, allowed func(company uuid.UUID) bool) (basis, *declined, error) {
-	o, ok, err := e.SalesOrders.Order(ctx, orderID)
+	o, ok, err := e.SalesOrders.Shared(ctx, orderID)
 	if err != nil {
 		return basis{}, nil, fmt.Errorf("revenue: sales order %s of a contract: %w", orderID, err)
 	}
@@ -234,4 +234,27 @@ func (e *Endpoints) make(ctx context.Context, tx pgx.Tx, p reqctx.Principal, b b
 		return Contract{}, false, fmt.Errorf("revenue: customer of contract %s: %w", id, err)
 	}
 	return c, true, record(ctx, "revenue.contract.create", source, c, b.le, names[c.CustomerID].Number, nil)
+}
+
+// OrderContracts is the revenue context's answer to the sales context's
+// question (sales.RevenueContracts; ADR-0067, As built T78d): whether a
+// sales order has a revenue contract. A contract holds the order's items'
+// net values as its obligations' (ADR-0068 §3), so sales refuses to
+// change an item's quantity or price, or to cancel the order, while it
+// has one. Sales declares the port and the application wires this to it:
+// sales does not import revenue, which imports sales.
+type OrderContracts struct{}
+
+// HasContract says whether the sales order has a revenue contract, in the
+// request's transaction.
+func (OrderContracts) HasContract(ctx context.Context, order uuid.UUID) (bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return false, err
+	}
+	var found bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM revenue.contract WHERE sales_order_id = $1)`, order).Scan(&found); err != nil {
+		return false, fmt.Errorf("revenue: the contract of sales order %s: %w", order, err)
+	}
+	return found, nil
 }

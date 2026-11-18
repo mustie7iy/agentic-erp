@@ -20,6 +20,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/llm"
+	"github.com/mustie7iy/agentic-erp/internal/recommend"
 )
 
 // Tools are the operations the agent may call.
@@ -40,6 +41,8 @@ decision. Do not invent figures; quote the report.`
 type Agent struct {
 	LLM *llm.Runner
 	API *apitools.Client
+	// MaxIterations bounds the model's requests in one run; default 15.
+	MaxIterations int
 }
 
 // The operations of Tools that write: a run's creation and its start.
@@ -82,7 +85,7 @@ func (r *run) hold(tools []*apitools.Tool) {
 
 // rehearsalsOnly refuses runs that would stay loaded.
 func rehearsalsOnly(input map[string]any) error {
-	body, _ := input["body"].(map[string]any) // no body: refused below
+	body := apitools.Body(input)
 	if body["is_rehearsal"] != true {
 		return errNotRehearsal
 	}
@@ -122,7 +125,8 @@ func (a *Agent) Assess(ctx context.Context, connector string, legalEntities []st
 	(&run{rehearsals: map[string]bool{}}).hold(tools)
 	prompt := fmt.Sprintf("Rehearse the migration from connector %s of legal entities %s for fiscal year %d in %s mode, and assess it.",
 		connector, strings.Join(legalEntities, ", "), fiscalYear, mode)
-	msg, err := apitools.Run(ctx, a.LLM, s, tools, a.LLM.Params(system, anthropic.NewBetaTextBlock(prompt)), 15)
+	msg, err := apitools.Run(ctx, a.LLM, s, tools, a.LLM.Params(system, anthropic.NewBetaTextBlock(prompt)),
+		recommend.Iterations(a.MaxIterations, 15))
 	if err != nil {
 		return "", err
 	}

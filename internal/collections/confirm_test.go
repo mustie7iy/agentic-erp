@@ -122,7 +122,7 @@ func TestConfirm(t *testing.T) {
 	}
 	want := map[string]any{"dunning_run_id": id, "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "key_date": keyDate,
 		"notice_count": float64(2), "item_count": float64(3), "overdue_amount": map[string]any{"amount": "310.00", "currency": "EUR"},
-		"status": "confirmed", "status_before": "proposed", "version": float64(2)}
+		"charge_amount": zero, "interest_amount": zero, "status": "confirmed", "status_before": "proposed", "version": float64(2)}
 	if a, b := mustJSON(t, changes[1]), mustJSON(t, want); a != b {
 		t.Errorf("the confirmation's event: got %s, want %s", a, b)
 	}
@@ -139,7 +139,8 @@ func TestConfirm(t *testing.T) {
 		t.Run("the event of "+w.number, func(t *testing.T) {
 			want := map[string]any{"dunning_notice_id": notices[i]["id"], "dunning_run_id": id, "legal_entity_id": e.DE.String(),
 				"legal_entity_code": "2000", "customer_id": w.customer.String(), "customer_number": w.number, "dunning_date": keyDate,
-				"level": float64(1), "item_count": w.items, "overdue_amount": map[string]any{"amount": w.overdue, "currency": "EUR"}}
+				"level": float64(1), "item_count": w.items, "overdue_amount": map[string]any{"amount": w.overdue, "currency": "EUR"},
+				"charge_amount": zero, "interest_amount": zero, "total_amount": map[string]any{"amount": w.overdue, "currency": "EUR"}}
 			if a, b := mustJSON(t, issued[i]), mustJSON(t, want); a != b {
 				t.Errorf("got %s, want %s", a, b)
 			}
@@ -225,7 +226,7 @@ func TestStaleProposal(t *testing.T) {
 		}
 	}
 	t.Run("an item cleared since", func(t *testing.T) {
-		stale(t, a, aTag, "of its 3 items, 1 cleared and 0 dunned by another run")
+		stale(t, a, aTag, "of its 3 items, 1 cleared, 0 dunned by another run and 0 blocked")
 		if got := e.dunned(t); got != "" {
 			t.Errorf("recorded levels: got %q, want none", got)
 		}
@@ -242,7 +243,7 @@ func TestStaleProposal(t *testing.T) {
 	})
 	const recorded = "CI-A 1 2026-06-30, CI-USD 1 2026-06-30"
 	t.Run("items dunned by another run since", func(t *testing.T) {
-		stale(t, b, bTag, "of its 3 items, 1 cleared and 2 dunned by another run")
+		stale(t, b, bTag, "of its 3 items, 1 cleared, 2 dunned by another run and 0 blocked")
 		if got := e.dunned(t); got != recorded {
 			t.Errorf("recorded levels: got %q, want %q", got, recorded)
 		}
@@ -293,7 +294,7 @@ func TestConfirmationsSerialize(t *testing.T) {
 			t.Fatalf("proposed: got %q, want %q", got, want)
 		}
 		first, second := apitest.Serialized(t, e.Tenant, e.Tenant.Human, confirm(stay), confirm(twin))
-		if p := problem.From(second); first != nil || p.Code != "collections.proposal_stale" || !strings.Contains(p.Detail, "of its 4 items, 0 cleared and 4 dunned") {
+		if p := problem.From(second); first != nil || p.Code != "collections.proposal_stale" || !strings.Contains(p.Detail, "of its 4 items, 0 cleared, 4 dunned") {
 			t.Errorf("got %v and %v, want the first confirmed and the second refused as collections.proposal_stale for its 4 items", first, second)
 		}
 	})
