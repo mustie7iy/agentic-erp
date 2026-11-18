@@ -226,7 +226,7 @@ func TestStaleProposal(t *testing.T) {
 		}
 	}
 	t.Run("an item cleared since", func(t *testing.T) {
-		stale(t, a, aTag, "of its 3 items, 1 cleared, 0 dunned by another run and 0 blocked")
+		stale(t, a, aTag, "of its 3 items, 1 cleared, 0 dunned by another run, 0 blocked from dunning and 0 promised")
 		if got := e.dunned(t); got != "" {
 			t.Errorf("recorded levels: got %q, want none", got)
 		}
@@ -243,7 +243,7 @@ func TestStaleProposal(t *testing.T) {
 	})
 	const recorded = "CI-A 1 2026-06-30, CI-USD 1 2026-06-30"
 	t.Run("items dunned by another run since", func(t *testing.T) {
-		stale(t, b, bTag, "of its 3 items, 1 cleared, 2 dunned by another run and 0 blocked")
+		stale(t, b, bTag, "of its 3 items, 1 cleared, 2 dunned by another run, 0 blocked from dunning and 0 promised")
 		if got := e.dunned(t); got != recorded {
 			t.Errorf("recorded levels: got %q, want %q", got, recorded)
 		}

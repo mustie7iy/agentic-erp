@@ -25982,6 +25982,13 @@ type CollectionWorklist struct {
 	DisputedAmount Money `json:"disputed_amount"`
 	// The sum of `open_dispute_cases` of every customer on the worklist (T86b).
 	OpenDisputeCases int32 `json:"open_dispute_cases"`
+	// The sum of `promised_amount` of every customer on the worklist (T76f).
+	PromisedAmount Money `json:"promised_amount"`
+	// The customers with items overdue on the key date left off the worklist because their last contact's
+	// resubmission date is after it (T76g); they count in none of the other totals.
+	ResubmissionCount int32 `json:"resubmission_count"`
+	// What those customers' overdue items add up to, as `overdue_amount` adds them (T76g).
+	ResubmissionOverdueAmount Money `json:"resubmission_overdue_amount"`
 	// The customers on this page, the largest overdue amount first.
 	Items []CollectionWorklistCustomer `json:"items"`
 	// Opaque cursor for the next page; absent on the last page.
@@ -26036,6 +26043,21 @@ func (s *CollectionWorklist) GetDisputedAmount() Money {
 // GetOpenDisputeCases returns the value of OpenDisputeCases.
 func (s *CollectionWorklist) GetOpenDisputeCases() int32 {
 	return s.OpenDisputeCases
+}
+
+// GetPromisedAmount returns the value of PromisedAmount.
+func (s *CollectionWorklist) GetPromisedAmount() Money {
+	return s.PromisedAmount
+}
+
+// GetResubmissionCount returns the value of ResubmissionCount.
+func (s *CollectionWorklist) GetResubmissionCount() int32 {
+	return s.ResubmissionCount
+}
+
+// GetResubmissionOverdueAmount returns the value of ResubmissionOverdueAmount.
+func (s *CollectionWorklist) GetResubmissionOverdueAmount() Money {
+	return s.ResubmissionOverdueAmount
 }
 
 // GetItems returns the value of Items.
@@ -26098,6 +26120,21 @@ func (s *CollectionWorklist) SetOpenDisputeCases(val int32) {
 	s.OpenDisputeCases = val
 }
 
+// SetPromisedAmount sets the value of PromisedAmount.
+func (s *CollectionWorklist) SetPromisedAmount(val Money) {
+	s.PromisedAmount = val
+}
+
+// SetResubmissionCount sets the value of ResubmissionCount.
+func (s *CollectionWorklist) SetResubmissionCount(val int32) {
+	s.ResubmissionCount = val
+}
+
+// SetResubmissionOverdueAmount sets the value of ResubmissionOverdueAmount.
+func (s *CollectionWorklist) SetResubmissionOverdueAmount(val Money) {
+	s.ResubmissionOverdueAmount = val
+}
+
 // SetItems sets the value of Items.
 func (s *CollectionWorklist) SetItems(val []CollectionWorklistCustomer) {
 	s.Items = val
@@ -26141,6 +26178,26 @@ type CollectionWorklistCustomer struct {
 	// The open dispute cases of the customer's open items (`listDisputeCases?customer_id=&status=open`,
 	// which also lists a case whose item was cleared since).
 	OpenDisputeCases int32 `json:"open_dispute_cases"`
+	// What the customer's promises to pay open on the key date promise (T76f): those whose `promised_date`
+	// is on or after it and that are not kept; 0 without any. It changes neither `open_amount` nor
+	// `overdue_amount`.
+	PromisedAmount Money `json:"promised_amount"`
+	// The customer's promises to pay open on the key date (`listPromisesToPay?customer_id=`).
+	OpenPromises int32 `json:"open_promises"`
+	// The earliest `promised_date` among those promises; absent without any.
+	NextPromisedDate OptDate `json:"next_promised_date"`
+	// The customer's promises to pay broken on the key date: `promised_date` before it and not kept (its
+	// items no longer open add up to less than the promised amount).
+	BrokenPromises int32 `json:"broken_promises"`
+	// When the customer's last contact was (`createCustomerContact`, T76g): its latest by `contacted_at`;
+	// absent when it was never contacted.
+	LastContactedAt OptDateTime `json:"last_contacted_at"`
+	// The outcome of that contact; absent when the customer was never contacted. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	LastContactOutcome OptString `json:"last_contact_outcome"`
+	// That contact's resubmission date, on or before the key date (a customer whose last contact's
+	// resubmission date is after the key date is not listed); absent when it set none.
+	ResubmissionDate OptDate `json:"resubmission_date"`
 }
 
 // GetCustomerID returns the value of CustomerID.
@@ -26193,6 +26250,41 @@ func (s *CollectionWorklistCustomer) GetOpenDisputeCases() int32 {
 	return s.OpenDisputeCases
 }
 
+// GetPromisedAmount returns the value of PromisedAmount.
+func (s *CollectionWorklistCustomer) GetPromisedAmount() Money {
+	return s.PromisedAmount
+}
+
+// GetOpenPromises returns the value of OpenPromises.
+func (s *CollectionWorklistCustomer) GetOpenPromises() int32 {
+	return s.OpenPromises
+}
+
+// GetNextPromisedDate returns the value of NextPromisedDate.
+func (s *CollectionWorklistCustomer) GetNextPromisedDate() OptDate {
+	return s.NextPromisedDate
+}
+
+// GetBrokenPromises returns the value of BrokenPromises.
+func (s *CollectionWorklistCustomer) GetBrokenPromises() int32 {
+	return s.BrokenPromises
+}
+
+// GetLastContactedAt returns the value of LastContactedAt.
+func (s *CollectionWorklistCustomer) GetLastContactedAt() OptDateTime {
+	return s.LastContactedAt
+}
+
+// GetLastContactOutcome returns the value of LastContactOutcome.
+func (s *CollectionWorklistCustomer) GetLastContactOutcome() OptString {
+	return s.LastContactOutcome
+}
+
+// GetResubmissionDate returns the value of ResubmissionDate.
+func (s *CollectionWorklistCustomer) GetResubmissionDate() OptDate {
+	return s.ResubmissionDate
+}
+
 // SetCustomerID sets the value of CustomerID.
 func (s *CollectionWorklistCustomer) SetCustomerID(val uuid.UUID) {
 	s.CustomerID = val
@@ -26241,6 +26333,41 @@ func (s *CollectionWorklistCustomer) SetDisputedAmount(val Money) {
 // SetOpenDisputeCases sets the value of OpenDisputeCases.
 func (s *CollectionWorklistCustomer) SetOpenDisputeCases(val int32) {
 	s.OpenDisputeCases = val
+}
+
+// SetPromisedAmount sets the value of PromisedAmount.
+func (s *CollectionWorklistCustomer) SetPromisedAmount(val Money) {
+	s.PromisedAmount = val
+}
+
+// SetOpenPromises sets the value of OpenPromises.
+func (s *CollectionWorklistCustomer) SetOpenPromises(val int32) {
+	s.OpenPromises = val
+}
+
+// SetNextPromisedDate sets the value of NextPromisedDate.
+func (s *CollectionWorklistCustomer) SetNextPromisedDate(val OptDate) {
+	s.NextPromisedDate = val
+}
+
+// SetBrokenPromises sets the value of BrokenPromises.
+func (s *CollectionWorklistCustomer) SetBrokenPromises(val int32) {
+	s.BrokenPromises = val
+}
+
+// SetLastContactedAt sets the value of LastContactedAt.
+func (s *CollectionWorklistCustomer) SetLastContactedAt(val OptDateTime) {
+	s.LastContactedAt = val
+}
+
+// SetLastContactOutcome sets the value of LastContactOutcome.
+func (s *CollectionWorklistCustomer) SetLastContactOutcome(val OptString) {
+	s.LastContactOutcome = val
+}
+
+// SetResubmissionDate sets the value of ResubmissionDate.
+func (s *CollectionWorklistCustomer) SetResubmissionDate(val OptDate) {
+	s.ResubmissionDate = val
 }
 
 // Body of a rejection or cancellation decision.
@@ -27113,6 +27240,7 @@ func (*ConflictHeaders) createControlTestRes()                     {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
 func (*ConflictHeaders) createCreditLimitRes()                     {}
 func (*ConflictHeaders) createCreditMemoRequestRes()               {}
+func (*ConflictHeaders) createCustomerContactRes()                 {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
 func (*ConflictHeaders) createDisputeCaseRes()                     {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
@@ -27140,6 +27268,7 @@ func (*ConflictHeaders) createPersonalDataDeletionRunRes()         {}
 func (*ConflictHeaders) createPlanCategoryRes()                    {}
 func (*ConflictHeaders) createPrincipalRes()                       {}
 func (*ConflictHeaders) createProfitCenterRes()                    {}
+func (*ConflictHeaders) createPromiseToPayRes()                    {}
 func (*ConflictHeaders) createPurchaseOrderChangeRes()             {}
 func (*ConflictHeaders) createPurchaseOrderRes()                   {}
 func (*ConflictHeaders) createQuotationRes()                       {}
@@ -34097,6 +34226,22 @@ type CreateCreditMemoRequestUnprocessableEntity Problem
 
 func (*CreateCreditMemoRequestUnprocessableEntity) createCreditMemoRequestRes() {}
 
+type CreateCustomerContactBadRequest Problem
+
+func (*CreateCustomerContactBadRequest) createCustomerContactRes() {}
+
+type CreateCustomerContactForbidden Problem
+
+func (*CreateCustomerContactForbidden) createCustomerContactRes() {}
+
+type CreateCustomerContactPreconditionRequired Problem
+
+func (*CreateCustomerContactPreconditionRequired) createCustomerContactRes() {}
+
+type CreateCustomerContactUnprocessableEntity Problem
+
+func (*CreateCustomerContactUnprocessableEntity) createCustomerContactRes() {}
+
 type CreateCustomerInvoiceBadRequest Problem
 
 func (*CreateCustomerInvoiceBadRequest) createCustomerInvoiceRes() {}
@@ -34637,6 +34782,22 @@ func (*CreateProfitCenterPreconditionRequired) createProfitCenterRes() {}
 type CreateProfitCenterUnprocessableEntity Problem
 
 func (*CreateProfitCenterUnprocessableEntity) createProfitCenterRes() {}
+
+type CreatePromiseToPayBadRequest Problem
+
+func (*CreatePromiseToPayBadRequest) createPromiseToPayRes() {}
+
+type CreatePromiseToPayForbidden Problem
+
+func (*CreatePromiseToPayForbidden) createPromiseToPayRes() {}
+
+type CreatePromiseToPayPreconditionRequired Problem
+
+func (*CreatePromiseToPayPreconditionRequired) createPromiseToPayRes() {}
+
+type CreatePromiseToPayUnprocessableEntity Problem
+
+func (*CreatePromiseToPayUnprocessableEntity) createPromiseToPayRes() {}
 
 type CreatePurchaseOrderBadRequest Problem
 
@@ -36622,6 +36783,401 @@ func (s *CustomerCompanyInput) SetPaymentTermCode(val string) {
 func (s *CustomerCompanyInput) SetIsPostingBlocked(val OptBool) {
 	s.IsPostingBlocked = val
 }
+
+// Merged schema.
+// Ref: #/components/schemas/CustomerContact
+type CustomerContact struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company whose collector contacted the customer.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number when the contact was recorded.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// When the contact was.
+	ContactedAt time.Time `json:"contacted_at"`
+	// Whom at the customer the collector spoke to; absent when not given.
+	ContactName OptString `json:"contact_name"`
+	// `reached`, `not_reached` or `left_message`. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Outcome string `json:"outcome"`
+	// What was said or agreed; absent when not given.
+	Note OptString `json:"note"`
+	// The date the customer is to be worked again; absent when none was set.
+	ResubmissionDate OptDate `json:"resubmission_date"`
+	// The name of the collector who recorded the contact (`created_by`), as it is now.
+	ContactedByName string `json:"contacted_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *CustomerContact) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CustomerContact) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CustomerContact) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CustomerContact) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CustomerContact) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CustomerContact) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerContact) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CustomerContact) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CustomerContact) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CustomerContact) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CustomerContact) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CustomerContact) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetContactedAt returns the value of ContactedAt.
+func (s *CustomerContact) GetContactedAt() time.Time {
+	return s.ContactedAt
+}
+
+// GetContactName returns the value of ContactName.
+func (s *CustomerContact) GetContactName() OptString {
+	return s.ContactName
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *CustomerContact) GetOutcome() string {
+	return s.Outcome
+}
+
+// GetNote returns the value of Note.
+func (s *CustomerContact) GetNote() OptString {
+	return s.Note
+}
+
+// GetResubmissionDate returns the value of ResubmissionDate.
+func (s *CustomerContact) GetResubmissionDate() OptDate {
+	return s.ResubmissionDate
+}
+
+// GetContactedByName returns the value of ContactedByName.
+func (s *CustomerContact) GetContactedByName() string {
+	return s.ContactedByName
+}
+
+// SetID sets the value of ID.
+func (s *CustomerContact) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CustomerContact) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CustomerContact) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CustomerContact) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CustomerContact) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CustomerContact) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerContact) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CustomerContact) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CustomerContact) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CustomerContact) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CustomerContact) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CustomerContact) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetContactedAt sets the value of ContactedAt.
+func (s *CustomerContact) SetContactedAt(val time.Time) {
+	s.ContactedAt = val
+}
+
+// SetContactName sets the value of ContactName.
+func (s *CustomerContact) SetContactName(val OptString) {
+	s.ContactName = val
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *CustomerContact) SetOutcome(val string) {
+	s.Outcome = val
+}
+
+// SetNote sets the value of Note.
+func (s *CustomerContact) SetNote(val OptString) {
+	s.Note = val
+}
+
+// SetResubmissionDate sets the value of ResubmissionDate.
+func (s *CustomerContact) SetResubmissionDate(val OptDate) {
+	s.ResubmissionDate = val
+}
+
+// SetContactedByName sets the value of ContactedByName.
+func (s *CustomerContact) SetContactedByName(val string) {
+	s.ContactedByName = val
+}
+
+// Record a collector's contact with a customer of a company.
+// Ref: #/components/schemas/CustomerContactCreate
+type CustomerContactCreate struct {
+	// The company whose collector contacted the customer: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer (a business partner) contacted.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// When the contact was: not after now.
+	ContactedAt time.Time `json:"contacted_at"`
+	// Whom at the customer the collector spoke to or wrote to; absent when nobody was reached by name.
+	ContactName OptString `json:"contact_name"`
+	// `reached`: the collector spoke to the customer; `not_reached`: nobody answered; `left_message`: a
+	// message was left. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Outcome string `json:"outcome"`
+	// What was said or agreed.
+	Note OptString `json:"note"`
+	// The date the customer is to be worked again: after the company's today, at most 2100-12-31. Until
+	// then the customer is not on the collection worklist, while this is its last contact.
+	ResubmissionDate OptDate `json:"resubmission_date"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerContactCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CustomerContactCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetContactedAt returns the value of ContactedAt.
+func (s *CustomerContactCreate) GetContactedAt() time.Time {
+	return s.ContactedAt
+}
+
+// GetContactName returns the value of ContactName.
+func (s *CustomerContactCreate) GetContactName() OptString {
+	return s.ContactName
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *CustomerContactCreate) GetOutcome() string {
+	return s.Outcome
+}
+
+// GetNote returns the value of Note.
+func (s *CustomerContactCreate) GetNote() OptString {
+	return s.Note
+}
+
+// GetResubmissionDate returns the value of ResubmissionDate.
+func (s *CustomerContactCreate) GetResubmissionDate() OptDate {
+	return s.ResubmissionDate
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerContactCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CustomerContactCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetContactedAt sets the value of ContactedAt.
+func (s *CustomerContactCreate) SetContactedAt(val time.Time) {
+	s.ContactedAt = val
+}
+
+// SetContactName sets the value of ContactName.
+func (s *CustomerContactCreate) SetContactName(val OptString) {
+	s.ContactName = val
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *CustomerContactCreate) SetOutcome(val string) {
+	s.Outcome = val
+}
+
+// SetNote sets the value of Note.
+func (s *CustomerContactCreate) SetNote(val OptString) {
+	s.Note = val
+}
+
+// SetResubmissionDate sets the value of ResubmissionDate.
+func (s *CustomerContactCreate) SetResubmissionDate(val OptDate) {
+	s.ResubmissionDate = val
+}
+
+// CustomerContactHeaders wraps CustomerContact with response headers.
+type CustomerContactHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CustomerContact
+}
+
+// GetETag returns the value of ETag.
+func (s *CustomerContactHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CustomerContactHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CustomerContactHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CustomerContactHeaders) GetResponse() CustomerContact {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CustomerContactHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CustomerContactHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CustomerContactHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CustomerContactHeaders) SetResponse(val CustomerContact) {
+	s.Response = val
+}
+
+func (*CustomerContactHeaders) createCustomerContactRes() {}
+
+// One page of contacts with customers.
+// Ref: #/components/schemas/CustomerContactPage
+type CustomerContactPage struct {
+	// The contacts on this page.
+	Items []CustomerContact `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CustomerContactPage) GetItems() []CustomerContact {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CustomerContactPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CustomerContactPage) SetItems(val []CustomerContact) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CustomerContactPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CustomerContactPage) listCustomerContactsRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/CustomerCreditLimit
@@ -41402,6 +41958,16 @@ type DunningRun struct {
 	// and in none of the run's totals. An item both blocked and disputed is listed here alone. Empty when
 	// none was blocked, and for runs started before dunning blocks existed.
 	BlockedItems []DunningRunBlockedItem `json:"blocked_items"`
+	// The items the run left out for a promise to pay (`promised_items`); 0 when none was promised.
+	PromisedItemCount int32 `json:"promised_item_count"`
+	// What those items add up to in the company's currency, as they were booked (the sum of
+	// `promised_items[].local_amount`): not dunned, not counted in `overdue_amount`.
+	PromisedAmount Money `json:"promised_amount"`
+	// The items the run would have proposed but left out, each for a promise to pay whose `promised_date`
+	// is on or after the key date (T76f), by customer and item; in no notice and in none of the run's
+	// totals. An item blocked is listed in `blocked_items` alone, and an item promised is not listed in
+	// `disputed_items`. Empty when none was promised, and for runs started before promises to pay existed.
+	PromisedItems []DunningRunPromisedItem `json:"promised_items"`
 }
 
 // GetID returns the value of ID.
@@ -41549,6 +42115,21 @@ func (s *DunningRun) GetBlockedItems() []DunningRunBlockedItem {
 	return s.BlockedItems
 }
 
+// GetPromisedItemCount returns the value of PromisedItemCount.
+func (s *DunningRun) GetPromisedItemCount() int32 {
+	return s.PromisedItemCount
+}
+
+// GetPromisedAmount returns the value of PromisedAmount.
+func (s *DunningRun) GetPromisedAmount() Money {
+	return s.PromisedAmount
+}
+
+// GetPromisedItems returns the value of PromisedItems.
+func (s *DunningRun) GetPromisedItems() []DunningRunPromisedItem {
+	return s.PromisedItems
+}
+
 // SetID sets the value of ID.
 func (s *DunningRun) SetID(val uuid.UUID) {
 	s.ID = val
@@ -41692,6 +42273,21 @@ func (s *DunningRun) SetBlockedAmount(val Money) {
 // SetBlockedItems sets the value of BlockedItems.
 func (s *DunningRun) SetBlockedItems(val []DunningRunBlockedItem) {
 	s.BlockedItems = val
+}
+
+// SetPromisedItemCount sets the value of PromisedItemCount.
+func (s *DunningRun) SetPromisedItemCount(val int32) {
+	s.PromisedItemCount = val
+}
+
+// SetPromisedAmount sets the value of PromisedAmount.
+func (s *DunningRun) SetPromisedAmount(val Money) {
+	s.PromisedAmount = val
+}
+
+// SetPromisedItems sets the value of PromisedItems.
+func (s *DunningRun) SetPromisedItems(val []DunningRunPromisedItem) {
+	s.PromisedItems = val
 }
 
 // An item a dunning run left out for a dunning block (T76e): a customer's open item overdue on the
@@ -42111,6 +42707,170 @@ func (s *DunningRunPage) SetNextPageToken(val OptString) {
 }
 
 func (*DunningRunPage) listDunningRunsRes() {}
+
+// An item a dunning run left out for a customer's promise to pay (T76f): a customer's open item
+// overdue on the run's key date that would have reached a dunning level, as the run read it.
+// Ref: #/components/schemas/DunningRunPromisedItem
+type DunningRunPromisedItem struct {
+	// The promise that held the item when the run was started (`GET /v1/promises-to-pay/{id}`).
+	PromiseToPayID uuid.UUID `json:"promise_to_pay_id"`
+	// The date the customer promised to pay by, on or after the run's key date.
+	PromisedDate time.Time `json:"promised_date"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The item's net due date: by the payment terms it was posted with, or, posted without any, its
+	// document date.
+	NetDueDate time.Time `json:"net_due_date"`
+	// The days from the net due date to the run's key date.
+	DaysOverdue int32 `json:"days_overdue"`
+	// What the customer owes on the item, in the item's currency.
+	Amount Money `json:"amount"`
+	// The same in the company's currency, as it was booked.
+	LocalAmount Money `json:"local_amount"`
+}
+
+// GetPromiseToPayID returns the value of PromiseToPayID.
+func (s *DunningRunPromisedItem) GetPromiseToPayID() uuid.UUID {
+	return s.PromiseToPayID
+}
+
+// GetPromisedDate returns the value of PromisedDate.
+func (s *DunningRunPromisedItem) GetPromisedDate() time.Time {
+	return s.PromisedDate
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *DunningRunPromisedItem) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *DunningRunPromisedItem) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DunningRunPromisedItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DunningRunPromisedItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DunningRunPromisedItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DunningRunPromisedItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *DunningRunPromisedItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *DunningRunPromisedItem) GetNetDueDate() time.Time {
+	return s.NetDueDate
+}
+
+// GetDaysOverdue returns the value of DaysOverdue.
+func (s *DunningRunPromisedItem) GetDaysOverdue() int32 {
+	return s.DaysOverdue
+}
+
+// GetAmount returns the value of Amount.
+func (s *DunningRunPromisedItem) GetAmount() Money {
+	return s.Amount
+}
+
+// GetLocalAmount returns the value of LocalAmount.
+func (s *DunningRunPromisedItem) GetLocalAmount() Money {
+	return s.LocalAmount
+}
+
+// SetPromiseToPayID sets the value of PromiseToPayID.
+func (s *DunningRunPromisedItem) SetPromiseToPayID(val uuid.UUID) {
+	s.PromiseToPayID = val
+}
+
+// SetPromisedDate sets the value of PromisedDate.
+func (s *DunningRunPromisedItem) SetPromisedDate(val time.Time) {
+	s.PromisedDate = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *DunningRunPromisedItem) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *DunningRunPromisedItem) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DunningRunPromisedItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DunningRunPromisedItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DunningRunPromisedItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DunningRunPromisedItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DunningRunPromisedItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *DunningRunPromisedItem) SetNetDueDate(val time.Time) {
+	s.NetDueDate = val
+}
+
+// SetDaysOverdue sets the value of DaysOverdue.
+func (s *DunningRunPromisedItem) SetDaysOverdue(val int32) {
+	s.DaysOverdue = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DunningRunPromisedItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetLocalAmount sets the value of LocalAmount.
+func (s *DunningRunPromisedItem) SetLocalAmount(val Money) {
+	s.LocalAmount = val
+}
 
 // A document the tenant's accredited e-invoicing provider delivered (ADR-0061 §4, §7, §15):
 // recorded once per connector and the provider's message id, its bytes kept as received.
@@ -47471,6 +48231,46 @@ type GetCurrentPrincipalForbidden Problem
 
 func (*GetCurrentPrincipalForbidden) getCurrentPrincipalRes() {}
 
+type GetCustomerContactBadRequest Problem
+
+func (*GetCustomerContactBadRequest) getCustomerContactRes() {}
+
+type GetCustomerContactForbidden Problem
+
+func (*GetCustomerContactForbidden) getCustomerContactRes() {}
+
+type GetCustomerContactNotFound Problem
+
+func (*GetCustomerContactNotFound) getCustomerContactRes() {}
+
+// GetCustomerContactOKHeaders wraps CustomerContact with response headers.
+type GetCustomerContactOKHeaders struct {
+	ETag     OptString
+	Response CustomerContact
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCustomerContactOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCustomerContactOKHeaders) GetResponse() CustomerContact {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCustomerContactOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCustomerContactOKHeaders) SetResponse(val CustomerContact) {
+	s.Response = val
+}
+
+func (*GetCustomerContactOKHeaders) getCustomerContactRes() {}
+
 type GetCustomerInvoiceBadRequest Problem
 
 func (*GetCustomerInvoiceBadRequest) getCustomerInvoiceRes() {}
@@ -48896,6 +49696,50 @@ func (*GetProfitabilityReportForbidden) getProfitabilityReportRes() {}
 type GetProfitabilityReportUnprocessableEntity Problem
 
 func (*GetProfitabilityReportUnprocessableEntity) getProfitabilityReportRes() {}
+
+type GetPromiseToPayBadRequest Problem
+
+func (*GetPromiseToPayBadRequest) getPromiseToPayRes() {}
+
+type GetPromiseToPayForbidden Problem
+
+func (*GetPromiseToPayForbidden) getPromiseToPayRes() {}
+
+type GetPromiseToPayNotFound Problem
+
+func (*GetPromiseToPayNotFound) getPromiseToPayRes() {}
+
+// GetPromiseToPayOKHeaders wraps PromiseToPay with response headers.
+type GetPromiseToPayOKHeaders struct {
+	ETag     OptString
+	Response PromiseToPay
+}
+
+// GetETag returns the value of ETag.
+func (s *GetPromiseToPayOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetPromiseToPayOKHeaders) GetResponse() PromiseToPay {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetPromiseToPayOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetPromiseToPayOKHeaders) SetResponse(val PromiseToPay) {
+	s.Response = val
+}
+
+func (*GetPromiseToPayOKHeaders) getPromiseToPayRes() {}
+
+type GetPromiseToPayUnprocessableEntity Problem
+
+func (*GetPromiseToPayUnprocessableEntity) getPromiseToPayRes() {}
 
 type GetPurchaseOrderBadRequest Problem
 
@@ -62566,6 +63410,14 @@ type ListCreditMemoRequestsForbidden Problem
 
 func (*ListCreditMemoRequestsForbidden) listCreditMemoRequestsRes() {}
 
+type ListCustomerContactsBadRequest Problem
+
+func (*ListCustomerContactsBadRequest) listCustomerContactsRes() {}
+
+type ListCustomerContactsForbidden Problem
+
+func (*ListCustomerContactsForbidden) listCustomerContactsRes() {}
+
 type ListCustomerInvoicesBadRequest Problem
 
 func (*ListCustomerInvoicesBadRequest) listCustomerInvoicesRes() {}
@@ -63117,6 +63969,18 @@ func (*ListProfitCentersBadRequest) listProfitCentersRes() {}
 type ListProfitCentersForbidden Problem
 
 func (*ListProfitCentersForbidden) listProfitCentersRes() {}
+
+type ListPromisesToPayBadRequest Problem
+
+func (*ListPromisesToPayBadRequest) listPromisesToPayRes() {}
+
+type ListPromisesToPayForbidden Problem
+
+func (*ListPromisesToPayForbidden) listPromisesToPayRes() {}
+
+type ListPromisesToPayUnprocessableEntity Problem
+
+func (*ListPromisesToPayUnprocessableEntity) listPromisesToPayRes() {}
 
 type ListPurchaseOrderChangesBadRequest Problem
 
@@ -84166,6 +85030,551 @@ func (s *ProfitabilityTotals) SetCreditMemos(val Money) {
 func (s *ProfitabilityTotals) SetNetRevenue(val Money) {
 	s.NetRevenue = val
 }
+
+// Merged schema.
+// Ref: #/components/schemas/PromiseToPay
+type PromiseToPay struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company the customer promises to pay.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number when the promise was recorded.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// What the customer promised to pay, in the company's currency.
+	PromisedAmount Money `json:"promised_amount"`
+	// The date the customer promised to pay by: a dunning run at a key date up to it leaves the promised
+	// items out.
+	PromisedDate time.Time `json:"promised_date"`
+	// On `status_date`: `kept` when the promised items no longer open add up to `promised_amount` at least
+	// (`paid_amount`); `broken` when not kept and `status_date` is past `promised_date`; `open` otherwise.
+	// Judged when read from the items as they are then, so a promise paid after its date reads kept from
+	// then on. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	Status string `json:"status"`
+	// The company's today, in its time zone, which `status` is judged on.
+	StatusDate time.Time `json:"status_date"`
+	// What the promised items no longer open amount to in the company's currency, as they were booked (the
+	// sum of their `local_amount`): an item counts in full once it is cleared, whether paid, credited or
+	// reversed.
+	PaidAmount Money `json:"paid_amount"`
+	// The items the promise is for, by journal line.
+	Items []PromiseToPayItem `json:"items"`
+	// The name of who recorded the promise (`created_by`), as it is now.
+	CreatedByName string `json:"created_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *PromiseToPay) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *PromiseToPay) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *PromiseToPay) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *PromiseToPay) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *PromiseToPay) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *PromiseToPay) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PromiseToPay) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *PromiseToPay) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *PromiseToPay) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *PromiseToPay) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *PromiseToPay) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *PromiseToPay) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetPromisedAmount returns the value of PromisedAmount.
+func (s *PromiseToPay) GetPromisedAmount() Money {
+	return s.PromisedAmount
+}
+
+// GetPromisedDate returns the value of PromisedDate.
+func (s *PromiseToPay) GetPromisedDate() time.Time {
+	return s.PromisedDate
+}
+
+// GetStatus returns the value of Status.
+func (s *PromiseToPay) GetStatus() string {
+	return s.Status
+}
+
+// GetStatusDate returns the value of StatusDate.
+func (s *PromiseToPay) GetStatusDate() time.Time {
+	return s.StatusDate
+}
+
+// GetPaidAmount returns the value of PaidAmount.
+func (s *PromiseToPay) GetPaidAmount() Money {
+	return s.PaidAmount
+}
+
+// GetItems returns the value of Items.
+func (s *PromiseToPay) GetItems() []PromiseToPayItem {
+	return s.Items
+}
+
+// GetCreatedByName returns the value of CreatedByName.
+func (s *PromiseToPay) GetCreatedByName() string {
+	return s.CreatedByName
+}
+
+// SetID sets the value of ID.
+func (s *PromiseToPay) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *PromiseToPay) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *PromiseToPay) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *PromiseToPay) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *PromiseToPay) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *PromiseToPay) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PromiseToPay) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *PromiseToPay) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *PromiseToPay) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *PromiseToPay) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *PromiseToPay) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *PromiseToPay) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetPromisedAmount sets the value of PromisedAmount.
+func (s *PromiseToPay) SetPromisedAmount(val Money) {
+	s.PromisedAmount = val
+}
+
+// SetPromisedDate sets the value of PromisedDate.
+func (s *PromiseToPay) SetPromisedDate(val time.Time) {
+	s.PromisedDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *PromiseToPay) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetStatusDate sets the value of StatusDate.
+func (s *PromiseToPay) SetStatusDate(val time.Time) {
+	s.StatusDate = val
+}
+
+// SetPaidAmount sets the value of PaidAmount.
+func (s *PromiseToPay) SetPaidAmount(val Money) {
+	s.PaidAmount = val
+}
+
+// SetItems sets the value of Items.
+func (s *PromiseToPay) SetItems(val []PromiseToPayItem) {
+	s.Items = val
+}
+
+// SetCreatedByName sets the value of CreatedByName.
+func (s *PromiseToPay) SetCreatedByName(val string) {
+	s.CreatedByName = val
+}
+
+// Record a customer's promise to pay an amount by a date for some of its open items.
+// Ref: #/components/schemas/PromiseToPayCreate
+type PromiseToPayCreate struct {
+	// The company the customer promises to pay: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer (a business partner) that promises to pay, the owner of the items.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// What the customer promises to pay, in the company's currency: above zero and at most what the items
+	// amount to in it, as they were booked.
+	PromisedAmount Money `json:"promised_amount"`
+	// The date the customer promises to pay by: from the company's today to 2100-12-31.
+	PromisedDate time.Time `json:"promised_date"`
+	// The open items the promise is for, each named once.
+	Items []PromiseToPayItemRef `json:"items"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PromiseToPayCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *PromiseToPayCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetPromisedAmount returns the value of PromisedAmount.
+func (s *PromiseToPayCreate) GetPromisedAmount() Money {
+	return s.PromisedAmount
+}
+
+// GetPromisedDate returns the value of PromisedDate.
+func (s *PromiseToPayCreate) GetPromisedDate() time.Time {
+	return s.PromisedDate
+}
+
+// GetItems returns the value of Items.
+func (s *PromiseToPayCreate) GetItems() []PromiseToPayItemRef {
+	return s.Items
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PromiseToPayCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *PromiseToPayCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetPromisedAmount sets the value of PromisedAmount.
+func (s *PromiseToPayCreate) SetPromisedAmount(val Money) {
+	s.PromisedAmount = val
+}
+
+// SetPromisedDate sets the value of PromisedDate.
+func (s *PromiseToPayCreate) SetPromisedDate(val time.Time) {
+	s.PromisedDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *PromiseToPayCreate) SetItems(val []PromiseToPayItemRef) {
+	s.Items = val
+}
+
+// PromiseToPayHeaders wraps PromiseToPay with response headers.
+type PromiseToPayHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           PromiseToPay
+}
+
+// GetETag returns the value of ETag.
+func (s *PromiseToPayHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PromiseToPayHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *PromiseToPayHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *PromiseToPayHeaders) GetResponse() PromiseToPay {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PromiseToPayHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PromiseToPayHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *PromiseToPayHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PromiseToPayHeaders) SetResponse(val PromiseToPay) {
+	s.Response = val
+}
+
+func (*PromiseToPayHeaders) createPromiseToPayRes() {}
+
+// An item a promise to pay is for, as it was when the promise was recorded, and whether it is still
+// open.
+// Ref: #/components/schemas/PromiseToPayItem
+type PromiseToPayItem struct {
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The item's net due date: by the payment terms it was posted with, or, posted without any, its
+	// document date.
+	NetDueDate time.Time `json:"net_due_date"`
+	// What the customer owed on the item when the promise was recorded, in the item's currency.
+	Amount Money `json:"amount"`
+	// The same in the company's currency, as it was booked.
+	LocalAmount Money `json:"local_amount"`
+	// Whether the item is still open: false once it was cleared (paid or credited) or its entry reversed.
+	Open bool `json:"open"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PromiseToPayItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *PromiseToPayItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *PromiseToPayItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *PromiseToPayItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *PromiseToPayItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *PromiseToPayItem) GetNetDueDate() time.Time {
+	return s.NetDueDate
+}
+
+// GetAmount returns the value of Amount.
+func (s *PromiseToPayItem) GetAmount() Money {
+	return s.Amount
+}
+
+// GetLocalAmount returns the value of LocalAmount.
+func (s *PromiseToPayItem) GetLocalAmount() Money {
+	return s.LocalAmount
+}
+
+// GetOpen returns the value of Open.
+func (s *PromiseToPayItem) GetOpen() bool {
+	return s.Open
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PromiseToPayItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *PromiseToPayItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *PromiseToPayItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *PromiseToPayItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *PromiseToPayItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *PromiseToPayItem) SetNetDueDate(val time.Time) {
+	s.NetDueDate = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *PromiseToPayItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetLocalAmount sets the value of LocalAmount.
+func (s *PromiseToPayItem) SetLocalAmount(val Money) {
+	s.LocalAmount = val
+}
+
+// SetOpen sets the value of Open.
+func (s *PromiseToPayItem) SetOpen(val bool) {
+	s.Open = val
+}
+
+// An open item a promise to pay is for, by its journal line.
+// Ref: #/components/schemas/PromiseToPayItemRef
+type PromiseToPayItemRef struct {
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name
+	// it).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PromiseToPayItemRef) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *PromiseToPayItemRef) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *PromiseToPayItemRef) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PromiseToPayItemRef) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *PromiseToPayItemRef) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *PromiseToPayItemRef) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// One page of promises to pay.
+// Ref: #/components/schemas/PromiseToPayPage
+type PromiseToPayPage struct {
+	// The promises to pay on this page.
+	Items []PromiseToPay `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *PromiseToPayPage) GetItems() []PromiseToPay {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PromiseToPayPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *PromiseToPayPage) SetItems(val []PromiseToPay) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PromiseToPayPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*PromiseToPayPage) listPromisesToPayRes() {}
 
 type ProposeAccrualBadRequest Problem
 
@@ -106041,6 +107450,7 @@ func (*TooManyRequestsHeaders) createControlTestRes()                     {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) createCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) createCreditMemoRequestRes()               {}
+func (*TooManyRequestsHeaders) createCustomerContactRes()                 {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createDisputeCaseRes()                     {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
@@ -106068,6 +107478,7 @@ func (*TooManyRequestsHeaders) createPersonalDataDeletionRunRes()         {}
 func (*TooManyRequestsHeaders) createPlanCategoryRes()                    {}
 func (*TooManyRequestsHeaders) createPrincipalRes()                       {}
 func (*TooManyRequestsHeaders) createProfitCenterRes()                    {}
+func (*TooManyRequestsHeaders) createPromiseToPayRes()                    {}
 func (*TooManyRequestsHeaders) createPurchaseOrderChangeRes()             {}
 func (*TooManyRequestsHeaders) createPurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) createQuotationRes()                       {}
@@ -106170,6 +107581,7 @@ func (*TooManyRequestsHeaders) getCreditExposureRes()                     {}
 func (*TooManyRequestsHeaders) getCreditLimitRes()                        {}
 func (*TooManyRequestsHeaders) getCreditMemoRequestRes()                  {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
+func (*TooManyRequestsHeaders) getCustomerContactRes()                    {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
 func (*TooManyRequestsHeaders) getDisputeCaseRes()                        {}
@@ -106223,6 +107635,7 @@ func (*TooManyRequestsHeaders) getProcessEventLogRes()                    {}
 func (*TooManyRequestsHeaders) getProcessMapRes()                         {}
 func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
 func (*TooManyRequestsHeaders) getProfitabilityReportRes()                {}
+func (*TooManyRequestsHeaders) getPromiseToPayRes()                       {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderDocumentRes()              {}
 func (*TooManyRequestsHeaders) getPurchaseOrderRes()                      {}
@@ -106316,6 +107729,7 @@ func (*TooManyRequestsHeaders) listCostCentersRes()                       {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
 func (*TooManyRequestsHeaders) listCreditLimitsRes()                      {}
 func (*TooManyRequestsHeaders) listCreditMemoRequestsRes()                {}
+func (*TooManyRequestsHeaders) listCustomerContactsRes()                  {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDisputeCasesRes()                      {}
@@ -106376,6 +107790,7 @@ func (*TooManyRequestsHeaders) listProfitCenterBalancesRes()              {}
 func (*TooManyRequestsHeaders) listProfitCenterPathsRes()                 {}
 func (*TooManyRequestsHeaders) listProfitCenterPlanActualRes()            {}
 func (*TooManyRequestsHeaders) listProfitCentersRes()                     {}
+func (*TooManyRequestsHeaders) listPromisesToPayRes()                     {}
 func (*TooManyRequestsHeaders) listPurchaseOrderChangesRes()              {}
 func (*TooManyRequestsHeaders) listPurchaseOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listQuotationsRes()                        {}
@@ -106943,6 +108358,7 @@ func (*UnauthorizedHeaders) createControlTestRes()                     {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
 func (*UnauthorizedHeaders) createCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) createCreditMemoRequestRes()               {}
+func (*UnauthorizedHeaders) createCustomerContactRes()                 {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createDisputeCaseRes()                     {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
@@ -106970,6 +108386,7 @@ func (*UnauthorizedHeaders) createPersonalDataDeletionRunRes()         {}
 func (*UnauthorizedHeaders) createPlanCategoryRes()                    {}
 func (*UnauthorizedHeaders) createPrincipalRes()                       {}
 func (*UnauthorizedHeaders) createProfitCenterRes()                    {}
+func (*UnauthorizedHeaders) createPromiseToPayRes()                    {}
 func (*UnauthorizedHeaders) createPurchaseOrderChangeRes()             {}
 func (*UnauthorizedHeaders) createPurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) createQuotationRes()                       {}
@@ -107072,6 +108489,7 @@ func (*UnauthorizedHeaders) getCreditExposureRes()                     {}
 func (*UnauthorizedHeaders) getCreditLimitRes()                        {}
 func (*UnauthorizedHeaders) getCreditMemoRequestRes()                  {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
+func (*UnauthorizedHeaders) getCustomerContactRes()                    {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
 func (*UnauthorizedHeaders) getDisputeCaseRes()                        {}
@@ -107125,6 +108543,7 @@ func (*UnauthorizedHeaders) getProcessEventLogRes()                    {}
 func (*UnauthorizedHeaders) getProcessMapRes()                         {}
 func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
 func (*UnauthorizedHeaders) getProfitabilityReportRes()                {}
+func (*UnauthorizedHeaders) getPromiseToPayRes()                       {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderDocumentRes()              {}
 func (*UnauthorizedHeaders) getPurchaseOrderRes()                      {}
@@ -107218,6 +108637,7 @@ func (*UnauthorizedHeaders) listCostCentersRes()                       {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
 func (*UnauthorizedHeaders) listCreditLimitsRes()                      {}
 func (*UnauthorizedHeaders) listCreditMemoRequestsRes()                {}
+func (*UnauthorizedHeaders) listCustomerContactsRes()                  {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDisputeCasesRes()                      {}
@@ -107278,6 +108698,7 @@ func (*UnauthorizedHeaders) listProfitCenterBalancesRes()              {}
 func (*UnauthorizedHeaders) listProfitCenterPathsRes()                 {}
 func (*UnauthorizedHeaders) listProfitCenterPlanActualRes()            {}
 func (*UnauthorizedHeaders) listProfitCentersRes()                     {}
+func (*UnauthorizedHeaders) listPromisesToPayRes()                     {}
 func (*UnauthorizedHeaders) listPurchaseOrderChangesRes()              {}
 func (*UnauthorizedHeaders) listPurchaseOrdersRes()                    {}
 func (*UnauthorizedHeaders) listQuotationsRes()                        {}

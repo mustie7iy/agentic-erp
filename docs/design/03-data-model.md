@@ -4877,6 +4877,50 @@ erDiagram
   `dunning_run.blocked_items` lists the items a run left out for a block,
   a JSON list (`dunning_run_blocked_items_check`), empty by default,
   written with the run and not changed.
+- `collections.promise_to_pay` (T76f, migration 000363): a customer's
+  promise to pay a company, by its number
+  (`promise_to_pay_customer_number_check`), an amount above zero
+  (`promise_to_pay_amount_positive`) in the company's currency, a known
+  one (`promise_to_pay_currency_fkey`), by a date up to 2100-12-31
+  (`promise_to_pay_date_check`); version from 1
+  (`promise_to_pay_version_check`); insert-only
+  (`promise_to_pay_insert_only`, for every role). Its status is not
+  stored: it is judged on read from its items and the company's today. A
+  run and the worklist read a company's promises by date
+  (`promise_to_pay_by_date`), the worklist a page's customers' broken
+  ones (`promise_to_pay_by_customer`), the list the tenant's by creation
+  (`promise_to_pay_by_created_at`).
+- `collections.promise_to_pay_item` (T76f): an open item of the ledger a
+  promise is for, by its journal line, once per promise (the primary
+  key; `promise_to_pay_item_line_no_check`), of a promise that exists
+  (`promise_to_pay_item_tenant_id_promise_to_pay_id_fkey`), with its
+  document number (`promise_to_pay_item_document_number_check`), what
+  the customer owed on it above zero in its currency
+  (`promise_to_pay_item_amount_positive`, a known one,
+  `promise_to_pay_item_currency_fkey`) and not negative in the company's
+  (`promise_to_pay_item_amount_lc_check`); insert-only
+  (`promise_to_pay_item_insert_only`). A new promise is checked against
+  an item's promises (`promise_to_pay_item_by_item`).
+  `dunning_run.promised_items` lists the items a run left out for a
+  promise, a JSON list (`dunning_run_promised_items_check`), empty by
+  default, written with the run and not changed.
+- `collections.customer_contact` (T76g, migration 000364): a
+  collector's contact with a customer, by its number
+  (`customer_contact_customer_number_check`), at `contacted_at`, with an
+  outcome of `reached`, `not_reached` or `left_message`
+  (`customer_contact_outcome_check`), whom at the customer and a note,
+  each more than white space and at most 200 and 2,000 characters or
+  absent (`customer_contact_contact_name_check`,
+  `customer_contact_note_check`), and a resubmission date up to
+  2100-12-31 or none (`customer_contact_resubmission_date_check`);
+  version from 1 (`customer_contact_version_check`); insert-only
+  (`customer_contact_insert_only`, for every role). The worklist reads a
+  customer's last contact, its latest by `contacted_at`
+  (`customer_contact_latest`), and the customers with a contact
+  resubmitted after its key date (`customer_contact_resubmission`); the
+  list reads the tenant's contacts by `contacted_at`
+  (`customer_contact_by_contacted_at`). `contact_name` and `note` are in
+  the personal data inventory.
 - `collections.dispute_case` (T86a, migration 000324): an open item of
   the ledger, named by its journal line (`dispute_case_line_no_check`),
   with its customer's number and its document number

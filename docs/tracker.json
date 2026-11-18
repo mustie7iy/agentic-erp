@@ -2988,9 +2988,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A collections specialist records a customer's promise to pay an amount by a date for some of its open items; the promise reads open, kept or broken by the company's today, the worklist shows each customer's open and broken promises, and a dunning run holds the promised items back up to the promised date",
+        "r": "T76f · docs/design/plan-depth-2.md §T76f · db/migrations/000363 · collections.promise_to_pay, promise_to_pay_item · dunning_run.promised_items · POST /v1/promises-to-pay · GET /v1/promises-to-pay · GET /v1/promises-to-pay/{id} · collections.worklist.write · walkthrough step_promise_to_pay · ADR-0065 As built",
+        "src": "split:T76c · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A collections specialist records a contact with a customer (when, whom, the outcome, a note) with an optional resubmission date; the worklist shows each customer's last contact and leaves a customer out until its resubmission date",
+        "r": "T76g · docs/design/plan-depth-2.md §T76g · db/migrations/000364 · collections.customer_contact · POST /v1/customer-contacts · GET /v1/customer-contacts · GET /v1/customer-contacts/{id} · resubmission_count · personal data inventory · walkthrough step_collection_contacts · TestCollectionWorklistBudget · ADR-0065 As built",
+        "src": "split:T76c · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: collection worklist variants: assigning customers to collectors, strategies and priorities, promises to pay, contact notes and resubmission dates (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T76c, Later",
+        "t": "later: collection worklist variants: assigning customers to collectors, strategies and priorities, promises in instalments, changed or withdrawn, contact outcomes from configuration (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T76c, Later · docs/design/plan-depth-2.md §coll, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }

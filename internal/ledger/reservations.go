@@ -69,7 +69,7 @@ func (Postings) Reserve(ctx context.Context, owner Owner, refs []ItemRef) error 
 			return err
 		}
 	}
-	years, ids, nos := columns(refs)
+	years, ids, nos := ItemColumns(refs)
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.item_reservation (tenant_id, owner_id, fiscal_year, journal_entry_id, line_no, owner_context,
 			owner_reference, created_by)
 		SELECT $1, $2, y, je, n, $3, $4, $5 FROM unnest($6::smallint[], $7::uuid[], $8::int[]) AS x(y, je, n)`,
@@ -94,7 +94,7 @@ func release(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, owner uuid.
 	q := `UPDATE ledger.item_reservation SET released_at = now(), released_by = $2 WHERE owner_id = $1 AND released_at IS NULL`
 	args := []any{owner, actor.ID}
 	if refs != nil {
-		years, ids, nos := columns(refs)
+		years, ids, nos := ItemColumns(refs)
 		q += ` AND (fiscal_year, journal_entry_id, line_no) IN (SELECT * FROM unnest($3::smallint[], $4::uuid[], $5::int[]))`
 		args = append(args, years, ids, nos)
 	}
@@ -125,8 +125,10 @@ func (Postings) LockAllEntries(ctx context.Context) error {
 	return lockBuckets(ctx, tx, true, all)
 }
 
-// columns splits item references into the arrays unnest takes.
-func columns(refs []ItemRef) (years []int16, entries []uuid.UUID, nos []int32) {
+// ItemColumns splits item references into the arrays unnest takes, for
+// the ledger's reads and for the contexts that keep items by journal line
+// (collections).
+func ItemColumns(refs []ItemRef) (years []int16, entries []uuid.UUID, nos []int32) {
 	years, entries, nos = make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
 	for i, r := range refs {
 		years[i], entries[i], nos[i] = r.FiscalYear, r.EntryID, r.LineNo

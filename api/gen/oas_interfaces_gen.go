@@ -329,6 +329,10 @@ type CreateCreditMemoRequestRes interface {
 	createCreditMemoRequestRes()
 }
 
+type CreateCustomerContactRes interface {
+	createCustomerContactRes()
+}
+
 type CreateCustomerInvoiceRes interface {
 	createCustomerInvoiceRes()
 }
@@ -435,6 +439,10 @@ type CreatePrincipalRes interface {
 
 type CreateProfitCenterRes interface {
 	createProfitCenterRes()
+}
+
+type CreatePromiseToPayRes interface {
+	createPromiseToPayRes()
 }
 
 type CreatePurchaseOrderChangeRes interface {
@@ -845,6 +853,10 @@ type GetCurrentPrincipalRes interface {
 	getCurrentPrincipalRes()
 }
 
+type GetCustomerContactRes interface {
+	getCustomerContactRes()
+}
+
 type GetCustomerInvoiceRes interface {
 	getCustomerInvoiceRes()
 }
@@ -1055,6 +1067,10 @@ type GetProfitCenterRes interface {
 
 type GetProfitabilityReportRes interface {
 	getProfitabilityReportRes()
+}
+
+type GetPromiseToPayRes interface {
+	getPromiseToPayRes()
 }
 
 type GetPurchaseOrderChangeRes interface {
@@ -1429,6 +1445,10 @@ type ListCreditMemoRequestsRes interface {
 	listCreditMemoRequestsRes()
 }
 
+type ListCustomerContactsRes interface {
+	listCustomerContactsRes()
+}
+
 type ListCustomerInvoicesRes interface {
 	listCustomerInvoicesRes()
 }
@@ -1667,6 +1687,10 @@ type ListProfitCenterPlanActualRes interface {
 
 type ListProfitCentersRes interface {
 	listProfitCentersRes()
+}
+
+type ListPromisesToPayRes interface {
+	listPromisesToPayRes()
 }
 
 type ListPurchaseOrderChangesRes interface {

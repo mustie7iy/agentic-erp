@@ -344,7 +344,7 @@ const reversedLine = `EXISTS (SELECT FROM ledger.reversal r WHERE r.tenant_id = 
 // its posting date, which a clearing's date may not precede
 // (notBeforeItems).
 func loadItems(ctx context.Context, tx pgx.Tx, refs []ItemRef) ([]item, error) {
-	years, entries, nos := columns(refs)
+	years, entries, nos := ItemColumns(refs)
 	// Locked before reading, so the reversal check below sees any reversal
 	// that committed while this waited (the transaction is read committed).
 	if err := lockEntries(ctx, tx, true, entries); err != nil {
@@ -464,7 +464,7 @@ func EntryLockBucket(id uuid.UUID) int32 {
 
 // markCleared records the lines as cleared by the clearing.
 func markCleared(ctx context.Context, tx pgx.Tx, tenant, clearing uuid.UUID, refs []ItemRef) error {
-	years, entries, nos := columns(refs)
+	years, entries, nos := ItemColumns(refs)
 	_, err := tx.Exec(ctx, `INSERT INTO ledger.clearing_item (tenant_id, fiscal_year, journal_entry_id, line_no, clearing_id)
 		SELECT $1, y, je, n, $2 FROM unnest($3::smallint[], $4::uuid[], $5::int[]) AS x(y, je, n)`, tenant, clearing, years, entries, nos)
 	if err != nil {
