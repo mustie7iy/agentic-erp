@@ -39,12 +39,14 @@ type ReceiptApplication struct {
 	// credit.
 	ReceiptAccountID uuid.UUID
 	Receipt          ItemRef
-	// CustomerID is the customer whose items Items are: open items on
-	// customer reconciliation accounts, invoices and credits alike, that
-	// together, net of Residuals, are the receipt but for what OnAccount
-	// takes or the tolerance writes off.
-	CustomerID uuid.UUID
-	Items      []ItemRef
+	// CustomerID is the customer whose items Items are, the payer, with
+	// OtherCustomers, the other customers the receipt pays for (T75h): open
+	// items on customer reconciliation accounts, invoices and credits
+	// alike, each of one of them, that together, net of Residuals, are the
+	// receipt but for what OnAccount takes or the tolerance writes off.
+	CustomerID     uuid.UUID
+	OtherCustomers []uuid.UUID
+	Items          []ItemRef
 	// Residuals, one per item or none, are what stays open of the items
 	// paid in part (T75f): a residual's Amount, more than zero and less
 	// than its debit item, is posted as a new item of the customer on the
@@ -86,6 +88,9 @@ type AppliedReceipt struct {
 	Entry   Entry
 	Receipt money.Minor
 	Items   []money.Minor
+	// Customers are the customer of each item, in the order of Items: the
+	// application's CustomerID or one of its OtherCustomers.
+	Customers []uuid.UUID
 	// ResidualLines are the entry's line of each item's residual item, in
 	// the order of Items; 0 for an item paid in full.
 	ResidualLines []int32
@@ -167,10 +172,10 @@ func (p Postings) ApplyReceipt(ctx context.Context, in ReceiptApplication) (Appl
 	if err := keepResidualTerms(ctx, tx, entry, items[1:], plan.residualLines); err != nil {
 		return AppliedReceipt{}, err
 	}
-	out := AppliedReceipt{Entry: entry, Receipt: -first.tc, Items: make([]money.Minor, len(in.Items)), ResidualLines: plan.residualLines,
-		Difference: plan.difference, OnAccount: plan.onAccount, OnAccountLine: plan.onAccountLine}
+	out := AppliedReceipt{Entry: entry, Receipt: -first.tc, Items: make([]money.Minor, len(in.Items)), Customers: make([]uuid.UUID, len(in.Items)),
+		ResidualLines: plan.residualLines, Difference: plan.difference, OnAccount: plan.onAccount, OnAccountLine: plan.onAccountLine}
 	for i, it := range items[1:] {
-		out.Items[i] = it.tc
+		out.Items[i], out.Customers[i] = it.tc, *it.partner // a customer's item names its customer (checkCustomerItem)
 	}
 	return out, errors.Join(
 		audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.post", ObjectType: "ledger.journal_entry", ObjectID: entry.ID, Outcome: "succeeded",
@@ -198,10 +203,14 @@ func receiptLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid
 	if err != nil {
 		return application{}, err
 	}
+	payers := map[uuid.UUID]bool{in.CustomerID: true}
+	for _, c := range in.OtherCustomers {
+		payers[c] = true
+	}
 	lines, _, _, _, err := offsetItems(items, in.Currency, in.HeaderText, func(i int, it item) error {
 		switch {
 		case i > 0:
-			return checkCustomerItem(i-1, it, le, in, customer)
+			return checkCustomerItem(i-1, it, le, in.Currency, payers, customer)
 		case in.Credit:
 			return checkCredit(it, le, in, customer)
 		}
@@ -240,23 +249,24 @@ func checkReceipt(it item) error {
 
 // checkCustomerItem checks item i of the application: an open item on a
 // reconciliation account of the legal entity that nothing holds
-// (checkItem), on a customer reconciliation account, of the customer and
-// in the receipt's currency. Every refusal names the request's own field,
-// items[i], so a client can tell which item to leave out.
-func checkCustomerItem(i int, it item, le uuid.UUID, in ReceiptApplication, customerAccount map[uuid.UUID]bool) error {
+// (checkItem), on a customer reconciliation account, of one of the
+// customers the receipt pays (payers) and in the receipt's currency. Every
+// refusal names the request's own field, items[i], so a client can tell
+// which item to leave out.
+func checkCustomerItem(i int, it item, le uuid.UUID, currency string, payers, customerAccount map[uuid.UUID]bool) error {
 	field := fmt.Sprintf("items[%d]", i)
 	if err := checkItem(i, it, &le, uuid.Nil,
 		problem.FieldError{Field: field, Code: "not_an_open_item", Message: "an open item of the customer in this legal entity"}); err != nil {
 		return namingItem(err, field)
 	}
 	// A line on a reconciliation account names its partner (checkAccounts).
-	if !customerAccount[it.account] || it.partner == nil || *it.partner != in.CustomerID {
-		return problem.Unprocessable("ledger.not_the_customers_item", "Item "+fmt.Sprint(i+1)+" is not an item of the customer on a customer reconciliation account.",
+	if !customerAccount[it.account] || it.partner == nil || !payers[*it.partner] {
+		return problem.Unprocessable("ledger.not_the_customers_item", "Item "+fmt.Sprint(i+1)+" is not an item of the customer, or of another customer the payment names, on a customer reconciliation account.",
 			problem.FieldError{Field: field, Code: "not_the_customers", Message: "an open item of the customer"})
 	}
-	if it.currency != in.Currency {
-		return problem.Unprocessable("ledger.mixed_items", "Item "+fmt.Sprint(i+1)+" is in "+it.currency+", the receipt in "+in.Currency+
-			"; a receipt is applied to items in its currency.", problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + in.Currency})
+	if it.currency != currency {
+		return problem.Unprocessable("ledger.mixed_items", "Item "+fmt.Sprint(i+1)+" is in "+it.currency+", the receipt in "+currency+
+			"; a receipt is applied to items in its currency.", problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + currency})
 	}
 	return nil
 }

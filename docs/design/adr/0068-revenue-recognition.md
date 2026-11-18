@@ -4,7 +4,7 @@
 with the product owner's decisions of 2026-11-12; `go-reviewer` had no
 blocking finding on T81a's last commit). It decides the revenue context
 and the slices T81a-T81d (`docs/design/plan-breadth-week2.md`, Lane B).
-Each slice records what it built under "As built"; all four are there. **The six statements about IFRS 15 this ADR rests on (§2) are
+Each slice records what it built under "As built"; all four are there, and T81e (a contract following its sales order, `plan-depth-2.md` §T81e) after them. **The six statements about IFRS 15 this ADR rests on (§2) are
 not yet confirmed by the accounting specialist.**
 
 ## Context
@@ -453,6 +453,22 @@ answered, none read from the standard):
 - **Periods run in order, none reversed.** A correction dated into a
   period already run is recognized in the next run's period. Acceptable
   for the pilot's close, or must the earlier period be reopened?
+- **A change of the order** (T81e) is taken as a change of the
+  transaction price: the new price is allocated by the stand-alone
+  selling prices set at inception and the next run catches up what is
+  already recognized (from memory, IFRS 15 §87–90). Should a change that
+  adds distinct goods or services at their stand-alone selling price be
+  a separate contract, or another change the termination of the old
+  contract and a new one, recognized prospectively (from memory, §18–21)?
+- **The stand-alone selling price is kept on a change** (T81e): a
+  quantity change leaves the person's stand-alone selling price as it
+  was, so an obligation whose quantity falls is allocated more than its
+  order value at the expense of the others. Should the price be rescaled
+  by quantity, or estimated again?
+- **A cancelled order** (T81e) ends every obligation with nothing
+  allocated, so what earlier runs recognized over time or on a named day
+  is taken off by the next run. Is revenue for performance to date kept
+  when the customer cancels and owes payment for it?
 Question 4 (should every confirmed order get a contract automatically)
 is answered by the product owner: yes.
 
@@ -762,3 +778,119 @@ is answered by the product owner: yes.
   asset debited with 5000.00. Step 63's contract posts nothing; a
   second run of the period is refused.
 - **Decided by default while building.** Defaults 11 to 16 above.
+
+### T81e Revenue contract follows its sales order (migration 000367)
+
+`docs/design/plan-depth-2.md` §T81e (product owner 2026-11-17: the
+variants go on). It lifts default 5 above ("orders do not change in the
+first version") and ADR-0067 As built T78d's refusal of a confirmed
+order's change or cancellation while it has a contract. SAP's Revenue
+Accounting, which takes an order's changes from sales after the change
+as revenue accounting items, is the reference.
+
+- **Schema.** On `revenue.contract` `changes` (the follows kept) and
+  `ended_at`; on `revenue.performance_obligation` `ended_at`; table
+  `revenue.contract_change` (insert-only; numbered once per contract;
+  cause `sales_order_changed` or `sales_order_cancelled`, the order's
+  version and change count followed, the transaction price before and
+  after, each obligation changed with its order value and allocated
+  amount before and after and whether it ended). The rules
+  (`revenue.check_contract_change`, `revenue.check_obligation_change`
+  replaced): a follow moves `changes` by one to a kept change and keeps
+  the status (`contract_follow_kept`), and alone moves the price, an
+  order value or an end; in that transaction an obligation's judgements
+  stay (`performance_obligation_judgement_kept`); an ended contract or
+  obligation changes no more (`contract_ended`); a price of zero only
+  for an ended contract (`contract_transaction_price_positive`); an
+  ended obligation has nothing allocated
+  (`performance_obligation_ended_unallocated`); an active contract's
+  shares are its price after every change. The revert is refused while a
+  follow is kept. Schema tests in `db/revenue_follow_test.go`.
+- **The follow** (`internal/revenue/follow.go`). `revenue.Consumer`
+  acts on every `SalesOrderChanged` of a confirmed or a cancelled order:
+  it reads the order under a share lock (`sales.Orders.Shared`) and then
+  the contract under its row lock, the order a creation takes them in;
+  an order with a contract is followed, a confirmed one without gets its
+  contract as before, a cancelled one without needs none. `followOf`
+  takes the order as it is: each obligation that stands takes its
+  item's net value; the order's cancellation ends every obligation; the
+  transaction price is the order values that stand added up, the
+  order's net value; an active contract's price is allocated again by
+  `allocate` over the stand-alone selling prices as the person set them,
+  an ended obligation weighing nothing. Nothing a person judged moves. A
+  follow that changes nothing writes nothing, so an event read twice,
+  read out of order, or for a change of the requested delivery date
+  alone, adds nothing; an ended contract is left as it is. As
+  `BuilderActor`, the audit record `revenue.contract.follow` (source the
+  cause, the change number, the price before, the obligations changed)
+  and `RevenueContractChanged` (`changes` and `ended` added, optional,
+  ADR-0041) in the follow's transaction.
+- **Schedule and run.** Unchanged arithmetic on the contract as it now
+  is: an ended obligation is in no period; the recognition run reads
+  active contracts, ended ones too, so it takes off what earlier runs
+  recognized of a cancelled order. What a run posted is never reversed
+  or restated: the next run posts the change in its own period.
+- **Refusals.** `PATCH` and `:activate` of an ended contract: 409
+  `revenue.contract_ended` (registered for the constraint too). Sales'
+  `changeSalesOrder` and `cancelSalesOrder` lose 409
+  `sales.revenue_contract_exists`, and sales its port
+  `RevenueContracts` (`revenue.OrderContracts` is gone): sales again does
+  not know of revenue.
+- **Reads.** The contract's `changes` and `ended_at`, the obligation's
+  `ended_at`.
+- **Tested.** A draft follows a price change, the stand-alone selling
+  prices kept, the follow kept with its values, audited and published;
+  the event read again, the confirmation's event read after it, and a
+  change of the delivery date alone change nothing; an active contract's
+  quantity change allocated again exactly (2450.00 into 1312.50 and
+  1137.50) with its timing and service period kept; a run after a follow
+  posts the difference in its own period and January's run reads as it
+  was, and once billed revenue is the 60 delivered at the changed price;
+  a cancellation ends the contract, the next run takes the support's
+  accrual off, the ended contract refuses a change and an activation,
+  and a draft's cancellation ends it too; a change racing the follow
+  ends with the contract at the order's values; every statement of a
+  follow and its commit failing leaves the contract as it was.
+- **Walkthrough.** Step 120, `step_revenue_follows_order`: an order is
+  confirmed and its contract appears; Sally lowers a price and the draft
+  follows (1800.00 to 1700.00, the stand-alone selling prices kept); Nora
+  activates it (1133.33 and 566.67); Sally raises the quantity and the
+  active contract is allocated again (1920.00 into 1280.00 and 640.00); a
+  second order's cancellation ends its contract at zero, which refuses an
+  activation.
+- **Decided by default while building.** (1) The follow is the
+  consumer's, after the change's commit (ADR-0068 §4's mechanism, SAP
+  RAR's), not a call in the change's transaction, so sales does not
+  depend on revenue at run time either; until the event is read, the
+  stored contract is the order's before the change (a second or two),
+  while a recognition run follows it first and a schedule read computes
+  it as followed (review round 1, below). (2) A follow reads the order as it is, not the event's figures:
+  idempotent per state, whatever the order of the events. (3) A change of
+  quantity or price is a change of the transaction price, allocated by
+  the stand-alone selling prices of inception, which stay the person's;
+  "prospectively for what is already recognised" is held in the ledger:
+  no run is reversed or restated, and the next run posts the catch-up in
+  its own period (listed for the accounting specialist above). (4) A
+  cancelled order's contract ends at a price of zero, so no contract
+  asset is left that no billing could clear (the safer money rule;
+  listed above). (5) An ended contract keeps its status and stays among
+  the run's active contracts, so the run that follows its end takes its
+  accruals off; once at zero it posts nothing. (6) The follows are kept
+  in a table the contract's rules read; a list of them by API is later.
+- **Review round 1.** A recognition run brings each active contract to
+  its order before it reads it (`current`: the order FOR SHARE, the
+  contract FOR UPDATE, the consumer's order), so a run made before the
+  consumer read an order's change posts the figures after the follow;
+  a schedule read computes them without writing (`asOrdered`). A kept
+  follow is checked at commit: its contract counts it and, active, its
+  shares are its price (`contract_change_followed`, a deferred
+  constraint trigger). A person's change of an ended obligation is 409
+  `revenue.obligation_ended`; activation gives an ended obligation
+  nothing.
+- **T78e.** An item added to the order gets an obligation, numbered after
+  the highest, at a point in time with its net value as its stand-alone
+  selling price (`newObligations`, as §3 starts one); a removed item's
+  obligation ends with nothing allocated, a draft's too, so the draft's
+  activation gives it nothing. A contract made for an order with an item
+  already removed takes the items that stand (`sales.Order.Standing`),
+  numbered from 1 (review round 2).

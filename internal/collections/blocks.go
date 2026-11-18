@@ -8,11 +8,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -174,7 +172,7 @@ func (e *Endpoints) PlaceBlock(ctx context.Context, in BlockInput) (Block, error
 	if err := e.blockEnd(ctx, le, in.ValidTo); err != nil {
 		return Block{}, err
 	}
-	number, err := e.blockedCustomer(ctx, in.CustomerID)
+	number, err := e.namedCustomer(ctx, in.CustomerID)
 	if err != nil {
 		return Block{}, err
 	}
@@ -183,7 +181,7 @@ func (e *Endpoints) PlaceBlock(ctx context.Context, in BlockInput) (Block, error
 	var line *int32
 	var document *string
 	if in.Item != nil {
-		it, err := e.customersItem(ctx, le, in.CustomerID, *in.Item)
+		it, err := e.customersItem(ctx, le, in.CustomerID, *in.Item, "journal_entry_id")
 		if err != nil {
 			return Block{}, err
 		}
@@ -207,9 +205,9 @@ func (e *Endpoints) PlaceBlock(ctx context.Context, in BlockInput) (Block, error
 // block would hold for no run started from now on, or after LastKeyDate,
 // the latest key date of a run.
 func (e *Endpoints) blockEnd(ctx context.Context, le tenancy.Entity, validTo time.Time) error {
-	today, err := config.DocumentDay(ctx, e.Settings, le.Code, clock.Now(e.Now))
+	today, err := e.today(ctx, le)
 	if err != nil {
-		return fmt.Errorf("collections: company %s's day: %w", le.Code, err)
+		return err
 	}
 	if validTo.Before(today.Date) || validTo.After(LastKeyDate) {
 		return problem.Invalid("collections.invalid_block_end", "valid_to", fmt.Sprintf("A dunning block holds up to an end date from company %s's "+
@@ -218,13 +216,13 @@ func (e *Endpoints) blockEnd(ctx context.Context, le tenancy.Entity, validTo tim
 	return nil
 }
 
-// blockedCustomer is the number of the customer a block names, a
-// business partner of the tenant; another id is refused, naming the
-// field.
-func (e *Endpoints) blockedCustomer(ctx context.Context, customer uuid.UUID) (string, error) {
+// namedCustomer is the number of the customer a request names (a
+// dunning block's, a promise's), a business partner of the tenant;
+// another id is refused, naming the field.
+func (e *Endpoints) namedCustomer(ctx context.Context, customer uuid.UUID) (string, error) {
 	names, err := e.Partners.Names(ctx, []uuid.UUID{customer})
 	if err != nil {
-		return "", fmt.Errorf("collections: customer %s of a dunning block: %w", customer, err)
+		return "", fmt.Errorf("collections: customer %s: %w", customer, err)
 	}
 	named, ok := names[customer]
 	if !ok {
@@ -235,11 +233,11 @@ func (e *Endpoints) blockedCustomer(ctx context.Context, customer uuid.UUID) (st
 
 // customersItem is the company's open item at the journal line that the
 // customer owes; another line, or another customer's item, is refused,
-// naming the journal entry.
-func (e *Endpoints) customersItem(ctx context.Context, le tenancy.Entity, customer uuid.UUID, ref ledger.ItemRef) (ledger.ReceivableItem, error) {
-	it, err := e.openItem(ctx, le, ref)
+// naming the journal entry's field.
+func (e *Endpoints) customersItem(ctx context.Context, le tenancy.Entity, customer uuid.UUID, ref ledger.ItemRef, field string) (ledger.ReceivableItem, error) {
+	it, err := e.openItem(ctx, le, ref, field)
 	if err == nil && it.PartnerID != customer {
-		err = problem.Invalid("collections.item_not_open", "journal_entry_id", fmt.Sprintf("Line %d of the journal entry of fiscal year %d is "+
+		err = problem.Invalid("collections.item_not_open", field, fmt.Sprintf("Line %d of the journal entry of fiscal year %d is "+
 			"another customer's open item, not one customer %s owes company %s.", ref.LineNo, ref.FiscalYear, customer, le.Code))
 	}
 	return it, err

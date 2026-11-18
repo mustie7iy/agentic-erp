@@ -776,3 +776,162 @@ digest.
   named with its block; after the customer's block has ended the pump
   is dunned again; the gasket's block released, once, the next run duns
   both.
+
+### T76f Promises to pay (migration 000365)
+
+Decided by default under this ADR (`plan-depth-2.md` §T76f; SAP S/4HANA
+Collections Management's promise to pay as the reference; product owner
+2026-11-17: the variants go on), each listed for the product owner's
+digest.
+
+- **Schema.** `collections.promise_to_pay` (the company, the customer by
+  id and number, the promised amount in the company's currency, the
+  promised date) and `collections.promise_to_pay_item` (each item by its
+  journal line with its document number, reference, net due date and
+  what the customer owed on it in its currency and the company's),
+  both insert-only for every role: a promise is a record of what the
+  customer said, not changed or withdrawn (later). The checks are in 03
+  §3.27 and `db/collections_test.go` (`TestPromiseToPayRules`,
+  `TestPromiseToPayFixedForTheOwner`). Permission
+  `collections.worklist.write` records a worklist's work, promises here
+  and contacts in T76g; they are read with `collections.worklist.read`
+  (decided by default: one permission for a collector's work rather
+  than one per kind).
+- **What a promise names.** A customer that is a business partner of the
+  tenant (422 `request.reference_not_found` naming `customer_id`) and 1
+  to 100 open items of the company it owes, each read as a block's item
+  is (422 `collections.item_not_open` naming `items[n].journal_entry_id`;
+  `openItem` and `customersItem` now take the field), named once (422
+  `request.validation_failed` naming `items[n]`). The amount is in the
+  company's currency (422 `collections.currency_mismatch`), above zero
+  and at most what the items amount to in it as booked (422
+  `collections.invalid_promised_amount`): SAP's promised amount is in the
+  company code's currency too. The date is from the company's today in
+  its time zone to 2100-12-31, the last key date (422
+  `collections.invalid_promised_date`, today and the zone in the detail),
+  by the endpoints' clock (`Endpoints.today`, which the block's end date
+  now shares).
+- **One promise of an item at a time.** An item in another promise whose
+  date is today or later is refused (409 `collections.promise_exists`,
+  naming the promise), so the worklist does not count one item's
+  promises twice. The check runs after a transaction-scoped advisory
+  lock on the customer, so two promises of one item recorded at once
+  wait for each other and the second sees the first (`TestPromisesRace`,
+  `apitest.Race`); no row lock is taken.
+- **Status, judged on read.** `open`, `kept` or `broken`, computed from
+  the items as they are when read and a date, never stored:
+  `paid_amount` is what the promised items no longer open
+  (`ledger.OpenItems.Closed`, a read without lock, now on the
+  `OpenItems` port) amount to in the company's currency as booked; a
+  promise is kept once that reaches the promised amount, broken once the
+  date is past the promised date and it is not kept, open otherwise. The
+  promise's own read judges it on the company's today (`status_date`);
+  the worklist judges it on its key date. Decided by default: a promise
+  paid after its date reads kept from then on (the outcome is the
+  items', not a history; SAP's check runs as a job and fixes it, which a
+  later variant may do with the payment's date). An item counts in full
+  once it is cleared, whether paid, credited or reversed: a partial
+  payment that leaves a residual item (T75f) clears the original and
+  counts it paid in full (the residual is receivables'; following it is
+  later).
+- **The run.** A run at a key date up to a promise's date leaves the
+  promised items still open out of its notices and totals and lists them
+  in `dunning_run.promised_items` (a JSON list as `blocked_items`,
+  written once, out of the update grant) with the promise and its date,
+  `promised_item_count` and `promised_amount`. A promise holds until its
+  date whether it is kept or not (the brief: a block until the date). A
+  blocked item is listed as blocked alone; a promised one is not listed
+  as disputed (precedence block, promise, dispute: the explicit holds
+  first). Promised items count towards the 5,000 a run takes. Of several
+  promises of one item a past key date finds, the latest recorded is
+  named.
+- **Stale on confirmation.** A promise recorded after a proposal, by a
+  date on or after the run's key date, makes it stale (409
+  `collections.proposal_stale`, the detail counting the promised items),
+  as a block does (T76e): the customer's word is an instruction not to
+  dun. The check reads the promises after the company's advisory lock.
+- **Worklist.** Each customer gets `promised_amount` (the sum of its
+  promises open on the key date), `open_promises`, `next_promised_date`
+  and `broken_promises`; the worklist `promised_amount` over every
+  customer listed. The open promises are read once for the company (its
+  promises dated on or after the key date, `promise_to_pay_by_date`);
+  the broken ones, which reach back over every earlier promise, for a
+  page's customers only (`promise_to_pay_by_customer`), as names and
+  dunning are, so `broken_promises` has no worklist total.
+  `open_amount`, `overdue_amount`, the order and the other totals are
+  unchanged.
+- **Audit, no event.** Audit action `collections.promise_to_pay.record`
+  with the amount, date and items. No event: a promise changes nothing
+  outside the context, and the runs name the items it holds (as a
+  block). The collections agent never records a promise
+  (`collectionsagent.Never`, ADR-0072).
+- **Walkthrough.** `step_promise_to_pay` (step 118): Lakeshore promises
+  the gasket's CAD 30.00 and the pump's CAD 600.00 by two dates; a
+  second promise of the pump, CAD 600.01 and yesterday are refused; a
+  run before both dates names both invoices as promised and duns
+  neither; the worklist shows CAD 630.00 in two promises; Lakeshore pays
+  the gasket and its promise reads kept; at the day after the pump's
+  date the worklist counts its promise broken and a run duns the pump.
+
+### T76g Contacts with customers and resubmission dates (migration 000366)
+
+Decided by default under this ADR (`plan-depth-2.md` §T76g; SAP S/4HANA
+Collections Management's customer contact and resubmission as the
+reference), each listed for the product owner's digest.
+
+- **Schema.** `collections.customer_contact`: the company, the customer
+  by id and number, `contacted_at`, whom at the customer
+  (`contact_name`, optional), the outcome, a note and an optional
+  resubmission date; insert-only for every role (a contact is a record
+  of what happened; a correction is a later contact). The checks are in
+  03 §3.27 and `db/collections_test.go` (`TestCustomerContactRules`,
+  `TestCustomerContactFixedForTheOwner`). Recorded with
+  `collections.worklist.write` (T76f), read with
+  `collections.worklist.read`. `contact_name` and `note` are in the
+  personal data inventory (`records.Inventory`; `collections` left
+  `records.SchemasWithout`).
+- **Who, when, outcome.** The collector is who recorded it (`created_by`,
+  shown by name as `contacted_by_name`). `contacted_at` is not after now
+  by the endpoints' clock (422 `collections.invalid_contact_time`); a
+  contact may be recorded afterwards, so an earlier time is accepted.
+  The outcome is `reached`, `not_reached` or `left_message`, an open
+  enumeration (422 `collections.unknown_outcome`, the code dispute
+  closes use; SAP's contact results are configuration: later). Texts of
+  white space are 422 `request.validation_failed`.
+- **Resubmission.** Optional, after the company's today in its time zone
+  (a date of today or earlier would hold the customer off no worklist
+  from now on) and at most 2100-12-31 (422
+  `collections.invalid_resubmission_date`). A customer's last contact is
+  its latest by `contacted_at` (then by id); while that contact's
+  resubmission date is after a worklist's key date the customer is not
+  listed, so it reappears on that date, and a later contact without one
+  brings it back at once. The worklist judges at its key date, as it
+  judges promises (T76f).
+- **Worklist.** Customers left out count in `resubmission_count` and
+  `resubmission_overdue_amount` and in none of the other totals; each
+  listed customer shows its `last_contacted_at`, `last_contact_outcome`
+  and `resubmission_date`. The customers held are read once per request
+  (those with a contact resubmitted after the key date,
+  `customer_contact_resubmission`, whose last contact is then read over
+  `customer_contact_latest`); the last contacts of a page's customers
+  only. Dunning is unchanged: a resubmission date holds no item from a
+  run (a dunning block or a promise does).
+- **Budget.** `TestCollectionWorklistBudget` now also seeds a promise on
+  one item in ten (T76f) and three contacts per customer, the last of one in twenty resubmitted after the
+  key date: p95 1.38-1.63 s at scale 1 and 2 at a load average of 19-39,
+  2026-11-17 (budget 3 s and 6 s; one scale 1 run at a load of 43 had a
+  6.0 s outlier, its median 1.47 s).
+- **Audit, no event.** Audit action `collections.customer_contact.record`
+  with the ids, `contacted_at`, the outcome and the resubmission date,
+  and `has_contact_name`/`has_note` in place of the texts, which are
+  personal data a deletion run blanks on the contact and could not blank
+  in the insert-only trail (ADR-0026, ADR-0079; batch 79 review). No
+  event, as a block's. The collections agent never
+  records a contact (`collectionsagent.Never`).
+- **Walkthrough.** `step_collection_contacts` (step 119): Ruth records a
+  call with Lakeshore's clerk with a resubmission date 135 days out; a
+  contact dated tomorrow is refused; at step 118's last key date
+  Lakeshore is off the worklist and counted aside; at the resubmission
+  date it is back with its last contact; a later message without a
+  resubmission date brings it back at once; its contacts read the latest
+  first.

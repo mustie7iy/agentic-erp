@@ -47,10 +47,11 @@ const (
 var Reads = []string{"getRfq", "listSupplierQuotations", "getRfqComparison", "getBusinessPartner", "listContracts", "listPurchaseOrders"}
 
 // Never are the operations the agent never calls (ADR-0072): the award,
-// publishing an RFQ and recording a quotation, and creating an RFQ beside
-// them, every write of sourcing, which its tools hold none of: the
-// pattern gives an agent no write but its recommendation.
-var Never = []string{"awardRfq", "publishRfq", "createSupplierQuotation", "createRfq"}
+// publishing an RFQ and recording a quotation, creating an RFQ beside
+// them, and cancelling or closing one without an award (T82g), every write
+// of sourcing, which its tools hold none of: the pattern gives an agent no
+// write but its recommendation.
+var Never = []string{"awardRfq", "publishRfq", "createSupplierQuotation", "createRfq", "cancelRfq", "closeRfq"}
 
 const system = `You compare the quotations of a request for quotation (RFQ) and recommend whether to award it, for the buyer to decide.
 

@@ -324,8 +324,9 @@ func TestOrderChangeRacingDelivery(t *testing.T) {
 }
 
 // TestOrderWithRevenueContract: a confirmed order with a revenue contract
-// keeps its items' quantities and prices and is not cancelled; its
-// requested delivery date still changes (T78d, decided by default).
+// changes its items' quantities and prices and is cancelled as one
+// without: the contract follows the order by its event (T81e lifted
+// T78d's refusal), so sales does not ask for it.
 func TestOrderWithRevenueContract(t *testing.T) {
 	e := setup(t)
 	id, today := e.confirmed(t, e.item(line{quantity: "3"}))
@@ -333,9 +334,9 @@ func TestOrderWithRevenueContract(t *testing.T) {
 			transaction_price, status, created_by, updated_by)
 		SELECT tenant_id, gen_random_uuid(), legal_entity_id, customer_id, id, document_number, currency, net_amount, 'draft', created_by, created_by
 		FROM sales.sales_order WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, id)
-	e.Problem(409, "sales.revenue_contract_exists", "POST", changing(id), changeBody("", itemChange("1 4 EA", "")), `"2"`)
-	e.Problem(409, "sales.revenue_contract_exists", "POST", cancelling(id), `{"reason": "Withdrawn"}`, `"2"`)
-	e.Must(200, "POST", changing(id), fmt.Sprintf(`{"requested_delivery_date": %q}`, today), `"2"`)
+	e.Must(200, "POST", changing(id), changeBody("", itemChange("1 4 EA", "")), `"2"`)
+	e.Must(200, "POST", changing(id), fmt.Sprintf(`{"requested_delivery_date": %q}`, today), `"3"`)
+	e.Must(200, "POST", cancelling(id), `{"reason": "Withdrawn"}`, `"4"`)
 }
 
 // TestOrderChangeKeptByItemNumber: a change naming items out of order
@@ -367,37 +368,6 @@ func TestCancelledOrderNotReleased(t *testing.T) {
 	id := placed["id"].(string)
 	e.Must(200, "POST", cancelling(id), `{"reason": "Over the limit"}`, `"2"`)
 	e.Problem(409, "sales.invalid_status", "POST", "/v1/sales-orders/"+id+":releaseCreditBlock", "", `"3"`)
-}
-
-// TestOrderChangeRacingContract: a change of a confirmed order's item and
-// the creation of its revenue contract wait for one another on the
-// order's row: either the change is refused for the contract, or the
-// contract is made from the changed order. A contract never holds a value
-// the order no longer has (T78d, review round 2).
-func TestOrderChangeRacingContract(t *testing.T) {
-	e := setup(t)
-	id, _ := e.confirmed(t, e.item(line{quantity: "3"}))
-	codes := make([]int, 2)
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		codes[0] = e.API.Do(apitest.Req{Method: "POST", Path: changing(id), Body: changeBody("", itemChange("1 5 EA", "")), IfMatch: `"2"`,
-			Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey()}).Code
-	})
-	wg.Go(func() {
-		codes[1] = e.API.Do(apitest.Req{Method: "POST", Path: "/v1/revenue-contracts", Body: fmt.Sprintf(`{"sales_order_id": %q}`, id),
-			Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey()}).Code
-	})
-	wg.Wait()
-	// The contract may already be there if a consumer made it (409 revenue.contract_exists); the price check below is what matters.
-	if (codes[1] != 201 && codes[1] != 409) || (codes[0] != 200 && codes[0] != 409) {
-		t.Fatalf("statuses: got change %d, contract %d, want the contract made and the change made or refused", codes[0], codes[1])
-	}
-	var same bool
-	pgtest.Scan(t, `SELECT k.transaction_price = o.net_amount FROM revenue.contract k JOIN sales.sales_order o ON o.tenant_id = k.tenant_id AND o.id = k.sales_order_id
-		WHERE k.tenant_id = $1 AND k.sales_order_id = $2`, []any{e.Tenant.ID, id}, &same)
-	if !same {
-		t.Errorf("the contract's transaction price: got another than the order's net value (change %d), want the order's", codes[0])
-	}
 }
 
 // TestSharedOrderOutsideARequest: the share-locked read is made in a

@@ -101,7 +101,7 @@ func TestRFQAwardRules(t *testing.T) {
 		"another supplier's contract":    {awarding(f.quotation, f.published, f.otherContract), notOfQuotation},
 		"a contract in another currency": {awarding(f.quotation, f.published, usd), notOfQuotation},
 		"a contract of another company":  {awarding(f.quotation, f.published, elsewhere), notOfQuotation},
-		"an unknown RFQ status":          {one(`UPDATE procurement.rfq SET status = 'closed', version = version + 1 WHERE id = $1`, f.draft), "rfq_status_check"},
+		"an unknown RFQ status":          {one(`UPDATE procurement.rfq SET status = 'withdrawn', version = version + 1 WHERE id = $1`, f.draft), "rfq_status_check"},
 		"a quotation born awarded":       {one(quotationSQL, f.tenant, id(), f.other, f.supplier, "Q-9", "awarded", f.actor), "starts as recorded"},
 		"an unknown outcome":             {one(outcomeSQL, f.quotation, "withdrawn"), "its outcome is set once"},
 		"an outcome taken back":          {twice(f.quotation, "not_awarded", "recorded"), "its outcome is set once"},

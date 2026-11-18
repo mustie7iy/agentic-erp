@@ -254,7 +254,7 @@ func TestSalesOrderRules(t *testing.T) {
 		}, "only a draft changes"},
 		{"what was ordered changed with the confirmation", func(tx pgx.Tx, s scene) error {
 			return all(tx, made(s), step(`UPDATE sales.sales_order SET status = 'confirmed', net_amount = 1, payment_term_code = 'NT14'`))
-		}, "permission denied"},
+		}, "its payment term changes with a kept change"}, // the term is granted for a change (T78e), and its rule refuses this
 		{"an order deleted", func(tx pgx.Tx, s scene) error { return all(tx, made(s), step(`DELETE FROM sales.sales_order`)) }, "permission denied"},
 		{"a quantity of zero", func(tx pgx.Tx, s scene) error {
 			return all(tx, made(s), line(s, 1, "0", "EA", 100, 1, 100, "0", "0"))

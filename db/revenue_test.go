@@ -80,7 +80,7 @@ func TestRevenueContractRules(t *testing.T) {
 		}, "contract_currency_fkey"},
 		{"a contract changed", func(tx pgx.Tx, s scene) error {
 			return all(tx, made(s), step(`UPDATE revenue.contract SET transaction_price = 1`))
-		}, "permission denied"},
+		}, "move only with a kept follow"}, // a follow changes it, with its change kept (T81e)
 		{"a contract deleted", func(tx pgx.Tx, s scene) error { return all(tx, made(s), step(`DELETE FROM revenue.contract`)) }, "permission denied"},
 		{"two obligations of one order item", func(tx pgx.Tx, s scene) error {
 			return all(tx, made(s), promised(s, 1, 1, 100, "point_in_time", 100), promised(s, 2, 1, 100, "point_in_time", 100))
@@ -215,10 +215,10 @@ func TestRevenueAllocationRules(t *testing.T) {
 		}, "an active contract's obligations are fixed"},
 		{"a contract's transaction price changed", func(s scene) []stmt {
 			return with(s, step(`UPDATE revenue.contract SET transaction_price = 1`))
-		}, "permission denied"},
+		}, "move only with a kept follow"}, // a follow changes it, with its change kept (T81e)
 		{"an obligation's order value changed", func(s scene) []stmt {
 			return with(s, step(`UPDATE revenue.performance_obligation SET net_amount = 1`))
-		}, "permission denied"},
+		}, "move only with a kept follow"},
 		{"an obligation moved to another order item", func(s scene) []stmt {
 			return with(s, step(`UPDATE revenue.performance_obligation SET order_item_no = 9`))
 		}, "permission denied"},

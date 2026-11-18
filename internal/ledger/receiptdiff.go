@@ -266,7 +266,7 @@ func (OpenItems) Closed(ctx context.Context, refs []ItemRef) (map[ItemRef]bool, 
 	if err != nil {
 		return nil, err
 	}
-	years, entries, nos := columns(refs)
+	years, entries, nos := ItemColumns(refs)
 	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(y, je, n)
 		JOIN ledger.journal_line l ON l.fiscal_year = x.y AND l.journal_entry_id = x.je AND l.line_no = x.n

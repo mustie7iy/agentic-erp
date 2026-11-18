@@ -278,8 +278,8 @@ func (AssetReads) ClearingLines(ctx context.Context, q ClearingQuery) ([]AssetLi
 	if q.After != nil {
 		after = *q.After
 	}
-	sy, se, sl := columns(q.Skip)
-	ky, ke, kl := columns(q.Keep)
+	sy, se, sl := ItemColumns(q.Skip)
+	ky, ke, kl := ItemColumns(q.Keep)
 	rows, _ := tx.Query(ctx, assetLineSelect+` JOIN (SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no FROM ledger.journal_line l
 			JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
 			JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id

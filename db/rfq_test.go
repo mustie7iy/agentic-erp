@@ -83,7 +83,7 @@ func TestRFQRules(t *testing.T) {
 		want string
 	}{
 		"an RFQ born published":       {rfqSQL, []any{f.tenant, id(), "RQ9", f.entity, "EUR", "published", f.actor}, "starts as a draft"},
-		"an unknown status":           {setRFQ + `status = 'closed' WHERE id = $1`, []any{f.draft}, "rfq_status_check"},
+		"an unknown status":           {setRFQ + `status = 'withdrawn' WHERE id = $1`, []any{f.draft}, "rfq_status_check"},
 		"an unknown currency":         {rfqSQL, []any{f.tenant, id(), "RQ9", f.entity, "XXA", "draft", f.actor}, "rfq_currency_fkey"},
 		"a number twice in a company": {rfqSQL, []any{f.tenant, id(), "RQ1", f.entity, "EUR", "draft", f.actor}, "rfq_number_once"},
 		"a publication taken back":    {setRFQ + `status = 'draft' WHERE id = $1`, []any{f.published}, "stays published"},

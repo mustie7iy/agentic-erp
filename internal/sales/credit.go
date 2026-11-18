@@ -92,8 +92,8 @@ type openOrder struct {
 // billing document (T79b, PostBilling) moves it from `created` to
 // `posted` and enters its customer invoice in the same transaction: from
 // then on the part posted is the customer's open item and is no longer
-// counted here, so nothing counts twice. Orders with nothing open are
-// left out. By order date, then id.
+// counted here, so nothing counts twice. A removed item (T78e) is not
+// open. Orders with nothing open are left out. By order date, then id.
 const openOrders = `SELECT o.document_number, o.order_date, o.currency, x.lines
 	FROM sales.sales_order o CROSS JOIN LATERAL (
 		SELECT json_agg(json_build_object('item_no', t.item_no, 'net_amount', t.net_amount - p.posted, 'tax_code', t.tax_code) ORDER BY t.item_no) AS lines
@@ -101,7 +101,7 @@ const openOrders = `SELECT o.document_number, o.order_date, o.currency, x.lines
 			SELECT coalesce(sum(i.net_amount), 0)::bigint AS posted
 			FROM sales.billing_document_item i JOIN sales.billing_document b ON b.tenant_id = i.tenant_id AND b.id = i.billing_document_id
 			WHERE i.tenant_id = t.tenant_id AND i.sales_order_id = t.sales_order_id AND i.order_item_no = t.item_no AND b.status = 'posted') p
-		WHERE t.tenant_id = o.tenant_id AND t.sales_order_id = o.id AND t.net_amount > p.posted) x
+		WHERE t.tenant_id = o.tenant_id AND t.sales_order_id = o.id AND t.removed_in_change IS NULL AND t.net_amount > p.posted) x
 	WHERE o.legal_entity_id = $1 AND o.customer_id = $2 AND o.status = 'confirmed' AND o.credit_block <> 'blocked' AND x.lines IS NOT NULL
 	ORDER BY o.order_date, o.id`
 
@@ -286,8 +286,9 @@ func (e *Endpoints) creditCheck(ctx context.Context, tx pgx.Tx, o Order, le tena
 	if err != nil {
 		return checked{}, err
 	}
-	lines := make([]openLine, len(o.Items))
-	for i, it := range o.Items {
+	items := standing(o.Items) // a removed item is out of the order's value (T78e)
+	lines := make([]openLine, len(items))
+	for i, it := range items {
 		lines[i] = openLine{ItemNo: it.ItemNo, Net: it.Net, TaxCode: it.TaxCode}
 	}
 	c := checked{block: NoBlock}
@@ -344,8 +345,8 @@ func (e *Endpoints) increaseCheck(ctx context.Context, tx pgx.Tx, o Order, after
 		return v.value(ctx, openOrder{Number: o.DocumentNumber, Date: o.OrderDate, Currency: o.Currency, Lines: lines})
 	}
 	c := checked{block: NoBlock}
-	var inCompany [2]money.Minor // before and after the change
-	for i, items := range [][]OrderItem{o.Items, after} {
+	var inCompany [2]money.Minor                                              // before and after the change
+	for i, items := range [][]OrderItem{standing(o.Items), standing(after)} { // a removed item is out of the order's value (T78e)
 		if c.gross, inCompany[i], err = value(items); err != nil {
 			return checked{}, err
 		}

@@ -37,8 +37,8 @@ func rfqToAPI(r RFQ) gen.Rfq {
 		DueDate: r.DueDate, Status: r.Status, ContractID: apitypes.OptUUID(r.ContractID), ContractDocumentNumber: apitypes.OptString(r.ContractNumber),
 		RequisitionID: apitypes.OptUUID(r.RequisitionID), RequisitionDocumentNumber: apitypes.OptString(r.RequisitionNumber),
 		PurchaseOrderID: apitypes.OptUUID(r.PurchaseOrderID), PurchaseOrderDocumentNumber: apitypes.OptString(r.PurchaseOrderNumber),
-		AwardReason: apitypes.OptString(r.AwardReason),
-		Items:       make([]gen.RfqItem, len(r.Items)), Suppliers: make([]gen.RfqSupplier, len(r.Suppliers))}
+		AwardReason: apitypes.OptString(r.AwardReason), ClosingReason: apitypes.OptString(r.ClosingReason),
+		Items: make([]gen.RfqItem, len(r.Items)), Suppliers: make([]gen.RfqSupplier, len(r.Suppliers))}
 	for i, it := range r.Items {
 		out.Items[i] = gen.RfqItem{ItemNo: gen.NewOptInt32(it.No), MaterialKey: it.MaterialKey, Description: it.Description,
 			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, AccountID: it.AccountID,
@@ -260,6 +260,24 @@ func (e *Endpoints) AwardRfq(ctx context.Context, req *gen.RfqAward, params gen.
 	to := req.AwardTo.Or(AwardToContract)
 	r, err := e.awardRFQ(ctx, params.ID, etag.IfMatch(params.IfMatch), Award{QuotationID: req.QuotationID, To: to,
 		ValidFrom: apitypes.Ptr[time.Time](req.ValidFrom), ValidTo: apitypes.Ptr[time.Time](req.ValidTo), Reason: apitypes.Ptr[string](req.Reason)})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.AwardRfqOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: rfqToAPI(r)}, nil
+}
+
+// CancelRfq implements POST /v1/rfqs/{id}:cancel.
+func (e *Endpoints) CancelRfq(ctx context.Context, req *gen.RfqClosing, params gen.CancelRfqParams) (gen.CancelRfqRes, error) {
+	r, err := e.endRFQ(ctx, params.ID, etag.IfMatch(params.IfMatch), rfqCancelling, req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.AwardRfqOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: rfqToAPI(r)}, nil
+}
+
+// CloseRfq implements POST /v1/rfqs/{id}:close.
+func (e *Endpoints) CloseRfq(ctx context.Context, req *gen.RfqClosing, params gen.CloseRfqParams) (gen.CloseRfqRes, error) {
+	r, err := e.endRFQ(ctx, params.ID, etag.IfMatch(params.IfMatch), rfqClosing, req.Reason)
 	if err != nil {
 		return nil, err
 	}

@@ -387,6 +387,20 @@ func encodeCancelRevaluationRunRequest(
 	return nil
 }
 
+func encodeCancelRfqRequest(
+	req *RfqClosing,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCancelSalesOrderRequest(
 	req *ReasonInput,
 	r *http.Request,
@@ -522,6 +536,20 @@ func encodeClearSupplierInvoiceDownPaymentsRequest(
 
 func encodeCloseDisputeCaseRequest(
 	req *DisputeCaseClose,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCloseRfqRequest(
+	req *RfqClosing,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -952,6 +980,20 @@ func encodeCreateCreditMemoRequestRequest(
 	return nil
 }
 
+func encodeCreateCustomerContactRequest(
+	req *CustomerContactCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateCustomerInvoiceRequest(
 	req *CustomerInvoiceCreate,
 	r *http.Request,
@@ -1318,6 +1360,20 @@ func encodeCreatePrincipalRequest(
 
 func encodeCreateProfitCenterRequest(
 	req *ProfitCenterCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreatePromiseToPayRequest(
+	req *PromiseToPayCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -2703,6 +2759,34 @@ func encodeRequestBankAccountChangeRequest(
 
 func encodeRequestBankAccountEndRequest(
 	req *BankAccountEnd,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeResetIncomingPaymentRequest(
+	req *IncomingPaymentReset,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeResetIncomingPaymentApplicationRequest(
+	req *IncomingPaymentReset,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

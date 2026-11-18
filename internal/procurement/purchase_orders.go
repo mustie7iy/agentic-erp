@@ -831,8 +831,10 @@ func (e *Endpoints) closeOrder(ctx context.Context, id uuid.UUID, ifMatch func(i
 }
 
 // cancelOrder cancels an order with nothing received or invoiced against
-// it. A released contract order gives its contract consumption back, and
-// the requisition can be ordered again.
+// it. A released contract order gives its contract consumption back, an
+// RFQ whose award created it shows the order cancelled, and its
+// requisition is approved again, to be sourced or ordered anew
+// (unsourced).
 func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (PurchaseOrder, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -874,14 +876,8 @@ func (e *Endpoints) cancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
 		return PurchaseOrder{}, fmt.Errorf("procurement: cancel purchase order %s: %w", id, err)
 	}
-	if o.RequisitionID != nil {
-		req, err := getRequisition(ctx, tx, *o.RequisitionID, true)
-		if err != nil {
-			return PurchaseOrder{}, err
-		}
-		if _, err := e.setStatus(ctx, tx, p, req, Approved, req.WorkflowRequestID, "", nil); err != nil {
-			return PurchaseOrder{}, err
-		}
+	if err := e.unsourced(ctx, tx, p, o); err != nil {
+		return PurchaseOrder{}, err
 	}
 	cancelled, err := getOrder(ctx, tx, id, false)
 	if err != nil {

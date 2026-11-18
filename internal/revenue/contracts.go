@@ -33,7 +33,9 @@ func contractExists(orderNumber string) *problem.Problem {
 
 // Contract is a row of revenue.contract with its obligations by number.
 // TransactionPrice is minor units of Currency, the company's local
-// currency, whose minor-unit digits are Exponent.
+// currency, whose minor-unit digits are Exponent. Changes counts the
+// follows of its sales order kept (T81e); EndedAt is when its order was
+// found cancelled, nil while it stands.
 type Contract struct {
 	ID               uuid.UUID
 	LegalEntityID    uuid.UUID
@@ -45,6 +47,8 @@ type Contract struct {
 	TransactionPrice money.Minor
 	Status           string
 	Obligations      []Obligation
+	Changes          int32
+	EndedAt          *time.Time
 	Version          int32
 	CreatedAt        time.Time
 	CreatedBy        uuid.UUID
@@ -62,15 +66,15 @@ const contractSelect = `SELECT k.id, k.legal_entity_id, k.customer_id, k.sales_o
 				'description', o.description, 'net_amount', o.net_amount, 'timing', o.timing,
 				'service_from', to_char(o.service_from, 'YYYY-MM-DD"T00:00:00Z"'), 'service_to', to_char(o.service_to, 'YYYY-MM-DD"T00:00:00Z"'),
 				'satisfied_on', to_char(o.satisfied_on, 'YYYY-MM-DD"T00:00:00Z"'),
-				'standalone_selling_price', o.standalone_selling_price, 'allocated_amount', o.allocated_amount) ORDER BY o.obligation_no)
+				'standalone_selling_price', o.standalone_selling_price, 'allocated_amount', o.allocated_amount, 'ended_at', o.ended_at) ORDER BY o.obligation_no)
 			FROM revenue.performance_obligation o WHERE o.tenant_id = k.tenant_id AND o.contract_id = k.id), '[]'),
-		k.version, k.created_at, k.created_by, k.updated_at, k.updated_by
+		k.changes, k.ended_at, k.version, k.created_at, k.created_by, k.updated_at, k.updated_by
 	FROM revenue.contract k JOIN ref.currency c ON c.code = k.currency`
 
 func scanContract(row pgx.Row) (Contract, error) {
 	var c Contract
 	err := row.Scan(&c.ID, &c.LegalEntityID, &c.CustomerID, &c.SalesOrderID, &c.SalesOrderNumber, &c.Currency, &c.Exponent,
-		&c.TransactionPrice, &c.Status, &c.Obligations, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy)
+		&c.TransactionPrice, &c.Status, &c.Obligations, &c.Changes, &c.EndedAt, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy)
 	return c, errs.Wrapf(err, "scan revenue contract")
 }
 
@@ -136,16 +140,23 @@ func (d *declined) problem() *problem.Problem {
 	return problem.ReferenceNotFound("sales_order_id", "sales order", d.detail)
 }
 
-// basisOf reads the order a contract is asked for and its company, or
-// says why no contract is made for it: an order that is not there or of a
-// company allowed does not allow, one that is not confirmed
-// (revenue.order_not_confirmed) and one in another currency than its
-// company's local currency (revenue.foreign_currency).
+// basisOf reads the order a contract is asked for, under a share lock
+// (sales.Orders.Shared), and its company, or says why no contract is made
+// for it (basis).
 func (e *Endpoints) basisOf(ctx context.Context, orderID uuid.UUID, allowed func(company uuid.UUID) bool) (basis, *declined, error) {
 	o, ok, err := e.SalesOrders.Shared(ctx, orderID)
 	if err != nil {
 		return basis{}, nil, fmt.Errorf("revenue: sales order %s of a contract: %w", orderID, err)
 	}
+	return e.basis(ctx, o, ok, allowed)
+}
+
+// basis is the order read (ok false: there is none) with its company, or
+// why no contract is made for it: an order that is not there or of a
+// company allowed does not allow, one that is not confirmed
+// (revenue.order_not_confirmed) and one in another currency than its
+// company's local currency (revenue.foreign_currency).
+func (e *Endpoints) basis(ctx context.Context, o sales.Order, ok bool, allowed func(company uuid.UUID) bool) (basis, *declined, error) {
 	if !ok || !allowed(o.LegalEntityID) {
 		return basis{}, &declined{detail: "no sales order with this id that you can access"}, nil
 	}
@@ -155,7 +166,7 @@ func (e *Endpoints) basisOf(ctx context.Context, orderID uuid.UUID, allowed func
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, o.LegalEntityID) // a stored order's legal entity exists
 	if err != nil {
-		return basis{}, nil, fmt.Errorf("revenue: company of sales order %s: %w", orderID, err)
+		return basis{}, nil, fmt.Errorf("revenue: company of sales order %s: %w", o.ID, err)
 	}
 	if o.Currency != le.LocalCurrency {
 		return basis{}, &declined{code: foreignCurrency, detail: "Sales order " + o.DocumentNumber + " is in " + o.Currency +
@@ -214,16 +225,14 @@ func (e *Endpoints) make(ctx context.Context, tx pgx.Tx, p reqctx.Principal, b b
 	if tag.RowsAffected() == 0 {
 		return Contract{}, false, nil
 	}
-	numbers, keys, descriptions, nets := make([]int32, len(o.Items)), make([]*string, len(o.Items)), make([]string, len(o.Items)), make([]int64, len(o.Items))
-	for i, it := range o.Items {
-		numbers[i], keys[i], descriptions[i], nets[i] = it.ItemNo, it.ItemKey, it.Description, int64(it.Net)
+	items := o.Standing() // a removed item (T78e) is not ordered, and is out of the transaction price
+	obligations := make([]Obligation, len(items))
+	for i, it := range items {
+		obligations[i] = Obligation{No: int32(i + 1), OrderItemNo: it.ItemNo, ItemKey: it.ItemKey, Description: it.Description, Net: it.Net,
+			Timing: PointInTime, StandalonePrice: it.Net}
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO revenue.performance_obligation (tenant_id, contract_id, obligation_no, order_item_no, item_key, description,
-			net_amount, timing, standalone_selling_price)
-		SELECT $1, $2, i.ordinality, i.item_no, i.item_key, i.description, i.net_amount, $7, i.net_amount
-		FROM unnest($3::int[], $4::text[], $5::text[], $6::bigint[]) WITH ORDINALITY AS i (item_no, item_key, description, net_amount, ordinality)`,
-		p.TenantID, id, numbers, keys, descriptions, nets, PointInTime); err != nil {
-		return Contract{}, false, fmt.Errorf("revenue: insert the obligations of contract %s: %w", id, err)
+	if err := insertObligations(ctx, tx, p.TenantID, id, obligations); err != nil {
+		return Contract{}, false, err
 	}
 	c, err := load(ctx, tx, id)
 	if err != nil {
@@ -233,28 +242,34 @@ func (e *Endpoints) make(ctx context.Context, tx pgx.Tx, p reqctx.Principal, b b
 	if err != nil {
 		return Contract{}, false, fmt.Errorf("revenue: customer of contract %s: %w", id, err)
 	}
-	return c, true, record(ctx, "revenue.contract.create", source, c, b.le, names[c.CustomerID].Number, nil)
+	return c, true, record(ctx, "revenue.contract.create", source, c, b.le, names[c.CustomerID].Number, nil, nil)
 }
 
-// OrderContracts is the revenue context's answer to the sales context's
-// question (sales.RevenueContracts; ADR-0067, As built T78d): whether a
-// sales order has a revenue contract. A contract holds the order's items'
-// net values as its obligations' (ADR-0068 §3), so sales refuses to
-// change an item's quantity or price, or to cancel the order, while it
-// has one. Sales declares the port and the application wires this to it:
-// sales does not import revenue, which imports sales.
-type OrderContracts struct{}
-
-// HasContract says whether the sales order has a revenue contract, in the
-// request's transaction.
-func (OrderContracts) HasContract(ctx context.Context, order uuid.UUID) (bool, error) {
-	tx, _, err := reqctx.Request(ctx)
-	if err != nil {
-		return false, err
+// insertObligations writes obligations of the contract, each with its
+// number, order item, what it promises, order value, timing, stand-alone
+// selling price and, once the contract is active, allocated amount.
+func insertObligations(ctx context.Context, tx pgx.Tx, tenant, contract uuid.UUID, obligations []Obligation) error {
+	if len(obligations) == 0 {
+		return nil
 	}
-	var found bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM revenue.contract WHERE sales_order_id = $1)`, order).Scan(&found); err != nil {
-		return false, fmt.Errorf("revenue: the contract of sales order %s: %w", order, err)
+	n := len(obligations)
+	numbers, items, keys, descriptions := make([]int32, n), make([]int32, n), make([]*string, n), make([]string, n)
+	nets, timings, prices, allocated := make([]int64, n), make([]string, n), make([]int64, n), make([]*int64, n)
+	for i, o := range obligations {
+		numbers[i], items[i], keys[i], descriptions[i], nets[i], timings[i], prices[i] = o.No, o.OrderItemNo, o.ItemKey, o.Description, int64(o.Net),
+			o.Timing, int64(o.StandalonePrice)
+		if o.Allocated != nil {
+			a := int64(*o.Allocated)
+			allocated[i] = &a
+		}
 	}
-	return found, nil
+	if _, err := tx.Exec(ctx, `INSERT INTO revenue.performance_obligation (tenant_id, contract_id, obligation_no, order_item_no, item_key, description,
+			net_amount, timing, standalone_selling_price, allocated_amount)
+		SELECT $1, $2, i.no, i.item_no, i.item_key, i.description, i.net_amount, i.timing, i.price, i.allocated
+		FROM unnest($3::int[], $4::int[], $5::text[], $6::text[], $7::bigint[], $8::text[], $9::bigint[], $10::bigint[])
+			AS i (no, item_no, item_key, description, net_amount, timing, price, allocated)`,
+		tenant, contract, numbers, items, keys, descriptions, nets, timings, prices, allocated); err != nil {
+		return fmt.Errorf("revenue: insert the obligations of contract %s: %w", contract, err)
+	}
+	return nil
 }

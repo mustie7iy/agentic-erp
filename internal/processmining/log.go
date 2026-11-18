@@ -47,6 +47,8 @@ var activities = map[string]string{
 	"procurement.requisition.pending_approval": "Submit requisition",
 	"procurement.requisition.approved":         "Approve requisition",
 	"procurement.requisition.rejected":         "Reject requisition",
+	"procurement.requisition.in_sourcing":      "Source requisition",
+	"procurement.requisition.reopened":         "Reopen requisition",
 	"procurement.purchase_order.create":        "Create purchase order",
 	"procurement.purchase_order.submit":        "Submit purchase order",
 	"procurement.purchase_order.release":       "Release purchase order",
