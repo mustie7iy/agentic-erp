@@ -315,11 +315,13 @@ func (pr ChangeProposal) apply(o PurchaseOrder) PurchaseOrder {
 // under their number must match (the database checks it as the row is
 // updated); none has receipts.
 func removedItems(ctx context.Context, tx pgx.Tx, order uuid.UUID) ([]Item, error) {
-	rows, _ := tx.Query(ctx, `SELECT item_no, material_id, uom_code, account_id, contract_item_no, account_assignment, cost_center_id
+	rows, _ := tx.Query(ctx, `SELECT item_no, material_id, uom_code, account_id, contract_item_no, account_assignment, cost_center_id, plant_id,
+			storage_location_id
 		FROM procurement.purchase_order_item WHERE purchase_order_id = $1 AND is_removed ORDER BY item_no`, order)
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Item, error) {
 		it := Item{Received: "0", Quantity: "0", OverDelivery: "0"}
-		return it, r.Scan(&it.No, &it.MaterialID, &it.Unit, &it.AccountID, &it.ContractItemNo, &it.AccountAssignment, &it.CostCenterID)
+		return it, r.Scan(&it.No, &it.MaterialID, &it.Unit, &it.AccountID, &it.ContractItemNo, &it.AccountAssignment, &it.CostCenterID, &it.PlantID,
+			&it.StorageLocationID)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("procurement: read removed items of purchase order %s: %w", order, err)
@@ -332,7 +334,9 @@ func removedItems(ctx context.Context, tx pgx.Tx, order uuid.UUID) ([]Item, erro
 // takes: a change of price alone does not move the tolerance, nor refuse
 // an item over-delivered within it. Likewise its assignment (T56e), which
 // a released item keeps: a client that sends neither field keeps it; and
-// its delivery date (T53g), which a client that sends none keeps.
+// its delivery date (T53g), which a client that sends none keeps; and a
+// stock item's plant and storage location (S1e), which a client that
+// sends neither keeps.
 func keptTolerance(current []Item, in []ItemInput) []ItemInput {
 	out := slices.Clone(in)
 	for i := range out {
@@ -349,13 +353,17 @@ func keptTolerance(current []Item, in []ItemInput) []ItemInput {
 		if out[i].DeliveryDate == nil {
 			out[i].DeliveryDate = current[i].DeliveryDate
 		}
+		if out[i].PlantID == nil && out[i].StorageLocationID == nil {
+			out[i].PlantID, out[i].StorageLocationID = current[i].PlantID, current[i].StorageLocationID
+		}
 	}
 	return out
 }
 
 // keptItems refuses changed items that do not keep what a released
 // order's items keep (check_order_item_editable, 000065 and 000161): its
-// account and assignment, unit, material and contract item, and the
+// account and assignment, unit, material, contract item and stock
+// location (S1e), and the
 // quantity received, allowing the item's over-delivery tolerance; an item
 // with receipts stays.
 func keptItems(current, changed []Item) error {
@@ -369,8 +377,9 @@ func keptItems(current, changed []Item) error {
 		}
 		it := changed[i]
 		if it.AccountID != cur.AccountID || it.Unit != cur.Unit || !samePtr(it.MaterialID, cur.MaterialID) || !samePtr(it.ContractItemNo, cur.ContractItemNo) ||
-			it.assignment() != cur.assignment() || !samePtr(it.CostCenterID, cur.CostCenterID) {
-			return problem.Invalid("procurement.invalid_change", field, "an item keeps its account, assignment, unit, material and contract item")
+			it.assignment() != cur.assignment() || !samePtr(it.CostCenterID, cur.CostCenterID) || !samePtr(it.PlantID, cur.PlantID) ||
+			!samePtr(it.StorageLocationID, cur.StorageLocationID) {
+			return problem.Invalid("procurement.invalid_change", field, "an item keeps its account, assignment, unit, material, contract item and stock location")
 		}
 		if belowReceived(it, cur.Received) {
 			return problem.Invalid("procurement.invalid_change", field+".quantity", "at least the "+cur.Received+" received, allowing the over-delivery tolerance")

@@ -291,6 +291,7 @@ against the receipt clears GR/IR and puts a price difference on the stock
   invoice is posted; an item without a material behaves as before
   (expense or asset account assignment); the receipt's reversal reverses
   stock and GR/IR once.
+- **As built** (2026-11-18): ADR-0082 As built S1e, walkthrough step 130.
 
 **Later for the goods receipt into stock:** goods receipt into quality
 inspection, delivery tolerances against the order (over- and

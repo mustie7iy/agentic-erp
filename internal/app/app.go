@@ -285,7 +285,7 @@ func New(cfg Config) (http.Handler, error) {
 			PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}, Approvals: opener()},
 		ledgerAPI:      Ledger(cfg),
 		workflowAPI:    &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: approvalHandlers(cfg)}},
-		procurementAPI: procurementEndpoints(cfg),
+		procurementAPI: Procurement(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
 		salesAPI:       selling,
 		creditAPI:      crediting,
@@ -451,18 +451,18 @@ func (h *handler) laterContexts(cfg Config) {
 // API reads them (approvals.Locator).
 func approvalHandlers(cfg Config) map[string]approvals.Handler {
 	return map[string]approvals.Handler{
-		approvals.Requisition:       procurement.Approvals{Endpoints: procurementEndpoints(cfg)},
+		approvals.Requisition:       procurement.Approvals{Endpoints: Procurement(cfg)},
 		approvals.PartnerChange:     partner.Approvals{Schemas: configuration.Settings{}},
 		approvals.ConfigChange:      configuration.Approvals{},
 		approvals.InvoiceException:  payables.Approvals{},
 		approvals.PeriodUnlock:      ledger.PeriodUnlocks{},
 		approvals.ManualEntry:       ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, TaxReturns: taxfiling.Holds{}},
-		approvals.PurchaseOrder:     procurement.OrderReleases{Endpoints: procurementEndpoints(cfg)},
-		approvals.OrderChange:       procurement.OrderChanges{Endpoints: procurementEndpoints(cfg)},
+		approvals.PurchaseOrder:     procurement.OrderReleases{Endpoints: Procurement(cfg)},
+		approvals.OrderChange:       procurement.OrderChanges{Endpoints: Procurement(cfg)},
 		approvals.BankClearing:      payments.BankClearings{Endpoints: Payments(cfg)},
 		approvals.CenterChange:      ledger.CenterChanges{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now},
 		approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
-		approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: procurementEndpoints(cfg)},
+		approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: Procurement(cfg)},
 		approvals.TaxReturn:         taxfiling.TaxReturns{Endpoints: &taxfiling.Endpoints{Items: ledger.TaxItems{}}},
 		approvals.MaterialChange:    materials.Approvals{Endpoints: Materials(cfg)},
 	}
@@ -474,19 +474,24 @@ func Integration(cfg Config) *integration.Endpoints {
 	partners := partner.Ports{LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Keys: cfg.FieldKeys, Schemas: configuration.Settings{}, Rules: configuration.Settings{},
 		PaymentMethods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, PlanningGroups: cash.PlanningGroups{}}
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
-		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Orders: procurementEndpoints(cfg), OrderLocks: procurement.Orders{}, OrderValues: procurement.Orders{},
+		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Orders: Procurement(cfg), OrderLocks: procurement.Orders{}, OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Invoiced: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{}, Centers: ledger.CenterMigration{}, Actuals: ledger.AssignmentBalances{},
 		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, Receiver: cfg.WebhookReceiver, ExtractDir: cfg.ExtractDir, SAP: sapClient(cfg.SAP), Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS,
 		Now: cfg.Now} // the clock a migration run's day is read from (the company's date, review:batch63)
 }
 
-// procurementEndpoints is the procurement context as the API wires it.
-func procurementEndpoints(cfg Config) *procurement.Endpoints {
+// Procurement is the procurement context as the API wires it.
+func Procurement(cfg Config) *procurement.Endpoints {
 	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Partners: partner.Payees{},
 		AccountNames: ledger.AssetReads{}, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Approvals: opener(),
-		Invoices: payables.Invoices{}, Postings: postings(), SupplierNames: partner.Payees{}, Now: cfg.Now}
+		Invoices: payables.Invoices{}, Postings: postings(), SupplierNames: partner.Payees{}, Materials: materials.Materials{}, Movements: Inventory(cfg),
+		Now: cfg.Now}
 }
+
+// Payables is the payables context as the API wires it, capturing
+// invoices through the configured uploads.
+func Payables(cfg Config) *payables.Endpoints { return payablesEndpoints(cfg, uploads(cfg)) }
 
 // payablesEndpoints is the payables context as the API wires it, capturing
 // invoices through uploads.
@@ -495,7 +500,8 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 		Orders: procurement.Orders{}, Postings: postings(), Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
 		Calendar: calendar(), Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Rates: rates(), Approvals: opener(),
 		Payments: payments.Reservations{}, Methods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, OrderNumbers: procurement.Orders{},
-		Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads, ExpenseLedger: ledger.AssetReads{}, Partners: partner.Payees{}, Now: cfg.Now}
+		Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads, ExpenseLedger: ledger.AssetReads{}, Partners: partner.Payees{}, Stock: Inventory(cfg),
+		Now: cfg.Now}
 }
 
 // Receivables is the receivables context as the API wires it (ADR-0063

@@ -22,7 +22,8 @@ func documentAPI(d Document, r refs) gen.MaterialDocument {
 		FiscalYear: int32(d.FiscalYear), MovementType: d.MovementType, MovementTypeName: movementTypes[d.MovementType].name, PostingDate: d.PostingDate,
 		HeaderText: apitypes.OptString(d.HeaderText), ReversalOfID: apitypes.OptUUID(d.ReversalOfID), ReversalOfNumber: apitypes.OptString(d.ReversalOfNumber),
 		ReversedByID: apitypes.OptUUID(d.ReversedByID), ReversedByNumber: apitypes.OptString(d.ReversedByNumber), CreatedAt: d.CreatedAt, CreatedBy: d.CreatedBy,
-		JournalEntryID: apitypes.OptUUID(d.EntryID), JournalEntryNumber: apitypes.OptString(d.EntryNumber), Lines: make([]gen.MaterialDocumentLine, len(d.Lines))}
+		JournalEntryID: apitypes.OptUUID(d.EntryID), JournalEntryNumber: apitypes.OptString(d.EntryNumber), Reference: apitypes.OptString(d.Reference),
+		Lines: make([]gen.MaterialDocumentLine, len(d.Lines))}
 	if d.EntryYear != nil {
 		out.JournalEntryYear = gen.NewOptInt32(int32(*d.EntryYear))
 	}

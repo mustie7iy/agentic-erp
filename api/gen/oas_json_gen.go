@@ -136306,6 +136306,18 @@ func (s *GoodsReceipt) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.MaterialDocumentID.Set {
+			e.FieldStart("material_document_id")
+			s.MaterialDocumentID.Encode(e)
+		}
+	}
+	{
+		if s.MaterialDocumentNumber.Set {
+			e.FieldStart("material_document_number")
+			s.MaterialDocumentNumber.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -136315,7 +136327,7 @@ func (s *GoodsReceipt) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfGoodsReceipt = [15]string{
+var jsonFieldsNameOfGoodsReceipt = [17]string{
 	0:  "id",
 	1:  "created_at",
 	2:  "created_by",
@@ -136330,7 +136342,9 @@ var jsonFieldsNameOfGoodsReceipt = [15]string{
 	11: "reason",
 	12: "journal_entry_id",
 	13: "journal_entry_year",
-	14: "items",
+	14: "material_document_id",
+	15: "material_document_number",
+	16: "items",
 }
 
 // Decode decodes GoodsReceipt from json.
@@ -136338,7 +136352,7 @@ func (s *GoodsReceipt) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode GoodsReceipt to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -136498,8 +136512,28 @@ func (s *GoodsReceipt) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"journal_entry_year\"")
 			}
+		case "material_document_id":
+			if err := func() error {
+				s.MaterialDocumentID.Reset()
+				if err := s.MaterialDocumentID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_document_id\"")
+			}
+		case "material_document_number":
+			if err := func() error {
+				s.MaterialDocumentNumber.Reset()
+				if err := s.MaterialDocumentNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_document_number\"")
+			}
 		case "items":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				s.Items = make([]GoodsReceiptItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -136525,9 +136559,10 @@ func (s *GoodsReceipt) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11011111,
-		0b01000001,
+		0b00000001,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -179882,6 +179917,12 @@ func (s *MaterialDocument) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Reference.Set {
+			e.FieldStart("reference")
+			s.Reference.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("lines")
 		e.ArrStart()
 		for _, elem := range s.Lines {
@@ -179899,7 +179940,7 @@ func (s *MaterialDocument) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMaterialDocument = [19]string{
+var jsonFieldsNameOfMaterialDocument = [20]string{
 	0:  "id",
 	1:  "number",
 	2:  "legal_entity_id",
@@ -179916,9 +179957,10 @@ var jsonFieldsNameOfMaterialDocument = [19]string{
 	13: "journal_entry_id",
 	14: "journal_entry_year",
 	15: "journal_entry_number",
-	16: "lines",
-	17: "created_at",
-	18: "created_by",
+	16: "reference",
+	17: "lines",
+	18: "created_at",
+	19: "created_by",
 }
 
 // Decode decodes MaterialDocument from json.
@@ -180106,8 +180148,18 @@ func (s *MaterialDocument) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"journal_entry_number\"")
 			}
+		case "reference":
+			if err := func() error {
+				s.Reference.Reset()
+				if err := s.Reference.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reference\"")
+			}
 		case "lines":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				s.Lines = make([]MaterialDocumentLine, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -180125,7 +180177,7 @@ func (s *MaterialDocument) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"lines\"")
 			}
 		case "created_at":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -180137,7 +180189,7 @@ func (s *MaterialDocument) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -180160,7 +180212,7 @@ func (s *MaterialDocument) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11111111,
 		0b00000000,
-		0b00000111,
+		0b00001110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -222794,6 +222846,18 @@ func (s *PurchaseOrderItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PlantID.Set {
+			e.FieldStart("plant_id")
+			s.PlantID.Encode(e)
+		}
+	}
+	{
+		if s.StorageLocationID.Set {
+			e.FieldStart("storage_location_id")
+			s.StorageLocationID.Encode(e)
+		}
+	}
+	{
 		if s.DeliveryDate.Set {
 			e.FieldStart("delivery_date")
 			s.DeliveryDate.Encode(e, json.EncodeDate)
@@ -222819,7 +222883,7 @@ func (s *PurchaseOrderItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPurchaseOrderItem = [16]string{
+var jsonFieldsNameOfPurchaseOrderItem = [18]string{
 	0:  "item_no",
 	1:  "material_id",
 	2:  "description",
@@ -222832,10 +222896,12 @@ var jsonFieldsNameOfPurchaseOrderItem = [16]string{
 	9:  "over_delivery_pct",
 	10: "tax_code",
 	11: "contract_item_no",
-	12: "delivery_date",
-	13: "received_quantity",
-	14: "valuation_price",
-	15: "valuation_price_unit",
+	12: "plant_id",
+	13: "storage_location_id",
+	14: "delivery_date",
+	15: "received_quantity",
+	16: "valuation_price",
+	17: "valuation_price_unit",
 }
 
 // Decode decodes PurchaseOrderItem from json.
@@ -222843,7 +222909,7 @@ func (s *PurchaseOrderItem) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode PurchaseOrderItem to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
@@ -222972,6 +223038,26 @@ func (s *PurchaseOrderItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"contract_item_no\"")
 			}
+		case "plant_id":
+			if err := func() error {
+				s.PlantID.Reset()
+				if err := s.PlantID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_id\"")
+			}
+		case "storage_location_id":
+			if err := func() error {
+				s.StorageLocationID.Reset()
+				if err := s.StorageLocationID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"storage_location_id\"")
+			}
 		case "delivery_date":
 			if err := func() error {
 				s.DeliveryDate.Reset()
@@ -223021,8 +223107,9 @@ func (s *PurchaseOrderItem) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b01011100,
+		0b00000000,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {

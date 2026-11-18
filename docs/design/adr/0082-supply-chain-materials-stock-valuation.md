@@ -502,3 +502,90 @@ follow by type.
   valuation, future and previous period prices, revaluation into a past
   period, below-zero moving prices, small-difference tolerances. Totals
   of the stock list (ADR S1c) stay Later.
+
+### S1e (2026-11-18)
+
+- Migrations 000390 and 000391: `purchase_order_item.plant_id` and
+  `.storage_location_id` (`purchase_order_item_stock`, kept by a released
+  order's item, `purchase_order_item_identity`); `goods_movement.material_document_id`
+  and `_number`; the material document's movement types `101` and `102`
+  and its `reference`; `inventory.invoice_difference`. Rules of 03 §3.9 and
+  §3.35 under schema tests (`db/stock_receipt_test.go`).
+- **A stock item** is an order item naming a plant and a storage location
+  with its material; the `material_id` an item could always carry without
+  them (000006, unchecked) still makes no stock item, which S1f maps. It is
+  checked as it is ordered and as an order change adds it: an active
+  material kept in stock at that storage location of a plant of the
+  company, no cost center, a unit of the material whose ordered quantity
+  converts to the base unit exactly, ordered in the company's currency
+  (422 `procurement.invalid_stock_item`). Its valuation is not checked
+  until a receipt (the acceptance: a receipt without one is refused,
+  nothing received, 422 `inventory.no_valuation`). Its `account_id` stays
+  required, as the contract has it, and is kept, but is not posted: its
+  receipts and invoices post the accounts of its valuation class, as SAP
+  determines BSX and PRD for an item without account assignment (from
+  memory). Decided by default.
+- **One entry per goods movement.** Procurement's WE entry (source context
+  `procurement`, which moves GR/IR's positions) carries the stock's value:
+  inventory's `ReceiveForOrder` and `ReverseForOrder` lock the valuations
+  and stock first, number the material document, have procurement post the
+  entry through a callback (`inventory.PostEntry`) with each stock item's
+  booking (`ledger.GRIRStock`), then write the document naming that entry,
+  dated the goods receipt's posting date. So a receipt takes the locks in
+  the order every inventory posting does (valuations, stock, ranges, then
+  the ledger's GR/IR lock and periods), and a 501 and a 101 of one material
+  never wait on each other in a cycle.
+- **Values.** At a moving price a receipt is worth what its GR/IR line moves,
+  the order price of its quantity as the ledger keeps a position exact; at a
+  standard price its quantity at the price, the rest on the class's price
+  difference account. A receipt's reversal (102) is valued as any reversal
+  out of stock (S1d), against the original line's value, the rest of what
+  its GR/IR line moves on the price difference account; it is refused once
+  the stock is gone (409 `inventory.insufficient_stock`). A goods receipt's
+  material document is reversed only by reversing the goods receipt (409
+  `inventory.reverse_goods_receipt`), and `POST /v1/material-documents`
+  posts neither type.
+- **Not received into stock** (decided by default; Later): a return to the
+  supplier (122) of a stock item (422 `procurement.stock_item_return`, the
+  plan's Later), and a stock item of an order valued directly or in another
+  currency than the company's, in which a valuation is kept (422
+  `procurement.stock_item_not_valued`; foreign-currency stock items are
+  Later). A material blocked since the order is not received
+  (`inventory.material_not_usable`).
+- **The invoice.** Its price difference (what the ledger puts beside GR/IR)
+  goes to the stock as far as the valuation's stock in the plant still holds
+  the quantity it is spread over, at a moving price; the rest, and all of it
+  at a standard price, to the class's price difference account (SAP's
+  stock coverage, from memory). Items of one valuation cover the stock in
+  turn. The quantity is the invoiced one; a subsequent debit or credit,
+  which moves none, spreads over what was received of the item (SAP spreads
+  it over the invoiced quantity, from memory: for the specialist). A credit
+  memo takes its difference off the stock the same way. What the stock took
+  is `inventory.invoice_difference`, which adds it to the valuation's value
+  and sets the moving price; a value below zero is refused (409
+  `inventory.stock_value_below_zero`). Inventory's `InvoiceDifferences`
+  locks the valuations before payables posts (the order items, then the
+  valuations, then the ledger's locks, as a goods receipt).
+- **An invoice that revalued stock is not reversed** (409
+  `payables.invoice_revalued_stock`): the reversal would mirror the stock
+  line onto a stock that may have been issued since; a credit memo corrects
+  it. The safer default; reversing it as far as the stock holds is Later.
+- **Ledger.** `GRIRItem.Stock` divides a stock item's counter line between
+  the stock and price difference accounts (`ledger.GRIRStock`: a goods
+  movement's amount, an invoice's share), in the company's currency only;
+  a divided line is converted at the posting's rates (its group amounts'
+  difference an exchange difference), an undivided one kept as the GR/IR
+  line's mirror. `Entry.Stock` answers what each item put on either.
+- **Dependencies** (§3): procurement imports `materials` and `inventory`;
+  payables imports `inventory`'s published API, a new direction, decided
+  here (no cycle: inventory imports neither). `materials.Material.Factor`
+  is a unit's factor, which `Convert` and the invoice's coverage use.
+- `MaterialDocumentPosted` gains `reference`, not required (ADR-0041); the
+  goods receipt answers `material_document_id` and `_number`.
+- **Not built** (Later, as planned): receipts into quality inspection,
+  delivery tolerances beyond the over-delivery percentage, GR-based invoice
+  verification by receipt, ERS, returns (122, 161), planned delivery costs.
+  A GR/IR clearing (MR11) of a stock item's position still posts its
+  difference to the company's price difference account, not to the stock
+  (for the specialist).
+- Walkthrough step 130, `step_stock_receipt`, after step 125.

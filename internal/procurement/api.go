@@ -41,7 +41,8 @@ func orderInputs(items []gen.PurchaseOrderItem) []ItemInput {
 			Unit: it.Quantity.Unit, Price: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency, PriceUnit: it.PriceUnit.Value, AccountID: it.AccountID,
 			TaxCode: apitypes.Ptr[string](it.TaxCode), ContractItemNo: apitypes.Ptr[int32](it.ContractItemNo),
 			AccountAssignment: apitypes.Ptr[string](it.AccountAssignment), CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID),
-			DeliveryDate: apitypes.Ptr[time.Time](it.DeliveryDate)}
+			DeliveryDate: apitypes.Ptr[time.Time](it.DeliveryDate), PlantID: apitypes.Ptr[uuid.UUID](it.PlantID),
+			StorageLocationID: apitypes.Ptr[uuid.UUID](it.StorageLocationID)}
 		if d, ok := it.OverDeliveryPct.Get(); ok {
 			s := string(d)
 			in.OverDelivery = &s
@@ -132,7 +133,8 @@ func orderItemToAPI(it Item, currency string, exp int) gen.PurchaseOrderItem {
 		PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID, OverDeliveryPct: gen.NewOptDecimal(gen.Decimal(it.OverDelivery)),
 		TaxCode: apitypes.OptString(it.TaxCode), ContractItemNo: apitypes.OptInt32(it.ContractItemNo),
 		AccountAssignment: gen.NewOptString(it.assignment()),
-		CostCenterID:      apitypes.OptUUID(it.CostCenterID), DeliveryDate: apitypes.OptDate(it.DeliveryDate)}
+		CostCenterID:      apitypes.OptUUID(it.CostCenterID), DeliveryDate: apitypes.OptDate(it.DeliveryDate), PlantID: apitypes.OptUUID(it.PlantID),
+		StorageLocationID: apitypes.OptUUID(it.StorageLocationID)}
 }
 
 func changeToAPI(ch PurchaseOrderChange) gen.PurchaseOrderChange {
@@ -170,8 +172,8 @@ func receiptToAPI(g GoodsReceipt) gen.GoodsReceipt {
 	out := gen.GoodsReceipt{ID: g.ID, CreatedAt: g.PostedAt, CreatedBy: g.PostedBy, DocumentNumber: g.DocumentNumber, LegalEntityID: g.LegalEntityID,
 		PlantID: apitypes.OptUUID(g.PlantID), MovementType: g.MovementType, DocumentDate: g.DocumentDate, PostingDate: g.PostingDate,
 		Reference: apitypes.OptString(g.Reference), ReversalOfID: apitypes.OptUUID(g.ReversalOfID), JournalEntryID: apitypes.OptUUID(g.JournalEntryID),
-		Reason: apitypes.OptString(g.Reason),
-		Items:  make([]gen.GoodsReceiptItem, len(g.Items))}
+		Reason: apitypes.OptString(g.Reason), MaterialDocumentID: apitypes.OptUUID(g.MaterialDocumentID),
+		MaterialDocumentNumber: apitypes.OptString(g.MaterialDocumentNumber), Items: make([]gen.GoodsReceiptItem, len(g.Items))}
 	if g.JournalEntryYear != nil {
 		out.JournalEntryYear.SetTo(int32(*g.JournalEntryYear))
 	}
