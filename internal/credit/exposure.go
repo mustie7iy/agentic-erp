@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -83,14 +84,9 @@ func (e *Endpoints) ExposureOf(ctx context.Context, legalEntity, customer uuid.U
 	if !ok {
 		return Exposure{}, problem.NotFoundOf("business partner")
 	}
-	x := Exposure{Company: le, Customer: named}
-	day, err := config.DocumentDay(ctx, e.Settings, le.Code, clock.Now(e.Now))
+	x, err := e.started(ctx, tx, le, named)
 	if err != nil {
-		return Exposure{}, fmt.Errorf("credit: the day of company %s: %w", le.Code, err)
-	}
-	x.Day = day.Date
-	if x.Exponent, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil { // a legal entity's currency exists
-		return Exposure{}, fmt.Errorf("credit: currency of company %s: %w", le.Code, err)
+		return Exposure{}, err
 	}
 	if amount != nil {
 		checked, err := amountOf(*amount, le.LocalCurrency, x.Exponent, "amount")
@@ -115,6 +111,22 @@ func (e *Endpoints) ExposureOf(ctx context.Context, legalEntity, customer uuid.U
 	}
 	x.Limit = &l
 	return x, x.check()
+}
+
+// started is an exposure of the customer in the company before anything
+// is measured: the company's day its limit is judged on (T77c) and its
+// currency's minor-unit digits.
+func (e *Endpoints) started(ctx context.Context, tx pgx.Tx, le tenancy.Entity, named partner.Named) (Exposure, error) {
+	x := Exposure{Company: le, Customer: named}
+	day, err := config.DocumentDay(ctx, e.Settings, le.Code, clock.Now(e.Now))
+	if err != nil {
+		return Exposure{}, fmt.Errorf("credit: the day of company %s: %w", le.Code, err)
+	}
+	x.Day = day.Date
+	if x.Exponent, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil { // a legal entity's currency exists
+		return Exposure{}, fmt.Errorf("credit: currency of company %s: %w", le.Code, err)
+	}
+	return x, nil
 }
 
 // Check answers the sales context when it confirms an order (ADR-0066,
