@@ -114,5 +114,5 @@ several senders and segments in a cycle; iterative cycles; simulating a
 run; plan allocations; overhead rates and activity allocation; receivers
 other than cost centers; fixed amounts on a distribution (per account);
 reversing into a later open period when the run's period is closed; a
-lock of a period for statistical key figure postings; changing or
+lock of a period for statistical key figure postings; a listing of a key figure's postings; changing or
 deleting a key figure.

@@ -30,3 +30,10 @@ GET /v1/bank-statements/{id}/payments the response property `items/items/allOf[s
 POST /v1/allocation-cycles/{id}:run the `run/account_count` response property's min was decreased from `1.00` to `0.00` for the response status `200`
 GET /v1/allocation-runs the `items/items/account_count` response property's min was decreased from `1.00` to `0.00` for the response status `200`
 GET /v1/allocation-runs/{id} the `account_count` response property's min was decreased from `1.00` to `0.00` for the response status `200`
+# A cycle whose receivers' shares come from a statistical key figure, or are
+# fixed amounts, has receivers without a percentage; every cycle by fixed
+# percentages keeps them (events: AllocationCycleChanged .v2 beside .v1).
+# T60j (ADR-0064 As built T60j, decided by default under ADR-0053 d, for the product owner to overrule): a receiver's percentage is optional.
+GET /v1/allocation-cycles the response property `items/items/allOf[subschema #2]/receivers/items/percentage` became optional for the status `200`
+POST /v1/allocation-cycles the response property `allOf[subschema #2]/receivers/items/percentage` became optional for the status `201`
+GET /v1/allocation-cycles/{id} the response property `allOf[subschema #2]/receivers/items/percentage` became optional for the status `200`

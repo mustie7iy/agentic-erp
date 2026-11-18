@@ -1019,8 +1019,8 @@ taking the receivers' tracing factors from a key figure's actual values.
   `POST /v1/allocation-cycles` takes `share_basis` and
   `statistical_key_figure_id`; a cycle shows both and the key figure's
   code, and its receivers' `percentage` only on fixed percentages (the
-  property became optional: `api/breaking-accepted.txt` is not needed,
-  oasdiff reports it as a warning). Events `StatisticalKeyFigureChanged`,
+  property became optional, oasdiff's warning, recorded in
+  `api/breaking-accepted.txt` all the same). Events `StatisticalKeyFigureChanged`,
   `StatisticalKeyFigurePosted`; `AllocationCycleChanged` .v2 for every
   cycle, with `share_basis` and the key figure, beside .v1, published for
   a cycle by fixed percentages alone (.v1 requires a percentage per
@@ -1136,6 +1136,14 @@ may be run for the period again.
      period when the run's is closed is in the plan's "Later".
   5. Reversing is a person's under `controlling.allocation.run` (no new
      permission), as running is.
+  6. An assessment by fixed amounts is an assessment of its sender for
+     the period: no other cycle of the sender runs for it while that run
+     is in force (409 `controlling.allocation_sender_assessed`), since
+     the receivers were charged for the period already; reversing it
+     releases the sender (review round 1, a nit).
+  7. A cycle's receivers' `percentage` became optional in the cycle
+     responses (present on fixed percentages alone), recorded in
+     `api/breaking-accepted.txt` with T60j's reason (review round 1).
 - **Walkthrough**: `step_assessment` extended (`run_reversed_and_fixed`):
   Carla reverses the `FACILITIES` run (the receivers' charges and the
   sender's credit on 6990 gone; a second reversal refused), a

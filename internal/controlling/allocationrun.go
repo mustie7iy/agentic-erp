@@ -345,8 +345,11 @@ func keyFigureWeights(ctx context.Context, tx pgx.Tx, c cycle, period ledger.Fis
 // sender was already run as an assessment: an assessment leaves the
 // sender's primary costs on their accounts, so another run of the period,
 // of whichever cycle and kind, would read them again and charge them a
-// second time. The sender's cycles are held (heldCycle), so no such run
-// is under way.
+// second time. An assessment by fixed amounts counts too: it charged the
+// receivers for the sender's period already, and a run of the costs
+// besides would charge them twice for it (ADR-0064 As built T60k, default
+// 6). A reversed run counts no more. The sender's cycles are held
+// (heldCycle), so no such run is under way.
 func senderAssessed(ctx context.Context, tx pgx.Tx, c cycle, period ledger.FiscalPeriod) error {
 	var code, number string
 	err := tx.QueryRow(ctx, `SELECT c.code, r.document_number FROM controlling.allocation_run r
