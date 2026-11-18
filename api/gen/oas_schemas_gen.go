@@ -66563,7 +66563,8 @@ func (s *MaterialDocumentItemInput) SetToStorageLocationID(val OptUUID) {
 type MaterialDocumentLine struct {
 	// The line's number in the document, from 1.
 	LineNo int32 `json:"line_no"`
-	// The item of the request it stands for, from 1: a transfer's item has two lines.
+	// The item of the request it stands for, from 1: a transfer's item has two lines; on a reversal, the
+	// original's item.
 	ItemNo int32 `json:"item_no"`
 	// The material (`GET /v1/materials/{id}`).
 	MaterialID uuid.UUID `json:"material_id"`

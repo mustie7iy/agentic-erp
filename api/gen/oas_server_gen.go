@@ -1967,9 +1967,11 @@ type Handler interface {
 	// quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post
 	// one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`).
 	// Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
-	// item is two, the issue and the receipt. Nothing is posted to the ledger. Audited, and published as
-	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
-	// Human-only (`x-agent: false`).
+	// item is two, the issue and the receipt. The lines are applied in order, and each leaves its
+	// location's stock at zero or more, so items that move stock round a circle out of an empty location
+	// are refused though they change nothing in all. Nothing is posted to the ledger. Audited, and
+	// published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document
+	// posted. Human-only (`x-agent: false`).
 	//
 	// POST /v1/material-documents
 	CreateMaterialDocument(ctx context.Context, req *MaterialDocumentCreate, params CreateMaterialDocumentParams) (CreateMaterialDocumentRes, error)
@@ -7673,15 +7675,16 @@ type Handler interface {
 	//
 	// Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal
 	// movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a
-	// `311`, `302` of a `301`) whose lines are the original's with their quantities negated, posted on the
-	// company's date today and numbered from its `material_document` range as a posting is, naming the
-	// original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed
-	// (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`);
-	// two reversals at once post one. The reversal moves the stock back, so it is refused when the stock
-	// the original received has gone (409 `inventory.insufficient_stock`, naming the material, the
-	// location and both quantities). The material may have been blocked since; the reversal is still
-	// posted. A document of a company the caller may not act in is not found (404). Audited, and published
-	// as MaterialDocumentPosted. Human-only (`x-agent: false`).
+	// `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first
+	// (each keeping its original item's `item_no`), posted on the company's date today and numbered from
+	// its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
+	// it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
+	// nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The
+	// reversal moves the stock back, so it is refused when the stock the original received has gone (409
+	// `inventory.insufficient_stock`, naming the material, the location and both quantities). The material
+	// may have been blocked since; the reversal is still posted. A document of a company the caller may
+	// not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/material-documents/{id}:reverse
 	ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (ReverseMaterialDocumentRes, error)
