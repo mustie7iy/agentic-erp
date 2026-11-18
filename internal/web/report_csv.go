@@ -1,21 +1,18 @@
 package web
 
 import (
-	"bufio"
 	"context"
 	"maps"
 	"net/http"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/platform/csvcell"
 	"github.com/mustie7iy/agentic-erp/internal/web/i18n"
 	"github.com/mustie7iy/agentic-erp/internal/web/ui"
 )
@@ -94,7 +91,7 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request, p *person, m m
 // spreadsheet programs need to read the accents of a French company's
 // names (from memory, not verified: ADR-0052), its title and filters
 // first, then its columns in the person's language. Each cell is safe for
-// a spreadsheet (safeCell) and the lines end in a line feed, as
+// a spreadsheet (csvcell.Safe) and the lines end in a line feed, as
 // encoding/csv ended them before T73j4.
 func (s *Server) writeCSV(w http.ResponseWriter, r *http.Request, x export, rows [][]string) {
 	h := w.Header()
@@ -110,54 +107,9 @@ func (s *Server) writeCSV(w http.ResponseWriter, r *http.Request, x export, rows
 	for i, c := range x.columns {
 		columns[i] = i18n.T(ctx, c)
 	}
-	// A bufio.Writer keeps its first error, which every later write
-	// returns again and Flush reports below: the writes' own are dropped.
-	bw := bufio.NewWriter(w)
-	_, _ = bw.WriteString(byteOrderMark)
-	for _, row := range append([][]string{first, columns}, rows...) {
-		for i, cell := range row {
-			if i > 0 {
-				_ = bw.WriteByte(',')
-			}
-			_, _ = bw.WriteString(safeCell(cell))
-		}
-		_ = bw.WriteByte('\n')
-	}
-	if err := bw.Flush(); err != nil {
+	if err := csvcell.Write(w, append([][]string{first, columns}, rows...)); err != nil {
 		s.Log.WarnContext(ctx, "web: a report's download was cut short", "report", x.file, "error", err)
 	}
-}
-
-// byteOrderMark is UTF-8's, the file's first bytes.
-const byteOrderMark = "\xef\xbb\xbf"
-
-// numeric is a cell a spreadsheet reads as a number or a date, as it is:
-// an amount as the API writes it, or an ISO date.
-var numeric = regexp.MustCompile(`^(-?[0-9]+(\.[0-9]+)?|[0-9]{4}-[0-9]{2}-[0-9]{2})$`)
-
-// formulaStarts are the first characters OWASP's CSV injection page names
-// (fetched 2026-11-02, ADR-0052 Built in T73j4): a spreadsheet may read a
-// cell beginning with one of them as a formula. The full-width forms are
-// U+FF1D, U+FF0B, U+FF0D and U+FF20.
-const formulaStarts = "=+-@\t\r\n\uff1d\uff0b\uff0d\uff20"
-
-// safeCell is a cell as the file holds it, safe for a spreadsheet, as
-// OWASP's CSV injection page advises: numbers and dates as they are, so
-// a spreadsheet reads them as numbers; every other text (an account's
-// name, a reference a person or an agent typed) quoted, its quotes
-// doubled, so a separator (a comma or a semicolon, both of which OWASP
-// names), a quote or a line break inside it starts no new cell;
-// and a text that begins as a formula does kept as text by a leading
-// apostrophe. OWASP says no strategy is safe for every spreadsheet and
-// every program that reads the file (ADR-0052).
-func safeCell(v string) string {
-	if v == "" || numeric.MatchString(v) {
-		return v
-	}
-	if first, _ := utf8.DecodeRuneInString(v); strings.ContainsRune(formulaStarts, first) {
-		v = "'" + v
-	}
-	return `"` + strings.ReplaceAll(v, `"`, `""`) + `"`
 }
 
 // trialBalanceCSV is the trial balance's download.

@@ -14008,6 +14008,129 @@ step_credit_limit_approval() {
   passed
 }
 
+# step_aging_as_at is T75l (ADR-0063 §10 As built T75l): the AR aging as
+# it stood on a past key date, and by document date. Ruth sets up a new
+# customer, Harbour Tools, so the figures are its own whatever earlier
+# steps left open. Alex charges it CAD 300.00 by a manual entry on day
+# FIRST and reverses it on day SECOND; Ruth's invoice of CAD 1,000.00,
+# dated today on NT30, posts on SECOND. FIRST and SECOND are two days of
+# today's period: its first day and today, or, on the period's first day,
+# today and tomorrow. The aging as at FIRST shows the charge, as at SECOND
+# and now the invoice alone. 45 days from today the invoice is 15 days
+# past its net due date and 45 past its document date. AGING_CUSTOMER is
+# the customer, for step_aging_by_center.
+step_aging_as_at() {
+  heading "Step 133 — AR aging as at a key date: the items open on a past key date, though reversed or posted since; the items aged by their document date instead of their net due date"
+  local customer ar sales first second later charge key want
+  as ruth
+  ar=$(account 1200)
+  sales=$(account 4000)
+  say "Ruth sets up Harbour Tools as a customer of Maple, on net 30 days; Carla approves it:"
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Harbour Tools\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$ar\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys tooling from Maple\"}"
+  customer=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its order"
+  if [ "${TODAY:8:2}" = 01 ]; then
+    first=$TODAY second=$(date_add "$TODAY" 1)
+  else
+    first="${TODAY:0:8}01" second=$TODAY
+  fi
+  later=$(date_add "$TODAY" 45)
+  as alex
+  say "Alex charges Harbour Tools CAD 300.00 for a tooling service by a manual entry on $first, and reverses it"
+  say "on $second: the service was Northwind's."
+  api 201 '"journal entry \(.document_number) of \(.posting_date): \([.lines[] | "\(.account_id | acct) \(.amount.amount)"] | join(" / ")) \(.currency)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$first\", \"posting_date\": \"$first\", \"currency\": \"CAD\", \"header_text\": \"Tooling service\", \"lines\": [{\"account_id\": \"$ar\", \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$customer\"}, {\"account_id\": \"$sales\", \"amount\": {\"amount\": \"-300.00\", \"currency\": \"CAD\"}}]}"
+  charge=$(field .id)
+  api 200 '"journal entry \(.document_number) of \(.posting_date): the charge reversed"' reverseJournalEntry -p "id=$charge" -if-match "$ETAG" \
+    -body "{\"posting_date\": \"$second\", \"header_text\": \"The service was Northwind's\"}"
+  expect "the reversal's date" "$(field .posting_date)" "$second"
+  as ruth
+  say "Ruth invoices Harbour Tools CAD 1,000.00 for tooling, dated today on NT30, and posts it on $second:"
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"description\": \"Tooling\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"customer invoice \(.document_number): \(.status) on \(.posting_date), gross \(.gross_amount.amount) \(.currency), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$second\"}"
+  say "The aging of Harbour Tools with the items open now is the invoice alone: the charge and its reversal clear"
+  say "each other. As at $first (open_on key_date, T75l) it is the charge: the invoice was not posted yet and"
+  say "the charge not yet reversed. The day before, nothing was open; as at $second, the invoice alone:"
+  api 200 '"aging open now, on \(.key_date): \(.totals.item_count) items, \(.totals.amount.amount) \(.totals.amount.currency)"' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$first" -p "customer_id=$customer"
+  expect "the items open now" "$(field '"\(.open_on) \(.totals.item_count) \(.totals.amount.amount)"')" "now 1 1000.00"
+  for key in "$first=1 300.00" "$(date_add "$first" -1)=0 0.00" "$second=1 1000.00"; do
+    want=${key#*=} key=${key%%=*}
+    api 200 '"aging as at \(.key_date) (open_on \(.open_on)): \(.totals.item_count) items, \(.totals.amount.amount) \(.totals.amount.currency)"' \
+      getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$key" -p open_on=key_date -p "customer_id=$customer"
+    expect "the items open on $key" "$(field '"\(.open_on) \(.totals.item_count) \(.totals.amount.amount)"')" "key_date $want"
+  done
+  say "On $later the invoice is 15 days past its net due date, and 45 past its document date (aging_basis"
+  say "document_date, T75l):"
+  for key in net_due_date=1 document_date=2; do
+    api 200 '"by \(.aging_basis) on \(.key_date): \([.totals.buckets[] | select(.item_count > 0) | "\(.bucket) \(.days_from)-\(.days_to // "") days \(.amount.amount)"] | join(", "))"' \
+      getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$later" -p aging_days=30,60 -p "aging_basis=${key%=*}" -p "customer_id=$customer"
+    expect "the invoice's bucket by its ${key%=*}" "$(field '[.totals.buckets[] | .item_count] | to_entries | map(select(.value == 1)) | .[0].key')" "${key#*=}"
+  done
+  say "A value the contract does not list is refused, the field named:"
+  refused 400 request.invalid_parameter getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p open_on=yesterday
+  expect "the field refused" "$(field '.errors[0].field')" open_on
+  AGING_CUSTOMER=$customer
+  passed
+}
+
+# step_aging_by_center is T75m (ADR-0063 As built T75m): the AR aging by
+# profit center or segment, the item's own assignment as its customer
+# line carries it, and its CSV. Alex charges Harbour Tools (step 133's
+# AGING_CUSTOMER) CAD 200.00 on profit center PC-MTL of segment CA (step
+# 12) by a manual entry; the invoice of step 133, posted by receivables,
+# carries no profit center. The aging of Harbour Tools by profit center
+# has the row without one (the invoice) first, then PC-MTL's; filtered by
+# PC-MTL it is the charge; by segment, CA's row; the company's groups add
+# up to its totals; the CSV holds the rows and the totals.
+step_aging_by_center() {
+  heading "Step 134 — AR aging by profit center or segment: a row per profit center or segment the items' customer lines carry and one without, a filter by either, and the report as CSV for a spreadsheet"
+  local customer=$AGING_CUSTOMER ar sales pc csv
+  [ -n "$customer" ] || fail "step 133's customer is not there"
+  ar=$(account 1200)
+  sales=$(account 4000)
+  as alex
+  QUIET=1 api 200 '' listProfitCenters -p code=PC-MTL
+  pc=$(field '.items[0].id')
+  say "Alex charges Harbour Tools CAD 200.00 for tooling repairs done by the Montreal office, the customer line and the"
+  say "revenue on its profit center PC-MTL (segment CA):"
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) on \(.profit_center_code) \(.segment_code // "")"] | join(" / ")) \(.currency)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Tooling repairs\", \"lines\": [{\"account_id\": \"$ar\", \"amount\": {\"amount\": \"200.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$customer\", \"profit_center_id\": \"$pc\"}, {\"account_id\": \"$sales\", \"amount\": {\"amount\": \"-200.00\", \"currency\": \"CAD\"}, \"profit_center_id\": \"$pc\"}]}"
+  expect "the customer line's profit center" "$(field '.lines[0].profit_center_code')" PC-MTL
+  as ruth
+  say "Ruth reads Harbour Tools' aging by profit center (T75m): the invoice of step 133, posted by receivables,"
+  say "carries none, so it is in the row without a profit center, first; the charge is PC-MTL's:"
+  api 200 '"aging of Harbour Tools by \(.group_by) on \(.key_date)", (.groups[] | "  \(.profit_center_code // "no profit center") \(.profit_center_name // ""): \(.item_count) items, \(.amount.amount) \(.amount.currency)")' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p group_by=profit_center -p "customer_id=$customer"
+  expect "the groups" "$(field '[.groups[] | "\(.profit_center_code // "-") \(.item_count) \(.amount.amount)"] | join(", ")')" "- 1 1000.00, PC-MTL 1 200.00"
+  expect "no customers' rows when grouped" "$(field '.items | length')" 0
+  say "Filtered by PC-MTL, the report is the charge; by segment, CA's row holds it:"
+  api 200 '"aging of PC-MTL: \(.totals.item_count) items, \(.totals.amount.amount) \(.totals.amount.currency)"' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p "profit_center_id=$pc" -p "customer_id=$customer"
+  expect "PC-MTL's totals" "$(field '"\(.totals.item_count) \(.totals.amount.amount)"')" "1 200.00"
+  api 200 '(.groups[] | "  \(.segment_code // "no segment") \(.segment_name // ""): \(.item_count) items, \(.amount.amount) \(.amount.currency)")' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p group_by=segment -p "customer_id=$customer"
+  expect "the segments" "$(field '[.groups[] | "\(.segment_code // "-") \(.amount.amount)"] | join(", ")')" "- 1000.00, CA 200.00"
+  say "Over all of Maple's customers the groups add up to the totals:"
+  api 200 '"aging of \(.company_code) by profit center: \(.groups | length) groups, \(.totals.customer_count) customers, \(.totals.amount.amount) \(.totals.amount.currency)"' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p group_by=profit_center -p page_size=500
+  expect "the groups add up to the totals" "$(field '([.groups[].amount.amount | sub("\\."; "") | tonumber] | add) == (.totals.amount.amount | sub("\\."; "") | tonumber)')" true
+  say "Ruth exports Harbour Tools' aging by profit center as CSV for a spreadsheet (format=csv): a row per group and"
+  say "the totals, a column per bucket:"
+  csv="$WORK/aging.csv"
+  api 200 '' getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p group_by=profit_center -p "customer_id=$customer" -p aging_days=30 \
+    -p format=csv -out "$csv"
+  LC_ALL=C sed $'s/^\xef\xbb\xbf//; s/^/     /' "$csv"
+  expect "the byte order mark" "$(head -c 3 "$csv" | od -An -tx1 | tr -d ' \n')" efbbbf
+  expect "the header" "$(head -1 "$csv" | LC_ALL=C sed $'s/^\xef\xbb\xbf//')" '"row","id","code","name","currency","customer_count","item_count","amount","not_due","overdue_1_30","overdue_31_plus","no_due_date"'
+  expect "PC-MTL's row" "$(grep -c "^\"profit_center\",\"$pc\",\"PC-MTL\",\"Montreal office\",\"CAD\",1,1,200.00,200.00,0.00,0.00,0.00\$" "$csv" || true)" 1
+  expect "the totals' row" "$(tail -1 "$csv")" '"total",,,,"CAD",1,2,1200.00,1200.00,0.00,0.00,0.00'
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -16038,7 +16161,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_close'
 
 main() {
   stop_unseen

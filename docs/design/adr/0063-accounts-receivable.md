@@ -207,8 +207,9 @@ without payment terms is due on its document date, product owner
 2026-11-12), in the company's local currency; a credit
 item reduces its customer's bucket and total; the totals are the open
 items of the company's customer reconciliation accounts. It ages the
-items open now, not those open on the key date (aging as at a past date
-is in the plan's "Later").
+items open now; T75l adds the items open on the key date (`open_on`
+`key_date`) and the aging by document date (`aging_basis`), T75m the
+aging by profit center or segment and its CSV (As built).
 
 ## Alternatives
 - **A leaf context reading everything through ports the composition root
@@ -1274,3 +1275,115 @@ memo (§5, plan default 3).
   debit memos: an invoice stays corrected by a credit memo; (7) the
   permission is `receivables.invoice.post`, as payables' reversal takes
   its posting permission.
+
+### T75l AR aging as at a past key date, and by document date (no migration)
+- `GET /v1/receivables-aging` takes `open_on`: `now` (the default, T75e's
+  items open now, whatever their dates) or `key_date`, the items open on
+  the key date; and `aging_basis`: `net_due_date` (the default) or
+  `document_date`. Both are open enumerations, said in the response; any
+  other value is 400 `request.invalid_parameter` naming the field, as
+  `getAssetHistorySheet`'s `group_by` is refused. The page token is signed
+  for both besides T75e's parameters.
+- **Open on the key date** is `ledger.OpenItems.ReceivableOn`
+  (`internal/ledger/receivable_on.go`), T75b's reader (`receivableSelect`,
+  `scanReceivable`) with another condition: the line is posted on or
+  before the key date, no clearing dated on or before it holds it
+  (`ledger.clearing_item` and the clearing's `clearing_date`), and its
+  entry was not reversed, nor is it a reversal, by a reversal posted on or
+  before it. SAP's due date analysis and open items at a key date (FBL5N,
+  S_ALR_87012178) select so by posting and clearing date (from memory, not
+  checked against a source). A clearing that was reset (T75i) holds its
+  items on no day: its items left `clearing_item`, and its clearing entry
+  was reversed on its own posting date (`Postings.ResetClearing`), so the
+  reset undoes it from the day it was dated, as FBRA leaves its items no
+  clearing date; the clearing entry's own lines are of a reversed entry. A
+  reversal the ledger dated before its original leaves the pair open on no
+  day. The item's amount, terms and due date are as posted: a partial
+  payment's residual (T75f) is its own item from its clearing's date, the
+  item it came from cleared on that date.
+- **By document date** each item is aged by its days past its document
+  date (`ledger.DaysPast`, which `ReceivableItem.DaysOverdue` now counts
+  with) as if due that day, its terms aside: `not_due` when dated on the
+  key date or later, else the `overdue` bucket of those days. The buckets
+  and their names are T75e's, so a consumer's columns do not change with
+  the basis.
+- **Budget:** `TestReceivablesAgingOnKeyDateBudget` holds the read as at a
+  key date to T75e's 3 s over the same 100,000 items, half cleared after
+  the key date (so all are aged, half looked up in their clearings);
+  measured on a laptop under load 22-66: median 2.17 s, p95 2.98 s at
+  `ERP_BUDGET_SCALE` 1, median 2.28 s, p95 3.21 s at 2 (T75e's read
+  beside it: p95 2.91 s and 2.17 s). No index is added: the read is
+  T75e's join with three exists checks by primary key.
+- Walkthrough `step_aging_as_at` (step 133): Ruth sets up Harbour Tools,
+  Alex charges it CAD 300.00 by a manual entry on the period's first day
+  and reverses it today (on the period's first day: today and tomorrow),
+  Ruth's invoice of CAD 1,000.00 dated today on NT30 posts on the
+  reversal's day; the aging now and as at the reversal's day is the
+  invoice, as at the charge's day the charge, the day before nothing; 45
+  days on the invoice is 1 to 30 days past its net due date and 31 to 60
+  past its document date; `open_on=yesterday` is refused.
+- **Decided by default:** (1) `open_on` defaults to `now`, so T75e's
+  consumers (the credit and collections agents among them) see no change;
+  (2) the as-at read takes the clearing date, not the clearing entry's
+  posting date, as the plan says (they are the same for every clearing
+  the system makes); (3) a reset clearing counts on no day, as above; (4)
+  by document date the bucket names stay T75e's (`not_due`, `overdue`)
+  rather than new ones, the description saying what they count; (5) no
+  new permission, problem code or table.
+
+### T75m AR aging by profit center or segment, and its CSV export (no migration)
+- `GET /v1/receivables-aging` takes `profit_center_id` and `segment_id`
+  (the items whose customer line carries it; both together select the
+  items carrying both), `group_by` `customer` (the default), `profit_center`
+  or `segment`, and `format` `json` (the default) or `csv`; `group_by` and
+  `format` are open enumerations refused as `open_on` is. The response
+  says `group_by` and the filters; grouped, its rows are `groups`
+  (`ReceivablesAgingGroup`: the center by id, code and name, its
+  customers, items, amount and buckets) and `items` is empty. The page
+  token is signed for the grouping and both filters.
+- **The assignment** is the customer line's own, as posted (ADR-0050 §5):
+  `ledger.ReceivableItem` now carries the line's `profit_center_id` and
+  `segment_id`, read by T75b's reader for every consumer. A customer
+  invoice posts its customer line without a center (its items carry
+  them), so its item is in the row without; a manual or migrated entry's
+  customer line carries what it names, the segment always its profit
+  center's. No center is derived for the customer line here: that would
+  be document splitting, which nothing has decided (listed for the product
+  owner).
+- **Grouping** is on read (`age`): each selected item falls in one row by
+  its customer, profit center or segment (`groupKey`), the rows ordered by
+  id with the row without a center (the nil id) first, paged by that key
+  as the customers are; a row counts each customer once (the items come
+  ordered by customer). The centers are named through the ledger's
+  `CenterNames` (`References`), widened to segments; the customers
+  through the partner context as before. An id that names no center
+  selects nothing, an empty report rather than a refusal, as a customer
+  filter does.
+- **CSV** is the existing form of a report in the API (`format=csv` of
+  `GET /v1/process-event-logs`, the next page in `Next-Page-Token`, now
+  declared on this report's 200 for JSON too) with the workspace's
+  spreadsheet-safe cells (ADR-0052 Built in T73j4): `safeCell`, the byte
+  order mark and the row writer moved from `internal/web` to
+  `internal/platform/csvcell` (`Safe`, `ByteOrderMark`, `Write`), which
+  the workspace's downloads now call, rather than copied. A header row
+  `row,id,code,name,currency,customer_count,item_count,amount` and a
+  column per bucket (`not_due`, `overdue_<from>_<to>`,
+  `overdue_<from>_plus`, `no_due_date`), a row per row of the page, and
+  the totals' row (`total`) on the last page only, so the pages of an
+  export add up to one file with one total; amounts are exact decimals in
+  the company's currency, the currency in its own column.
+- Walkthrough `step_aging_by_center` (step 134): Alex charges Harbour
+  Tools CAD 200.00 on PC-MTL (segment CA) by a manual entry; Harbour Tools'
+  aging by profit center is the row without (step 133's invoice) and
+  PC-MTL's, by segment CA's, filtered by PC-MTL the charge; the company's
+  groups add up to its totals; the CSV has the byte order mark, the
+  header, PC-MTL's row and the totals.
+- **Decided by default:** (1) the row without a center is a row of its
+  own, first, so the groups always add up to the totals; (2) grouped
+  rows are a new array rather than customer rows with a center, so a
+  customer row keeps its required fields; (3) CSV cells are made safe for
+  a spreadsheet, as the workspace's downloads are (the safer default for
+  customer names typed by people), at the cost of an apostrophe a machine
+  reader must strip from a text cell beginning as a formula; (4) the
+  totals' row only on the last page; (5) no new permission or problem
+  code.

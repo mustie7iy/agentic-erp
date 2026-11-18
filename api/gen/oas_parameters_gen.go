@@ -36701,6 +36701,24 @@ type GetReceivablesAgingParams struct {
 	AgingDays []int32 `json:",omitempty"`
 	// Only this customer's items (business partner id); the totals are then that customer's.
 	CustomerID OptUUID `json:",omitempty,omitzero"`
+	// Only the items whose customer line carries this profit center (T75m); the totals are then theirs.
+	ProfitCenterID OptUUID `json:",omitempty,omitzero"`
+	// Only the items whose customer line carries this segment (T75m); the totals are then theirs.
+	SegmentID OptUUID `json:",omitempty,omitzero"`
+	// What a row is (T75m): `customer` (default), one per customer in `items`; `profit_center` or
+	// `segment`, one per profit center or segment in `groups`. Any other value is 400
+	// `request.invalid_parameter`.
+	GroupBy OptString `json:",omitempty,omitzero"`
+	// `json` (default) or `csv` (T75m): the page as CSV for a spreadsheet. Any other value is 400
+	// `request.invalid_parameter`.
+	Format OptString `json:",omitempty,omitzero"`
+	// Which items are aged (T75l): `now` (default), the items open now; `key_date`, the items open on the
+	// key date, posted on or before it and not cleared or reversed by then. Any other value is 400
+	// `request.invalid_parameter`.
+	OpenOn OptString `json:",omitempty,omitzero"`
+	// The date an item's days are counted from (T75l): `net_due_date` (default), its net due date;
+	// `document_date`, its document date. Any other value is 400 `request.invalid_parameter`.
+	AgingBasis OptString `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -36739,6 +36757,60 @@ func unpackGetReceivablesAgingParams(packed middleware.Parameters) (params GetRe
 		}
 		if v, ok := packed[key]; ok {
 			params.CustomerID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "profit_center_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.ProfitCenterID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "segment_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.SegmentID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "group_by",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.GroupBy = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "format",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Format = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "open_on",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.OpenOn = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "aging_basis",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.AgingBasis = v.(OptString)
 		}
 	}
 	{
@@ -36960,6 +37032,252 @@ func decodeGetReceivablesAgingParams(args [0]string, argsEscaped bool, r *http.R
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "customer_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: profit_center_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "profit_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotProfitCenterIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotProfitCenterIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.ProfitCenterID.SetTo(paramsDotProfitCenterIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "profit_center_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: segment_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "segment_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotSegmentIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotSegmentIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.SegmentID.SetTo(paramsDotSegmentIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "segment_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: group_by.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "group_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotGroupByVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotGroupByVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.GroupBy.SetTo(paramsDotGroupByVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "group_by",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: format.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "format",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotFormatVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotFormatVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Format.SetTo(paramsDotFormatVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "format",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: open_on.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "open_on",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotOpenOnVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotOpenOnVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.OpenOn.SetTo(paramsDotOpenOnVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "open_on",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: aging_basis.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "aging_basis",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotAgingBasisVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotAgingBasisVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.AgingBasis.SetTo(paramsDotAgingBasisVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "aging_basis",
 			In:   "query",
 			Err:  err,
 		}

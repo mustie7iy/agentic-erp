@@ -4570,7 +4570,10 @@ posted credit memos naming it stay within its gross amount at posting,
 under that invoice's row lock (ADR-0063 §7). T75e's AR aging
 (`GET /v1/receivables-aging`) keeps no table: it is computed on read from
 the ledger's customer open items (§3.7, `ledger.OpenItems.Receivable`)
-with the ledger's aging buckets (ADR-0063 §10).
+with the ledger's aging buckets (ADR-0063 §10); as at a past key date
+(T75l) from the customer lines posted by then and not cleared or reversed
+by then (`ledger.OpenItems.ReceivableOn`, by the clearing's
+`clearing_date` and the reversal's posting date).
 
 ```mermaid
 erDiagram

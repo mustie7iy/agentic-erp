@@ -60,6 +60,7 @@ var webPlatform = map[string]bool{
 	"platform/proxyproto": true, "platform/secrets": true, "platform/telemetry": true, "platform/tlsconf": true, "platform/worker": true,
 	"platform/database": true, // web/session's alone: webStore
 	"platform/rdsiam":   true, // signs the directory login's RDS IAM token; holds no connection (ADR-0035)
+	"platform/csvcell":  true, // spreadsheet-safe CSV cells, shared with the API's CSV (ADR-0052 Built in T73j4, ADR-0063 As built T75m)
 }
 
 // webStore is the one package of the workspace that holds a database pool:
