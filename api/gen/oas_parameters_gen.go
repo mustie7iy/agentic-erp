@@ -72668,7 +72668,8 @@ func decodeListHouseBanksParams(args [0]string, argsEscaped bool, r *http.Reques
 type ListIncomingPaymentsParams struct {
 	// Only resources of this legal entity (company code).
 	LegalEntityID OptUUID `json:",omitempty,omitzero"`
-	// Only the payments applied to this customer's items (business partner id).
+	// Only the payments applied to this customer's items (business partner id): those it paid as the payer
+	// and those that paid its items for another (T75h).
 	CustomerID OptUUID `json:",omitempty,omitzero"`
 	// Only the document with this human document number.
 	DocumentNumber OptString `json:",omitempty,omitzero"`

@@ -52974,6 +52974,10 @@ type IncomingPayment struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
+	// Each customer whose items the payment applied with the receipt (T75h), the payer first (its part
+	// zero when none of the items was its own), then the others in the order of their first item, with its
+	// part; the parts less `difference`, and with what was left `on_account`, are the receipt.
+	Customers []IncomingPaymentCustomer `json:"customers"`
 	// The posting date of the clearing entry.
 	PostingDate time.Time `json:"posting_date"`
 	// The payment's currency (ISO 4217), the receipt's and every item's.
@@ -53085,6 +53089,11 @@ func (s *IncomingPayment) GetCustomerNumber() string {
 // GetCustomerName returns the value of CustomerName.
 func (s *IncomingPayment) GetCustomerName() string {
 	return s.CustomerName
+}
+
+// GetCustomers returns the value of Customers.
+func (s *IncomingPayment) GetCustomers() []IncomingPaymentCustomer {
+	return s.Customers
 }
 
 // GetPostingDate returns the value of PostingDate.
@@ -53245,6 +53254,11 @@ func (s *IncomingPayment) SetCustomerNumber(val string) {
 // SetCustomerName sets the value of CustomerName.
 func (s *IncomingPayment) SetCustomerName(val string) {
 	s.CustomerName = val
+}
+
+// SetCustomers sets the value of Customers.
+func (s *IncomingPayment) SetCustomers(val []IncomingPaymentCustomer) {
+	s.Customers = val
 }
 
 // SetPostingDate sets the value of PostingDate.
@@ -53507,18 +53521,24 @@ func (s *IncomingPaymentApplicationCreate) SetItems(val []IncomingPaymentItemRef
 type IncomingPaymentCreate struct {
 	// The company that received the payment: a legal entity the caller may act in.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// The customer whose open items the payment is applied to (business partner id).
+	// The customer whose open items the payment is applied to (business partner id): the payer, whose
+	// account takes what is left `on_account`.
 	CustomerID uuid.UUID `json:"customer_id"`
+	// The other customers whose open items the same receipt pays (T75h; SAP's other accounts of a payment,
+	// as a parent pays its subsidiaries' invoices), business partners each with at least one of the items
+	// (422 `receivables.customer_without_items`), not the payer (422 `receivables.duplicate_customer`) and
+	// each named once (400 `request.invalid_body`); absent or empty: the payer's items only.
+	OtherCustomerIds []uuid.UUID `json:"other_customer_ids"`
 	// The receipt: the journal entry a bank statement line matched as incoming posted, waiting on a house
 	// bank's incoming payments clearing account (`listUnappliedReceipts`).
 	ReceiptJournalEntryID uuid.UUID `json:"receipt_journal_entry_id"`
 	// The posting date of the clearing entry; absent: today, the company's date in its time zone
 	// (`companies[].time_zone`).
 	PostingDate OptDate `json:"posting_date"`
-	// The customer's open items the payment is applied to (`GET /v1/open-items`), invoices and credits,
-	// each with a residual item if it is paid in part; together, net of their residuals, they equal the
-	// receipt, in its currency, but for a difference within the company's payment tolerance and, with
-	// `on_account`, what is left on account. Empty only with `on_account`.
+	// The open items the payment is applied to (`GET /v1/open-items`), the payer's and the other
+	// customers', invoices and credits, each with a residual item if it is paid in part; together, net of
+	// their residuals, they equal the receipt, in its currency, but for a difference within the company's
+	// payment tolerance and, with `on_account`, what is left on account. Empty only with `on_account`.
 	Items []IncomingPaymentItemRef `json:"items"`
 	// Leave what the receipt has left after the items, the whole receipt when there are none, on the
 	// customer's account as a credit of the customer's (T75g): an open item that
@@ -53535,6 +53555,11 @@ func (s *IncomingPaymentCreate) GetLegalEntityID() uuid.UUID {
 // GetCustomerID returns the value of CustomerID.
 func (s *IncomingPaymentCreate) GetCustomerID() uuid.UUID {
 	return s.CustomerID
+}
+
+// GetOtherCustomerIds returns the value of OtherCustomerIds.
+func (s *IncomingPaymentCreate) GetOtherCustomerIds() []uuid.UUID {
+	return s.OtherCustomerIds
 }
 
 // GetReceiptJournalEntryID returns the value of ReceiptJournalEntryID.
@@ -53567,6 +53592,11 @@ func (s *IncomingPaymentCreate) SetCustomerID(val uuid.UUID) {
 	s.CustomerID = val
 }
 
+// SetOtherCustomerIds sets the value of OtherCustomerIds.
+func (s *IncomingPaymentCreate) SetOtherCustomerIds(val []uuid.UUID) {
+	s.OtherCustomerIds = val
+}
+
 // SetReceiptJournalEntryID sets the value of ReceiptJournalEntryID.
 func (s *IncomingPaymentCreate) SetReceiptJournalEntryID(val uuid.UUID) {
 	s.ReceiptJournalEntryID = val
@@ -53585,6 +53615,60 @@ func (s *IncomingPaymentCreate) SetItems(val []IncomingPaymentItemRef) {
 // SetOnAccount sets the value of OnAccount.
 func (s *IncomingPaymentCreate) SetOnAccount(val OptBool) {
 	s.OnAccount = val
+}
+
+// A customer whose open items an incoming payment applied with its receipt, and its part (T75h).
+// Ref: #/components/schemas/IncomingPaymentCustomer
+type IncomingPaymentCustomer struct {
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// Its part of the receipt: its items applied with the receipt, net of their residuals, in the
+	// payment's currency; negative when its credits exceed its invoices.
+	Amount Money `json:"amount"`
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *IncomingPaymentCustomer) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *IncomingPaymentCustomer) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *IncomingPaymentCustomer) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetAmount returns the value of Amount.
+func (s *IncomingPaymentCustomer) GetAmount() Money {
+	return s.Amount
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *IncomingPaymentCustomer) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *IncomingPaymentCustomer) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *IncomingPaymentCustomer) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *IncomingPaymentCustomer) SetAmount(val Money) {
+	s.Amount = val
 }
 
 // IncomingPaymentHeaders wraps IncomingPayment with response headers.
@@ -53644,6 +53728,13 @@ func (*IncomingPaymentHeaders) createIncomingPaymentRes()         {}
 type IncomingPaymentItem struct {
 	// The item's number in the payment, in the order of the requests.
 	ItemNo int32 `json:"item_no"`
+	// The customer whose item it is: the payment's or one of the other customers it paid (T75h)
+	// (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// That customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// That customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
 	// The application that applied the item: 0 for the payment itself, else the number of the application
 	// of its credit on account (`applications`).
 	ApplicationNo int32 `json:"application_no"`
@@ -53669,6 +53760,21 @@ type IncomingPaymentItem struct {
 // GetItemNo returns the value of ItemNo.
 func (s *IncomingPaymentItem) GetItemNo() int32 {
 	return s.ItemNo
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *IncomingPaymentItem) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *IncomingPaymentItem) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *IncomingPaymentItem) GetCustomerName() string {
+	return s.CustomerName
 }
 
 // GetApplicationNo returns the value of ApplicationNo.
@@ -53714,6 +53820,21 @@ func (s *IncomingPaymentItem) GetResidual() OptIncomingPaymentResidual {
 // SetItemNo sets the value of ItemNo.
 func (s *IncomingPaymentItem) SetItemNo(val int32) {
 	s.ItemNo = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *IncomingPaymentItem) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *IncomingPaymentItem) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *IncomingPaymentItem) SetCustomerName(val string) {
+	s.CustomerName = val
 }
 
 // SetApplicationNo sets the value of ApplicationNo.

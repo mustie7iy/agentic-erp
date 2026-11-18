@@ -12594,6 +12594,60 @@ step_rfq_requisition() {
   passed
 }
 
+# step_receipt_several_customers is T75h (ADR-0063 §6 As built): Northwind
+# pays, with one bank transfer of CAD 750.00, its own invoice of 450.00
+# and the invoice of 300.00 of Northwind Logistics, its subsidiary and a
+# new customer of Maple. Applied without naming the subsidiary, its
+# invoice is refused; named as an other customer, one DZ entry clears
+# both invoices and the receipt, the payment shows each item's customer
+# and each customer's part, and the subsidiary's list of payments finds
+# it.
+step_receipt_several_customers() {
+  heading "Step 116 — One receipt for several customers: a parent's transfer applied to its own invoice and its subsidiary's, each customer's items cleared by one entry and its part shown"
+  local sub own subs body payment
+  [ -n "$CUSTOMER" ] || fail "step 47's customer is not there"
+  as ruth
+  say "Northwind Logistics, Northwind's subsidiary, starts buying from Maple. Ruth creates it as a customer, on net 30"
+  say "days, and Carla approves it:"
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Northwind Logistics\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$(account 1200)\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Northwind's logistics subsidiary\"}"
+  sub=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$sub" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Subsidiary of Northwind Traders, an existing customer"
+  say "Maple invoices Northwind CAD 450.00 and Northwind Logistics CAD 300.00:"
+  northwind_invoice 450.00
+  own=$INVOICE_ENTRY
+  as ruth
+  api 201 '"customer invoice \(.document_number) to \(.customer_name): \(.gross_amount.amount) \(.currency)"' createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$sub\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"description\": \"Freight consulting\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"  posted as journal entry \(.journal_entry_number), due \(.net_due_date)"' postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" \
+    -body "{\"posting_date\": \"$TODAY\"}"
+  subs=$(field .journal_entry_id)
+  say "Northwind pays both with one transfer of CAD 750.00, its remittance naming the two invoices:"
+  northwind_receipt 750.00
+  as ruth
+  body="{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$own\", \"line_no\": 1}, {\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$subs\", \"line_no\": 1}]"
+  say "Applied as Northwind's alone, the subsidiary's invoice is refused, naming it, and nothing posts:"
+  refused 422 ledger.not_the_customers_item createIncomingPayment -body "$body}"
+  expect "the refused item" "$(field '.errors[0].field')" "items[1]"
+  say "Ruth names Northwind Logistics as an other customer of the payment (T75h, SAP's other accounts of F-28): one DZ"
+  say "entry clears the receipt and both invoices, and the payment shows each customer's part:"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency) from \(.customer_name)", (.customers[] | "  \(.customer_number) \(.customer_name): \(.amount.amount)"), (.items[] | "  item \(.item_no): \(.reference) of \(.customer_name), \(.amount.amount)")' \
+    createIncomingPayment -body "$body, \"other_customer_ids\": [\"$sub\"]}"
+  payment=$(field .id)
+  expect "the customers' parts" "$(field '[.customers[] | "\(.customer_id) \(.amount.amount)"] | join(", ")')" "$CUSTOMER 450.00, $sub 300.00"
+  expect "the items' customers" "$(field '[.items[] | .customer_name] | join(", ")')" "Northwind Traders, Northwind Logistics"
+  QUIET=1 api 200 '' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the clearing entry" "$(field '[.lines[] | "\(.account_id) \(.partner_id // "-") \(.amount.amount)"] | join(", ")')" \
+    "$(account 1015) - 750.00, $(account 1200) $CUSTOMER -450.00, $(account 1200) $sub -300.00"
+  say "Northwind Logistics has nothing open, and its list of payments finds the parent's:"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$sub" -p page_size=100
+  expect "the subsidiary's open items" "$(field '.items | length')" 0
+  api 200 '(.items[] | "  incoming payment \(.document_number) of \(.customer_name): \(.amount.amount) \(.amount.currency)")' listIncomingPayments -p "customer_id=$sub"
+  expect "the subsidiary's payments" "$(field '[.items[].id] | join(" ")')" "$payment"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -14624,7 +14678,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_close'
 
 main() {
   stop_unseen

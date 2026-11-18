@@ -35,12 +35,14 @@ type paymentReferences struct {
 	statements map[uuid.UUID]StatementLine
 	// closed are the payments' credits on account no longer open.
 	closed map[ledger.ItemRef]bool
+	// parts are each payment's customers with their parts (T75h).
+	parts map[uuid.UUID][]CustomerPart
 }
 
 // paymentReferences reads what the payments name by id, once for all of
 // them.
 func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPayment) (paymentReferences, error) {
-	refs := paymentReferences{companies: map[uuid.UUID]tenancy.Entity{}}
+	refs := paymentReferences{companies: map[uuid.UUID]tenancy.Entity{}, parts: map[uuid.UUID][]CustomerPart{}}
 	var partners, accounts, entries, items []uuid.UUID
 	var receipts, credits []ledger.ItemRef
 	for _, v := range payments {
@@ -53,8 +55,9 @@ func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPa
 			credits = append(credits, credit)
 		}
 		for _, it := range v.Items {
-			items = append(items, it.EntryID)
+			items, partners = append(items, it.EntryID), append(partners, it.CustomerID)
 		}
+		refs.parts[v.ID] = v.Parts()
 		if _, ok := refs.companies[v.LegalEntityID]; ok {
 			continue
 		}
@@ -100,14 +103,21 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 		ReceiptJournalEntryYear: int32(v.ReceiptYear), ReceiptJournalEntryNumber: refs.numbers[v.ReceiptEntryID], ReceiptAccountID: v.ReceiptAccountID,
 		ReceiptAccountNumber: account.Number, ReceiptAccountName: account.Name, JournalEntryID: v.EntryID, JournalEntryYear: int32(v.EntryYear),
 		JournalEntryNumber: refs.numbers[v.EntryID], Items: make([]gen.IncomingPaymentItem, len(v.Items)),
-		Applications: make([]gen.IncomingPaymentApplication, len(v.Applications))}
+		Applications: make([]gen.IncomingPaymentApplication, len(v.Applications)), Customers: make([]gen.IncomingPaymentCustomer, len(refs.parts[v.ID]))}
+	for i, c := range refs.parts[v.ID] {
+		named := refs.partners[c.CustomerID]
+		out.Customers[i] = gen.IncomingPaymentCustomer{CustomerID: c.CustomerID, CustomerNumber: named.Number, CustomerName: named.Name,
+			Amount: apitypes.Money(c.Amount, v.Currency, v.Exponent)}
+	}
 	if line, ok := refs.statements[v.ReceiptEntryID]; ok {
 		out.ReceiptBankStatementID.SetTo(line.StatementID)
 		out.ReceiptBankStatementRef.SetTo(line.StatementRef)
 		out.ReceiptBankStatementLineNo.SetTo(line.LineNo)
 	}
 	for i, it := range v.Items {
-		out.Items[i] = gen.IncomingPaymentItem{ItemNo: it.ItemNo, ApplicationNo: it.ApplicationNo, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID,
+		named := refs.partners[it.CustomerID]
+		out.Items[i] = gen.IncomingPaymentItem{ItemNo: it.ItemNo, ApplicationNo: it.ApplicationNo, CustomerID: it.CustomerID, CustomerNumber: named.Number,
+			CustomerName: named.Name, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID,
 			LineNo: it.LineNo, JournalEntryNumber: refs.numbers[it.EntryID], Reference: refs.references[it.EntryID],
 			Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
 		if it.ResidualAmount != nil { // stored with its line and reason (incoming_payment_item_residual)
@@ -153,7 +163,7 @@ func (v IncomingPayment) clearing(application int32) (int16, uuid.UUID) {
 
 // CreateIncomingPayment implements POST /v1/incoming-payments.
 func (e *Endpoints) CreateIncomingPayment(ctx context.Context, req *gen.IncomingPaymentCreate, _ gen.CreateIncomingPaymentParams) (gen.CreateIncomingPaymentRes, error) {
-	in := PaymentInput{LegalEntityID: req.LegalEntityID, CustomerID: req.CustomerID, ReceiptEntryID: req.ReceiptJournalEntryID,
+	in := PaymentInput{LegalEntityID: req.LegalEntityID, CustomerID: req.CustomerID, OtherCustomers: req.OtherCustomerIds, ReceiptEntryID: req.ReceiptJournalEntryID,
 		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), OnAccount: req.OnAccount.Or(false)}
 	in.Items, in.Residuals = itemsOf(req.Items)
 	v, err := e.ApplyPayment(ctx, in)
@@ -238,7 +248,9 @@ func (e *Endpoints) ListIncomingPayments(ctx context.Context, params gen.ListInc
 		return nil, fmt.Errorf("receivables: company access for incoming payments: %w", err)
 	}
 	q, args := ks.SQL(paymentSelect+` WHERE ($1 OR p.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR p.legal_entity_id = $3)
-		AND ($4::uuid IS NULL OR p.customer_id = $4) AND ($5 = '' OR p.document_number = $5)
+		AND ($4::uuid IS NULL OR p.customer_id = $4 OR EXISTS (SELECT FROM receivables.incoming_payment_item t
+			WHERE t.tenant_id = p.tenant_id AND t.customer_id = $4 AND t.incoming_payment_id = p.id))
+		AND ($5 = '' OR p.document_number = $5)
 		AND ($6::date IS NULL OR p.posting_date >= $6) AND ($7::date IS NULL OR p.posting_date <= $7)`,
 		[]any{access.All, access.IDs, le, customer, params.DocumentNumber.Value, from, to})
 	rows, _ := tx.Query(ctx, q, args...)

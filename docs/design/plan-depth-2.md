@@ -43,7 +43,7 @@ customer's items are cleared, and the receipt balances to the amount.
 - **Acceptance:** an item of a customer that is neither the payer nor
   named is refused (422 `ledger.not_the_customers_item`); an other
   customer that is no business partner (422 `request.reference_not_found`),
-  is the payer or named twice (422 `receivables.duplicate_customer`), or
+  is the payer (422 `receivables.duplicate_customer`), or
   has no item (422 `receivables.customer_without_items`) is refused, each
   naming `other_customer_ids[i]`, and nothing posts; the parts, less the
   difference written off and plus what is left on account, are the

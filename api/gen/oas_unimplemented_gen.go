@@ -1974,27 +1974,30 @@ func (UnimplementedHandler) CreateHierarchy(ctx context.Context, req *HierarchyC
 
 // CreateIncomingPayment implements createIncomingPayment operation.
 //
-// Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f). The payment is a
-// receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits
-// as an open item on the house bank's incoming payments clearing account (ADR-0047);
-// `listUnappliedReceipts` lists them. The items are open items of the customer on customer
-// reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the
-// receipt's currency. An item paid in part names its `residual`: what stays open of it, more than zero
-// and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming
-// `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's
-// currency (422 `receivables.currency_mismatch`), with a reason (422
-// `receivables.unknown_residual_reason`) and, if wanted, a free text that is not white space alone
-// (422 `request.validation_failed`). Together the items, net of their residuals, equal the receipt,
-// but for a payment difference within the company's payment tolerance
-// (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's
-// currency and a percent of the items applied, the lower binding; none configured, none allowed);
-// anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No
-// cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`,
-// offsets the receipt and every item at the amounts they were booked at and clears them all; each
-// residual is a new open item of the customer, a debit line of that entry on the item's account at the
-// item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item
-// did; a difference is a line on the company's `payment_difference_expense` account (an underpayment)
-// or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
+// Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f), and with
+// `other_customer_ids` to other customers' items as well (T75h: one receipt for several customers,
+// each customer's items cleared by the one entry and its part shown in `customers`, a part out of
+// range refused with 422 `receivables.amount_too_large`; a residual item stays its item's customer's,
+// what is left on account the payer's). The payment is a receipt: the journal entry a bank statement
+// line matched as incoming posted, whose credit line waits as an open item on the house bank's
+// incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are
+// open items of the customer on customer reconciliation accounts of the company
+// (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency. An item paid in part
+// names its `residual`: what stays open of it, more than zero and less than the item, which is an
+// amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more
+// than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422
+// `receivables.currency_mismatch`), with a reason (422 `receivables.unknown_residual_reason`) and, if
+// wanted, a free text that is not white space alone (422 `request.validation_failed`). Together the
+// items, net of their residuals, equal the receipt, but for a payment difference within the company's
+// payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in
+// the company's currency and a percent of the items applied, the lower binding; none configured, none
+// allowed); anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the
+// difference. No cash discount is granted. One clearing entry, document type `DZ`, `source_context`
+// `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them
+// all; each residual is a new open item of the customer, a debit line of that entry on the item's
+// account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due
+// when the item did; a difference is a line on the company's `payment_difference_expense` account (an
+// underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
 // `ledger.no_payment_difference_account` without it); what that leaves in local or group currency,
 // receipt and items having been booked at different rates, is a realized exchange difference on the
 // company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date

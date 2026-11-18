@@ -4629,7 +4629,12 @@ erDiagram
   the customer's account, its line in the clearing entry and the account,
   all set or none (`incoming_payment_on_account`); an item's
   `application_no` (default 0, `incoming_payment_item_application_no_check`)
-  names the application that applied it.
+  names the application that applied it. T75h (migration 000363): an
+  item's `customer_id` is the customer whose item it is, the payment's or
+  another customer the same receipt paid (indexed with the payment for
+  `GET /v1/incoming-payments?customer_id=`); NULL on rows written before
+  it, read as the payment's customer. The down migration is refused while
+  an item names another customer than its payment's.
 - `receivables.incoming_payment_application` (T75g): an application of a
   payment's credit on account, numbered from 1 per payment, with the
   credit line it consumed, once (`incoming_payment_application_credit_once`),

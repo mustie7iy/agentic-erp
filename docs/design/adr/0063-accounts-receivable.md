@@ -974,3 +974,58 @@ The second variant of §6 (`plan-depth-1.md` §T75g).
   payment at a time, applied in order.
 - Not built: refunds of a credit on account, undoing an application,
   one receipt for several customers (the placeholder's "later").
+
+### T75h One receipt for several customers (migration 000363)
+A variant of §6 (`plan-depth-2.md` §T75h): one bank receipt applied to
+the open items of more than one customer, as a parent pays its
+subsidiaries' invoices (SAP's other accounts of F-28, from memory, not
+checked against a source in the lane).
+
+- `POST /v1/incoming-payments` takes `other_customer_ids`: the other
+  customers whose items the receipt pays besides `customer_id`, which
+  stays the payer, the payment's customer (its number heads the clearing
+  entry's text, its account takes what is left `on_account`, and its
+  credit on account is applied to its own items only, T75g). Each is a
+  business partner (422 `request.reference_not_found` naming
+  `other_customer_ids[i]`), not the payer (422
+  `receivables.duplicate_customer`), named once (the contract's
+  `uniqueItems`, 400), and has at least one of the items (422
+  `receivables.customer_without_items`, checked on what the ledger
+  applied, so the posting rolls back). The ledger
+  (`ReceiptApplication.OtherCustomers`) accepts an item of any of them in
+  `checkCustomerItem` (422 `ledger.not_the_customers_item` otherwise, as
+  before) and returns each item's customer (`AppliedReceipt.Customers`).
+  One DZ entry clears the receipt and every customer's items; a residual
+  item is a line of its item's customer (it took the item's partner
+  already), the payment difference is no customer's.
+- The payment shows each item's customer by id, number and name
+  (`IncomingPaymentItem.customer_*`) and `customers`: each customer whose
+  items it applied with the receipt and its part, those items net of
+  their residuals (`IncomingPayment.Parts`, `money.Sum`), the payer first,
+  with zero when none of the items was its own, then the others in the
+  order of their first item. The parts, less `difference` and with what
+  was left on account, are the receipt. `customer_id` on
+  `GET /v1/incoming-payments` also finds a payment that paid that
+  customer's items for another. IncomingPaymentApplied carries
+  `customers` (id, number and part, never the name: product owner
+  2026-11-05), optional so a v1 consumer is unaffected; the audit record
+  carries them too.
+- Schema (000363): `incoming_payment_item.customer_id`, nullable: rows
+  written before it, or by the previous version during a rolling upgrade
+  (06 §6.4), are the payment's customer's and are read as
+  `coalesce(customer_id, payment's customer_id)`. Indexed with the
+  payment for the list's filter. The down migration is refused while an
+  item names another customer than its payment's.
+- **Decided by default:** (1) the payer is the request's `customer_id`,
+  unchanged in meaning, so a payment of one customer is as before; (2)
+  the other customers need not be set up in the company: their items are
+  open items on customer reconciliation accounts, which is the ledger's
+  check, as for the payer; (3) what is left on account is the payer's,
+  never a subsidiary's; (4) an application of a credit on account (T75g)
+  stays with the payer's items; (5) no relationship between the
+  customers is required (a head office or alternative payer in the
+  customer master is not modelled; SAP's alternative payer, from memory,
+  stays later).
+- Tests: `TestReceiptForSeveralCustomers`, `TestSeveralCustomersOnAccount`,
+  `TestSeveralCustomersRefusals` (receivables); `TestSeveralCustomersRevert`
+  (db). Walkthrough `step_receipt_several_customers` (step 116).

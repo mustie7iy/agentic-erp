@@ -770,3 +770,44 @@ func TestPaymentOnAccountRevert(t *testing.T) {
 	}
 	failsWith(t, exec(tx, down), "reverting would lose their credits and applications")
 }
+
+// TestSeveralCustomersRevert (T75h, migration 000363's down): the revert
+// is refused while a payment paid an item of another customer than its
+// own, and not for an item of the payment's customer.
+func TestSeveralCustomersRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000363_receipt_several_customers").Down
+	for _, c := range []struct {
+		name string
+		same bool
+		want string
+	}{{"another customer's item", false, "reverting would show their items as the payer's"}, {"the payer's item", true, ""}} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			tx, err := testDB.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			tenant, payer, customer := id(), id(), id()
+			if c.same {
+				customer = payer
+			}
+			if err := all(tx, step(`INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+					receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+					VALUES ($1, $1, 'IP1', $1, $2, 2026, gen_random_uuid(), $1, '2026-03-21', 'EUR', 6000, 2026, gen_random_uuid(), $1)`, tenant, payer),
+				step(`INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount, customer_id)
+					VALUES ($1, $1, 1, 2026, gen_random_uuid(), 1, 6000, $2)`, tenant, customer)); err != nil {
+				t.Fatal(err)
+			}
+			err = exec(tx, down)
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want the revert", err)
+			}
+		})
+	}
+}
