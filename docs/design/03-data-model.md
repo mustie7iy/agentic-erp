@@ -1051,7 +1051,15 @@ Rules enforced in the database:
   ledger's `notBeforeItems`, in every path that posts a clearing entry).
   The database does not enforce it: a migrated clearing keeps the source
   system's date and a reversal its own (ADR-0006 As built).
-- A line is cleared at most once (`clearing_item` unique on the line).
+- A line is cleared at most once at a time (`clearing_item` unique on the
+  line). T75i (migration 000364): a clearing is reset once
+  (`ledger.clearing_reset`, insert-only); only then may its
+  `clearing_item` rows be deleted, which the trigger
+  `clearing_item_reset_only` allows (or the erasure of the tenant) and
+  keeps each in `ledger.clearing_reset_item` (insert-only), so the lines
+  are open again and may be cleared again; a clearing item is never
+  updated. The clearing entry is reversed with the reset
+  (`ledger.Postings.ResetClearing`).
 - Open items are lines on reconciliation accounts without a clearing item.
 - A reversal clears the original's open items against the matching lines of
   the reversal, in the same transaction, with the reversal as the clearing
@@ -4603,15 +4611,18 @@ erDiagram
   header's, which the context writes in one transaction.
 - `receivables.incoming_payment` (T75c): an incoming payment applied.
   The number is unique per company (`incoming_payment_number_once`); the
-  amount is above zero (`incoming_payment_amount_positive`); a receipt is
-  applied once (`incoming_payment_receipt_once`) and a clearing entry is
-  one application's (`incoming_payment_entry_once`). Insert-only
-  (`platform.forbid_mutation`, no update or delete grant): an application
-  is not undone in the first version.
+  amount is above zero (`incoming_payment_amount_positive`); a clearing
+  entry is one application's (`incoming_payment_entry_once`). Insert-only
+  (`platform.forbid_mutation`, no update or delete grant). A receipt was
+  applied once (`incoming_payment_receipt_once`) until migration 000364
+  (T75i), which drops the unique for an index: a payment undone leaves its
+  receipt to be applied again, and the ledger holds it to one application
+  at a time (`ledger.clearing_item`).
 - `receivables.incoming_payment_item`: the open items it was applied to,
   each with the amount it stood at in the payment's currency, never zero
   (`incoming_payment_item_amount_not_zero`), a credit of the customer's
-  negative; an open item is applied once (`incoming_payment_item_once`).
+  negative; an open item was applied once (`incoming_payment_item_once`)
+  until 000364, an index since (applied again once its payment is undone).
   Insert-only. The items, less their residuals, add up to the payment's
   amount and `difference`, which the ledger holds the application to
   (`ledger.Postings.ApplyReceipt`). T75f (migration 000350): an item paid
@@ -4637,16 +4648,28 @@ erDiagram
   an item names another customer than its payment's.
 - `receivables.incoming_payment_application` (T75g): an application of a
   payment's credit on account, numbered from 1 per payment, with the
-  credit line it consumed, once (`incoming_payment_application_credit_once`),
+  credit line it consumed (once, `incoming_payment_application_credit_once`,
+  until 000364; consumed again once the application is undone),
   what that stood at, above zero
   (`incoming_payment_application_amount_positive`), the difference written
   off, what it left on account with its line or zero without
   (`incoming_payment_application_on_account`) and its clearing entry, one
   application's (`incoming_payment_application_entry_once`). Insert-only.
   The down migration is refused while anything was left on account.
+- `receivables.incoming_payment_reset` (T75i, migration 000364): an
+  undoing of a payment's own application (`application_no` NULL) or of an
+  application of its credit, of an existing payment
+  (`incoming_payment_reset_payment_fkey`) and application
+  (`incoming_payment_reset_application_fkey`), once each
+  (`incoming_payment_reset_once`, NULLS NOT DISTINCT), with a reason of 1
+  to 200 characters (`incoming_payment_reset_reason_length`) and the
+  reversal of the clearing entry, one undoing's
+  (`incoming_payment_reset_entry_once`). Insert-only. The down migration
+  is refused while a clearing or a payment was reset.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
-  `IncomingPaymentApplied`, `IncomingPaymentOnAccountApplied`).
+  `IncomingPaymentApplied`, `IncomingPaymentOnAccountApplied`,
+  `IncomingPaymentReset`).
 - Permissions `receivables.invoice.read`, `.write` and `.post`, and
   `receivables.payment.apply`.
 - In the ledger, `ledger.open_item_terms` keeps the terms of a customer

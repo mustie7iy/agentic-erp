@@ -23696,8 +23696,13 @@ type Clearing struct {
 	ClearingDate time.Time `json:"clearing_date"`
 	// Journal entry posted for the clearing.
 	ClearingEntryID uuid.UUID `json:"clearing_entry_id"`
-	// Cleared lines.
+	// Cleared lines; a reset clearing's, the lines it had cleared.
 	Items []ClearingItemRef `json:"items"`
+	// When the clearing was reset (T75i: an incoming payment or an application of its credit undone), its
+	// lines opened again and its clearing entry reversed; absent while it holds.
+	ResetAt OptDateTime `json:"reset_at"`
+	// Who reset it (`GET /v1/principal-names`); absent while it holds.
+	ResetBy OptUUID `json:"reset_by"`
 }
 
 // GetID returns the value of ID.
@@ -23735,6 +23740,16 @@ func (s *Clearing) GetItems() []ClearingItemRef {
 	return s.Items
 }
 
+// GetResetAt returns the value of ResetAt.
+func (s *Clearing) GetResetAt() OptDateTime {
+	return s.ResetAt
+}
+
+// GetResetBy returns the value of ResetBy.
+func (s *Clearing) GetResetBy() OptUUID {
+	return s.ResetBy
+}
+
 // SetID sets the value of ID.
 func (s *Clearing) SetID(val uuid.UUID) {
 	s.ID = val
@@ -23768,6 +23783,16 @@ func (s *Clearing) SetClearingEntryID(val uuid.UUID) {
 // SetItems sets the value of Items.
 func (s *Clearing) SetItems(val []ClearingItemRef) {
 	s.Items = val
+}
+
+// SetResetAt sets the value of ResetAt.
+func (s *Clearing) SetResetAt(val OptDateTime) {
+	s.ResetAt = val
+}
+
+// SetResetBy sets the value of ResetBy.
+func (s *Clearing) SetResetBy(val OptUUID) {
+	s.ResetBy = val
 }
 
 // Clear open items against each other.
@@ -27269,6 +27294,8 @@ func (*ConflictHeaders) replayWebhookDeliveriesRes()               {}
 func (*ConflictHeaders) reportBankFileStatusRes()                  {}
 func (*ConflictHeaders) requestBankAccountChangeRes()              {}
 func (*ConflictHeaders) requestBankAccountEndRes()                 {}
+func (*ConflictHeaders) resetIncomingPaymentApplicationRes()       {}
+func (*ConflictHeaders) resetIncomingPaymentRes()                  {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) retireCatalogItemRes()                     {}
 func (*ConflictHeaders) retireControlRes()                         {}
@@ -52962,6 +52989,12 @@ type IncomingPayment struct {
 	UpdatedBy OptUUID `json:"updated_by"`
 	// The document number, from the company's `incoming_payment` number range.
 	DocumentNumber string `json:"document_number"`
+	// `applied`: the receipt is applied, its clearing in force; `reset`: the application was undone
+	// (`resetIncomingPayment`, T75i), the receipt and the items open again and `reset` saying when and
+	// why. Open enumeration: clients accept values they do not know.
+	Status string `json:"status"`
+	// The undoing of the payment's application of its receipt; absent while it is applied.
+	Reset OptIncomingPaymentResetDone `json:"reset"`
 	// The company that received the payment.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The company's code.
@@ -53059,6 +53092,16 @@ func (s *IncomingPayment) GetUpdatedBy() OptUUID {
 // GetDocumentNumber returns the value of DocumentNumber.
 func (s *IncomingPayment) GetDocumentNumber() string {
 	return s.DocumentNumber
+}
+
+// GetStatus returns the value of Status.
+func (s *IncomingPayment) GetStatus() string {
+	return s.Status
+}
+
+// GetReset returns the value of Reset.
+func (s *IncomingPayment) GetReset() OptIncomingPaymentResetDone {
+	return s.Reset
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -53226,6 +53269,16 @@ func (s *IncomingPayment) SetDocumentNumber(val string) {
 	s.DocumentNumber = val
 }
 
+// SetStatus sets the value of Status.
+func (s *IncomingPayment) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetReset sets the value of Reset.
+func (s *IncomingPayment) SetReset(val OptIncomingPaymentResetDone) {
+	s.Reset = val
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *IncomingPayment) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -53382,6 +53435,9 @@ type IncomingPaymentApplication struct {
 	CreatedAt time.Time `json:"created_at"`
 	// Who applied it (`GET /v1/principal-names`).
 	CreatedBy uuid.UUID `json:"created_by"`
+	// The undoing of the application (`resetIncomingPaymentApplication`, T75i); absent while it is in
+	// force.
+	Reset OptIncomingPaymentResetDone `json:"reset"`
 }
 
 // GetApplicationNo returns the value of ApplicationNo.
@@ -53434,6 +53490,11 @@ func (s *IncomingPaymentApplication) GetCreatedBy() uuid.UUID {
 	return s.CreatedBy
 }
 
+// GetReset returns the value of Reset.
+func (s *IncomingPaymentApplication) GetReset() OptIncomingPaymentResetDone {
+	return s.Reset
+}
+
 // SetApplicationNo sets the value of ApplicationNo.
 func (s *IncomingPaymentApplication) SetApplicationNo(val int32) {
 	s.ApplicationNo = val
@@ -53482,6 +53543,11 @@ func (s *IncomingPaymentApplication) SetCreatedAt(val time.Time) {
 // SetCreatedBy sets the value of CreatedBy.
 func (s *IncomingPaymentApplication) SetCreatedBy(val uuid.UUID) {
 	s.CreatedBy = val
+}
+
+// SetReset sets the value of Reset.
+func (s *IncomingPaymentApplication) SetReset(val OptIncomingPaymentResetDone) {
+	s.Reset = val
 }
 
 // Apply a payment's credit on account to the customer's open items.
@@ -53937,9 +54003,10 @@ func (s *IncomingPaymentItemRef) SetResidual(val OptIncomingPaymentResidualCreat
 type IncomingPaymentOnAccount struct {
 	// What the payment left on account, in its currency.
 	Amount Money `json:"amount"`
-	// What of it is still open on account: the credit the last application left, or the payment's own
-	// before any; zero when it is all applied, or was cleared otherwise (a manual clearing, or netted as a
-	// credit item by another payment).
+	// What of it is still open on account: the credit the last application in force left, or the payment's
+	// own before any (an application undone, T75i, opens the credit it consumed again); zero when it is
+	// all applied, was cleared otherwise (a manual clearing, or netted as a credit item by another
+	// payment), or the payment was undone.
 	OpenAmount Money `json:"open_amount"`
 	// Fiscal year of the open credit's journal entry; absent when nothing is open.
 	FiscalYear OptInt32 `json:"fiscal_year"`
@@ -54043,6 +54110,103 @@ func (s *IncomingPaymentPage) SetNextPageToken(val OptString) {
 }
 
 func (*IncomingPaymentPage) listIncomingPaymentsRes() {}
+
+// Undo an incoming payment's application, or an application of its credit on account (T75i).
+// Ref: #/components/schemas/IncomingPaymentReset
+type IncomingPaymentReset struct {
+	// Why it is undone, not white space alone (422 `request.validation_failed`): the audit record and the
+	// payment keep it.
+	Reason string `json:"reason"`
+}
+
+// GetReason returns the value of Reason.
+func (s *IncomingPaymentReset) GetReason() string {
+	return s.Reason
+}
+
+// SetReason sets the value of Reason.
+func (s *IncomingPaymentReset) SetReason(val string) {
+	s.Reason = val
+}
+
+// The reset of an incoming payment's application, or of an application of its credit on account
+// (T75i): its clearing reset, its clearing entry reversed.
+// Ref: #/components/schemas/IncomingPaymentResetDone
+type IncomingPaymentResetDone struct {
+	// Why it was undone.
+	Reason string `json:"reason"`
+	// The reversal of the clearing entry (`GET /v1/journal-entries/{id}`), dated that entry's posting
+	// date.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The reversal's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The reversal's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When it was undone.
+	CreatedAt time.Time `json:"created_at"`
+	// Who undid it (`GET /v1/principal-names`).
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetReason returns the value of Reason.
+func (s *IncomingPaymentResetDone) GetReason() string {
+	return s.Reason
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPaymentResetDone) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *IncomingPaymentResetDone) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPaymentResetDone) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *IncomingPaymentResetDone) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *IncomingPaymentResetDone) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetReason sets the value of Reason.
+func (s *IncomingPaymentResetDone) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPaymentResetDone) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *IncomingPaymentResetDone) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPaymentResetDone) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *IncomingPaymentResetDone) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *IncomingPaymentResetDone) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
 
 // The residual item an incoming payment left of an item it paid in part: a line of the clearing entry,
 // an open item of the customer on the item's account, due when the item was.
@@ -71691,6 +71855,52 @@ func (o OptIncomingPaymentOnAccount) Get() (v IncomingPaymentOnAccount, ok bool)
 
 // Or returns value if set, or given parameter if does not.
 func (o OptIncomingPaymentOnAccount) Or(d IncomingPaymentOnAccount) IncomingPaymentOnAccount {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptIncomingPaymentResetDone returns new OptIncomingPaymentResetDone with value set to v.
+func NewOptIncomingPaymentResetDone(v IncomingPaymentResetDone) OptIncomingPaymentResetDone {
+	return OptIncomingPaymentResetDone{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptIncomingPaymentResetDone is optional IncomingPaymentResetDone.
+type OptIncomingPaymentResetDone struct {
+	Value IncomingPaymentResetDone
+	Set   bool
+}
+
+// IsSet returns true if OptIncomingPaymentResetDone was set.
+func (o OptIncomingPaymentResetDone) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptIncomingPaymentResetDone) Reset() {
+	var v IncomingPaymentResetDone
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptIncomingPaymentResetDone) SetTo(v IncomingPaymentResetDone) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptIncomingPaymentResetDone) Get() (v IncomingPaymentResetDone, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptIncomingPaymentResetDone) Or(d IncomingPaymentResetDone) IncomingPaymentResetDone {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -90412,6 +90622,94 @@ func (s *RequisitionUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+type ResetIncomingPaymentApplicationBadRequest Problem
+
+func (*ResetIncomingPaymentApplicationBadRequest) resetIncomingPaymentApplicationRes() {}
+
+type ResetIncomingPaymentApplicationForbidden Problem
+
+func (*ResetIncomingPaymentApplicationForbidden) resetIncomingPaymentApplicationRes() {}
+
+type ResetIncomingPaymentApplicationNotFound Problem
+
+func (*ResetIncomingPaymentApplicationNotFound) resetIncomingPaymentApplicationRes() {}
+
+// ResetIncomingPaymentApplicationOKHeaders wraps IncomingPayment with response headers.
+type ResetIncomingPaymentApplicationOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           IncomingPayment
+}
+
+// GetETag returns the value of ETag.
+func (s *ResetIncomingPaymentApplicationOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ResetIncomingPaymentApplicationOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ResetIncomingPaymentApplicationOKHeaders) GetResponse() IncomingPayment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ResetIncomingPaymentApplicationOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ResetIncomingPaymentApplicationOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ResetIncomingPaymentApplicationOKHeaders) SetResponse(val IncomingPayment) {
+	s.Response = val
+}
+
+func (*ResetIncomingPaymentApplicationOKHeaders) resetIncomingPaymentApplicationRes() {}
+func (*ResetIncomingPaymentApplicationOKHeaders) resetIncomingPaymentRes()            {}
+
+type ResetIncomingPaymentApplicationPreconditionFailed Problem
+
+func (*ResetIncomingPaymentApplicationPreconditionFailed) resetIncomingPaymentApplicationRes() {}
+
+type ResetIncomingPaymentApplicationPreconditionRequired Problem
+
+func (*ResetIncomingPaymentApplicationPreconditionRequired) resetIncomingPaymentApplicationRes() {}
+
+type ResetIncomingPaymentApplicationUnprocessableEntity Problem
+
+func (*ResetIncomingPaymentApplicationUnprocessableEntity) resetIncomingPaymentApplicationRes() {}
+
+type ResetIncomingPaymentBadRequest Problem
+
+func (*ResetIncomingPaymentBadRequest) resetIncomingPaymentRes() {}
+
+type ResetIncomingPaymentForbidden Problem
+
+func (*ResetIncomingPaymentForbidden) resetIncomingPaymentRes() {}
+
+type ResetIncomingPaymentNotFound Problem
+
+func (*ResetIncomingPaymentNotFound) resetIncomingPaymentRes() {}
+
+type ResetIncomingPaymentPreconditionFailed Problem
+
+func (*ResetIncomingPaymentPreconditionFailed) resetIncomingPaymentRes() {}
+
+type ResetIncomingPaymentPreconditionRequired Problem
+
+func (*ResetIncomingPaymentPreconditionRequired) resetIncomingPaymentRes() {}
+
+type ResetIncomingPaymentUnprocessableEntity Problem
+
+func (*ResetIncomingPaymentUnprocessableEntity) resetIncomingPaymentRes() {}
+
 type ResumeWebhookSubscriptionBadRequest Problem
 
 func (*ResumeWebhookSubscriptionBadRequest) resumeWebhookSubscriptionRes() {}
@@ -106185,6 +106483,8 @@ func (*TooManyRequestsHeaders) replayWebhookDeliveriesRes()               {}
 func (*TooManyRequestsHeaders) reportBankFileStatusRes()                  {}
 func (*TooManyRequestsHeaders) requestBankAccountChangeRes()              {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()                 {}
+func (*TooManyRequestsHeaders) resetIncomingPaymentApplicationRes()       {}
+func (*TooManyRequestsHeaders) resetIncomingPaymentRes()                  {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
 func (*TooManyRequestsHeaders) retireControlRes()                         {}
@@ -107085,6 +107385,8 @@ func (*UnauthorizedHeaders) replayWebhookDeliveriesRes()               {}
 func (*UnauthorizedHeaders) reportBankFileStatusRes()                  {}
 func (*UnauthorizedHeaders) requestBankAccountChangeRes()              {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()                 {}
+func (*UnauthorizedHeaders) resetIncomingPaymentApplicationRes()       {}
+func (*UnauthorizedHeaders) resetIncomingPaymentRes()                  {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
 func (*UnauthorizedHeaders) retireControlRes()                         {}

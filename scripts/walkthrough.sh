@@ -12648,6 +12648,80 @@ step_receipt_several_customers() {
   passed
 }
 
+# step_payment_reset is T75i (ADR-0063 §6 As built): Ruth applies a
+# Northwind receipt of CAD 210.00 to the wrong one of two invoices of the
+# same amount and undoes it (SAP FBRA): the invoice is open again, the
+# receipt among the unapplied receipts, the DZ entry reversed on its own
+# date; she applies the receipt to the right invoice. Then Northwind pays
+# CAD 210.00 naming no invoice; on account, Ruth applies the credit to a
+# third invoice by mistake. The payment cannot be undone while that
+# application is in force; undoing the application opens the credit
+# again in full and the invoice, and the credit goes to the invoice the
+# first receipt left open. The third invoice stays open, due in 30 days.
+step_payment_reset() {
+  heading "Step 117 — Undoing an application: a receipt applied to the wrong invoice reset and applied again; an application of a credit on account undone, the credit open again in full"
+  local wrong right third payment item clearing reversal
+  [ -n "$CUSTOMER" ] || fail "step 47's customer is not there"
+  say "Maple invoices Northwind twice CAD 210.00, for two days of training:"
+  northwind_invoice 210.00
+  wrong=$INVOICE_ENTRY
+  northwind_invoice 210.00
+  right=$INVOICE_ENTRY
+  say "Northwind pays CAD 210.00, its remittance naming the second invoice:"
+  northwind_receipt 210.00
+  as ruth
+  say "Ruth applies it to the first invoice by mistake:"
+  item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$wrong\", \"line_no\": 1}"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), \(.status), entry \(.journal_entry_number)"' createIncomingPayment \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
+  payment=$(field .id)
+  clearing=$(field .journal_entry_id)
+  say "She undoes it (T75i, SAP's reset of cleared items and reversal): the clearing is reset, the DZ entry reversed on"
+  say "its own date, the first invoice open again and the receipt waiting on 1015 to be applied again:"
+  api 200 '"incoming payment \(.document_number): \(.status), version \(.version), reversed by entry \(.reset.journal_entry_number): \(.reset.reason)"' \
+    resetIncomingPayment -p "id=$payment" -if-match "$ETAG" -body '{"reason": "Applied to the wrong invoice: the remittance names the second."}'
+  expect "the payment" "$(field '"\(.status) \(.version)"')" "reset 2"
+  reversal=$(field .reset.journal_entry_id)
+  QUIET=1 api 200 '' getJournalEntry -p "id=$reversal"
+  expect "the reversal" "$(field '"\(.reversal_of_id) \(.posting_date) \([.lines[].amount.amount] | join(" "))"')" "$clearing $TODAY -210.00 210.00"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "both invoices open" "$(field "[.items[] | select(.journal_entry_id == \"$wrong\" or .journal_entry_id == \"$right\")] | length")" 2
+  QUIET=1 api 200 '' listUnappliedReceipts -p "legal_entity_id=$LE"
+  expect "the receipt unapplied again" "$(field "[.items[] | select(.journal_entry_id == \"$RECEIPT\") | .amount.amount] | join(\" \")")" 210.00
+  say "She applies the receipt to the second invoice:"
+  item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$right\", \"line_no\": 1}"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), \(.status)"' createIncomingPayment \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
+  say "Northwind pays CAD 210.00 more, naming no invoice; Ruth puts it on its account. Maple invoices Northwind CAD 210.00"
+  say "for a third day, and Ruth applies the credit to that invoice, though Northwind meant the first:"
+  northwind_receipt 210.00
+  as ruth
+  api 201 '"incoming payment \(.document_number): on account \(.on_account.amount.amount) \(.amount.currency)"' createIncomingPayment \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [], \"on_account\": true}"
+  payment=$(field .id)
+  northwind_invoice 210.00
+  third=$INVOICE_ENTRY
+  as ruth
+  api 201 '"incoming payment \(.document_number), version \(.version): application \(.applications[-1].application_no) applied \(.applications[-1].amount.amount), open on account \(.on_account.open_amount.amount)"' \
+    applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"posting_date\": \"$TODAY\", \"items\": [{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$third\", \"line_no\": 1}]}"
+  say "The payment cannot be undone while the application of its credit is in force:"
+  refused 409 receivables.applications_in_force resetIncomingPayment -p "id=$payment" -if-match "$ETAG" -body '{"reason": "Wrong invoice."}'
+  QUIET=1 api 200 '' getIncomingPayment -p "id=$payment"
+  say "Ruth undoes the application: the credit is open on Northwind's account again in full, and the third invoice is open:"
+  api 200 '"incoming payment \(.document_number), version \(.version): application 1 reversed by entry \(.applications[0].reset.journal_entry_number), open on account \(.on_account.open_amount.amount)"' \
+    resetIncomingPaymentApplication -p "id=$payment" -p application_no=1 -if-match "$ETAG" -body '{"reason": "Northwind meant its first training invoice."}'
+  expect "the credit open again" "$(field '"\(.version) \(.on_account.open_amount.amount) \(.on_account.journal_entry_id)"')" "3 210.00 $(field .journal_entry_id)"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the third invoice open" "$(field "[.items[] | select(.journal_entry_id == \"$third\")] | length")" 1
+  say "She applies the credit to the first invoice, which the first receipt left open:"
+  api 201 '"incoming payment \(.document_number), version \(.version): application \(.applications[-1].application_no) applied \(.applications[-1].amount.amount), open on account \(.on_account.open_amount.amount)"' \
+    applyIncomingPaymentOnAccount -p "id=$payment" -body "{\"posting_date\": \"$TODAY\", \"items\": [{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$wrong\", \"line_no\": 1}]}"
+  expect "the second application" "$(field '"\(.version) \(.applications[1].application_no) \(.on_account.open_amount.amount)"')" "4 2 0.00"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the open training invoices" "$(field "[.items[] | select(.journal_entry_id == \"$wrong\" or .journal_entry_id == \"$right\" or .journal_entry_id == \"$third\") | .journal_entry_id] | join(\" \")")" "$third"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -14678,7 +14752,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_close'
 
 main() {
   stop_unseen

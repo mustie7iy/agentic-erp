@@ -92,11 +92,14 @@ type IncomingPayment struct {
 	OnAccountLine    *int32
 	OnAccountAccount *uuid.UUID
 	Applications     []PaymentApplication
-	EntryYear        int16
-	EntryID          uuid.UUID
-	Items            []PaymentItem
-	CreatedAt        time.Time
-	CreatedBy        uuid.UUID
+	// Resets are the applications undone (T75i), the payment's own
+	// included, in the order they were.
+	Resets    []PaymentReset
+	EntryYear int16
+	EntryID   uuid.UUID
+	Items     []PaymentItem
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
 }
 
 // PaymentInput is an incoming payment to apply, as a client sends it.
@@ -130,6 +133,9 @@ const paymentSelect = `SELECT p.id, p.document_number, p.legal_entity_id, p.cust
 			'on_account_amount', a.on_account_amount, 'on_account_line_no', a.on_account_line_no, 'clearing_entry_year', a.clearing_entry_year,
 			'clearing_entry_id', a.clearing_entry_id, 'created_at', a.created_at, 'created_by', a.created_by) ORDER BY a.application_no)
 		 FROM receivables.incoming_payment_application a WHERE a.tenant_id = p.tenant_id AND a.incoming_payment_id = p.id), '[]'),
+		coalesce((SELECT json_agg(json_build_object('application_no', coalesce(r.application_no, 0), 'reason', r.reason, 'reversal_entry_year', r.reversal_entry_year,
+			'reversal_entry_id', r.reversal_entry_id, 'created_at', r.created_at, 'created_by', r.created_by) ORDER BY r.created_at, coalesce(r.application_no, 0))
+		 FROM receivables.incoming_payment_reset r WHERE r.tenant_id = p.tenant_id AND r.incoming_payment_id = p.id), '[]'),
 		p.created_at, p.created_by
 	FROM receivables.incoming_payment p JOIN ref.currency c ON c.code = p.currency`
 
@@ -137,7 +143,7 @@ func scanPayment(row pgx.Row) (IncomingPayment, error) {
 	var v IncomingPayment
 	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.CustomerID, &v.ReceiptYear, &v.ReceiptEntryID, &v.ReceiptAccountID, &v.PostingDate,
 		&v.Currency, &v.Exponent, &v.Amount, &v.Difference, &v.EntryYear, &v.EntryID, &v.Items, &v.OnAccount, &v.OnAccountLine, &v.OnAccountAccount,
-		&v.Applications, &v.CreatedAt, &v.CreatedBy)
+		&v.Applications, &v.Resets, &v.CreatedAt, &v.CreatedBy)
 	return v, errs.Wrapf(err, "scan incoming payment")
 }
 
@@ -364,7 +370,11 @@ func (e *Endpoints) openReceipt(ctx context.Context, tx pgx.Tx, le tenancy.Entit
 		return receipts[0], nil
 	}
 	var number string
-	err = tx.QueryRow(ctx, `SELECT document_number FROM receivables.incoming_payment WHERE receipt_entry_id = $1 AND legal_entity_id = $2`, entry, le.ID).Scan(&number)
+	// The payment in force: a receipt applied, undone (T75i) and applied
+	// again is one cleared line at a time, so one payment at most.
+	err = tx.QueryRow(ctx, `SELECT p.document_number FROM receivables.incoming_payment p WHERE p.receipt_entry_id = $1 AND p.legal_entity_id = $2
+		AND NOT EXISTS (SELECT FROM receivables.incoming_payment_reset r WHERE r.tenant_id = p.tenant_id AND r.incoming_payment_id = p.id AND r.application_no IS NULL)
+		ORDER BY p.created_at DESC LIMIT 1`, entry, le.ID).Scan(&number)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return ledger.Receipt{}, problem.Invalid("receivables.receipt_not_open", "receipt_journal_entry_id",

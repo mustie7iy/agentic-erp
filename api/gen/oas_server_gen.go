@@ -1738,7 +1738,7 @@ type Handler interface {
 	// (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its
 	// place in the request as the field `items[i]`. Nothing is posted when the application is refused. A
 	// retry with the same `Idempotency-Key` answers the payment applied; another request for the same
-	// receipt is refused. An application is not undone in the first version. Human-only
+	// receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only
 	// (`x-agent: false`).
 	//
 	// POST /v1/incoming-payments
@@ -7218,6 +7218,45 @@ type Handler interface {
 	//
 	// POST /v1/business-partners/{id}/bank-accounts/{bank_account_id}:end
 	RequestBankAccountEnd(ctx context.Context, req *BankAccountEnd, params RequestBankAccountEndParams) (RequestBankAccountEndRes, error)
+	// ResetIncomingPayment implements resetIncomingPayment operation.
+	//
+	// Undoes an incoming payment's application of its receipt (T75i; SAP FBRA, reset cleared items and
+	// reverse): its clearing is reset, so the receipt waits on the house bank's incoming payments clearing
+	// account again (`listUnappliedReceipts`) and every item it was applied to is an open item again as it
+	// stood, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so
+	// that period must still be open (409 `ledger.period_not_open`, and nothing changes): the residual
+	// items and the credit on account it left, and the payment difference it wrote off, are taken back
+	// with it. Every application of its credit on account must be undone first (409
+	// `receivables.applications_in_force`), and nothing it left may have been cleared since, by another
+	// payment or a manual clearing (409 `ledger.clearing_lines_cleared`). A payment is reset once (409
+	// `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it
+	// meanwhile). The receipt and the items may then be applied again. `If-Match` is the payment's
+	// version, which the reset moves; the answer is the payment, `status` `reset`, with its `reset`.
+	// Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. One of a company the
+	// caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as
+	// the first answered it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/incoming-payments/{id}:reset
+	ResetIncomingPayment(ctx context.Context, req *IncomingPaymentReset, params ResetIncomingPaymentParams) (ResetIncomingPaymentRes, error)
+	// ResetIncomingPaymentApplication implements resetIncomingPaymentApplication operation.
+	//
+	// Undoes an application of an incoming payment's credit on account (T75i; T75g's
+	// `applyIncomingPaymentOnAccount`): its clearing is reset, so the credit it consumed is open on the
+	// customer's account again as it stood and every item it was applied to is an open item again, and its
+	// clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must
+	// still be open (409 `ledger.period_not_open`, and nothing changes): the credit and the residual items
+	// it left are taken back with it. Only the payment's latest application still in force is undone (409
+	// `receivables.application_not_latest`: undo the later ones first), once (409
+	// `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it
+	// meanwhile), and nothing it left may have been cleared since (409 `ledger.clearing_lines_cleared`).
+	// `If-Match` is the payment's version, which the reset moves; the answer is the payment, the
+	// application with its `reset` and `on_account` showing the credit open again. Audited, and published
+	// as IncomingPaymentReset and the ledger's ClearingReset. A number that is none of the payment's
+	// applications, or a payment of a company the caller may not act in, is not found. A retry with the
+	// same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/incoming-payments/{id}/applications/{application_no}:reset
+	ResetIncomingPaymentApplication(ctx context.Context, req *IncomingPaymentReset, params ResetIncomingPaymentApplicationParams) (ResetIncomingPaymentApplicationRes, error)
 	// ResumeWebhookSubscription implements resumeWebhookSubscription operation.
 	//
 	// Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event

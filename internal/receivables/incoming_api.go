@@ -51,6 +51,9 @@ func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPa
 		for _, a := range v.Applications {
 			entries = append(entries, a.EntryID)
 		}
+		for _, r := range v.Resets {
+			entries = append(entries, r.ReversalID)
+		}
 		if credit, _, ok := v.credit(); ok {
 			credits = append(credits, credit)
 		}
@@ -90,13 +93,14 @@ func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPa
 }
 
 // paymentToAPI is an incoming payment as the API gives it, with what it
-// names by id. It never changes, so it was last changed when it was
-// created, by whoever created it.
+// names by id: its version and last change are its applications' and
+// undoings' (version).
 func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment {
 	le, customer, account := refs.companies[v.LegalEntityID], refs.partners[v.CustomerID], refs.accounts[v.ReceiptAccountID]
 	version, updatedAt, updatedBy := v.version()
 	out := gen.IncomingPayment{ID: v.ID, Version: version, CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, UpdatedAt: updatedAt,
-		UpdatedBy: gen.NewOptUUID(updatedBy), DocumentNumber: v.DocumentNumber, LegalEntityID: v.LegalEntityID, CompanyCode: le.Code,
+		UpdatedBy: gen.NewOptUUID(updatedBy), DocumentNumber: v.DocumentNumber, Status: v.Status(), Reset: resetToAPI(v.resetOf(0), refs),
+		LegalEntityID: v.LegalEntityID, CompanyCode: le.Code,
 		CompanyName: le.Name, CustomerID: v.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name, PostingDate: v.PostingDate,
 		Currency: v.Currency, Amount: apitypes.Money(v.Amount, v.Currency, v.Exponent), Difference: apitypes.Money(v.Difference, v.Currency, v.Exponent),
 		ReceiptJournalEntryID:   v.ReceiptEntryID,
@@ -132,7 +136,7 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 		day, _ := time.Parse(time.DateOnly, a.PostingDate) // a date column, as json_build_object writes it
 		out.Applications[i] = gen.IncomingPaymentApplication{ApplicationNo: a.No, PostingDate: day, Amount: amount(a.Amount), Difference: amount(a.Difference),
 			OnAccountAmount: amount(a.OnAccount), JournalEntryID: a.EntryID, JournalEntryYear: int32(a.EntryYear), JournalEntryNumber: refs.numbers[a.EntryID],
-			CreatedAt: a.CreatedAt, CreatedBy: a.CreatedBy}
+			CreatedAt: a.CreatedAt, CreatedBy: a.CreatedBy, Reset: resetToAPI(v.resetOf(a.No), refs)}
 	}
 	if v.OnAccount != 0 {
 		on := gen.IncomingPaymentOnAccount{Amount: amount(v.OnAccount), OpenAmount: amount(0)}
@@ -148,6 +152,16 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 		out.OnAccount.SetTo(on)
 	}
 	return out
+}
+
+// resetToAPI is an undoing as the API gives it, with its reversal's
+// number; none for nil.
+func resetToAPI(r *PaymentReset, refs paymentReferences) gen.OptIncomingPaymentResetDone {
+	if r == nil {
+		return gen.OptIncomingPaymentResetDone{}
+	}
+	return gen.NewOptIncomingPaymentResetDone(gen.IncomingPaymentResetDone{Reason: r.Reason, JournalEntryID: r.ReversalID, JournalEntryYear: int32(r.ReversalYear),
+		JournalEntryNumber: refs.numbers[r.ReversalID], CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy})
 }
 
 // clearing is the clearing entry of the application with the number, the
@@ -209,6 +223,33 @@ func (e *Endpoints) ApplyIncomingPaymentOnAccount(ctx context.Context, req *gen.
 		return nil, err
 	}
 	return e.paymentAnswer(ctx, v)
+}
+
+// ResetIncomingPayment implements POST /v1/incoming-payments/{id}:reset.
+func (e *Endpoints) ResetIncomingPayment(ctx context.Context, req *gen.IncomingPaymentReset, params gen.ResetIncomingPaymentParams) (gen.ResetIncomingPaymentRes, error) {
+	return e.resetAnswer(ctx, ResetInput{PaymentID: params.ID, IfMatch: etag.IfMatch(params.IfMatch), Reason: req.Reason})
+}
+
+// ResetIncomingPaymentApplication implements POST
+// /v1/incoming-payments/{id}/applications/{application_no}:reset.
+func (e *Endpoints) ResetIncomingPaymentApplication(ctx context.Context, req *gen.IncomingPaymentReset,
+	params gen.ResetIncomingPaymentApplicationParams) (gen.ResetIncomingPaymentApplicationRes, error) {
+	return e.resetAnswer(ctx, ResetInput{PaymentID: params.ID, ApplicationNo: params.ApplicationNo, IfMatch: etag.IfMatch(params.IfMatch), Reason: req.Reason})
+}
+
+// resetAnswer undoes the application and answers the payment with its
+// ETag.
+func (e *Endpoints) resetAnswer(ctx context.Context, in ResetInput) (*gen.ResetIncomingPaymentApplicationOKHeaders, error) {
+	v, err := e.Reset(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	refs, err := e.paymentReferences(ctx, []IncomingPayment{v})
+	if err != nil {
+		return nil, err
+	}
+	version, _, _ := v.version()
+	return &gen.ResetIncomingPaymentApplicationOKHeaders{ETag: gen.NewOptString(etag.Format(version)), Response: paymentToAPI(v, refs)}, nil
 }
 
 // GetIncomingPayment implements GET /v1/incoming-payments/{id}.

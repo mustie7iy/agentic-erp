@@ -576,6 +576,8 @@ var operationRolesOidc = map[string][]string{
 	ReportBankFileStatusOperation:                  []string{},
 	RequestBankAccountChangeOperation:              []string{},
 	RequestBankAccountEndOperation:                 []string{},
+	ResetIncomingPaymentOperation:                  []string{},
+	ResetIncomingPaymentApplicationOperation:       []string{},
 	ResumeWebhookSubscriptionOperation:             []string{},
 	RetireCatalogItemOperation:                     []string{},
 	RetireControlOperation:                         []string{},

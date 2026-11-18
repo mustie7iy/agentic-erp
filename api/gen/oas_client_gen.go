@@ -1759,7 +1759,7 @@ type Invoker interface {
 	// (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its
 	// place in the request as the field `items[i]`. Nothing is posted when the application is refused. A
 	// retry with the same `Idempotency-Key` answers the payment applied; another request for the same
-	// receipt is refused. An application is not undone in the first version. Human-only
+	// receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only
 	// (`x-agent: false`).
 	//
 	// POST /v1/incoming-payments
@@ -7239,6 +7239,45 @@ type Invoker interface {
 	//
 	// POST /v1/business-partners/{id}/bank-accounts/{bank_account_id}:end
 	RequestBankAccountEnd(ctx context.Context, request *BankAccountEnd, params RequestBankAccountEndParams) (RequestBankAccountEndRes, error)
+	// ResetIncomingPayment invokes resetIncomingPayment operation.
+	//
+	// Undoes an incoming payment's application of its receipt (T75i; SAP FBRA, reset cleared items and
+	// reverse): its clearing is reset, so the receipt waits on the house bank's incoming payments clearing
+	// account again (`listUnappliedReceipts`) and every item it was applied to is an open item again as it
+	// stood, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so
+	// that period must still be open (409 `ledger.period_not_open`, and nothing changes): the residual
+	// items and the credit on account it left, and the payment difference it wrote off, are taken back
+	// with it. Every application of its credit on account must be undone first (409
+	// `receivables.applications_in_force`), and nothing it left may have been cleared since, by another
+	// payment or a manual clearing (409 `ledger.clearing_lines_cleared`). A payment is reset once (409
+	// `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it
+	// meanwhile). The receipt and the items may then be applied again. `If-Match` is the payment's
+	// version, which the reset moves; the answer is the payment, `status` `reset`, with its `reset`.
+	// Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. One of a company the
+	// caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as
+	// the first answered it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/incoming-payments/{id}:reset
+	ResetIncomingPayment(ctx context.Context, request *IncomingPaymentReset, params ResetIncomingPaymentParams) (ResetIncomingPaymentRes, error)
+	// ResetIncomingPaymentApplication invokes resetIncomingPaymentApplication operation.
+	//
+	// Undoes an application of an incoming payment's credit on account (T75i; T75g's
+	// `applyIncomingPaymentOnAccount`): its clearing is reset, so the credit it consumed is open on the
+	// customer's account again as it stood and every item it was applied to is an open item again, and its
+	// clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must
+	// still be open (409 `ledger.period_not_open`, and nothing changes): the credit and the residual items
+	// it left are taken back with it. Only the payment's latest application still in force is undone (409
+	// `receivables.application_not_latest`: undo the later ones first), once (409
+	// `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it
+	// meanwhile), and nothing it left may have been cleared since (409 `ledger.clearing_lines_cleared`).
+	// `If-Match` is the payment's version, which the reset moves; the answer is the payment, the
+	// application with its `reset` and `on_account` showing the credit open again. Audited, and published
+	// as IncomingPaymentReset and the ledger's ClearingReset. A number that is none of the payment's
+	// applications, or a payment of a company the caller may not act in, is not found. A retry with the
+	// same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/incoming-payments/{id}/applications/{application_no}:reset
+	ResetIncomingPaymentApplication(ctx context.Context, request *IncomingPaymentReset, params ResetIncomingPaymentApplicationParams) (ResetIncomingPaymentApplicationRes, error)
 	// ResumeWebhookSubscription invokes resumeWebhookSubscription operation.
 	//
 	// Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event
@@ -23407,7 +23446,7 @@ func (c *Client) sendCreateHierarchy(ctx context.Context, request *HierarchyCrea
 // (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its
 // place in the request as the field `items[i]`. Nothing is posted when the application is refused. A
 // retry with the same `Idempotency-Key` answers the payment applied; another request for the same
-// receipt is refused. An application is not undone in the first version. Human-only
+// receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only
 // (`x-agent: false`).
 //
 // POST /v1/incoming-payments
@@ -102171,6 +102210,372 @@ func (c *Client) sendRequestBankAccountEnd(ctx context.Context, request *BankAcc
 
 	stage = "DecodeResponse"
 	result, err := decodeRequestBankAccountEndResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ResetIncomingPayment invokes resetIncomingPayment operation.
+//
+// Undoes an incoming payment's application of its receipt (T75i; SAP FBRA, reset cleared items and
+// reverse): its clearing is reset, so the receipt waits on the house bank's incoming payments clearing
+// account again (`listUnappliedReceipts`) and every item it was applied to is an open item again as it
+// stood, and its clearing entry is reversed in every ledger, dated the entry's own posting date, so
+// that period must still be open (409 `ledger.period_not_open`, and nothing changes): the residual
+// items and the credit on account it left, and the payment difference it wrote off, are taken back
+// with it. Every application of its credit on account must be undone first (409
+// `receivables.applications_in_force`), and nothing it left may have been cleared since, by another
+// payment or a manual clearing (409 `ledger.clearing_lines_cleared`). A payment is reset once (409
+// `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it
+// meanwhile). The receipt and the items may then be applied again. `If-Match` is the payment's
+// version, which the reset moves; the answer is the payment, `status` `reset`, with its `reset`.
+// Audited, and published as IncomingPaymentReset and the ledger's ClearingReset. One of a company the
+// caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as
+// the first answered it. Human-only (`x-agent: false`).
+//
+// POST /v1/incoming-payments/{id}:reset
+func (c *Client) ResetIncomingPayment(ctx context.Context, request *IncomingPaymentReset, params ResetIncomingPaymentParams) (ResetIncomingPaymentRes, error) {
+	res, err := c.sendResetIncomingPayment(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendResetIncomingPayment(ctx context.Context, request *IncomingPaymentReset, params ResetIncomingPaymentParams) (res ResetIncomingPaymentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("resetIncomingPayment"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/incoming-payments/{id}:reset"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ResetIncomingPaymentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/incoming-payments/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":reset"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeResetIncomingPaymentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ResetIncomingPaymentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeResetIncomingPaymentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ResetIncomingPaymentApplication invokes resetIncomingPaymentApplication operation.
+//
+// Undoes an application of an incoming payment's credit on account (T75i; T75g's
+// `applyIncomingPaymentOnAccount`): its clearing is reset, so the credit it consumed is open on the
+// customer's account again as it stood and every item it was applied to is an open item again, and its
+// clearing entry is reversed in every ledger, dated the entry's own posting date, so that period must
+// still be open (409 `ledger.period_not_open`, and nothing changes): the credit and the residual items
+// it left are taken back with it. Only the payment's latest application still in force is undone (409
+// `receivables.application_not_latest`: undo the later ones first), once (409
+// `receivables.already_reset`; 409 `ledger.clearing_already_reset` when another request reset it
+// meanwhile), and nothing it left may have been cleared since (409 `ledger.clearing_lines_cleared`).
+// `If-Match` is the payment's version, which the reset moves; the answer is the payment, the
+// application with its `reset` and `on_account` showing the credit open again. Audited, and published
+// as IncomingPaymentReset and the ledger's ClearingReset. A number that is none of the payment's
+// applications, or a payment of a company the caller may not act in, is not found. A retry with the
+// same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`).
+//
+// POST /v1/incoming-payments/{id}/applications/{application_no}:reset
+func (c *Client) ResetIncomingPaymentApplication(ctx context.Context, request *IncomingPaymentReset, params ResetIncomingPaymentApplicationParams) (ResetIncomingPaymentApplicationRes, error) {
+	res, err := c.sendResetIncomingPaymentApplication(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendResetIncomingPaymentApplication(ctx context.Context, request *IncomingPaymentReset, params ResetIncomingPaymentApplicationParams) (res ResetIncomingPaymentApplicationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("resetIncomingPaymentApplication"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/incoming-payments/{id}/applications/{application_no}:reset"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ResetIncomingPaymentApplicationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/incoming-payments/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/applications/"
+	{
+		// Encode "application_no" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "application_no",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.Int32ToString(params.ApplicationNo))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":reset"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeResetIncomingPaymentApplicationRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ResetIncomingPaymentApplicationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeResetIncomingPaymentApplicationResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

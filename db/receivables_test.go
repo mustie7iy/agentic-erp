@@ -468,9 +468,11 @@ func TestIncomingPaymentRules(t *testing.T) {
 		{"the same number in another company", func(tx pgx.Tx, s scene) error {
 			return all(tx, applied(s), step(header, s.tenant, id(), "IP1", id(), id(), 1, id()))
 		}, ""},
+		// Applied again after its payment was undone (T75i, 000364): the
+		// ledger holds a receipt to one application at a time.
 		{"a receipt applied twice", func(tx pgx.Tx, s scene) error {
 			return all(tx, applied(s), step(header, s.tenant, id(), "IP2", s.company, s.receipt, 10000, id()))
-		}, "incoming_payment_receipt_once"},
+		}, ""},
 		{"two payments with one clearing entry", func(tx pgx.Tx, s scene) error {
 			return all(tx, applied(s), step(header, s.tenant, id(), "IP2", s.company, id(), 10000, s.clearing))
 		}, "incoming_payment_entry_once"},
@@ -486,11 +488,12 @@ func TestIncomingPaymentRules(t *testing.T) {
 		{"an item of no payment", func(tx pgx.Tx, s scene) error {
 			return all(tx, step(item, s.tenant, s.doc, 1, s.invoice, 1, 10000))
 		}, "incoming_payment_item_tenant_id_incoming_payment_id_fkey"},
+		// Likewise an open item (T75i, 000364).
 		{"an open item applied twice", func(tx pgx.Tx, s scene) error {
 			other := id()
 			return all(tx, applied(s), step(item, s.tenant, s.doc, 1, s.invoice, 1, 10000),
 				step(header, s.tenant, other, "IP2", s.company, id(), 10000, id()), step(item, s.tenant, other, 1, s.invoice, 1, 10000))
-		}, "incoming_payment_item_once"},
+		}, ""},
 		{"another line of the same entry", func(tx pgx.Tx, s scene) error {
 			return all(tx, applied(s), step(item, s.tenant, s.doc, 1, s.invoice, 1, 6000), step(item, s.tenant, s.doc, 2, s.invoice, 2, 4000))
 		}, ""},
@@ -646,7 +649,7 @@ func TestPaymentResidualsRevert(t *testing.T) {
 // built): what a payment left on account is more than zero with its line
 // and account, or zero without; an item's application number is 0 or
 // more; an application is numbered from 1 per payment, of an existing
-// payment, applies a positive credit consumed once, left on account with
+// payment, applies a positive credit (consumed again once undone, T75i), left on account with
 // its line or nothing, has a clearing entry of its own, and is never
 // changed or deleted.
 func TestPaymentOnAccountRules(t *testing.T) {
@@ -717,10 +720,12 @@ func TestPaymentOnAccountRules(t *testing.T) {
 		{"left on account without a line", func(tx pgx.Tx, s scene) error {
 			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(4000), noLine, id()))
 		}, "incoming_payment_application_on_account"},
+		// Consumed again after its application was undone (T75i, 000364):
+		// the ledger holds a credit to one application at a time.
 		{"a credit consumed twice", func(tx pgx.Tx, s scene) error {
 			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(0), noLine, id()),
 				step(app, s.tenant, s.doc, 2, s.credit, int64(10000), int64(0), noLine, id()))
-		}, "incoming_payment_application_credit_once"},
+		}, ""},
 		{"two applications with one clearing entry", func(tx pgx.Tx, s scene) error {
 			entry := id()
 			return all(tx, paid(s), step(app, s.tenant, s.doc, 1, s.credit, int64(10000), int64(4000), &line, entry),

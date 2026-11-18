@@ -3,6 +3,7 @@ package receivables_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -77,7 +78,23 @@ func TestDatabaseFailures(t *testing.T) {
 		ReasonText: gen.NewOptString("Fee deducted")})
 	part := gen.IncomingPaymentItemRef{FiscalYear: 2026, JournalEntryID: entryOf(t, e.invoiced(t, e.customer, "40.00", "2026-03-10")), LineNo: 1, Residual: residual}
 	onAccount := e.receipt(t, 3000, "2026-03-14")
+	// A payment on account whose credit an application applied in part, to
+	// undo (T75i); the payment applied above is undone too.
+	spread, _ := e.Must(201, "POST", "/v1/incoming-payments", e.onAccount(e.customer, e.receipt(t, 8000, "2026-03-14").ID), "")
+	spreadID := uuid.MustParse(spread["id"].(string))
+	e.Must(201, "POST", "/v1/incoming-payments/"+spreadID.String()+"/applications",
+		fmt.Sprintf(`{"posting_date": "2026-03-22", "items": [%s]}`, e.invoiced(t, e.customer, "30.00", "2026-03-10")), "")
 	calls := map[string]func(ctx context.Context) error{
+		"undo a payment": func(ctx context.Context) error {
+			_, err := h.ResetIncomingPayment(ctx, &gen.IncomingPaymentReset{Reason: "Wrong invoice"},
+				gen.ResetIncomingPaymentParams{ID: uuid.MustParse(applied["id"].(string)), IfMatch: `"1"`})
+			return err
+		},
+		"undo an application": func(ctx context.Context) error {
+			_, err := h.ResetIncomingPaymentApplication(ctx, &gen.IncomingPaymentReset{Reason: "Wrong invoice"},
+				gen.ResetIncomingPaymentApplicationParams{ID: spreadID, ApplicationNo: 1, IfMatch: `"2"`})
+			return err
+		},
 		"apply a payment on account with a residual": func(ctx context.Context) error {
 			_, err := h.CreateIncomingPayment(ctx, &gen.IncomingPaymentCreate{LegalEntityID: e.DE, CustomerID: e.customer, ReceiptJournalEntryID: onAccount.ID,
 				Items: []gen.IncomingPaymentItemRef{part}, OnAccount: gen.NewOptBool(true)}, gen.CreateIncomingPaymentParams{})
