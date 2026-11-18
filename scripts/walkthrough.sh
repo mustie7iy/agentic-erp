@@ -397,6 +397,31 @@ approve() {
     -body "{\"comment\": \"${3:-Checked.}\"}"
 }
 
+# approve_credit_limit CHANGE has Carla, the controller, approve the
+# credit limit change (T77d) and reads its limit back as Ruth, the last
+# answer and ETAG being the limit's.
+approve_credit_limit() {
+  local request limit
+  as ruth
+  QUIET=1 api 200 '' getCreditLimitChange -p "id=$1"
+  request=$(field .workflow_request_id) limit=$(field .credit_limit_id)
+  approve carla "$request" "${2:-Checked against the payment history.}"
+  as ruth
+  QUIET=1 api 200 '' getCreditLimit -p "id=$limit"
+}
+
+# change_credit_limit ID AMOUNT has Ruth change the credit limit's amount
+# with its version, and Carla approve the change when it waits for her (a
+# raise, T77d); the last answer is the limit as it then is.
+change_credit_limit() {
+  as ruth
+  QUIET=1 api 200 '' getCreditLimit -p "id=$1"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)\(if .pending_change_id then ", waiting for approval" else "" end)"' \
+    updateCreditLimit -p "id=$1" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$2\", \"currency\": \"CAD\"}}"
+  if [ -n "$(field '.pending_change_id // ""')" ]; then approve_credit_limit "$(field .pending_change_id)"; fi
+  expect "the limit changed" "$(field .limit.amount)" "$2"
+}
+
 # account NUMBER is the id of an account of company $CC.
 account() {
   local id
@@ -7016,10 +7041,13 @@ step_collections() {
 # Maple, its credit exposure, which is what its open items add up to;
 # without a limit the customer is not restricted, and the answer says none
 # is set. She sets a limit 500.00 above the exposure, once: a second limit
-# for the customer is refused. An amount of 400.00 is then within the
-# limit and 600.00 is not; the check changes nothing, the open items and
-# the limit are as before. She raises the limit with her version of it,
-# to 5000.00 above the exposure, and the larger amount is within it. The
+# for the customer is refused. The limit waits for its approval (T77d):
+# until Carla, the controller, approves it, it is not used. An amount of
+# 400.00 is then within the limit and 600.00 is not; the check changes
+# nothing, the open items and the limit are as before. She raises the
+# limit with her version of it, to 5000.00 above the exposure; the raise
+# waits for Carla's approval too, and the larger amount is within it once
+# approved. The
 # amounts follow from the exposure read, so the step holds whatever
 # earlier steps left open. The raised limit leaves room for the sales
 # order of step_sales_order (1824.41 CAD with its GST), which is checked
@@ -7027,7 +7055,7 @@ step_collections() {
 # be confirmed blocked and take no delivery.
 step_credit_limit() {
   heading "Step 59 — Credit limits: a customer's credit exposure is its open items; a limit is set for the customer in the company; one amount is within the limit and a larger one is not; the check changes nothing; the limit is changed with the caller's version"
-  local customer=$CUSTOMER exposure limit raised id tag before
+  local customer=$CUSTOMER exposure limit raised id tag before change
   as ruth
   say "Ruth looks after Maple's credit as well. Before more is sold to Northwind Traders on account she reads what"
   say "it owes: its credit exposure, the customer's open items in Maple's currency, credits netted (ADR-0066 §3)."
@@ -7044,13 +7072,22 @@ step_credit_limit() {
   limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 500 }')
   raised=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 5000 }')
   say "She sets Northwind's limit in Maple at $limit CAD, 500.00 above what it owes. A limit is one amount per"
-  say "customer and company in the company's currency; it holds at once, and nothing is posted or blocked:"
-  api 201 '"credit limit of \(.customer_number) \(.customer_name) in \(.company_code): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+  say "customer and company in the company's currency; nothing is posted or blocked. A new limit takes effect once"
+  say "another person approves it (T77d): it is pending, with its change waiting for the controller:"
+  api 201 '"credit limit of \(.customer_number) \(.customer_name) in \(.company_code): \(.limit.amount) \(.limit.currency), \(.status), version \(.version)"' \
     createCreditLimit -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
-  id=$(field .id) tag=$ETAG
-  expect "the limit" "$(field '"\(.customer_id) \(.customer_name) \(.limit.amount) \(.limit.currency) \(.version)"')" "$customer Northwind Traders $limit CAD 1"
-  say "A customer has one limit in a company; a second is refused, and a limit in another currency too:"
+  id=$(field .id) change=$(field .pending_change_id)
+  expect "the limit" "$(field '"\(.customer_id) \(.customer_name) \(.limit.amount) \(.limit.currency) \(.status)"')" "$customer Northwind Traders $limit CAD pending"
+  say "A customer has one limit in a company; a second is refused:"
   refused 409 credit.limit_exists createCreditLimit -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"limit\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}}"
+  say "While it waits, the limit is not used: Northwind is checked as a customer without a limit."
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "a pending limit not used" "$(field '"\(.has_limit) \(.credit_limit_id)"')" "false $id"
+  say "Carla, the controller, approves it:"
+  approve_credit_limit "$change"
+  tag=$ETAG
+  expect "the limit approved" "$(field '"\(.status) \(.limit.amount) \(has("pending_change_id"))"')" "active $limit false"
+  say "A limit in another currency than the company's is refused:"
   refused 422 credit.currency_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "USD"}}'
   QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
   expect "the customer's limits in Maple" "$(field '[.items[].id] | join(" ")')" "$id"
@@ -7071,20 +7108,24 @@ step_credit_limit() {
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items after the checks" "$(field '[.items[] | "\(.journal_entry_id) \(.amount_lc.amount)"] | join(", ")')" "$before"
   QUIET=1 api 200 '' getCreditLimit -p "id=$id"
-  expect "the limit after the checks" "$(field '"\(.limit.amount) \(.version)"') $ETAG" "$limit 1 $tag"
-  say "Ruth agrees a higher limit with sales and changes it, with her version of the limit: $raised CAD. The audit"
-  say "trail and the event CreditLimitChanged carry the limit before and after; the event names the customer by"
-  say "id and number, never by name:"
-  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+  expect "the limit after the checks" "$(field '.limit.amount') $ETAG" "$limit $tag"
+  say "Ruth agrees a higher limit with sales and asks for it, with her version of the limit: $raised CAD. A raise"
+  say "waits for the controller's approval; the limit is answered as it is, naming its change:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), change waiting: \(has("pending_change_id")), version \(.version)"' \
     updateCreditLimit -p "id=$id" -if-match "$tag" -body "{\"limit\": {\"amount\": \"$raised\", \"currency\": \"CAD\"}}"
-  expect "the raised limit" "$(field '"\(.limit.amount) \(.version)"')" "$raised 2"
+  expect "the raise waiting" "$(field '"\(.limit.amount) \(has("pending_change_id"))"')" "$limit true"
+  change=$(field .pending_change_id)
   say "Her earlier version of it is stale now, and a change with it is refused:"
   refused 412 request.version_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "CAD"}}'
+  say "Carla approves the raise. The audit trail and the event CreditLimitChanged carry the limit before and after;"
+  say "the event names the customer by id and number, never by name:"
+  approve_credit_limit "$change"
+  expect "the raised limit" "$(field '"\(.limit.amount) \(.status)"')" "$raised active"
   api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
     getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=600.00
   expect "600.00 within the raised limit" "$(field '"\(.limit.amount) \(.available.amount) \(.is_within_limit)"')" "$raised 5000.00 true"
   QUIET=1 api 200 '' listAuditEvents -p object_type=credit.credit_limit -p "object_id=$id"
-  expect "the limit's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "credit.credit_limit.change credit.credit_limit.create"
+  expect "the limit's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "credit.credit_limit.change credit.credit_limit.change credit.credit_limit.create"
   passed
 }
 
@@ -12621,10 +12662,9 @@ step_sales_order_change() {
   limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 1000 }')
   QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
   id=$(field '.items[0].id')
-  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
-  say "Ruth sets Northwind's limit at $limit CAD, 1,000.00 above what it owes and has on order:"
-  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
-    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
+  say "Ruth sets Northwind's limit at $limit CAD, 1,000.00 above what it owes and has on order (a raise is approved by"
+  say "Carla, the controller):"
+  change_credit_limit "$id" "$limit"
   as sally
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
@@ -13028,10 +13068,9 @@ step_revenue_follows_order() {
   limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 5000 }')
   QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
   id=$(field '.items[0].id')
-  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
-  say "Ruth sets Northwind's limit at $limit CAD, 5,000.00 above what it owes and has on order:"
-  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
-    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
+  say "Ruth sets Northwind's limit at $limit CAD, 5,000.00 above what it owes and has on order (a raise is approved by"
+  say "Carla, the controller):"
+  change_credit_limit "$id" "$limit"
   as sally
   sales=$(account 4000)
   item1="{\"item_key\": \"BRACKET-M6\", \"description\": \"Machined bracket M6\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"12.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
@@ -13826,6 +13865,121 @@ step_price_groups() {
     -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$bracket]}"
   expect "Contoso's conditions in 02" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.access) \(.amount.amount)"] | join(", ")')" \
     "PR00 general 1325.00"
+  passed
+}
+
+# step_credit_limit_validity is T77c (ADR-0066, As built T77c): Ruth
+# plans the next review of Northwind's limit in a month and lets it end in
+# a year, which Carla, the controller, approves, since a validity decides
+# when the limit restricts (T77d); the worklist by the review date lists
+# it, by the day before it does not. She ends the limit yesterday,
+# approved too: on Maple's day it is not used,
+# so the exposure shows no limit, naming it all the same, and an amount
+# far above it is within; a validity starting after it ends is refused.
+# She opens its end again and the limit is used as before. The step
+# leaves the limit's amount as it found it.
+step_credit_limit_validity() {
+  heading "Step 131 — Credit limit validity and reviews: a limit's next review and end of validity set, the worklist of limits due by a day, a limit not used outside its validity on the company's day, a validity ending before it starts refused"
+  local customer=$CUSTOMER id day review end yesterday amount
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ruth
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  id=$(field '.items[0].id') amount=$(field '.items[0].limit.amount')
+  [ -n "$id" ] || fail "step 59's credit limit is not there"
+  day=$(company_day)
+  review=$(date_add "$day" 30) end=$(date_add "$day" 365) yesterday=$(date_add "$day" -1)
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth plans the next review of Northwind's limit for $review and lets the limit run until $end, a year from"
+  say "today; a limit is used on Maple's days within its validity, both ends included (T77c). A change of the"
+  say "validity waits for the controller's approval (T77d), which Carla gives:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), change waiting: \(has("pending_change_id"))"' \
+    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"next_review_on\": \"$review\", \"valid_to\": \"$end\"}"
+  approve_credit_limit "$(field .pending_change_id)"
+  expect "the limit's dates" "$(field '"\(.limit.amount) \(.valid_from // "open") \(.valid_to) \(.next_review_on)"')" "$amount open $end $review"
+  say "Her worklist of limits due for review or expiring lists it by the review date, and not by the day before:"
+  api 200 '"due by '"$review"': \([.items[] | "\(.customer_number) \(.customer_name), review \(.next_review_on // "none"), valid to \(.valid_to // "open")"] | join("; "))"' \
+    listCreditLimits -p "legal_entity_id=$LE" -p "due_by=$review"
+  expect "Northwind on the worklist by its review date" "$(field "[.items[] | select(.id == \"$id\")] | length")" 1
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "due_by=$(date_add "$review" -1)"
+  expect "Northwind not on the worklist the day before" "$(field "[.items[] | select(.id == \"$id\")] | length")" 0
+  say "Northwind's agreement ended yesterday, so Ruth ends the limit on $yesterday. On Maple's day it is not used: the"
+  say "exposure shows no limit, naming the limit all the same, and the customer is treated as one without a limit:"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  QUIET=1 api 200 '' updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"valid_to\": \"$yesterday\"}"
+  approve_credit_limit "$(field .pending_change_id)"
+  api 200 '"on \(.day): limit set: \(.has_limit) (credit limit \(.credit_limit_id)); 1000000.00 within: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=1000000.00
+  expect "no limit used outside its validity" "$(field '"\(.has_limit) \(.credit_limit_id) \(has("limit")) \(has("available")) \(.is_within_limit)"')" "false $id false false true"
+  expect_today "the day judged on" "$(field .day)" "$day"
+  say "A validity that starts after it ends is refused:"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  refused 422 credit.invalid_validity updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"valid_from\": \"$day\"}"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth opens the limit's end again, and it is used once more:"
+  QUIET=1 api 200 '' updateCreditLimit -p "id=$id" -if-match "$ETAG" -body '{"valid_to": null, "next_review_on": null}'
+  approve_credit_limit "$(field .pending_change_id)"
+  api 200 '"on \(.day): limit \(.limit.amount) \(.limit.currency), available \(.available.amount); within the limit: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the limit used again" "$(field '"\(.has_limit) \(.limit.amount)"')" "true $amount"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=credit.credit_limit -p "object_id=$id"
+  expect "the dates' changes audited" "$(field "[.items[] | select(.action == \"credit.credit_limit.change\" and .detail.valid_to_before == \"$yesterday\")] | length")" 1
+  passed
+}
+
+# step_credit_limit_approval is T77d (ADR-0066, As built T77d): Ruth
+# raises Northwind's limit by 1,000.00; the raise waits for its approval
+# and the exposure is checked against the limit as it is; a second change
+# waits for the first. Carla, the controller, approves it and it holds.
+# Ruth lowers the limit back, which holds at once; a raise Carla rejects
+# leaves the limit as it was. The step leaves the limit's amount as it
+# found it.
+step_credit_limit_approval() {
+  heading "Step 132 — Approval of credit limit changes: a raise waiting for the controller's approval, the old limit used meanwhile, a second change refused while it waits; approved, the raise holds; a lowering holding at once; a rejected raise leaving the limit as it was"
+  local customer=$CUSTOMER id amount raised change request
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ruth
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  id=$(field '.items[0].id') amount=$(field '.items[0].limit.amount')
+  raised=$(awk -v x="$amount" 'BEGIN { printf "%.2f", x + 1000 }')
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth raises Northwind's limit from $amount to $raised CAD. A raise takes effect once another person approves it;"
+  say "until then the limit is answered, and used, as it is:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), change waiting: \(has("pending_change_id"))"' \
+    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$raised\", \"currency\": \"CAD\"}}"
+  change=$(field .pending_change_id)
+  expect "the limit as it is, naming the raise" "$(field '"\(.limit.amount) \(.pending_change_id)"')" "$amount $change"
+  api 200 '"the change: \(.kind) to \(.limit.amount) \(.limit.currency) from \(.limit_before.amount), \(.status), approval request \(.workflow_request_id)"' \
+    getCreditLimitChange -p "id=$change"
+  expect "the change asked for" "$(field '"\(.kind) \(.limit.amount) \(.limit_before.amount) \(.status)"')" "change $raised $amount pending"
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the exposure checked against the limit as it is" "$(field .limit.amount)" "$amount"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "A second change waits for the first to be decided:"
+  refused 409 credit.change_pending updateCreditLimit -p "id=$id" -if-match "$ETAG" -body '{"limit": {"amount": "1.00", "currency": "CAD"}}'
+  say "Carla, the controller, approves the raise, and it holds:"
+  approve_credit_limit "$change"
+  expect "the raise approved" "$(field '"\(.limit.amount) \(.status) \(has("pending_change_id"))"')" "$raised active false"
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the exposure checked against the raised limit" "$(field .limit.amount)" "$raised"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth lowers it back to $amount CAD: a lowering restricts more, and holds at once:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), change waiting: \(has("pending_change_id"))"' \
+    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$amount\", \"currency\": \"CAD\"}}"
+  expect "the lowering at once" "$(field '"\(.limit.amount) \(has("pending_change_id"))"')" "$amount false"
+  say "She asks for the raise again; Carla rejects it, and the limit stays as it was:"
+  QUIET=1 api 200 '' updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$raised\", \"currency\": \"CAD\"}}"
+  change=$(field .pending_change_id)
+  QUIET=1 api 200 '' getCreditLimitChange -p "id=$change"
+  request=$(field .workflow_request_id)
+  as carla
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  api 200 '"approval request \(.object_type): \(.status)"' rejectApprovalRequest -p "id=$request" -if-match "$ETAG" \
+    -body '{"comment": "Not before the open invoices are paid."}'
+  as ruth
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  expect "the limit after the rejection" "$(field '"\(.limit.amount) \(has("pending_change_id"))"')" "$amount false"
+  QUIET=1 api 200 '' listCreditLimitChanges -p "credit_limit_id=$id" -p page_size=2
+  expect "the last two changes, newest first" "$(field '[.items[] | "\(.status)"] | join(" ")')" "rejected applied"
   passed
 }
 
@@ -15859,7 +16013,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_close'
 
 main() {
   stop_unseen

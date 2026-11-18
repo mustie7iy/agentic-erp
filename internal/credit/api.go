@@ -3,6 +3,7 @@ package credit
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -36,9 +37,9 @@ func (e *Endpoints) shown(ctx context.Context, limits []Limit) (shown, error) {
 		if _, ok := s.companies[l.LegalEntityID]; ok {
 			continue
 		}
-		le, _, err := e.LegalEntities.Entity(ctx, l.LegalEntityID) // a stored limit's legal entity exists
+		le, err := e.companyOf(ctx, l.LegalEntityID)
 		if err != nil {
-			return shown{}, fmt.Errorf("credit: company of credit limit %s: %w", l.ID, err)
+			return shown{}, fmt.Errorf("credit: credit limit %s: %w", l.ID, err)
 		}
 		s.companies[l.LegalEntityID] = le
 	}
@@ -56,7 +57,8 @@ func limitToAPI(l Limit, s shown) gen.CustomerCreditLimit {
 	return gen.CustomerCreditLimit{ID: l.ID, Version: l.Version, CreatedAt: l.CreatedAt, CreatedBy: l.CreatedBy, UpdatedAt: l.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(l.UpdatedBy), LegalEntityID: l.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name,
 		CustomerID: l.CustomerID, CustomerNumber: l.CustomerNumber, CustomerName: s.customers[l.CustomerID].Name,
-		Limit: apitypes.Money(l.Amount, l.Currency, l.Exponent)}
+		Limit: apitypes.Money(l.Amount, l.Currency, l.Exponent), ValidFrom: apitypes.OptDate(l.ValidFrom), ValidTo: apitypes.OptDate(l.ValidTo),
+		NextReviewOn: apitypes.OptDate(l.NextReview), Status: l.Status, PendingChangeID: apitypes.OptUUID(l.PendingChangeID)}
 }
 
 // one is a single limit as the API gives it.
@@ -70,7 +72,8 @@ func (e *Endpoints) one(ctx context.Context, l Limit) (gen.CustomerCreditLimit, 
 
 // CreateCreditLimit implements POST /v1/credit-limits.
 func (e *Endpoints) CreateCreditLimit(ctx context.Context, req *gen.CustomerCreditLimitCreate, _ gen.CreateCreditLimitParams) (gen.CreateCreditLimitRes, error) {
-	l, err := e.SetLimit(ctx, LimitInput{LegalEntityID: req.LegalEntityID, CustomerID: req.CustomerID, Amount: req.Limit.Amount, Currency: req.Limit.Currency})
+	l, err := e.SetLimit(ctx, LimitInput{LegalEntityID: req.LegalEntityID, CustomerID: req.CustomerID, Amount: req.Limit.Amount, Currency: req.Limit.Currency,
+		ValidFrom: apitypes.Ptr[time.Time](req.ValidFrom), ValidTo: apitypes.Ptr[time.Time](req.ValidTo), NextReview: apitypes.Ptr[time.Time](req.NextReviewOn)})
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +87,11 @@ func (e *Endpoints) CreateCreditLimit(ctx context.Context, req *gen.CustomerCred
 
 // UpdateCreditLimit implements PATCH /v1/credit-limits/{id}.
 func (e *Endpoints) UpdateCreditLimit(ctx context.Context, req *gen.CustomerCreditLimitUpdate, params gen.UpdateCreditLimitParams) (gen.UpdateCreditLimitRes, error) {
-	l, err := e.ChangeLimit(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Limit.Amount, req.Limit.Currency)
+	ch := LimitChange{ValidFrom: apitypes.OptNilDate(req.ValidFrom), ValidTo: apitypes.OptNilDate(req.ValidTo), NextReview: apitypes.OptNilDate(req.NextReviewOn)}
+	if m, ok := req.Limit.Get(); ok {
+		ch.Amount, ch.Currency = &m.Amount, m.Currency
+	}
+	l, err := e.ChangeLimit(ctx, params.ID, etag.IfMatch(params.IfMatch), ch)
 	if err != nil {
 		return nil, err
 	}
@@ -113,14 +120,16 @@ var limitSort = pagination.Sort{Default: "customer_number", Fields: []pagination
 }}
 
 // ListCreditLimits implements GET /v1/credit-limits: the limits of the
-// companies the caller may act in, by customer number.
+// companies the caller may act in, by customer number; with due_by, the
+// worklist of those whose next review or end of validity is on or before
+// it (T77c).
 func (e *Endpoints) ListCreditLimits(ctx context.Context, params gen.ListCreditLimitsParams) (gen.ListCreditLimitsRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	le, customer := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerID)
-	scope := fmt.Sprintf("listCreditLimits|%s|%s", le, customer)
+	le, customer, due := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerID), apitypes.Ptr[time.Time](params.DueBy)
+	scope := fmt.Sprintf("listCreditLimits|%s|%s|%s|%s", le, customer, due, params.Status.Value)
 	ks, err := e.Pages.Keyset(limitSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("credit: page of credit limits: %w", err)
@@ -130,7 +139,8 @@ func (e *Endpoints) ListCreditLimits(ctx context.Context, params gen.ListCreditL
 		return nil, fmt.Errorf("credit: company access for credit limits: %w", err)
 	}
 	q, args := ks.SQL(limitSelect+` WHERE ($1 OR l.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR l.legal_entity_id = $3)
-		AND ($4::uuid IS NULL OR l.customer_id = $4)`, []any{access.All, access.IDs, le, customer})
+		AND ($4::uuid IS NULL OR l.customer_id = $4) AND ($5::date IS NULL OR l.next_review_on <= $5 OR l.valid_to <= $5)
+		AND ($6 = '' OR l.status = $6)`, []any{access.All, access.IDs, le, customer, due, params.Status.Value})
 	rows, _ := tx.Query(ctx, q, args...)
 	limits, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Limit, error) { return scanLimit(r) })
 	if err != nil {
@@ -155,9 +165,9 @@ func (e *Endpoints) GetCreditExposure(ctx context.Context, params gen.GetCreditE
 	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, x.Company.LocalCurrency, x.Exponent) }
 	out := &gen.CreditExposure{LegalEntityID: x.Company.ID, CompanyCode: x.Company.Code, CompanyName: x.Company.Name, CustomerID: params.CustomerID,
 		CustomerNumber: x.Customer.Number, CustomerName: x.Customer.Name, Currency: x.Company.LocalCurrency, OpenItemCount: x.Items,
-		OpenItems: amount(x.Owed), OpenOrderCount: x.Orders, OpenOrders: amount(x.Ordered), Exposure: amount(x.Total), HasLimit: x.Limit != nil, IsWithinLimit: x.Within}
+		OpenItems: amount(x.Owed), OpenOrderCount: x.Orders, OpenOrders: amount(x.Ordered), Exposure: amount(x.Total), HasLimit: x.Limit != nil, IsWithinLimit: x.Within,
+		Day: x.Day, CreditLimitID: apitypes.OptUUID(x.LimitID)}
 	if x.Limit != nil {
-		out.CreditLimitID.SetTo(x.Limit.ID)
 		out.Limit.SetTo(amount(x.Limit.Amount))
 		out.Available.SetTo(amount(x.Available))
 	}

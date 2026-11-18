@@ -877,6 +877,10 @@ type GetCreditExposureRes interface {
 	getCreditExposureRes()
 }
 
+type GetCreditLimitChangeRes interface {
+	getCreditLimitChangeRes()
+}
+
 type GetCreditLimitRes interface {
 	getCreditLimitRes()
 }
@@ -1495,6 +1499,10 @@ type ListCostCentersRes interface {
 
 type ListCountryPacksRes interface {
 	listCountryPacksRes()
+}
+
+type ListCreditLimitChangesRes interface {
+	listCreditLimitChangesRes()
 }
 
 type ListCreditLimitsRes interface {

@@ -22,6 +22,24 @@ func TestNow(t *testing.T) {
 	})
 }
 
+// TestSameDay: two optional dates are the same when both are absent or
+// both name one instant.
+func TestSameDay(t *testing.T) {
+	a, b := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2027, 1, 2, 0, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name string
+		x, y *time.Time
+		want bool
+	}{{"both absent", nil, nil, true}, {"one absent", &a, nil, false}, {"the other absent", nil, &a, false},
+		{"the same day", &a, &a, true}, {"another day", &a, &b, false}} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := SameDay(c.x, c.y); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 // TestDay: an instant's UTC calendar date, at midnight UTC.
 func TestDay(t *testing.T) {
 	late := time.Date(2026, 4, 17, 23, 30, 0, 0, time.FixedZone("UTC-5", -5*3600))

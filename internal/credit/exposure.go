@@ -3,8 +3,10 @@ package credit
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
@@ -21,15 +23,20 @@ import (
 // Exponent. Owed is what the customer's Items open items add up to as
 // booked, credits netted; Ordered is what its Orders confirmed sales
 // orders not yet billed come to, net plus output tax; Total is the two
-// together, the exposure. Limit is the customer's limit, nil when none
-// is set; Available is the limit less Total, set with it. Checked is the
+// together, the exposure. Day is the company's day the limit's validity
+// is judged on (T77c). Limit is the customer's limit in effect on Day
+// (active and valid, Limit.InEffectOn), nil when none is; LimitID names
+// the customer's limit whether it is in effect or not, nil when none is
+// set. Available is the limit less Total, set with Limit. Checked is the
 // amount asked about, nil when none was given. Within says whether Total
 // and Checked together are no more than the limit: always true without a
-// limit, which restricts nothing.
+// limit in effect, which restricts nothing.
 type Exposure struct {
 	Company   tenancy.Entity
 	Exponent  int
 	Customer  partner.Named
+	Day       time.Time
+	LimitID   *uuid.UUID
 	Items     int32
 	Owed      money.Minor
 	Orders    int32
@@ -44,7 +51,8 @@ type Exposure struct {
 // ExposureOf computes a customer's exposure in a company the caller may
 // act in, from the ledger's open customer items and the sales context's
 // confirmed orders not yet billed as they are now, and checks the
-// amount, when one is given, against the customer's limit. It
+// amount, when one is given, against the customer's limit valid on the
+// company's day (T77c): one valid on another day is not compared. It
 // stores nothing, changes nothing and blocks nothing. Any business
 // partner can be asked about: one posted to without customer data in the
 // company has open items all the same (ADR-0063), and one without any has
@@ -73,9 +81,9 @@ func (e *Endpoints) ExposureOf(ctx context.Context, legalEntity, customer uuid.U
 	if !ok {
 		return Exposure{}, problem.NotFoundOf("business partner")
 	}
-	x := Exposure{Company: le, Customer: named}
-	if x.Exponent, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil { // a legal entity's currency exists
-		return Exposure{}, fmt.Errorf("credit: currency of company %s: %w", le.Code, err)
+	x, err := e.newExposure(ctx, tx, le, named)
+	if err != nil {
+		return Exposure{}, err
 	}
 	if amount != nil {
 		checked, err := amountOf(*amount, le.LocalCurrency, x.Exponent, "amount")
@@ -91,12 +99,30 @@ func (e *Endpoints) ExposureOf(ctx context.Context, legalEntity, customer uuid.U
 	if err != nil {
 		return Exposure{}, err
 	}
-	if !ok {
-		x.Within = true // no limit is set: the customer is not restricted
+	if ok {
+		x.LimitID = &l.ID
+	}
+	if !ok || !l.InEffectOn(x.Day) {
+		x.Within = true // no limit is set, or none valid today: the customer is not restricted
 		return x, nil
 	}
 	x.Limit = &l
 	return x, x.check()
+}
+
+// newExposure is an exposure of the customer in the company before anything
+// is measured: the company's day its limit is judged on (T77c) and its
+// currency's minor-unit digits.
+func (e *Endpoints) newExposure(ctx context.Context, tx pgx.Tx, le tenancy.Entity, named partner.Named) (Exposure, error) {
+	x := Exposure{Company: le, Customer: named}
+	var err error
+	if x.Day, err = e.day(ctx, le); err != nil {
+		return Exposure{}, err
+	}
+	if x.Exponent, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil { // a legal entity's currency exists
+		return Exposure{}, fmt.Errorf("credit: currency of company %s: %w", le.Code, err)
+	}
+	return x, nil
 }
 
 // Check answers the sales context when it confirms an order (ADR-0066,
@@ -111,8 +137,14 @@ func (e *Endpoints) ExposureOf(ctx context.Context, legalEntity, customer uuid.U
 // confirmation under way, which the next check would not see. The
 // limit's row is read FOR UPDATE as well, so a change of the limit waits
 // too. A customer without a limit is within it, and its exposure is not
-// read: no limit restricts nothing. The caller has checked the caller's access to the
-// order's company; Company, Customer and Exponent are not set.
+// read: no limit restricts nothing; so is one whose limit is not in
+// effect on the company's day: pending its approval (T77d) or outside its
+// validity (T77c), the day read only when the customer has a limit. The
+// caller has found the order's company, which legalEntity names (the
+// company's day is read by its code), and checked the caller's access to
+// it;
+// Company, Customer, Exponent and LimitID are not set, nor Day without a
+// limit.
 func (e *Endpoints) Check(ctx context.Context, legalEntity, customer uuid.UUID, amount money.Minor) (Exposure, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -127,6 +159,17 @@ func (e *Endpoints) Check(ctx context.Context, legalEntity, customer uuid.UUID, 
 	}
 	x := Exposure{Checked: &amount}
 	if !ok {
+		x.Within = true
+		return x, nil
+	}
+	le, err := e.companyOf(ctx, legalEntity)
+	if err != nil {
+		return Exposure{}, err
+	}
+	if x.Day, err = e.day(ctx, le); err != nil {
+		return Exposure{}, err
+	}
+	if !l.InEffectOn(x.Day) {
 		x.Within = true
 		return x, nil
 	}

@@ -109,7 +109,7 @@ func TestExposure(t *testing.T) {
 			t.Errorf("an amount checked: got %s, want 4 290.00 EUR | false - - | 1000000.00 EUR | true", c)
 		}
 	})
-	set, tag := e.Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.north, "500.00", "EUR"), "")
+	set, tag := e.set(t, limitOf(e.DE, e.north, "500.00", "EUR"))
 	id := apitest.String(t, set, "id")
 	held := e.stored(t)
 	for _, c := range []struct{ name, query, want string }{
@@ -142,13 +142,13 @@ func TestExposure(t *testing.T) {
 		}
 	})
 	t.Run("a limit below the exposure", func(t *testing.T) {
-		e.In(t).Must(200, "PATCH", "/v1/credit-limits/"+id, change("200.00", "EUR"), tag)
+		e.In(t).Must(200, "PATCH", "/v1/credit-limits/"+id, change("200.00", "EUR"), tag) // a lowering holds at once
 		if c := checked(t, e.exposure(t, e.DE, e.north, "")); c != "4 290.00 EUR | true 200.00 EUR -90.00 EUR | - | false" {
 			t.Errorf("got %s, want 4 290.00 EUR | true 200.00 EUR -90.00 EUR | - | false", c)
 		}
 	})
 	t.Run("a customer whose credits exceed what it owes", func(t *testing.T) {
-		e.In(t).Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.east, "100.00", "EUR"), "")
+		e.set(t, limitOf(e.DE, e.east, "100.00", "EUR"))
 		if c := checked(t, e.exposure(t, e.DE, e.east, "&amount=130.00")); c != "1 -30.00 EUR | true 100.00 EUR 130.00 EUR | 130.00 EUR | true" {
 			t.Errorf("got %s, want 1 -30.00 EUR | true 100.00 EUR 130.00 EUR | 130.00 EUR | true", c)
 		}
