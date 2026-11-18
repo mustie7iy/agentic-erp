@@ -1233,9 +1233,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant reverses a posted credit memo or debit memo: a reversal document turns its entry's signs, its open item is cleared against the reversal, a reversed credit memo frees its invoice's credit limit; refused when its item is cleared, for an invoice, for a memo sales entered, and into a closed period with the period's problem (POST /v1/customer-invoices/{id}:reverse)",
-        "r": "T75k · docs/design/plan-depth-3.md §T75k · ADR-0063 §7",
+        "r": "T75k · docs/design/plan-depth-3.md §T75k · db/migrations/000375, 000376 · POST /v1/customer-invoices/{id}:reverse (reverseCustomerInvoice) · internal/receivables/reverse.go · CustomerInvoiceReversed · TestReverseDebitMemo, TestReverseCreditMemoFreesItsCredit, TestReverseRefusals, TestReverseConcurrently, TestReverseRacesAClearing, TestCustomerMemoReversal · walkthrough step_memo_reversal · ADR-0063 §7 and As built T75k",
         "src": "split:T75d · adr:ADR-0063",
         "c": []
        },

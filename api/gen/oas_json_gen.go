@@ -95541,6 +95541,36 @@ func (s *CustomerInvoice) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.ReversalEntryID.Set {
+			e.FieldStart("reversal_entry_id")
+			s.ReversalEntryID.Encode(e)
+		}
+	}
+	{
+		if s.ReversalEntryYear.Set {
+			e.FieldStart("reversal_entry_year")
+			s.ReversalEntryYear.Encode(e)
+		}
+	}
+	{
+		if s.ReversalEntryNumber.Set {
+			e.FieldStart("reversal_entry_number")
+			s.ReversalEntryNumber.Encode(e)
+		}
+	}
+	{
+		if s.ReversalPostingDate.Set {
+			e.FieldStart("reversal_posting_date")
+			s.ReversalPostingDate.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.ReversalReason.Set {
+			e.FieldStart("reversal_reason")
+			s.ReversalReason.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -95550,7 +95580,7 @@ func (s *CustomerInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCustomerInvoice = [31]string{
+var jsonFieldsNameOfCustomerInvoice = [36]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -95581,7 +95611,12 @@ var jsonFieldsNameOfCustomerInvoice = [31]string{
 	27: "journal_entry_number",
 	28: "source_document_id",
 	29: "source_document_number",
-	30: "items",
+	30: "reversal_entry_id",
+	31: "reversal_entry_year",
+	32: "reversal_entry_number",
+	33: "reversal_posting_date",
+	34: "reversal_reason",
+	35: "items",
 }
 
 // Decode decodes CustomerInvoice from json.
@@ -95589,7 +95624,7 @@ func (s *CustomerInvoice) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode CustomerInvoice to nil")
 	}
-	var requiredBitSet [4]uint8
+	var requiredBitSet [5]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -95925,8 +95960,58 @@ func (s *CustomerInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"source_document_number\"")
 			}
+		case "reversal_entry_id":
+			if err := func() error {
+				s.ReversalEntryID.Reset()
+				if err := s.ReversalEntryID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_entry_id\"")
+			}
+		case "reversal_entry_year":
+			if err := func() error {
+				s.ReversalEntryYear.Reset()
+				if err := s.ReversalEntryYear.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_entry_year\"")
+			}
+		case "reversal_entry_number":
+			if err := func() error {
+				s.ReversalEntryNumber.Reset()
+				if err := s.ReversalEntryNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_entry_number\"")
+			}
+		case "reversal_posting_date":
+			if err := func() error {
+				s.ReversalPostingDate.Reset()
+				if err := s.ReversalPostingDate.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_posting_date\"")
+			}
+		case "reversal_reason":
+			if err := func() error {
+				s.ReversalReason.Reset()
+				if err := s.ReversalReason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reversal_reason\"")
+			}
 		case "items":
-			requiredBitSet[3] |= 1 << 6
+			requiredBitSet[4] |= 1 << 3
 			if err := func() error {
 				s.Items = make([]CustomerInvoiceItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -95952,11 +96037,12 @@ func (s *CustomerInvoice) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [4]uint8{
+	for i, mask := range [5]uint8{
 		0b11011111,
 		0b00111111,
 		0b01111101,
-		0b01000000,
+		0b00000000,
+		0b00001000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -96936,6 +97022,119 @@ func (s *CustomerInvoicePost) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *CustomerInvoicePost) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *CustomerInvoiceReverse) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CustomerInvoiceReverse) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("reason")
+		e.Str(s.Reason)
+	}
+	{
+		if s.PostingDate.Set {
+			e.FieldStart("posting_date")
+			s.PostingDate.Encode(e, json.EncodeDate)
+		}
+	}
+}
+
+var jsonFieldsNameOfCustomerInvoiceReverse = [2]string{
+	0: "reason",
+	1: "posting_date",
+}
+
+// Decode decodes CustomerInvoiceReverse from json.
+func (s *CustomerInvoiceReverse) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CustomerInvoiceReverse to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "reason":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Reason = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
+			}
+		case "posting_date":
+			if err := func() error {
+				s.PostingDate.Reset()
+				if err := s.PostingDate.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"posting_date\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CustomerInvoiceReverse")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCustomerInvoiceReverse) {
+					name = jsonFieldsNameOfCustomerInvoiceReverse[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CustomerInvoiceReverse) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CustomerInvoiceReverse) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -238750,6 +238949,234 @@ func (s *ReverseAssetTransferUnprocessableEntity) MarshalJSON() ([]byte, error) 
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ReverseAssetTransferUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseCustomerInvoiceBadRequest as json.
+func (s *ReverseCustomerInvoiceBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseCustomerInvoiceBadRequest from json.
+func (s *ReverseCustomerInvoiceBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseCustomerInvoiceBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseCustomerInvoiceBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseCustomerInvoiceBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseCustomerInvoiceBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseCustomerInvoiceForbidden as json.
+func (s *ReverseCustomerInvoiceForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseCustomerInvoiceForbidden from json.
+func (s *ReverseCustomerInvoiceForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseCustomerInvoiceForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseCustomerInvoiceForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseCustomerInvoiceForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseCustomerInvoiceForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseCustomerInvoiceNotFound as json.
+func (s *ReverseCustomerInvoiceNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseCustomerInvoiceNotFound from json.
+func (s *ReverseCustomerInvoiceNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseCustomerInvoiceNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseCustomerInvoiceNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseCustomerInvoiceNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseCustomerInvoiceNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseCustomerInvoicePreconditionFailed as json.
+func (s *ReverseCustomerInvoicePreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseCustomerInvoicePreconditionFailed from json.
+func (s *ReverseCustomerInvoicePreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseCustomerInvoicePreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseCustomerInvoicePreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseCustomerInvoicePreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseCustomerInvoicePreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseCustomerInvoicePreconditionRequired as json.
+func (s *ReverseCustomerInvoicePreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseCustomerInvoicePreconditionRequired from json.
+func (s *ReverseCustomerInvoicePreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseCustomerInvoicePreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseCustomerInvoicePreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseCustomerInvoicePreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseCustomerInvoicePreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReverseCustomerInvoiceUnprocessableEntity as json.
+func (s *ReverseCustomerInvoiceUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReverseCustomerInvoiceUnprocessableEntity from json.
+func (s *ReverseCustomerInvoiceUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReverseCustomerInvoiceUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReverseCustomerInvoiceUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReverseCustomerInvoiceUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReverseCustomerInvoiceUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

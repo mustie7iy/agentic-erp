@@ -438,6 +438,7 @@ channels:
     messages:
       CustomerInvoiceChanged: {$ref: '#/components/messages/CustomerInvoiceChanged'}
       CustomerInvoicePosted: {$ref: '#/components/messages/CustomerInvoicePosted'}
+      CustomerInvoiceReversed: {$ref: '#/components/messages/CustomerInvoiceReversed'}
       IncomingPaymentApplied: {$ref: '#/components/messages/IncomingPaymentApplied'}
       IncomingPaymentOnAccountApplied: {$ref: '#/components/messages/IncomingPaymentOnAccountApplied'}
       IncomingPaymentReset: {$ref: '#/components/messages/IncomingPaymentReset'}
@@ -802,6 +803,7 @@ operations:
     messages:
       - $ref: '#/channels/receivables/messages/CustomerInvoiceChanged'
       - $ref: '#/channels/receivables/messages/CustomerInvoicePosted'
+      - $ref: '#/channels/receivables/messages/CustomerInvoiceReversed'
       - $ref: '#/channels/receivables/messages/IncomingPaymentApplied'
       - $ref: '#/channels/receivables/messages/IncomingPaymentOnAccountApplied'
       - $ref: '#/channels/receivables/messages/IncomingPaymentReset'
@@ -4269,6 +4271,32 @@ components:
         - name: posted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f02, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_posted.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-11T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f11, document_number: CI100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: invoice, invoice_date: '2026-11-11', posting_date: '2026-11-11', net_amount: {amount: '1000.00', currency: CAD}, tax_amount: {amount: '50.00', currency: CAD}, gross_amount: {amount: '1050.00', currency: CAD}, payment_term_code: NT30, net_due_date: '2026-12-11', journal_entry_id: 0192a000-0000-7000-8000-000000000f31, journal_entry_year: 2026, journal_entry_number: '1800000001', status: posted, status_before: draft, version: 2}
+    CustomerInvoiceReversed:
+      name: CustomerInvoiceReversed
+      x-webhook: true
+      title: Customer credit memo or debit memo reversed
+      summary: A posted customer credit memo or debit memo was reversed.
+      description: |
+        Emitted when a posted credit memo or debit memo is reversed (ADR-0063
+        As built T75k): the ledger posted the reversal of its journal entry
+        and cleared the memo's open item against the reversal's, so neither
+        is open; a reversed credit memo no longer counts against the invoice
+        it names. It carries the document's totals as CustomerInvoicePosted
+        did (a credit memo's negative), names the customer by id and number,
+        never by name, and carries no reason, which is free text.
+        `GET /v1/customer-invoices/{id}` returns the document at `version`
+        or later, with the reason. Subject is the customer invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.receivables.customer_invoice_reversed.v1}
+      payload: {$ref: '#/components/schemas/CustomerInvoiceReversedV1'}
+      examples:
+        - name: reversed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_reversed.v1, subject: 0192a000-0000-7000-8000-000000000f12, time: '2026-11-18T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f12, document_number: CI100007, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: debit_memo, reference_invoice_id: null, reference_invoice_number: null, net_amount: {amount: '150.00', currency: CAD}, tax_amount: {amount: '7.50', currency: CAD}, gross_amount: {amount: '157.50', currency: CAD}, journal_entry_id: 0192a000-0000-7000-8000-000000000f32, journal_entry_year: 2026, journal_entry_number: '1900000001', reversal_entry_id: 0192a000-0000-7000-8000-000000000f33, reversal_entry_year: 2026, reversal_entry_number: '1900000002', reversal_posting_date: '2026-11-18', status: reversed, status_before: posted, version: 3}
     DunningRunChanged:
       name: DunningRunChanged
       x-webhook: true
@@ -5781,6 +5809,32 @@ components:
         journal_entry_number: {type: string, description: "The entry's document number."}
         status: {type: string, description: "The document's status after the change: posted."}
         status_before: {type: string, description: 'Its status before: draft.'}
+        version: {type: integer, description: "The document's version after the change."}
+    CustomerInvoiceReversedV1:
+      type: object
+      required: [customer_invoice_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, kind, reference_invoice_id, reference_invoice_number, net_amount, tax_amount, gross_amount, journal_entry_id, journal_entry_year, journal_entry_number, reversal_entry_id, reversal_entry_year, reversal_entry_number, reversal_posting_date, status, status_before, version]
+      properties:
+        customer_invoice_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.customer_invoice.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that issued it.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        kind: {type: string, description: 'Open enum: credit_memo, debit_memo.'}
+        reference_invoice_id: {type: [string, 'null'], format: uuid, description: "The invoice a credit memo credits, whose limit the reversal frees: `receivables.customer_invoice.id`; null on a debit memo and on a credit memo naming none."}
+        reference_invoice_number: {type: [string, 'null'], description: "That invoice's document number; null with `reference_invoice_id`."}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net amounts, as CustomerInvoicePosted gave it; negative for a credit memo."}
+        tax_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' tax; negative for a credit memo."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: "The open item the reversal took back: net and tax; negative for a credit memo."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the entry the document posted.'}
+        journal_entry_year: {type: integer, description: "That entry's fiscal year."}
+        journal_entry_number: {type: string, description: "That entry's document number."}
+        reversal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the reversal.'}
+        reversal_entry_year: {type: integer, description: "The reversal's fiscal year."}
+        reversal_entry_number: {type: string, description: "The reversal's document number."}
+        reversal_posting_date: {$ref: '#/components/schemas/Date', description: The date the reversal posted on.}
+        status: {type: string, description: "The document's status after the change: reversed."}
+        status_before: {type: string, description: 'Its status before: posted.'}
         version: {type: integer, description: "The document's version after the change."}
     DunningRunChangedV1:
       type: object

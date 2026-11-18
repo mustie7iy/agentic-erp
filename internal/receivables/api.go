@@ -22,8 +22,8 @@ import (
 
 // references are what invoices name by id, as their consumer reads them
 // (REVIEW.md, API-consumer classes): the companies, the customers, the
-// items' accounts and centers, and a posted invoice's journal entry by
-// its document number. The invoice a credit memo credits is named with
+// items' accounts and centers, and a posted invoice's journal entry and a
+// reversed memo's reversal entry by their document numbers. The invoice a credit memo credits is named with
 // the memo (Invoice.ReferenceInvoiceNumber).
 type references struct {
 	companies map[uuid.UUID]tenancy.Entity
@@ -41,6 +41,9 @@ func (e *Endpoints) references(ctx context.Context, invoices []Invoice) (referen
 		partners = append(partners, v.CustomerID)
 		if v.EntryID != nil {
 			entries = append(entries, *v.EntryID)
+		}
+		if v.Reversal != nil {
+			entries = append(entries, v.Reversal.EntryID)
 		}
 		for _, it := range v.Items {
 			accounts = append(accounts, it.AccountID)
@@ -92,6 +95,13 @@ func toAPI(v Invoice, refs references) gen.CustomerInvoice {
 		out.JournalEntryYear.SetTo(int32(*v.EntryYear))
 		out.JournalEntryNumber.SetTo(refs.entries[*v.EntryID])
 	}
+	if r := v.Reversal; r != nil {
+		out.ReversalEntryID.SetTo(r.EntryID)
+		out.ReversalEntryYear.SetTo(int32(r.EntryYear))
+		out.ReversalEntryNumber.SetTo(refs.entries[r.EntryID])
+		out.ReversalPostingDate.SetTo(r.PostingDate)
+		out.ReversalReason.SetTo(r.Reason)
+	}
 	for i, it := range v.Items {
 		account := refs.accounts[it.AccountID]
 		item := gen.CustomerInvoiceItem{ItemNo: it.ItemNo, Description: apitypes.OptString(it.Description), AccountID: it.AccountID,
@@ -135,6 +145,19 @@ func (e *Endpoints) CreateCustomerInvoice(ctx context.Context, req *gen.Customer
 // PostCustomerInvoice implements POST /v1/customer-invoices/{id}:post.
 func (e *Endpoints) PostCustomerInvoice(ctx context.Context, req gen.OptCustomerInvoicePost, params gen.PostCustomerInvoiceParams) (gen.PostCustomerInvoiceRes, error) {
 	v, err := e.PostInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), apitypes.Ptr[time.Time](req.Value.PostingDate))
+	if err != nil {
+		return nil, err
+	}
+	refs, err := e.references(ctx, []Invoice{v})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.PostCustomerInvoiceOKHeaders{ETag: gen.NewOptString(etag.Format(v.Version)), Response: toAPI(v, refs)}, nil
+}
+
+// ReverseCustomerInvoice implements POST /v1/customer-invoices/{id}:reverse.
+func (e *Endpoints) ReverseCustomerInvoice(ctx context.Context, req *gen.CustomerInvoiceReverse, params gen.ReverseCustomerInvoiceParams) (gen.ReverseCustomerInvoiceRes, error) {
+	v, err := e.ReverseInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), Reversal{Reason: req.Reason, PostingDate: apitypes.Ptr[time.Time](req.PostingDate)})
 	if err != nil {
 		return nil, err
 	}

@@ -2165,6 +2165,10 @@ type ReverseAssetTransferRes interface {
 	reverseAssetTransferRes()
 }
 
+type ReverseCustomerInvoiceRes interface {
+	reverseCustomerInvoiceRes()
+}
+
 type ReverseGoodsReceiptRes interface {
 	reverseGoodsReceiptRes()
 }

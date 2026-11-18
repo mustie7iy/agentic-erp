@@ -6287,7 +6287,7 @@ paths:
       tags:
         - ledger
       summary: Reverse a journal entry
-      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse` (a depreciation run's entries never one by one). Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
+      description: "Reverses every entry of the posting group (one reversal entry per ledger, the first returned); a copy in a parallel ledger is reversed only through its group's first entry (409 `ledger.entry_is_copy`). Posts a reversal entry with every amount negated and links both entries. Open-item lines of the original are cleared against the reversal's lines in the same transaction (the reversal entry is the clearing document), so the pair leaves the open items. An entry can be reversed at most once (409). Manual entries (`source_context` `ledger`), entries a migration run loaded (`integration`) and payment entries (`payments`) are reversed here. A supplier invoice's entry (`payables`) is 409 `ledger.entry_owned_elsewhere` and is reversed with `POST /v1/supplier-invoices/{id}:reverse`; a goods movement's WE entry (`procurement`) is 409 `ledger.entry_owned_elsewhere` too: a goods receipt is reversed with `POST /v1/goods-receipts/{id}:reverse`, which posts its own entry. An assets document's entry (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse` (a depreciation run's entries never one by one); an accounts receivable entry (`receivables`) is 409 `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`. Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal entry. Human-only."
       x-permission: ledger.entry.post
       x-agent: false
       x-problem-codes:
@@ -17474,6 +17474,7 @@ paths:
             x-extensible-enum:
               - draft
               - posted
+              - reversed
         - name: kind
           in: query
           required: false
@@ -17664,7 +17665,7 @@ paths:
       tags:
         - receivables
       summary: Post a customer invoice
-      description: "Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's reconciliation account in the company (the customer's company data) with the customer, the invoice's gross amount, and credits each item's account with its net amount, tax code and centers, and output tax, one line per tax code and component on the component's account. The entry has the document type `DR`, the invoice's number as its reference and `source_context` `receivables`; the invoice date is its document date and its tax date. Its debit line is the customer's open item (`GET /v1/open-items`), kept with its payment terms: the term entered with the invoice, else the customer's in the company, counted from the invoice date, so its net due date is the invoice date plus the term's net days. The posting date is the request's, else the one entered with the invoice, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The invoice becomes `posted` and names its `journal_entry_id`, `journal_entry_year`, `journal_entry_number`, `posting_date`, `payment_term_code` and `net_due_date`; an audit record and CustomerInvoicePosted are written with it. A customer that is not active, no longer holds the customer role, has no data in the company or is blocked for posting there is refused (422 `receivables.customer_not_usable`). The tax is calculated again on the invoice date: when the codes no longer give the tax the invoice was entered with, it is refused (409 `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo. A credit memo (`kind` `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it credits the customer's reconciliation account with its gross amount and debits each item's account and output tax, at its own date's rates; the entry has the document type `DG`, and its credit line is the customer's open credit item, which clears against the invoice (`createClearing`) or nets when a payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo, counted from the memo's date; without one, a memo naming an invoice keeps that invoice's term from that invoice's date, so it is due when its invoice is, and a memo naming none the customer's term from its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the gross amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not exceed that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a lock on the named invoice, so of two credit memos posted at once that together exceed it one is refused. A debit memo (`kind` `debit_memo`, T75j) posts as an invoice does, debiting the customer and crediting its items' accounts and output tax at its own date's rates, with the entry's document type `DD` (number range `journal_dd`; 422 `config.no_number_range` in a company without it): its debit line is the customer's open item, with the term entered with it, else the customer's in the company, counted from its own date. Human-only (`x-agent: false`)."
+      description: "Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's reconciliation account in the company (the customer's company data) with the customer, the invoice's gross amount, and credits each item's account with its net amount, tax code and centers, and output tax, one line per tax code and component on the component's account. The entry has the document type `DR`, the invoice's number as its reference and `source_context` `receivables`; the invoice date is its document date and its tax date. Its debit line is the customer's open item (`GET /v1/open-items`), kept with its payment terms: the term entered with the invoice, else the customer's in the company, counted from the invoice date, so its net due date is the invoice date plus the term's net days. The posting date is the request's, else the one entered with the invoice, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The invoice becomes `posted` and names its `journal_entry_id`, `journal_entry_year`, `journal_entry_number`, `posting_date`, `payment_term_code` and `net_due_date`; an audit record and CustomerInvoicePosted are written with it. A customer that is not active, no longer holds the customer role, has no data in the company or is blocked for posting there is refused (422 `receivables.customer_not_usable`). The tax is calculated again on the invoice date: when the codes no longer give the tax the invoice was entered with, it is refused (409 `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo; a credit memo or debit memo is reversed by `reverseCustomerInvoice` (T75k). A credit memo (`kind` `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it credits the customer's reconciliation account with its gross amount and debits each item's account and output tax, at its own date's rates; the entry has the document type `DG`, and its credit line is the customer's open credit item, which clears against the invoice (`createClearing`) or nets when a payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo, counted from the memo's date; without one, a memo naming an invoice keeps that invoice's term from that invoice's date, so it is due when its invoice is, and a memo naming none the customer's term from its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the gross amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not exceed that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid invoice is credited too; a reversed credit memo (`reverseCustomerInvoice`, T75k) frees its amount; a credit memo naming no invoice has no such limit. It is checked under a lock on the named invoice, so of two credit memos posted at once that together exceed it one is refused. A debit memo (`kind` `debit_memo`, T75j) posts as an invoice does, debiting the customer and crediting its items' accounts and output tax at its own date's rates, with the entry's document type `DD` (number range `journal_dd`; 422 `config.no_number_range` in a company without it): its debit line is the customer's open item, with the term entered with it, else the customer's in the company, counted from its own date. Human-only (`x-agent: false`)."
       x-permission: receivables.invoice.post
       x-agent: false
       x-problem-codes:
@@ -17751,6 +17752,103 @@ paths:
       responses:
         "200":
           description: The customer invoice, posted.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/customer-invoices/{id}:reverse":
+    post:
+      operationId: reverseCustomerInvoice
+      tags:
+        - receivables
+      summary: Reverse a customer credit memo or debit memo
+      description: "Reverses a posted customer credit memo or debit memo, once (ADR-0063 As built T75k): the ledger posts the reversal of its journal entry, the original's lines with the signs turned, its document type, reference and `source_context` kept, its tax items taken back on the original's tax date, and clears the memo's open item against the reversal's, so neither is open. The reversal posts on `posting_date`, else on the memo's own posting date; that date must be in an open period (409 `ledger.period_not_open`, the period's problem: give a date in an open period) and not before the memo posted (422 `receivables.reversal_before_posting` naming `posting_date`). The document becomes `reversed` and shows its reversal (`reversal_entry_id`, `reversal_entry_year`, `reversal_entry_number`, `reversal_posting_date`) and the `reason`; an audit record and CustomerInvoiceReversed, without the reason, are written with it. A reversed credit memo no longer counts against the gross amount of the invoice it names (`postCustomerInvoice`, 422 `receivables.credit_exceeds_invoice`): the credit it took is free for another memo. Refused: a document that is not posted, a draft or one reversed already (409 `receivables.invalid_status`); an invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit memo another context entered from its own document, a billing document's cancellation or a credit memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is corrected there; a memo whose open item is cleared, netted when a payment was applied or cleared against its invoice (409 `receivables.document_cleared`: undo that clearing first; `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`)."
+      x-permission: receivables.invoice.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unknown_unit
+        - receivables.document_cleared
+        - receivables.entered_from_source
+        - receivables.invalid_status
+        - receivables.invoice_not_reversible
+        - receivables.reversal_before_posting
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of reverseCustomerInvoice.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerInvoiceReverse"
+            examples:
+              reverse:
+                summary: Reverse a debit memo entered twice
+                value:
+                  reason: Freight charged twice; the first debit memo stands.
+      responses:
+        "200":
+          description: The credit memo or debit memo, reversed.
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -56586,6 +56684,16 @@ components:
           maxItems: 999
           items: {$ref: "#/components/schemas/CustomerInvoiceItemCreate"}
           description: "The items, numbered in this order from 1."
+    CustomerInvoiceReverse:
+      type: object
+      description: Reverse a posted customer credit memo or debit memo.
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 200, description: "Why the document is reversed: a text, not white space alone (422 `request.validation_failed` naming `reason`). Kept with the document; not in the event or the audit record."}
+        posting_date: {type: string, format: date, description: "The reversal's posting date: in an open period and not before the document posted; absent: the document's own posting date."}
+      examples:
+        - reason: Freight charged twice; the first debit memo stands.
     CustomerInvoicePost:
       type: object
       description: Options for posting a customer invoice.
@@ -56643,8 +56751,8 @@ components:
             gross_amount: {$ref: "#/components/schemas/Money", description: "`net_amount` and `tax_amount`: what the customer owes for an invoice or a debit memo, what the customer is credited by a credit memo."}
             status:
               type: string
-              x-extensible-enum: [draft, posted]
-              description: "`draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its line on the customer's reconciliation account is the customer's open item, a debit for an invoice or a debit memo and a credit for a credit memo. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [draft, posted, reversed]
+              description: "`draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its line on the customer's reconciliation account is the customer's open item, a debit for an invoice or a debit memo and a credit for a credit memo. `reversed`: a credit memo or debit memo whose entry was reversed (`reverseCustomerInvoice`, T75k); its item is cleared against the reversal's, and neither is open. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             payment_term_code: {type: string, description: "The payment term entered; once posted, the term the invoice posted with (the customer's in the company when none was entered). Absent on a draft entered without one.", readOnly: true}
             net_due_date: {type: string, format: date, description: "When the document's open item is due, as the ledger keeps it with the item: the invoice date plus its payment term's net days; for a credit memo that names an invoice and no term of its own, when that invoice is due. Absent until posted.", readOnly: true}
@@ -56653,6 +56761,11 @@ components:
             journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
             source_document_id: {type: string, format: uuid, description: "The document the invoice was entered from: the billing document that posted it (`GET /v1/billing-documents/{id}`, `postBillingDocument`). Absent for an invoice a person entered (`createCustomerInvoice`).", readOnly: true}
             source_document_number: {type: string, description: "That document's number; absent with `source_document_id`.", readOnly: true}
+            reversal_entry_id: {type: string, format: uuid, description: "The journal entry that reversed the document's entry (`GET /v1/journal-entries/{id}`, `reverseCustomerInvoice`). Absent unless `reversed`.", readOnly: true}
+            reversal_entry_year: {type: integer, format: int32, description: "The reversal entry's fiscal year. Absent unless `reversed`.", readOnly: true}
+            reversal_entry_number: {type: string, description: "The reversal entry's document number. Absent unless `reversed`.", readOnly: true}
+            reversal_posting_date: {type: string, format: date, description: "The date the reversal posted on. Absent unless `reversed`.", readOnly: true}
+            reversal_reason: {type: string, description: "Why the document was reversed, as given. Absent unless `reversed`.", readOnly: true}
             items:
               type: array
               items: {$ref: "#/components/schemas/CustomerInvoiceItem"}

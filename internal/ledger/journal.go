@@ -1561,7 +1561,10 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry, cancelling uu
 // (goods-receipts/{id}:reverse, T33), and assets, whose documents are
 // reversed through their own paths (asset-acquisitions/{id}:reverse,
 // ADR-0057 §4), and controlling, whose settlements are reversed by
-// internal-orders/{id}/settlements/{settlement id}:reverse (T60i). Entries
+// internal-orders/{id}/settlements/{settlement id}:reverse (T60i), and
+// receivables, whose credit and debit memos are reversed by
+// customer-invoices/{id}:reverse (T75k) and whose applications are undone
+// by incoming-payments/{id}:reset (T75i). Entries
 // of contexts without such a
 // reversal stay the ledger's to reverse: manual ones, those a migration run
 // loaded (their source document is the load run), and payments (whose
@@ -1588,6 +1591,12 @@ func requireOwnEntry(orig Entry) error {
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for controlling document "+orig.SourceDocumentID.String()+
 			"; an internal order's settlement is reversed with POST /v1/internal-orders/{order id}/settlements/"+orig.SourceDocumentID.String()+
 			":reverse, and an allocation cycle's run is not reversed.")
+	case orig.SourceContext == "receivables" && orig.SourceDocumentID != nil:
+		// A customer invoice's, credit memo's or debit memo's, or an
+		// incoming payment's application (ADR-0063 §5, As built T75i, T75k).
+		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for receivables document "+orig.SourceDocumentID.String()+
+			"; a customer credit memo or debit memo is reversed with POST /v1/customer-invoices/"+orig.SourceDocumentID.String()+
+			":reverse, a customer invoice is corrected by a credit memo, and an incoming payment's application is undone with POST /v1/incoming-payments/{id}:reset.")
 	case orig.SourceContext == "assets" && orig.SourceDocumentID != nil:
 		// The entry does not say which kind of assets document posted it,
 		// so the document's paths are named (ADR-0057 §4).

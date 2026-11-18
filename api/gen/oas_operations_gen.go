@@ -547,6 +547,7 @@ const (
 	ReverseAssetAcquisitionOperation               OperationName = "ReverseAssetAcquisition"
 	ReverseAssetRetirementOperation                OperationName = "ReverseAssetRetirement"
 	ReverseAssetTransferOperation                  OperationName = "ReverseAssetTransfer"
+	ReverseCustomerInvoiceOperation                OperationName = "ReverseCustomerInvoice"
 	ReverseGoodsReceiptOperation                   OperationName = "ReverseGoodsReceipt"
 	ReverseInternalOrderSettlementOperation        OperationName = "ReverseInternalOrderSettlement"
 	ReverseJournalEntryOperation                   OperationName = "ReverseJournalEntry"

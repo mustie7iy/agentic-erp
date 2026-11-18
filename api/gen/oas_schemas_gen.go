@@ -27484,6 +27484,7 @@ func (*ConflictHeaders) retireEntryTemplateRes()                   {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
 func (*ConflictHeaders) reverseAssetRetirementRes()                {}
 func (*ConflictHeaders) reverseAssetTransferRes()                  {}
+func (*ConflictHeaders) reverseCustomerInvoiceRes()                {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()                   {}
 func (*ConflictHeaders) reverseInternalOrderSettlementRes()        {}
 func (*ConflictHeaders) reverseJournalEntryRes()                   {}
@@ -37587,8 +37588,10 @@ type CustomerInvoice struct {
 	GrossAmount Money `json:"gross_amount"`
 	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its line on
 	// the customer's reconciliation account is the customer's open item, a debit for an invoice or a debit
-	// memo and a credit for a credit memo. Open enumeration: clients must accept and preserve values not
-	// listed here; values may be added within /v1.
+	// memo and a credit for a credit memo. `reversed`: a credit memo or debit memo whose entry was
+	// reversed (`reverseCustomerInvoice`, T75k); its item is cleared against the reversal's, and neither
+	// is open. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
 	Status string `json:"status"`
 	// The payment term entered; once posted, the term the invoice posted with (the customer's in the
 	// company when none was entered). Absent on a draft entered without one.
@@ -37609,6 +37612,17 @@ type CustomerInvoice struct {
 	SourceDocumentID OptUUID `json:"source_document_id"`
 	// That document's number; absent with `source_document_id`.
 	SourceDocumentNumber OptString `json:"source_document_number"`
+	// The journal entry that reversed the document's entry (`GET /v1/journal-entries/{id}`,
+	// `reverseCustomerInvoice`). Absent unless `reversed`.
+	ReversalEntryID OptUUID `json:"reversal_entry_id"`
+	// The reversal entry's fiscal year. Absent unless `reversed`.
+	ReversalEntryYear OptInt32 `json:"reversal_entry_year"`
+	// The reversal entry's document number. Absent unless `reversed`.
+	ReversalEntryNumber OptString `json:"reversal_entry_number"`
+	// The date the reversal posted on. Absent unless `reversed`.
+	ReversalPostingDate OptDate `json:"reversal_posting_date"`
+	// Why the document was reversed, as given. Absent unless `reversed`.
+	ReversalReason OptString `json:"reversal_reason"`
 	// The items, by item number.
 	Items []CustomerInvoiceItem `json:"items"`
 }
@@ -37761,6 +37775,31 @@ func (s *CustomerInvoice) GetSourceDocumentID() OptUUID {
 // GetSourceDocumentNumber returns the value of SourceDocumentNumber.
 func (s *CustomerInvoice) GetSourceDocumentNumber() OptString {
 	return s.SourceDocumentNumber
+}
+
+// GetReversalEntryID returns the value of ReversalEntryID.
+func (s *CustomerInvoice) GetReversalEntryID() OptUUID {
+	return s.ReversalEntryID
+}
+
+// GetReversalEntryYear returns the value of ReversalEntryYear.
+func (s *CustomerInvoice) GetReversalEntryYear() OptInt32 {
+	return s.ReversalEntryYear
+}
+
+// GetReversalEntryNumber returns the value of ReversalEntryNumber.
+func (s *CustomerInvoice) GetReversalEntryNumber() OptString {
+	return s.ReversalEntryNumber
+}
+
+// GetReversalPostingDate returns the value of ReversalPostingDate.
+func (s *CustomerInvoice) GetReversalPostingDate() OptDate {
+	return s.ReversalPostingDate
+}
+
+// GetReversalReason returns the value of ReversalReason.
+func (s *CustomerInvoice) GetReversalReason() OptString {
+	return s.ReversalReason
 }
 
 // GetItems returns the value of Items.
@@ -37916,6 +37955,31 @@ func (s *CustomerInvoice) SetSourceDocumentID(val OptUUID) {
 // SetSourceDocumentNumber sets the value of SourceDocumentNumber.
 func (s *CustomerInvoice) SetSourceDocumentNumber(val OptString) {
 	s.SourceDocumentNumber = val
+}
+
+// SetReversalEntryID sets the value of ReversalEntryID.
+func (s *CustomerInvoice) SetReversalEntryID(val OptUUID) {
+	s.ReversalEntryID = val
+}
+
+// SetReversalEntryYear sets the value of ReversalEntryYear.
+func (s *CustomerInvoice) SetReversalEntryYear(val OptInt32) {
+	s.ReversalEntryYear = val
+}
+
+// SetReversalEntryNumber sets the value of ReversalEntryNumber.
+func (s *CustomerInvoice) SetReversalEntryNumber(val OptString) {
+	s.ReversalEntryNumber = val
+}
+
+// SetReversalPostingDate sets the value of ReversalPostingDate.
+func (s *CustomerInvoice) SetReversalPostingDate(val OptDate) {
+	s.ReversalPostingDate = val
+}
+
+// SetReversalReason sets the value of ReversalReason.
+func (s *CustomerInvoice) SetReversalReason(val OptString) {
+	s.ReversalReason = val
 }
 
 // SetItems sets the value of Items.
@@ -38412,6 +38476,37 @@ func (s *CustomerInvoicePost) GetPostingDate() OptDate {
 
 // SetPostingDate sets the value of PostingDate.
 func (s *CustomerInvoicePost) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// Reverse a posted customer credit memo or debit memo.
+// Ref: #/components/schemas/CustomerInvoiceReverse
+type CustomerInvoiceReverse struct {
+	// Why the document is reversed: a text, not white space alone (422 `request.validation_failed` naming
+	// `reason`). Kept with the document; not in the event or the audit record.
+	Reason string `json:"reason"`
+	// The reversal's posting date: in an open period and not before the document posted; absent: the
+	// document's own posting date.
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetReason returns the value of Reason.
+func (s *CustomerInvoiceReverse) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CustomerInvoiceReverse) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetReason sets the value of Reason.
+func (s *CustomerInvoiceReverse) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CustomerInvoiceReverse) SetPostingDate(val OptDate) {
 	s.PostingDate = val
 }
 
@@ -82295,7 +82390,8 @@ func (s *PostCustomerInvoiceOKHeaders) SetResponse(val CustomerInvoice) {
 	s.Response = val
 }
 
-func (*PostCustomerInvoiceOKHeaders) postCustomerInvoiceRes() {}
+func (*PostCustomerInvoiceOKHeaders) postCustomerInvoiceRes()    {}
+func (*PostCustomerInvoiceOKHeaders) reverseCustomerInvoiceRes() {}
 
 type PostCustomerInvoicePreconditionFailed Problem
 
@@ -95927,6 +96023,30 @@ type ReverseAssetTransferUnprocessableEntity Problem
 
 func (*ReverseAssetTransferUnprocessableEntity) reverseAssetTransferRes() {}
 
+type ReverseCustomerInvoiceBadRequest Problem
+
+func (*ReverseCustomerInvoiceBadRequest) reverseCustomerInvoiceRes() {}
+
+type ReverseCustomerInvoiceForbidden Problem
+
+func (*ReverseCustomerInvoiceForbidden) reverseCustomerInvoiceRes() {}
+
+type ReverseCustomerInvoiceNotFound Problem
+
+func (*ReverseCustomerInvoiceNotFound) reverseCustomerInvoiceRes() {}
+
+type ReverseCustomerInvoicePreconditionFailed Problem
+
+func (*ReverseCustomerInvoicePreconditionFailed) reverseCustomerInvoiceRes() {}
+
+type ReverseCustomerInvoicePreconditionRequired Problem
+
+func (*ReverseCustomerInvoicePreconditionRequired) reverseCustomerInvoiceRes() {}
+
+type ReverseCustomerInvoiceUnprocessableEntity Problem
+
+func (*ReverseCustomerInvoiceUnprocessableEntity) reverseCustomerInvoiceRes() {}
+
 type ReverseGoodsReceiptBadRequest Problem
 
 func (*ReverseGoodsReceiptBadRequest) reverseGoodsReceiptRes() {}
@@ -108145,6 +108265,7 @@ func (*TooManyRequestsHeaders) retireEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()                {}
 func (*TooManyRequestsHeaders) reverseAssetTransferRes()                  {}
+func (*TooManyRequestsHeaders) reverseCustomerInvoiceRes()                {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()                   {}
 func (*TooManyRequestsHeaders) reverseInternalOrderSettlementRes()        {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()                   {}
@@ -109055,6 +109176,7 @@ func (*UnauthorizedHeaders) retireEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()                {}
 func (*UnauthorizedHeaders) reverseAssetTransferRes()                  {}
+func (*UnauthorizedHeaders) reverseCustomerInvoiceRes()                {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()                   {}
 func (*UnauthorizedHeaders) reverseInternalOrderSettlementRes()        {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()                   {}
