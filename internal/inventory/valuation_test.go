@@ -516,11 +516,15 @@ func TestValuationAtOnce(t *testing.T) {
 				statuses[i], _, _ = e.Do("POST", docs, body(t, "501", e.item("1", "EA", map[string]any{"amount": amount(fmt.Sprintf("%d.00", i))})), "")
 				return
 			}
-			for {
-				_, tag := e.Must(200, "GET", valuations+"/"+id, "", "")
-				status, _, _ := e.Do("POST", valuations+"/"+id+":changePrice", fmt.Sprintf(`{"price": {"amount": "%d.00", "currency": "EUR"}}`, 5+i), tag)
-				if status != 412 { // another write came first: read again
-					statuses[i] = status
+			// Another write may come first (412): read again, at most 50
+			// times. Only Do, which fails no test, runs off the test's
+			// goroutine.
+			for range 50 {
+				status, _, tag := e.Do("GET", valuations+"/"+id, "", "")
+				if status == 200 {
+					status, _, _ = e.Do("POST", valuations+"/"+id+":changePrice", fmt.Sprintf(`{"price": {"amount": "%d.00", "currency": "EUR"}}`, 5+i), tag)
+				}
+				if statuses[i] = status; status != 412 {
 					return
 				}
 			}

@@ -13321,9 +13321,10 @@ step_goods_movements() {
     createMaterialDocument -body "{\"movement_type\": \"561\", \"header_text\": \"Opening count of the main store\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\",
       \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"5\", \"unit\": \"BOX\"}}]}"
   case "$(field .number)" in MD*) ;; *) fail "the material document's number: got $(field .number), want one of the MD range" ;; esac
+  doc=$(field .journal_entry_id)
   expect "the opening stock" "$(stock_at "$MAIN_STORE")" "100 EA"
   say "Its entry (WE) puts the stock on 1416 against the initial entries of 3996:"
-  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$doc"
   say "A delivery of 100 more arrives without an order, worth 300.00 CAD (501): the moving price rises to 2.50:"
   api 201 '"material document \(.number) (\(.movement_type)): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) worth \(.lines[0].amount.amount) \(.lines[0].amount.currency)"' \
     createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
