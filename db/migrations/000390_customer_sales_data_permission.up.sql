@@ -13,7 +13,9 @@ INSERT INTO ref.permission (code, description, is_approval) VALUES
 -- earliest (the database's day, as a grant's own default; the copy gives
 -- what the old permission gave, so it starts when the new one exists).
 -- A grant ended before today is not copied. The copy names the person
--- who made the grant it copies. A tenant then takes the write from its
+-- who made the grant it copies; its id is gen_random_uuid()'s (v4, not
+-- the application's v7), so in a list by id a copy does not fall in
+-- creation order among grants made through the API; harmless. A tenant then takes the write from its
 -- pricing roles (the product owner's separation); nothing does that for
 -- it, as a role's purpose is not recorded.
 --

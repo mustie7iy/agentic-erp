@@ -402,10 +402,13 @@ create with such a match is refused (409) unless the request confirms it.
   `ledger.entry_owned_elsewhere`, `requireOwnEntry`) naming where it is
   reversed, as it names the other owners': a material document's entry
   (WE, WA) with `POST /v1/material-documents/{id}:reverse` and the
-  document's id; a price change's (PR, S1d) names no reversal, since a
-  price change is corrected by another price change
-  (`POST /v1/material-valuations/{valuation id}:changePrice`; SAP's MR21,
-  from memory). Before, the refusal said no reversal path existed.
+  document's id (a reversal document is not reversed again); a price
+  change's (PR, S1d) names no reversal, since a price change is corrected
+  by another price change (SAP's MR21, from memory): the entry does not
+  name the valuation, so the detail names the material by its number (the
+  entry's reference) and the reads that find its plant's valuation
+  (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`)
+  before `POST /v1/material-valuations/{id}:changePrice` (review round 1). Before, the refusal said no reversal path existed.
   `TestReversalBelongsToTheOwner`.
 
 ### S1d (2026-11-18)

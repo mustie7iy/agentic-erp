@@ -1619,14 +1619,22 @@ func requireOwnEntry(orig Entry) error {
 // (ADR-0082 §7, §8). A material document's (WE, WA) names the document's
 // reversal. A price change's (PR) names no reversal: a price change is
 // corrected by another (SAP's MR21, from memory) on the material's
-// valuation, whose id the entry does not hold.
+// valuation, which the entry does not name; it names the material by its
+// number (the entry's reference, inventory's revalue), from which the
+// consumer finds the valuation.
 func inventoryOwned(orig Entry) error {
 	if orig.DocumentType == "PR" {
-		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for inventory price change "+orig.SourceDocumentID.String()+
-			"; a price change is not reversed but corrected by another, with POST /v1/material-valuations/{valuation id}:changePrice.")
+		material := ""
+		if orig.Reference != nil {
+			material = " of material " + *orig.Reference
+		}
+		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for inventory price change "+orig.SourceDocumentID.String()+material+
+			"; a price change is not reversed but corrected by another: find the material with GET /v1/materials?number=, its plant's valuation with "+
+			"GET /v1/material-valuations?material_id=, and change its price with POST /v1/material-valuations/{id}:changePrice.")
 	}
 	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for material document "+orig.SourceDocumentID.String()+
-		"; a material document is reversed with POST /v1/material-documents/"+orig.SourceDocumentID.String()+":reverse, which posts its own entry.")
+		"; a material document is reversed with POST /v1/material-documents/"+orig.SourceDocumentID.String()+
+		":reverse, which posts its own entry (a reversal document is not reversed again).")
 }
 
 // reversalLines are the entry's lines with every amount and quantity

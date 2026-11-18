@@ -7935,7 +7935,9 @@ type Invoker interface {
 	// inventory entry (`inventory`) is 409 `ledger.entry_owned_elsewhere` naming its path: a material
 	// document's entry is reversed with `POST /v1/material-documents/{id}:reverse`, which posts its own
 	// entry, and a price change's (document type `PR`) is not reversed but corrected by another price
-	// change (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409
+	// change: the detail names the material by its number, whose plant's valuation
+	// (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`) takes the new price
+	// (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409
 	// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
 	// entry. Human-only.
 	//
@@ -110154,7 +110156,9 @@ func (c *Client) sendReverseInternalOrderSettlement(ctx context.Context, params 
 // inventory entry (`inventory`) is 409 `ledger.entry_owned_elsewhere` naming its path: a material
 // document's entry is reversed with `POST /v1/material-documents/{id}:reverse`, which posts its own
 // entry, and a price change's (document type `PR`) is not reversed but corrected by another price
-// change (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409
+// change: the detail names the material by its number, whose plant's valuation
+// (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`) takes the new price
+// (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409
 // `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
 // entry. Human-only.
 //

@@ -282,11 +282,12 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 	e := setup(t)
 	expense, ap := uuid.MustParse(e.account(t, "2000", "520000")), uuid.MustParse(e.account(t, "2000", "211000"))
 	postAs := func(source, docType string) ledger.Entry {
+		material := "MA0000001" // a price change's entry names its material (inventory's revalue)
 		t.Helper()
 		var entry ledger.Entry
 		if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
 			entry, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: docType, DocumentDate: date("2026-03-01"),
-				PostingDate: date("2026-03-02"), Currency: "EUR", SourceContext: source, SourceDocumentID: uuid.New(),
+				PostingDate: date("2026-03-02"), Currency: "EUR", Reference: &material, SourceContext: source, SourceDocumentID: uuid.New(),
 				Lines: []ledger.PostingLine{{AccountID: expense, Amount: 100}, {AccountID: ap, Amount: -100, PartnerID: &e.supplier}}})
 			return err
 		}); err != nil {
@@ -316,6 +317,9 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 			}
 			if want := "/v1/material-documents/" + entry.SourceDocumentID.String() + ":reverse"; c.docType == "WE" && !strings.Contains(detail, want) {
 				t.Errorf("detail: got %q, want the material document's reversal %s", detail, want)
+			}
+			if want := "of material MA0000001"; c.docType == "PR" && !strings.Contains(detail, want) {
+				t.Errorf("detail: got %q, want the price change's material named (%s)", detail, want)
 			}
 			if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 				_, err := postings().Reverse(ctx, entry.ID, nil, nil)
