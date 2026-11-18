@@ -519,6 +519,67 @@ type AccountDetermination struct {
 	// (Receivables.PaymentTolerance).
 	PaymentDifferenceExpense string `yaml:"payment_difference_expense,omitempty" json:"payment_difference_expense,omitempty"`
 	PaymentDifferenceRevenue string `yaml:"payment_difference_revenue,omitempty" json:"payment_difference_revenue,omitempty"`
+	// Inventory are the accounts goods movements and price changes of
+	// materials post to, per valuation class (ADR-0082 §8, S1d; SAP's
+	// T030 keys BSX, GBB, PRD and UMB by valuation class, from memory).
+	// A company without them values no material.
+	Inventory []InventoryAccounts `yaml:"inventory,omitempty" json:"inventory,omitempty"`
+}
+
+// InventoryAccounts are a valuation class's accounts (ADR-0082 §8): the
+// stock account, an asset, and the accounts each movement posts its
+// value against. A movement or price change that needs an account its
+// class lacks is refused; Stock is required.
+type InventoryAccounts struct {
+	// ValuationClass is SAP's BKLAS: 1 to 4 capitals or digits, once in
+	// the company.
+	ValuationClass string `yaml:"valuation_class" json:"valuation_class"`
+	Stock          string `yaml:"stock" json:"stock"` // BSX
+	// Receipt takes a receipt without a purchase order (501, GBB ZOB) and
+	// InitialEntry an initial entry of stock (561, GBB BSA): clearing or
+	// P&L accounts as the tenant keeps them, of any type.
+	Receipt      string `yaml:"receipt,omitempty" json:"receipt,omitempty"`
+	InitialEntry string `yaml:"initial_entry,omitempty" json:"initial_entry,omitempty"`
+	// Consumption takes an issue to a cost center (201, GBB VBR) and
+	// Scrapping a scrapping (551, GBB VNG): expenses, which the issue's
+	// cost center is posted with.
+	Consumption string `yaml:"consumption,omitempty" json:"consumption,omitempty"`
+	Scrapping   string `yaml:"scrapping,omitempty" json:"scrapping,omitempty"`
+	// PriceDifference takes what a standard-priced material's receipt or
+	// transfer is valued at beyond its standard price (PRD), and
+	// Revaluation a price change's revaluation of the stock (UMB): both
+	// expenses, holding gains and losses alike.
+	PriceDifference string `yaml:"price_difference,omitempty" json:"price_difference,omitempty"`
+	Revaluation     string `yaml:"revaluation,omitempty" json:"revaluation,omitempty"`
+}
+
+// InventoryKey is the account determination key of a valuation class's
+// account (ledger.account_determination): its kind and the class.
+func InventoryKey(kind, valuationClass string) string {
+	return "inventory_" + kind + ":" + valuationClass
+}
+
+// Accounts are the class's accounts by kind (stock, receipt,
+// initial_entry, consumption, scrapping, price_difference, revaluation),
+// in that order, the empty ones too.
+func (a InventoryAccounts) Accounts() [][2]string {
+	return [][2]string{{"stock", a.Stock}, {"receipt", a.Receipt}, {"initial_entry", a.InitialEntry}, {"consumption", a.Consumption},
+		{"scrapping", a.Scrapping}, {"price_difference", a.PriceDifference}, {"revaluation", a.Revaluation}}
+}
+
+// InventoryClass is the company's valuation class with the code, ok =
+// false when it has none; a company the configuration lacks (nil) has
+// none.
+func (c *Company) InventoryClass(code string) (InventoryAccounts, bool) {
+	if c == nil {
+		return InventoryAccounts{}, false
+	}
+	for _, a := range c.AccountDetermination.Inventory {
+		if a.ValuationClass == code {
+			return a, true
+		}
+	}
+	return InventoryAccounts{}, false
 }
 
 // WithholdingTaxCode is a withholding tax deducted from what a supplier is

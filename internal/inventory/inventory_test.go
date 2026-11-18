@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/inventory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -21,7 +22,8 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"materials.material.read", "materials.material.write", "tenancy.org.manage", "inventory.movement.post", "inventory.stock.read"}
+var perms = []string{"materials.material.read", "materials.material.write", "tenancy.org.manage", "inventory.movement.post", "inventory.stock.read",
+	"inventory.valuation.read", "inventory.valuation.write", "ledger.entry.read"}
 
 const docs = "/v1/material-documents"
 
@@ -39,7 +41,7 @@ type env struct {
 
 func setup(t *testing.T) env {
 	t.Helper()
-	e := env{Env: fixture.New(t, perms...)}
+	e := env{Env: fixture.NewWith(t, nil, valued, perms...)}
 	e.p1 = e.orgUnit(t, e.DE, "plant", "P1", nil)
 	e.s1 = e.orgUnit(t, e.DE, "storage_location", "S1", &e.p1)
 	e.s2 = e.orgUnit(t, e.DE, "storage_location", "S2", &e.p1)
@@ -48,9 +50,36 @@ func setup(t *testing.T) env {
 	e.p3 = e.orgUnit(t, e.US, "plant", "P3", nil)
 	e.s4 = e.orgUnit(t, e.US, "storage_location", "S4", &e.p3)
 	e.bracket = e.material(t, "Machined bracket M10", "trading_good", true)
+	e.value(t, e.bracket, e.p1, "moving_average", "2.00")
+	e.value(t, e.bracket, e.p2, "moving_average", "2.00")
 	e.c1 = e.CostCenterFrom(t, e.DE, "C1", "2026-01-01", nil)
 	e.c9 = e.CostCenterFrom(t, e.US, "C9", "2026-01-01", nil)
 	return e
+}
+
+// valued gives company 2000 the accounts of valuation class 3000, the
+// stock account alone of class 3100 and the stock and initial entry
+// accounts of class 3200.
+func valued(c *config.Config) {
+	de := c.Company("2000")
+	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "150000", Name: "Inventory", Type: config.Asset},
+		config.Account{Number: "219000", Name: "Receipts without order", Type: config.Liability},
+		config.Account{Number: "391000", Name: "Initial entries of stock", Type: config.Equity},
+		config.Account{Number: "515000", Name: "Consumption", Type: config.Expense}, config.Account{Number: "516000", Name: "Scrapping", Type: config.Expense},
+		config.Account{Number: "517000", Name: "Price differences", Type: config.Expense},
+		config.Account{Number: "518000", Name: "Revaluation", Type: config.Expense})
+	de.AccountDetermination.Inventory = []config.InventoryAccounts{{ValuationClass: "3000", Stock: "150000", Receipt: "219000", InitialEntry: "391000",
+		Consumption: "515000", Scrapping: "516000", PriceDifference: "517000", Revaluation: "518000"}, {ValuationClass: "3100", Stock: "150000"},
+		{ValuationClass: "3200", Stock: "150000", InitialEntry: "391000"}}
+}
+
+// value values the material in the plant at the price in EUR per base
+// unit, under class 3000, and returns the valuation.
+func (e env) value(t *testing.T, material string, plant uuid.UUID, control, price string) map[string]any {
+	t.Helper()
+	got, _ := e.Must(201, "POST", "/v1/material-valuations", mustJSON(t, map[string]any{"material_id": material, "plant_id": plant,
+		"valuation_class": "3000", "price_control": control, "price": map[string]any{"amount": price, "currency": "EUR"}}), "")
+	return got
 }
 
 // orgUnit creates an active org unit of the company through the API.

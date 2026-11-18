@@ -22,7 +22,10 @@ func documentAPI(d Document, r refs) gen.MaterialDocument {
 		FiscalYear: int32(d.FiscalYear), MovementType: d.MovementType, MovementTypeName: movementTypes[d.MovementType].name, PostingDate: d.PostingDate,
 		HeaderText: apitypes.OptString(d.HeaderText), ReversalOfID: apitypes.OptUUID(d.ReversalOfID), ReversalOfNumber: apitypes.OptString(d.ReversalOfNumber),
 		ReversedByID: apitypes.OptUUID(d.ReversedByID), ReversedByNumber: apitypes.OptString(d.ReversedByNumber), CreatedAt: d.CreatedAt, CreatedBy: d.CreatedBy,
-		Lines: make([]gen.MaterialDocumentLine, len(d.Lines))}
+		JournalEntryID: apitypes.OptUUID(d.EntryID), JournalEntryNumber: apitypes.OptString(d.EntryNumber), Lines: make([]gen.MaterialDocumentLine, len(d.Lines))}
+	if d.EntryYear != nil {
+		out.JournalEntryYear = gen.NewOptInt32(int32(*d.EntryYear))
+	}
 	for i, l := range d.Lines {
 		m, plant, loc := r.materials[l.MaterialID], r.units[l.PlantID], r.units[l.StorageLocationID]
 		line := gen.MaterialDocumentLine{LineNo: int32(l.LineNo), ItemNo: int32(l.ItemNo), MaterialID: l.MaterialID, MaterialNumber: m.Number,
@@ -31,6 +34,10 @@ func documentAPI(d Document, r refs) gen.MaterialDocument {
 			EntryQuantity: gen.Quantity{Value: l.EntryQuantity, Unit: l.EntryUnit}, CostCenterID: apitypes.OptUUID(l.CostCenterID)}
 		if l.CostCenterID != nil {
 			line.CostCenterCode = gen.NewOptString(r.centers[*l.CostCenterID].Code)
+		}
+		if d.Currency != "" {
+			line.Amount = gen.NewOptMoney(apitypes.Money(l.Amount, d.Currency, d.Exponent))
+			line.PriceDifference = gen.NewOptMoney(apitypes.Money(l.Difference, d.Currency, d.Exponent))
 		}
 		out.Lines[i] = line
 	}
@@ -60,6 +67,9 @@ func (e *Endpoints) CreateMaterialDocument(ctx context.Context, req *gen.Materia
 		items[i] = ItemInput{MaterialID: it.MaterialID, PlantID: it.PlantID, StorageLocationID: it.StorageLocationID, Quantity: it.Quantity.Value,
 			Unit: it.Quantity.Unit, CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID), ToPlantID: apitypes.Ptr[uuid.UUID](it.ToPlantID),
 			ToStorageLocationID: apitypes.Ptr[uuid.UUID](it.ToStorageLocationID)}
+		if a, ok := it.Amount.Get(); ok {
+			items[i].Amount = &Amount{Value: a.Amount, Currency: a.Currency}
+		}
 	}
 	d, err := e.Post(ctx, Input{MovementType: req.MovementType, HeaderText: apitypes.Ptr[string](req.HeaderText), Items: items})
 	out, tag, err := e.one(ctx, d, err)

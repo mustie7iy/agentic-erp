@@ -23108,6 +23108,69 @@ func (s *ChangeItem) SetTier(val int32) {
 	s.Tier = val
 }
 
+type ChangeMaterialPriceBadRequest Problem
+
+func (*ChangeMaterialPriceBadRequest) changeMaterialPriceRes() {}
+
+type ChangeMaterialPriceForbidden Problem
+
+func (*ChangeMaterialPriceForbidden) changeMaterialPriceRes() {}
+
+type ChangeMaterialPriceNotFound Problem
+
+func (*ChangeMaterialPriceNotFound) changeMaterialPriceRes() {}
+
+// ChangeMaterialPriceOKHeaders wraps MaterialValuation with response headers.
+type ChangeMaterialPriceOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           MaterialValuation
+}
+
+// GetETag returns the value of ETag.
+func (s *ChangeMaterialPriceOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ChangeMaterialPriceOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ChangeMaterialPriceOKHeaders) GetResponse() MaterialValuation {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ChangeMaterialPriceOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ChangeMaterialPriceOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ChangeMaterialPriceOKHeaders) SetResponse(val MaterialValuation) {
+	s.Response = val
+}
+
+func (*ChangeMaterialPriceOKHeaders) changeMaterialPriceRes() {}
+
+type ChangeMaterialPricePreconditionFailed Problem
+
+func (*ChangeMaterialPricePreconditionFailed) changeMaterialPriceRes() {}
+
+type ChangeMaterialPricePreconditionRequired Problem
+
+func (*ChangeMaterialPricePreconditionRequired) changeMaterialPriceRes() {}
+
+type ChangeMaterialPriceUnprocessableEntity Problem
+
+func (*ChangeMaterialPriceUnprocessableEntity) changeMaterialPriceRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/ChangeRequest
 type ChangeRequest struct {
@@ -27251,6 +27314,7 @@ func (*ConflictHeaders) cancelSalesOrderRes()                      {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) captureSalesOrderRes()                     {}
 func (*ConflictHeaders) captureSupplierInvoiceRes()                {}
+func (*ConflictHeaders) changeMaterialPriceRes()                   {}
 func (*ConflictHeaders) changeSalesOrderRes()                      {}
 func (*ConflictHeaders) checkCloseTaskRes()                        {}
 func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
@@ -27312,6 +27376,7 @@ func (*ConflictHeaders) createLeaseRunRes()                        {}
 func (*ConflictHeaders) createLegalEntityRes()                     {}
 func (*ConflictHeaders) createMaterialDocumentRes()                {}
 func (*ConflictHeaders) createMaterialRes()                        {}
+func (*ConflictHeaders) createMaterialValuationRes()               {}
 func (*ConflictHeaders) createMemoRecordRes()                      {}
 func (*ConflictHeaders) createMetricWatcherRes()                   {}
 func (*ConflictHeaders) createMigrationRunRes()                    {}
@@ -27532,6 +27597,7 @@ func (*ConflictHeaders) updateDisputeCaseRes()                     {}
 func (*ConflictHeaders) updateEntryTemplateRes()                   {}
 func (*ConflictHeaders) updateLegalEntityRes()                     {}
 func (*ConflictHeaders) updateMaterialRes()                        {}
+func (*ConflictHeaders) updateMaterialValuationRes()               {}
 func (*ConflictHeaders) updateMemoRecordRes()                      {}
 func (*ConflictHeaders) updateOrgUnitRes()                         {}
 func (*ConflictHeaders) updateParkedJournalEntryRes()              {}
@@ -34698,6 +34764,18 @@ func (*CreateMaterialPreconditionRequired) createMaterialRes() {}
 type CreateMaterialUnprocessableEntity Problem
 
 func (*CreateMaterialUnprocessableEntity) createMaterialRes() {}
+
+type CreateMaterialValuationBadRequest Problem
+
+func (*CreateMaterialValuationBadRequest) createMaterialValuationRes() {}
+
+type CreateMaterialValuationForbidden Problem
+
+func (*CreateMaterialValuationForbidden) createMaterialValuationRes() {}
+
+type CreateMaterialValuationUnprocessableEntity Problem
+
+func (*CreateMaterialValuationUnprocessableEntity) createMaterialValuationRes() {}
 
 type CreateMemoRecordBadRequest Problem
 
@@ -49275,6 +49353,47 @@ func (s *GetMaterialOKHeaders) SetResponse(val Material) {
 }
 
 func (*GetMaterialOKHeaders) getMaterialRes() {}
+
+type GetMaterialValuationBadRequest Problem
+
+func (*GetMaterialValuationBadRequest) getMaterialValuationRes() {}
+
+type GetMaterialValuationForbidden Problem
+
+func (*GetMaterialValuationForbidden) getMaterialValuationRes() {}
+
+type GetMaterialValuationNotFound Problem
+
+func (*GetMaterialValuationNotFound) getMaterialValuationRes() {}
+
+// GetMaterialValuationOKHeaders wraps MaterialValuation with response headers.
+type GetMaterialValuationOKHeaders struct {
+	ETag     OptString
+	Response MaterialValuation
+}
+
+// GetETag returns the value of ETag.
+func (s *GetMaterialValuationOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetMaterialValuationOKHeaders) GetResponse() MaterialValuation {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetMaterialValuationOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetMaterialValuationOKHeaders) SetResponse(val MaterialValuation) {
+	s.Response = val
+}
+
+func (*GetMaterialValuationOKHeaders) getMaterialValuationRes()    {}
+func (*GetMaterialValuationOKHeaders) updateMaterialValuationRes() {}
 
 type GetMemoRecordBadRequest Problem
 
@@ -63946,6 +64065,14 @@ type ListMaterialDocumentsForbidden Problem
 
 func (*ListMaterialDocumentsForbidden) listMaterialDocumentsRes() {}
 
+type ListMaterialValuationsBadRequest Problem
+
+func (*ListMaterialValuationsBadRequest) listMaterialValuationsRes() {}
+
+type ListMaterialValuationsForbidden Problem
+
+func (*ListMaterialValuationsForbidden) listMaterialValuationsRes() {}
+
 type ListMaterialsBadRequest Problem
 
 func (*ListMaterialsBadRequest) listMaterialsRes() {}
@@ -66205,6 +66332,12 @@ type MaterialDocument struct {
 	ReversedByID OptUUID `json:"reversed_by_id"`
 	// That document's number; absent with it.
 	ReversedByNumber OptString `json:"reversed_by_number"`
+	// The journal entry that posted its value (`GET /v1/journal-entries/{id}`); absent when it moved none.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// That entry's fiscal year; absent with it.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// That entry's document number; absent with it.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// Its lines, in line order.
 	Lines []MaterialDocumentLine `json:"lines"`
 	// When it was posted.
@@ -66276,6 +66409,21 @@ func (s *MaterialDocument) GetReversedByID() OptUUID {
 // GetReversedByNumber returns the value of ReversedByNumber.
 func (s *MaterialDocument) GetReversedByNumber() OptString {
 	return s.ReversedByNumber
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *MaterialDocument) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *MaterialDocument) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *MaterialDocument) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
 }
 
 // GetLines returns the value of Lines.
@@ -66356,6 +66504,21 @@ func (s *MaterialDocument) SetReversedByID(val OptUUID) {
 // SetReversedByNumber sets the value of ReversedByNumber.
 func (s *MaterialDocument) SetReversedByNumber(val OptString) {
 	s.ReversedByNumber = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *MaterialDocument) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *MaterialDocument) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *MaterialDocument) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
 }
 
 // SetLines sets the value of Lines.
@@ -66485,6 +66648,9 @@ type MaterialDocumentItemInput struct {
 	// The storage location a `311` or `301` receives at: under the plant of a `311`, under `to_plant_id`
 	// of a `301`.
 	ToStorageLocationID OptUUID `json:"to_storage_location_id"`
+	// What a `501` or `561` receipt is worth, in the company's local currency (S1d); absent: its quantity
+	// at the material's price. No other movement type names one.
+	Amount OptMoney `json:"amount"`
 }
 
 // GetMaterialID returns the value of MaterialID.
@@ -66522,6 +66688,11 @@ func (s *MaterialDocumentItemInput) GetToStorageLocationID() OptUUID {
 	return s.ToStorageLocationID
 }
 
+// GetAmount returns the value of Amount.
+func (s *MaterialDocumentItemInput) GetAmount() OptMoney {
+	return s.Amount
+}
+
 // SetMaterialID sets the value of MaterialID.
 func (s *MaterialDocumentItemInput) SetMaterialID(val uuid.UUID) {
 	s.MaterialID = val
@@ -66555,6 +66726,11 @@ func (s *MaterialDocumentItemInput) SetToPlantID(val OptUUID) {
 // SetToStorageLocationID sets the value of ToStorageLocationID.
 func (s *MaterialDocumentItemInput) SetToStorageLocationID(val OptUUID) {
 	s.ToStorageLocationID = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *MaterialDocumentItemInput) SetAmount(val OptMoney) {
+	s.Amount = val
 }
 
 // A line of a material document (SAP MSEG): one stock effect of an item at a storage location, in the
@@ -66593,6 +66769,12 @@ type MaterialDocumentLine struct {
 	CostCenterID OptUUID `json:"cost_center_id"`
 	// The cost center's code; absent with it.
 	CostCenterCode OptString `json:"cost_center_code"`
+	// What the line moves in value on the material's valuation in the plant, signed as its quantity is
+	// (S1d); absent on a document posted before materials were valued.
+	Amount OptMoney `json:"amount"`
+	// What the line is valued at beyond `amount`: a standard-priced receipt's or transfer's price
+	// difference, or what a reversal gives back beyond the stock's value (S1d); absent with `amount`.
+	PriceDifference OptMoney `json:"price_difference"`
 }
 
 // GetLineNo returns the value of LineNo.
@@ -66670,6 +66852,16 @@ func (s *MaterialDocumentLine) GetCostCenterCode() OptString {
 	return s.CostCenterCode
 }
 
+// GetAmount returns the value of Amount.
+func (s *MaterialDocumentLine) GetAmount() OptMoney {
+	return s.Amount
+}
+
+// GetPriceDifference returns the value of PriceDifference.
+func (s *MaterialDocumentLine) GetPriceDifference() OptMoney {
+	return s.PriceDifference
+}
+
 // SetLineNo sets the value of LineNo.
 func (s *MaterialDocumentLine) SetLineNo(val int32) {
 	s.LineNo = val
@@ -66743,6 +66935,16 @@ func (s *MaterialDocumentLine) SetCostCenterID(val OptUUID) {
 // SetCostCenterCode sets the value of CostCenterCode.
 func (s *MaterialDocumentLine) SetCostCenterCode(val OptString) {
 	s.CostCenterCode = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *MaterialDocumentLine) SetAmount(val OptMoney) {
+	s.Amount = val
+}
+
+// SetPriceDifference sets the value of PriceDifference.
+func (s *MaterialDocumentLine) SetPriceDifference(val OptMoney) {
+	s.PriceDifference = val
 }
 
 // One page of material documents.
@@ -67006,6 +67208,23 @@ func (s *MaterialPlantInput) SetStorageLocationIds(val []uuid.UUID) {
 	s.StorageLocationIds = val
 }
 
+// A valuation's new price.
+// Ref: #/components/schemas/MaterialPriceChange
+type MaterialPriceChange struct {
+	// The new price per the valuation's price unit, in its currency.
+	Price Money `json:"price"`
+}
+
+// GetPrice returns the value of Price.
+func (s *MaterialPriceChange) GetPrice() Money {
+	return s.Price
+}
+
+// SetPrice sets the value of Price.
+func (s *MaterialPriceChange) SetPrice(val Money) {
+	s.Price = val
+}
+
 // A storage location a material is kept in at a plant.
 // Ref: #/components/schemas/MaterialStorageLocation
 type MaterialStorageLocation struct {
@@ -67220,6 +67439,428 @@ func (s *MaterialUpdate) SetAlternativeUnits(val []MaterialUnitInput) {
 // SetReason sets the value of Reason.
 func (s *MaterialUpdate) SetReason(val OptString) {
 	s.Reason = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/MaterialValuation
+type MaterialValuation struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The material.
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The valuation class, whose accounts its movements post to.
+	ValuationClass string `json:"valuation_class"`
+	// `standard` or `moving_average`. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	PriceControl string `json:"price_control"`
+	// The standard price, or the moving price, per `price_unit` base units.
+	Price Money `json:"price"`
+	// The base units the price is for.
+	PriceUnit int32 `json:"price_unit"`
+	// The material's stock in the plant, in its base unit.
+	Quantity Quantity `json:"quantity"`
+	// That stock's value.
+	Value Money `json:"value"`
+}
+
+// GetID returns the value of ID.
+func (s *MaterialValuation) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *MaterialValuation) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *MaterialValuation) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *MaterialValuation) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *MaterialValuation) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *MaterialValuation) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *MaterialValuation) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *MaterialValuation) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *MaterialValuation) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *MaterialValuation) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *MaterialValuation) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *MaterialValuation) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *MaterialValuation) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *MaterialValuation) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetValuationClass returns the value of ValuationClass.
+func (s *MaterialValuation) GetValuationClass() string {
+	return s.ValuationClass
+}
+
+// GetPriceControl returns the value of PriceControl.
+func (s *MaterialValuation) GetPriceControl() string {
+	return s.PriceControl
+}
+
+// GetPrice returns the value of Price.
+func (s *MaterialValuation) GetPrice() Money {
+	return s.Price
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *MaterialValuation) GetPriceUnit() int32 {
+	return s.PriceUnit
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *MaterialValuation) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetValue returns the value of Value.
+func (s *MaterialValuation) GetValue() Money {
+	return s.Value
+}
+
+// SetID sets the value of ID.
+func (s *MaterialValuation) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *MaterialValuation) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *MaterialValuation) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *MaterialValuation) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *MaterialValuation) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *MaterialValuation) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *MaterialValuation) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *MaterialValuation) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *MaterialValuation) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *MaterialValuation) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *MaterialValuation) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *MaterialValuation) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *MaterialValuation) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *MaterialValuation) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetValuationClass sets the value of ValuationClass.
+func (s *MaterialValuation) SetValuationClass(val string) {
+	s.ValuationClass = val
+}
+
+// SetPriceControl sets the value of PriceControl.
+func (s *MaterialValuation) SetPriceControl(val string) {
+	s.PriceControl = val
+}
+
+// SetPrice sets the value of Price.
+func (s *MaterialValuation) SetPrice(val Money) {
+	s.Price = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *MaterialValuation) SetPriceUnit(val int32) {
+	s.PriceUnit = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *MaterialValuation) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetValue sets the value of Value.
+func (s *MaterialValuation) SetValue(val Money) {
+	s.Value = val
+}
+
+// A material's valuation in a plant to create.
+// Ref: #/components/schemas/MaterialValuationCreate
+type MaterialValuationCreate struct {
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The plant, the valuation area.
+	PlantID uuid.UUID `json:"plant_id"`
+	// A valuation class of the plant's company (SAP BKLAS).
+	ValuationClass string `json:"valuation_class"`
+	// `standard` or `moving_average`. Open enumeration: values may be added within /v1.
+	PriceControl string `json:"price_control"`
+	// The standard price, or the moving price to start from, per `price_unit` base units, in the company's
+	// local currency.
+	Price Money `json:"price"`
+	// The base units the price is for.
+	PriceUnit OptInt32 `json:"price_unit"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *MaterialValuationCreate) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *MaterialValuationCreate) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetValuationClass returns the value of ValuationClass.
+func (s *MaterialValuationCreate) GetValuationClass() string {
+	return s.ValuationClass
+}
+
+// GetPriceControl returns the value of PriceControl.
+func (s *MaterialValuationCreate) GetPriceControl() string {
+	return s.PriceControl
+}
+
+// GetPrice returns the value of Price.
+func (s *MaterialValuationCreate) GetPrice() Money {
+	return s.Price
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *MaterialValuationCreate) GetPriceUnit() OptInt32 {
+	return s.PriceUnit
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *MaterialValuationCreate) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *MaterialValuationCreate) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetValuationClass sets the value of ValuationClass.
+func (s *MaterialValuationCreate) SetValuationClass(val string) {
+	s.ValuationClass = val
+}
+
+// SetPriceControl sets the value of PriceControl.
+func (s *MaterialValuationCreate) SetPriceControl(val string) {
+	s.PriceControl = val
+}
+
+// SetPrice sets the value of Price.
+func (s *MaterialValuationCreate) SetPrice(val Money) {
+	s.Price = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *MaterialValuationCreate) SetPriceUnit(val OptInt32) {
+	s.PriceUnit = val
+}
+
+// MaterialValuationHeaders wraps MaterialValuation with response headers.
+type MaterialValuationHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           MaterialValuation
+}
+
+// GetETag returns the value of ETag.
+func (s *MaterialValuationHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *MaterialValuationHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *MaterialValuationHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *MaterialValuationHeaders) GetResponse() MaterialValuation {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *MaterialValuationHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *MaterialValuationHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *MaterialValuationHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *MaterialValuationHeaders) SetResponse(val MaterialValuation) {
+	s.Response = val
+}
+
+func (*MaterialValuationHeaders) createMaterialValuationRes() {}
+
+// One page of material valuations.
+// Ref: #/components/schemas/MaterialValuationPage
+type MaterialValuationPage struct {
+	// The valuations on this page.
+	Items []MaterialValuation `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *MaterialValuationPage) GetItems() []MaterialValuation {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *MaterialValuationPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *MaterialValuationPage) SetItems(val []MaterialValuation) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *MaterialValuationPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*MaterialValuationPage) listMaterialValuationsRes() {}
+
+// Merge patch of a valuation: its class.
+// Ref: #/components/schemas/MaterialValuationUpdate
+type MaterialValuationUpdate struct {
+	// Another valuation class of the company.
+	ValuationClass string `json:"valuation_class"`
+}
+
+// GetValuationClass returns the value of ValuationClass.
+func (s *MaterialValuationUpdate) GetValuationClass() string {
+	return s.ValuationClass
+}
+
+// SetValuationClass sets the value of ValuationClass.
+func (s *MaterialValuationUpdate) SetValuationClass(val string) {
+	s.ValuationClass = val
 }
 
 // Merged schema.
@@ -109888,6 +110529,7 @@ func (*TooManyRequestsHeaders) cancelSalesOrderRes()                      {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) captureSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()                {}
+func (*TooManyRequestsHeaders) changeMaterialPriceRes()                   {}
 func (*TooManyRequestsHeaders) changeSalesOrderRes()                      {}
 func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
 func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
@@ -109949,6 +110591,7 @@ func (*TooManyRequestsHeaders) createLeaseRunRes()                        {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) createMaterialDocumentRes()                {}
 func (*TooManyRequestsHeaders) createMaterialRes()                        {}
+func (*TooManyRequestsHeaders) createMaterialValuationRes()               {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) createMetricWatcherRes()                   {}
 func (*TooManyRequestsHeaders) createMigrationRunRes()                    {}
@@ -110098,6 +110741,7 @@ func (*TooManyRequestsHeaders) getMatchResultRes()                        {}
 func (*TooManyRequestsHeaders) getMaterialChangeRes()                     {}
 func (*TooManyRequestsHeaders) getMaterialDocumentRes()                   {}
 func (*TooManyRequestsHeaders) getMaterialRes()                           {}
+func (*TooManyRequestsHeaders) getMaterialValuationRes()                  {}
 func (*TooManyRequestsHeaders) getMemoRecordRes()                         {}
 func (*TooManyRequestsHeaders) getMetricAlertRes()                        {}
 func (*TooManyRequestsHeaders) getMetricWatcherRes()                      {}
@@ -110252,6 +110896,7 @@ func (*TooManyRequestsHeaders) listLiquidityForecastFlowsRes()            {}
 func (*TooManyRequestsHeaders) listMatchResultsRes()                      {}
 func (*TooManyRequestsHeaders) listMaterialChangesRes()                   {}
 func (*TooManyRequestsHeaders) listMaterialDocumentsRes()                 {}
+func (*TooManyRequestsHeaders) listMaterialValuationsRes()                {}
 func (*TooManyRequestsHeaders) listMaterialsRes()                         {}
 func (*TooManyRequestsHeaders) listMemoRecordsRes()                       {}
 func (*TooManyRequestsHeaders) listMetricAlertsRes()                      {}
@@ -110443,6 +111088,7 @@ func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()             {}
 func (*TooManyRequestsHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*TooManyRequestsHeaders) updateLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) updateMaterialRes()                        {}
+func (*TooManyRequestsHeaders) updateMaterialValuationRes()               {}
 func (*TooManyRequestsHeaders) updateMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) updateOrgUnitRes()                         {}
 func (*TooManyRequestsHeaders) updateParkedJournalEntryRes()              {}
@@ -110809,6 +111455,7 @@ func (*UnauthorizedHeaders) cancelSalesOrderRes()                      {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) captureSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) captureSupplierInvoiceRes()                {}
+func (*UnauthorizedHeaders) changeMaterialPriceRes()                   {}
 func (*UnauthorizedHeaders) changeSalesOrderRes()                      {}
 func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
 func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
@@ -110870,6 +111517,7 @@ func (*UnauthorizedHeaders) createLeaseRunRes()                        {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) createMaterialDocumentRes()                {}
 func (*UnauthorizedHeaders) createMaterialRes()                        {}
+func (*UnauthorizedHeaders) createMaterialValuationRes()               {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) createMetricWatcherRes()                   {}
 func (*UnauthorizedHeaders) createMigrationRunRes()                    {}
@@ -111019,6 +111667,7 @@ func (*UnauthorizedHeaders) getMatchResultRes()                        {}
 func (*UnauthorizedHeaders) getMaterialChangeRes()                     {}
 func (*UnauthorizedHeaders) getMaterialDocumentRes()                   {}
 func (*UnauthorizedHeaders) getMaterialRes()                           {}
+func (*UnauthorizedHeaders) getMaterialValuationRes()                  {}
 func (*UnauthorizedHeaders) getMemoRecordRes()                         {}
 func (*UnauthorizedHeaders) getMetricAlertRes()                        {}
 func (*UnauthorizedHeaders) getMetricWatcherRes()                      {}
@@ -111173,6 +111822,7 @@ func (*UnauthorizedHeaders) listLiquidityForecastFlowsRes()            {}
 func (*UnauthorizedHeaders) listMatchResultsRes()                      {}
 func (*UnauthorizedHeaders) listMaterialChangesRes()                   {}
 func (*UnauthorizedHeaders) listMaterialDocumentsRes()                 {}
+func (*UnauthorizedHeaders) listMaterialValuationsRes()                {}
 func (*UnauthorizedHeaders) listMaterialsRes()                         {}
 func (*UnauthorizedHeaders) listMemoRecordsRes()                       {}
 func (*UnauthorizedHeaders) listMetricAlertsRes()                      {}
@@ -111364,6 +112014,7 @@ func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()             {}
 func (*UnauthorizedHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*UnauthorizedHeaders) updateLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) updateMaterialRes()                        {}
+func (*UnauthorizedHeaders) updateMaterialValuationRes()               {}
 func (*UnauthorizedHeaders) updateMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) updateOrgUnitRes()                         {}
 func (*UnauthorizedHeaders) updateParkedJournalEntryRes()              {}
@@ -112461,6 +113112,30 @@ func (*UpdateMaterialPreconditionRequired) updateMaterialRes() {}
 type UpdateMaterialUnprocessableEntity Problem
 
 func (*UpdateMaterialUnprocessableEntity) updateMaterialRes() {}
+
+type UpdateMaterialValuationBadRequest Problem
+
+func (*UpdateMaterialValuationBadRequest) updateMaterialValuationRes() {}
+
+type UpdateMaterialValuationForbidden Problem
+
+func (*UpdateMaterialValuationForbidden) updateMaterialValuationRes() {}
+
+type UpdateMaterialValuationNotFound Problem
+
+func (*UpdateMaterialValuationNotFound) updateMaterialValuationRes() {}
+
+type UpdateMaterialValuationPreconditionFailed Problem
+
+func (*UpdateMaterialValuationPreconditionFailed) updateMaterialValuationRes() {}
+
+type UpdateMaterialValuationPreconditionRequired Problem
+
+func (*UpdateMaterialValuationPreconditionRequired) updateMaterialValuationRes() {}
+
+type UpdateMaterialValuationUnprocessableEntity Problem
+
+func (*UpdateMaterialValuationUnprocessableEntity) updateMaterialValuationRes() {}
 
 type UpdateMemoRecordBadRequest Problem
 

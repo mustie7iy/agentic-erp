@@ -5368,9 +5368,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "An inventory accountant values a material in a plant at moving average or standard price with a valuation class; every goods movement then posts its value through the ledger's posting port by the account determination, and a price change revalues the stock",
-      "r": "S1d · docs/design/plan-supply-chain.md §S1d · ADR-0082",
+      "r": "S1d · docs/design/plan-supply-chain.md §S1d · ADR-0082 §8 and As built S1d · db/migrations/000377, 000378 · inventory.valuation, .price_change · movement.amount, .difference · companies[].account_determination.inventory · POST /v1/material-valuations · GET /v1/material-valuations · GET /v1/material-valuations/{id} · PATCH /v1/material-valuations/{id} · POST /v1/material-valuations/{id}:changePrice · MaterialPriceChanged · inventory.valuation.read, .write · walkthrough step_valuation, step_goods_movements",
       "src": "po:2026-11-17",
       "c": []
      },

@@ -28,7 +28,13 @@ type ItemInput struct {
 	Quantity, Unit                         string
 	CostCenterID                           *uuid.UUID
 	ToPlantID, ToStorageLocationID         *uuid.UUID
+	// Amount is what a receipt is worth, in the company's currency; nil:
+	// valued at the material's price (S1d).
+	Amount *Amount
 }
+
+// Amount is an amount as a request gives it: a decimal and its currency.
+type Amount struct{ Value, Currency string }
 
 // Input is a goods movement as a request posts it.
 type Input struct {
@@ -75,7 +81,8 @@ func (e *Endpoints) Post(ctx context.Context, in Input) (Document, error) {
 	if err := e.costCenters(ctx, in.Items, r, company, day.Date); err != nil {
 		return Document{}, err
 	}
-	d, err := e.write(ctx, tx, p, posting{company: le, movementType: in.MovementType, day: day.Date, headerText: in.HeaderText, lines: lines}, r)
+	d, err := e.write(ctx, tx, p, posting{company: le, movementType: in.MovementType, day: day.Date, headerText: in.HeaderText, lines: lines,
+		items: in.Items}, r)
 	if err != nil {
 		return Document{}, err
 	}
@@ -303,7 +310,8 @@ func (e *Endpoints) costCenters(ctx context.Context, items []ItemInput, r refs, 
 	return nil
 }
 
-// posting is a material document about to be written.
+// posting is a material document about to be written: amounts are what
+// its receipts are worth by item, when the request names them.
 type posting struct {
 	company      tenancy.Entity
 	movementType string
@@ -311,13 +319,31 @@ type posting struct {
 	headerText   *string
 	reversalOf   *uuid.UUID
 	lines        []Line
+	items        []ItemInput
 }
 
-// write numbers the document from its company's material_document range
-// of its posting date's fiscal year, writes it, locks the stock its lines
-// move and refuses it below zero, and writes the lines, which add to the
-// stock (inventory.movement_stock).
+// write locks the valuations and the stock the lines move, refuses them
+// below zero, values them, numbers the document from its company's
+// material_document range of its posting date's fiscal year, posts its
+// value through the ledger and writes it with its lines, which add to
+// the stock and the valuations (inventory.movement_stock). The locks come
+// first, in one order, and every check follows them (ADR-0008).
 func (e *Endpoints) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in posting, r refs) (Document, error) {
+	vals, err := lockValuations(ctx, tx, in.lines, r)
+	if err != nil {
+		return Document{}, err
+	}
+	mt := movementTypes[in.movementType]
+	amounts, err := itemAmounts(in.items, mt, in.movementType, vals)
+	if err != nil {
+		return Document{}, err
+	}
+	if err := takeStock(ctx, tx, p, in.company.ID, in.lines, r); err != nil {
+		return Document{}, err
+	}
+	if err := valueLines(in.lines, mt, vals, amounts, r); err != nil {
+		return Document{}, err
+	}
 	year, err := e.Calendar.FiscalYear(ctx, in.company.ID, in.day)
 	if err != nil {
 		return Document{}, fmt.Errorf("inventory: fiscal year of %s in company %s: %w", in.day.Format(time.DateOnly), in.company.Code, err)
@@ -327,13 +353,16 @@ func (e *Endpoints) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in
 		return Document{}, fmt.Errorf("inventory: number a material document in company %s: %w", in.company.Code, err)
 	}
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO inventory.material_document (tenant_id, id, legal_entity_id, fiscal_year, number, movement_type,
-			posting_date, header_text, reversal_of_id, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		p.TenantID, id, in.company.ID, year, number, in.movementType, in.day, in.headerText, in.reversalOf, p.ID); err != nil {
-		return Document{}, fmt.Errorf("inventory: insert material document %s: %w", number, err)
-	}
-	if err := takeStock(ctx, tx, p, in.company.ID, in.lines, r); err != nil {
+	entry, err := e.post(ctx, in, id, number, vals, r)
+	if err != nil {
 		return Document{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO inventory.material_document (tenant_id, id, legal_entity_id, fiscal_year, number, movement_type,
+			posting_date, header_text, reversal_of_id, currency, journal_entry_id, journal_entry_year, journal_entry_number, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+		p.TenantID, id, in.company.ID, year, number, in.movementType, in.day, in.headerText, in.reversalOf, vals[valuationKey{in.lines[0].MaterialID,
+			in.lines[0].PlantID}].Currency, entry.id, entry.year, entry.number, p.ID); err != nil {
+		return Document{}, fmt.Errorf("inventory: insert material document %s: %w", number, err)
 	}
 	if err := writeLines(ctx, tx, p, id, in.lines); err != nil {
 		return Document{}, err
@@ -350,19 +379,20 @@ func writeLines(ctx context.Context, tx pgx.Tx, p reqctx.Principal, document uui
 	lineNo, itemNo := make([]int16, n), make([]int16, n)
 	ms, plants, locations := make([]uuid.UUID, n), make([]uuid.UUID, n), make([]uuid.UUID, n)
 	qty, entry, units, centers := make([]string, n), make([]string, n), make([]string, n), make([]string, n)
+	amounts, differences := make([]money.Minor, n), make([]money.Minor, n)
 	for i, l := range lines {
 		lineNo[i], itemNo[i], ms[i], plants[i], locations[i] = l.LineNo, l.ItemNo, l.MaterialID, l.PlantID, l.StorageLocationID
-		qty[i], entry[i], units[i] = l.Quantity, l.EntryQuantity, l.EntryUnit
+		qty[i], entry[i], units[i], amounts[i], differences[i] = l.Quantity, l.EntryQuantity, l.EntryUnit, l.Amount, l.Difference
 		if l.CostCenterID != nil {
 			centers[i] = l.CostCenterID.String()
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO inventory.movement (tenant_id, material_document_id, line_no, item_no, material_id, plant_id,
-			storage_location_id, quantity, entry_quantity, entry_uom_code, cost_center_id)
-		SELECT $1, $2, x.l, x.i, x.m, x.p, x.s, x.q::numeric, x.e::numeric, x.u, nullif(x.c, '')::uuid
-		FROM unnest($3::smallint[], $4::smallint[], $5::uuid[], $6::uuid[], $7::uuid[], $8::text[], $9::text[], $10::text[], $11::text[])
-			AS x (l, i, m, p, s, q, e, u, c) ORDER BY x.l`,
-		p.TenantID, document, lineNo, itemNo, ms, plants, locations, qty, entry, units, centers); err != nil {
+			storage_location_id, quantity, entry_quantity, entry_uom_code, cost_center_id, amount, difference)
+		SELECT $1, $2, x.l, x.i, x.m, x.p, x.s, x.q::numeric, x.e::numeric, x.u, nullif(x.c, '')::uuid, x.a, x.d
+		FROM unnest($3::smallint[], $4::smallint[], $5::uuid[], $6::uuid[], $7::uuid[], $8::text[], $9::text[], $10::text[], $11::text[],
+			$12::bigint[], $13::bigint[]) AS x (l, i, m, p, s, q, e, u, c, a, d) ORDER BY x.l`,
+		p.TenantID, document, lineNo, itemNo, ms, plants, locations, qty, entry, units, centers, amounts, differences); err != nil {
 		return fmt.Errorf("inventory: movements of material document %s: %w", document, err)
 	}
 	return nil

@@ -774,6 +774,44 @@ func (v *validator) accountDetermination(p string, co *Company) {
 	if ad.PaymentDifferenceRevenue != "" {
 		check("payment_difference_revenue", ad.PaymentDifferenceRevenue, Revenue, false)
 	}
+	v.inventoryAccounts(p, co)
+}
+
+// valuationClassRe is a valuation class: 1 to 4 capitals or digits (SAP
+// BKLAS, from memory).
+var valuationClassRe = regexp.MustCompile(`^[0-9A-Z]{1,4}$`)
+
+// inventoryAccounts checks the company's accounts by valuation class
+// (ADR-0082 §8): each class once and well formed, its stock account an
+// asset, its consumption, scrapping, price difference and revaluation
+// accounts expenses, its receipt and initial entry accounts of any type;
+// none a reconciliation account.
+func (v *validator) inventoryAccounts(p string, co *Company) {
+	seen := map[string]bool{}
+	for _, inv := range co.AccountDetermination.Inventory {
+		ip := p + ".account_determination.inventory[" + inv.ValuationClass + "]"
+		if !valuationClassRe.MatchString(inv.ValuationClass) || seen[inv.ValuationClass] {
+			v.err(ip+".valuation_class", "a valuation class is 1 to 4 capitals or digits, once in the company")
+		}
+		seen[inv.ValuationClass] = true
+		v.account(ip+".stock", co, inv.Stock, Asset, false)
+		for _, a := range []struct{ field, number string }{{"consumption", inv.Consumption}, {"scrapping", inv.Scrapping},
+			{"price_difference", inv.PriceDifference}, {"revaluation", inv.Revaluation}} {
+			if a.number != "" {
+				v.account(ip+"."+a.field, co, a.number, Expense, false)
+			}
+		}
+		for _, a := range []struct{ field, number string }{{"receipt", inv.Receipt}, {"initial_entry", inv.InitialEntry}} {
+			if a.number == "" {
+				continue
+			}
+			if acc := co.Account(a.number); acc != nil {
+				v.account(ip+"."+a.field, co, a.number, acc.Type, false) // any type, a reconciliation account aside
+			} else {
+				v.account(ip+"."+a.field, co, a.number, Expense, false)
+			}
+		}
+	}
 }
 
 // leaseRunAccounts checks the accounts a lease run posts to (ADR-0073 §9):
@@ -807,7 +845,15 @@ var journalRules = []journalRule{
 	{"goods_receipt", "journal_we", func(co *Company) bool { return co.AccountDetermination.GRIR != "" }, "WE entries to GR/IR"},
 	// Credit memos and subsequent credits post KG entries (T34c).
 	{"supplier_invoice", "journal_kg", func(*Company) bool { return true }, "credit memos as KG entries"},
+	// Valued goods movements post WE and WA entries (ADR-0082 §8, S1d).
+	{"material_document", "journal_we", valuesInventory, "receipts as WE entries"},
+	{"material_document", "journal_wa", valuesInventory, "issues and transfers as WA entries"},
+	{"material_document", "journal_pr", valuesInventory, "price changes of their materials as PR entries"},
 }
+
+// valuesInventory says whether the company values materials: it has
+// accounts by valuation class.
+func valuesInventory(co *Company) bool { return len(co.AccountDetermination.Inventory) > 0 }
 
 // journalRanges requires the journal ranges each document range needs
 // (journalRules), in the same company and fiscal year.

@@ -70,7 +70,9 @@ func negated(lines []Line) []Line {
 	out := make([]Line, len(lines))
 	for i, l := range lines {
 		l.Quantity = money.PlainQuantity(new(big.Rat).Neg(money.ParseRat(l.Quantity)))
-		l.LineNo = int16(len(lines) - i) // at most 200 lines (movement_line_no_check)
+		l.LineNo = int16(len(lines) - i)    // at most 200 lines (movement_line_no_check)
+		worth := -(l.Amount + l.Difference) // what the original line was valued at, given back
+		l.target, l.Amount, l.Difference = &worth, 0, 0
 		out[len(lines)-1-i] = l
 	}
 	return out

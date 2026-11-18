@@ -244,7 +244,7 @@ company's account determination; a price change revalues the stock.
   (`money.Sum`); a movement without a valuation or without the accounts it
   needs is refused (422) and posts nothing; the ledger's stock account
   balance equals the valuation's total value; a price change is refused
-  while the period is closed.
+  while the period is closed; a transfer within a plant posts nothing.
 
 **Later for Moving average and standard price and Inventory postings:**
 the material ledger and actual costing (SAP CKM3, multiple currencies and

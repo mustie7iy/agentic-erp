@@ -71,6 +71,7 @@ func TestStock(t *testing.T) {
 func TestLists(t *testing.T) {
 	e := setup(t)
 	other := e.material(t, "Machined bracket M12", "trading_good", true)
+	e.value(t, other, e.p2, "standard", "1.00")
 	e.post(t, "561", e.item("10", "EA", nil))
 	e.post(t, "561", e.item("10", "EA", map[string]any{"material_id": other, "plant_id": e.p2, "storage_location_id": e.s3}))
 	e.post(t, "311", e.item("1", "EA", map[string]any{"to_storage_location_id": e.s2}))
@@ -121,6 +122,13 @@ func TestDatabaseFailures(t *testing.T) {
 	_, tag := e.Must(200, "GET", docs+"/"+id.String(), "", "")
 	center := gen.NewOptUUID(e.c1)
 	material := uuid.MustParse(e.bracket)
+	other := uuid.MustParse(e.material(t, "Unvalued bracket", "trading_good", true))
+	page, _ := e.Must(200, "GET", "/v1/material-valuations?plant_id="+e.p1.String(), "", "")
+	valuation := uuid.MustParse(rows(t, page, "items")[0]["id"].(string))
+	_, valuationTag := e.Must(200, "GET", "/v1/material-valuations/"+valuation.String(), "", "")
+	page, _ = e.Must(200, "GET", "/v1/material-valuations?plant_id="+e.p2.String(), "", "")
+	empty := uuid.MustParse(rows(t, page, "items")[0]["id"].(string))
+	_, emptyTag := e.Must(200, "GET", "/v1/material-valuations/"+empty.String(), "", "")
 	calls := map[string]func(ctx context.Context) error{
 		"post an issue": func(ctx context.Context) error {
 			_, err := h.CreateMaterialDocument(ctx, &gen.MaterialDocumentCreate{MovementType: "201", Items: []gen.MaterialDocumentItemInput{{MaterialID: material,
@@ -143,6 +151,29 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.ListStock(ctx, gen.ListStockParams{})
 			return err
 		},
+		"create a valuation": func(ctx context.Context) error {
+			_, err := h.CreateMaterialValuation(ctx, &gen.MaterialValuationCreate{MaterialID: other, PlantID: e.p1, ValuationClass: "3000",
+				PriceControl: "standard", Price: gen.Money{Amount: "1.00", Currency: "EUR"}}, gen.CreateMaterialValuationParams{})
+			return err
+		},
+		"get a valuation": func(ctx context.Context) error {
+			_, err := h.GetMaterialValuation(ctx, gen.GetMaterialValuationParams{ID: valuation})
+			return err
+		},
+		"list valuations": func(ctx context.Context) error {
+			_, err := h.ListMaterialValuations(ctx, gen.ListMaterialValuationsParams{})
+			return err
+		},
+		"change a class": func(ctx context.Context) error {
+			_, err := h.UpdateMaterialValuation(ctx, &gen.MaterialValuationUpdate{ValuationClass: "3100"}, gen.UpdateMaterialValuationParams{ID: empty,
+				IfMatch: emptyTag})
+			return err
+		},
+		"change a price": func(ctx context.Context) error {
+			_, err := h.ChangeMaterialPrice(ctx, &gen.MaterialPriceChange{Price: gen.Money{Amount: "2.50", Currency: "EUR"}},
+				gen.ChangeMaterialPriceParams{ID: valuation, IfMatch: valuationTag})
+			return err
+		},
 		"list stock as at a day": func(ctx context.Context) error {
 			_, err := h.ListStock(ctx, gen.ListStockParams{AsOf: gen.NewOptDate(time.Now())})
 			return err
@@ -163,6 +194,10 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"stock": func(ctx context.Context) error {
 			_, err := h.ListStock(ctx, gen.ListStockParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"valuations": func(ctx context.Context) error {
+			_, err := h.ListMaterialValuations(ctx, gen.ListMaterialValuationsParams{PageSize: gen.NewOptInt32(0)})
 			return err
 		},
 	} {

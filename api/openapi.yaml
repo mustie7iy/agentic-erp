@@ -23454,23 +23454,30 @@ paths:
       tags:
         - inventory
       summary: Post a goods movement
-      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero or more, so items that move stock round a circle out of an empty location are refused though they change nothing in all. Nothing is posted to the ledger. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
+      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero or more, so items that move stock round a circle out of an empty location are refused though they change nothing in all. Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock account against the account its movement type posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price differences on its price difference account (422 `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
       x-permission: inventory.movement.post
       x-agent: false
       x-problem-codes:
         - config.no_number_range
         - config.not_bootstrapped
         - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
         - inventory.cost_center_invalid
         - inventory.cost_center_not_allowed
         - inventory.cost_center_required
+        - inventory.currency_mismatch
         - inventory.inexact_quantity
         - inventory.insufficient_stock
+        - inventory.invalid_amount
         - inventory.invalid_quantity
         - inventory.material_invalid
         - inventory.material_not_stocked
         - inventory.material_not_usable
         - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
         - inventory.plant_invalid
         - inventory.plant_not_extended
         - inventory.quantity_too_large
@@ -23481,7 +23488,57 @@ paths:
         - inventory.transfer_target_required
         - inventory.unknown_movement_type
         - inventory.unknown_unit
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
         - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -23565,7 +23622,7 @@ paths:
       tags:
         - inventory
       summary: Reverse a material document
-      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first (each keeping its original item's `item_no`), posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). The material may have been blocked since; the reversal is still posted. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
+      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first (each keeping its original item's `item_no`), posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). The material may have been blocked since; the reversal is still posted. Each line is valued at what its original line was, given back: what the stock does not take of it at its price now is a price difference, and the value is posted through the ledger as the original's was, reversed. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
       x-permission: inventory.movement.post
       x-agent: false
       x-problem-codes:
@@ -23573,10 +23630,67 @@ paths:
         - config.not_bootstrapped
         - config.number_range_exhausted
         - inventory.already_reversed
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
         - inventory.cannot_reverse_reversal
+        - inventory.currency_mismatch
         - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
         - inventory.quantity_too_large
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
         - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -23594,6 +23708,303 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MaterialDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/material-valuations:
+    get:
+      operationId: listMaterialValuations
+      tags:
+        - inventory
+      summary: List material valuations
+      description: "The valuations of materials in the plants of the companies the caller may act in (ADR-0082 §8, S1d), each as `getMaterialValuation` gives it, in the order they were created. Filtered by material and plant. Sortable by: `created_at`."
+      x-permission: inventory.valuation.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: material_id
+          in: query
+          required: false
+          description: Only the valuations of this material.
+          schema:
+            type: string
+            format: uuid
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the valuations in this plant.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of material valuations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialValuationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createMaterialValuation
+      tags:
+        - inventory
+      summary: Value a material in a plant
+      description: "Values a material in a plant, the valuation area (ADR-0082 §8, S1d; SAP MBEW): a material kept in stock (422 `inventory.material_invalid`, `inventory.material_not_stocked`) extended to an active plant of a company the caller may act in (422 `inventory.plant_invalid`, `inventory.plant_not_extended`), once (409 `inventory.valuation_exists`). Its price control is `standard` (the stock is always worth its quantity at the standard price, rounded half away from zero) or `moving_average` (the moving price is the stock's value per price unit, following its receipts); its price is in the company's local currency per `price_unit` base units (422 `inventory.currency_mismatch`, `inventory.invalid_price`; a standard price is above zero); its valuation class one of the company's account determination (`companies[].account_determination.inventory`, 422 `inventory.unknown_valuation_class`), whose accounts its movements post to. Stock moved in the plant before the material was valued is refused (409 `inventory.stock_without_valuation`). From then on every goods movement of the material in the plant is valued and posted (`createMaterialDocument`). The price control, currency and price unit do not change afterwards. Audited. Human-only (`x-agent: false`)."
+      x-permission: inventory.valuation.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - inventory.currency_mismatch
+        - inventory.invalid_price
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.stock_without_valuation
+        - inventory.unknown_price_control
+        - inventory.unknown_valuation_class
+        - inventory.valuation_exists
+        - request.invalid_amount
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The valuation to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialValuationCreate"
+      responses:
+        "201":
+          description: "Created; the valuation."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialValuation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/material-valuations/{id}":
+    get:
+      operationId: getMaterialValuation
+      tags:
+        - inventory
+      summary: Get a material valuation
+      description: "One valuation of a material in a plant (ADR-0082 §8, S1d): its price control, price per price unit, valuation class, and the quantity and value of the material's stock in the plant, which its movements and price changes move; the material by number and description, the plant by code and name. Its `version` moves with each of them. One of a company the caller may not act in is not found (404)."
+      x-permission: inventory.valuation.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The valuation.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialValuation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateMaterialValuation
+      tags:
+        - inventory
+      summary: Change a material valuation's class
+      description: "Changes a valuation's class at the caller's version (`If-Match`, 412 otherwise; ADR-0082 §8, S1d) to another class of the company (422 `inventory.unknown_valuation_class`, `inventory.nothing_to_change`), while the material has no stock in the plant (409 `inventory.valuation_class_with_stock`): its stock stands on its class's stock account. JSON Merge Patch. Audited with the class before. Human-only (`x-agent: false`)."
+      x-permission: inventory.valuation.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - inventory.nothing_to_change
+        - inventory.unknown_valuation_class
+        - inventory.valuation_class_with_stock
+        - inventory.valuation_exists
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The change.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/MaterialValuationUpdate"
+      responses:
+        "200":
+          description: The changed valuation.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialValuation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/material-valuations/{id}:changePrice":
+    post:
+      operationId: changeMaterialPrice
+      tags:
+        - inventory
+      summary: Change a material's price
+      description: "Changes a valuation's price at the caller's version (`If-Match`; ADR-0082 §8, S1d; SAP MR21) to another price in its currency (422 `inventory.currency_mismatch`, `inventory.invalid_price`, `inventory.nothing_to_change`; a standard price above zero): the material's stock in the plant is revalued at the new price, its quantity × the price / the price unit rounded half away from zero, and the difference posted on the company's date today between the valuation class's stock and revaluation accounts (document type PR; 422 `inventory.no_inventory_account` when the class lacks one), refused while that day's period is closed (409 `ledger.period_not_open`). A moving price changes the same way; without stock the price is set and nothing is posted. Audited, and published as MaterialPriceChanged. Human-only (`x-agent: false`)."
+      x-permission: inventory.valuation.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_too_large
+        - inventory.currency_mismatch
+        - inventory.invalid_price
+        - inventory.no_inventory_account
+        - inventory.nothing_to_change
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The new price.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialPriceChange"
+      responses:
+        "200":
+          description: The revalued valuation.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialValuation"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -60403,6 +60814,7 @@ components:
         cost_center_id: {type: string, format: uuid, description: "The cost center of a `201` or `551` (`GET /v1/cost-centers/{id}`); no other movement type names one."}
         to_plant_id: {type: string, format: uuid, description: "The plant a `301` receives at, another of the company's."}
         to_storage_location_id: {type: string, format: uuid, description: "The storage location a `311` or `301` receives at: under the plant of a `311`, under `to_plant_id` of a `301`."}
+        amount: {$ref: "#/components/schemas/Money", description: "What a `501` or `561` receipt is worth, in the company's local currency (S1d); absent: its quantity at the material's price. No other movement type names one."}
     MaterialDocumentCreate:
       type: object
       description: "A goods movement to post: one movement type and its items."
@@ -60441,6 +60853,8 @@ components:
         entry_quantity: {$ref: "#/components/schemas/Quantity", description: "The item's quantity as it was entered, positive, in the unit it was entered in.", readOnly: true}
         cost_center_id: {type: string, format: uuid, description: "The cost center of an issue to a cost center or a scrapping; absent on other lines.", readOnly: true}
         cost_center_code: {type: string, description: "The cost center's code; absent with it.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the line moves in value on the material's valuation in the plant, signed as its quantity is (S1d); absent on a document posted before materials were valued.", readOnly: true}
+        price_difference: {$ref: "#/components/schemas/Money", description: "What the line is valued at beyond `amount`: a standard-priced receipt's or transfer's price difference, or what a reversal gives back beyond the stock's value (S1d); absent with `amount`.", readOnly: true}
     MaterialDocument:
       type: object
       description: "A material document (SAP MKPF with its MSEG lines): a goods movement of one movement type, posted once and never changed; a mistaken one is reversed by another."
@@ -60463,6 +60877,9 @@ components:
         reversal_of_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
         reversed_by_id: {type: string, format: uuid, description: "The document that reverses this one; absent while it is not reversed.", readOnly: true}
         reversed_by_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry that posted its value (`GET /v1/journal-entries/{id}`); absent when it moved none.", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "That entry's fiscal year; absent with it.", readOnly: true}
+        journal_entry_number: {type: string, description: "That entry's document number; absent with it.", readOnly: true}
         lines:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocumentLine"}
@@ -60506,6 +60923,71 @@ components:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocument"}
           description: The material documents on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    MaterialValuationCreate:
+      type: object
+      description: "A material's valuation in a plant to create."
+      required: [material_id, plant_id, valuation_class, price_control, price]
+      additionalProperties: false
+      properties:
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`)."}
+        plant_id: {type: string, format: uuid, description: "The plant, the valuation area."}
+        valuation_class: {type: string, pattern: "^[0-9A-Z]{1,4}$", description: "A valuation class of the plant's company (SAP BKLAS)."}
+        price_control:
+          type: string
+          maxLength: 20
+          x-extensible-enum: [standard, moving_average]
+          description: "`standard` or `moving_average`. Open enumeration: values may be added within /v1."
+        price: {$ref: "#/components/schemas/Money", description: "The standard price, or the moving price to start from, per `price_unit` base units, in the company's local currency."}
+        price_unit: {type: integer, format: int32, minimum: 1, maximum: 10000, default: 1, description: "The base units the price is for."}
+    MaterialValuationUpdate:
+      type: object
+      description: "Merge patch of a valuation: its class."
+      additionalProperties: false
+      required: [valuation_class]
+      properties:
+        valuation_class: {type: string, pattern: "^[0-9A-Z]{1,4}$", description: "Another valuation class of the company."}
+    MaterialPriceChange:
+      type: object
+      description: "A valuation's new price."
+      required: [price]
+      additionalProperties: false
+      properties:
+        price: {$ref: "#/components/schemas/Money", description: "The new price per the valuation's price unit, in its currency."}
+    MaterialValuation:
+      description: "A material's valuation in a plant (SAP MBEW): its price, its class, and its stock's quantity and value. Its `version` moves with every movement and price change."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [material_id, material_number, material_description, plant_id, plant_code, plant_name, legal_entity_id, company_code, valuation_class, price_control, price, price_unit, quantity, value]
+          properties:
+            material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
+            material_number: {type: string, description: "The material's number.", readOnly: true}
+            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+            plant_code: {type: string, description: "The plant's code.", readOnly: true}
+            plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+            company_code: {type: string, description: "That company's code.", readOnly: true}
+            valuation_class: {type: string, description: "The valuation class, whose accounts its movements post to."}
+            price_control:
+              type: string
+              x-extensible-enum: [standard, moving_average]
+              description: "`standard` or `moving_average`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            price: {$ref: "#/components/schemas/Money", description: "The standard price, or the moving price, per `price_unit` base units.", readOnly: true}
+            price_unit: {type: integer, format: int32, description: "The base units the price is for.", readOnly: true}
+            quantity: {$ref: "#/components/schemas/Quantity", description: "The material's stock in the plant, in its base unit.", readOnly: true}
+            value: {$ref: "#/components/schemas/Money", description: "That stock's value.", readOnly: true}
+    MaterialValuationPage:
+      type: object
+      description: One page of material valuations.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/MaterialValuation"}
+          description: The valuations on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     Stock:
       type: object

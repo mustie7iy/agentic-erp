@@ -28,6 +28,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -118,8 +119,21 @@ type Calendar interface {
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
 }
 
-// Settings reads the active configuration: a company's time zone
-// (configuration context).
+// Postings posts journal entries and says whether a company can post on
+// a day (ledger context).
+type Postings interface {
+	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
+	Postable(ctx context.Context, legalEntity uuid.UUID, date time.Time) error
+}
+
+// Accounts reads the account determination (ledger context): the
+// accounts of valuation classes by config.InventoryKey.
+type Accounts interface {
+	Determination(ctx context.Context, legalEntity uuid.UUID, key string) (uuid.UUID, bool, error)
+}
+
+// Settings reads the active configuration: a company's time zone and
+// valuation classes (configuration context).
 type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }
@@ -133,6 +147,8 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Postings      Postings
+	Accounts      Accounts
 	// Now is the clock a document is dated by, in its company's time
 	// zone; nil: the wall clock.
 	Now func() time.Time
@@ -151,6 +167,14 @@ type Line struct {
 	EntryQuantity     string     `json:"entry_quantity"`
 	EntryUnit         string     `json:"entry_unit"`
 	CostCenterID      *uuid.UUID `json:"cost_center_id"`
+	// Amount is what the line moves in value, in the valuation's
+	// currency, signed as its quantity is, and Difference what it is
+	// valued at beyond that: its price difference (S1d).
+	Amount     money.Minor `json:"amount"`
+	Difference money.Minor `json:"difference"`
+	// target is what the line is to be valued at, when that is given: a
+	// reversal's line, its original's value negated.
+	target *money.Minor
 }
 
 // Document is a material document with its movements in line order, and
@@ -169,5 +193,13 @@ type Document struct {
 	ReversedByNumber *string
 	CreatedAt        time.Time
 	CreatedBy        uuid.UUID
-	Lines            []Line
+	// Currency and Exponent are what its lines are valued in, the
+	// company's; empty on a document posted before valuation (S1c). The
+	// entry is the journal entry that posted its value, nil when none.
+	Currency    string
+	Exponent    int
+	EntryID     *uuid.UUID
+	EntryYear   *int16
+	EntryNumber *string
+	Lines       []Line
 }

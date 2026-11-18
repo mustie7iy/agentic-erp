@@ -626,6 +626,20 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, req *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
+	// ChangeMaterialPrice implements changeMaterialPrice operation.
+	//
+	// Changes a valuation's price at the caller's version (`If-Match`; ADR-0082 §8, S1d; SAP MR21) to
+	// another price in its currency (422 `inventory.currency_mismatch`, `inventory.invalid_price`,
+	// `inventory.nothing_to_change`; a standard price above zero): the material's stock in the plant is
+	// revalued at the new price, its quantity × the price / the price unit rounded half away from zero,
+	// and the difference posted on the company's date today between the valuation class's stock and
+	// revaluation accounts (document type PR; 422 `inventory.no_inventory_account` when the class lacks
+	// one), refused while that day's period is closed (409 `ledger.period_not_open`). A moving price
+	// changes the same way; without stock the price is set and nothing is posted. Audited, and published
+	// as MaterialPriceChanged. Human-only (`x-agent: false`).
+	//
+	// POST /v1/material-valuations/{id}:changePrice
+	ChangeMaterialPrice(ctx context.Context, req *MaterialPriceChange, params ChangeMaterialPriceParams) (ChangeMaterialPriceRes, error)
 	// ChangeSalesOrder implements changeSalesOrder operation.
 	//
 	// Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the
@@ -1969,12 +1983,44 @@ type Handler interface {
 	// Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
 	// item is two, the issue and the receipt. The lines are applied in order, and each leaves its
 	// location's stock at zero or more, so items that move stock round a circle out of an empty location
-	// are refused though they change nothing in all. Nothing is posted to the ledger. Audited, and
-	// published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document
-	// posted. Human-only (`x-agent: false`).
+	// are refused though they change nothing in all. Every line is valued (S1d): its material is valued in
+	// its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the
+	// stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the
+	// value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is
+	// worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's
+	// currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422
+	// `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the
+	// receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted
+	// through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or
+	// initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock
+	// account against the account its movement type posts to (receipt, initial entry, consumption with the
+	// item's cost center, scrapping), and price differences on its price difference account (422
+	// `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
+	// 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
+	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/material-documents
 	CreateMaterialDocument(ctx context.Context, req *MaterialDocumentCreate, params CreateMaterialDocumentParams) (CreateMaterialDocumentRes, error)
+	// CreateMaterialValuation implements createMaterialValuation operation.
+	//
+	// Values a material in a plant, the valuation area (ADR-0082 §8, S1d; SAP MBEW): a material kept in
+	// stock (422 `inventory.material_invalid`, `inventory.material_not_stocked`) extended to an active
+	// plant of a company the caller may act in (422 `inventory.plant_invalid`,
+	// `inventory.plant_not_extended`), once (409 `inventory.valuation_exists`). Its price control is
+	// `standard` (the stock is always worth its quantity at the standard price, rounded half away from
+	// zero) or `moving_average` (the moving price is the stock's value per price unit, following its
+	// receipts); its price is in the company's local currency per `price_unit` base units (422
+	// `inventory.currency_mismatch`, `inventory.invalid_price`; a standard price is above zero); its
+	// valuation class one of the company's account determination
+	// (`companies[].account_determination.inventory`, 422 `inventory.unknown_valuation_class`), whose
+	// accounts its movements post to. Stock moved in the plant before the material was valued is refused
+	// (409 `inventory.stock_without_valuation`). From then on every goods movement of the material in the
+	// plant is valued and posted (`createMaterialDocument`). The price control, currency and price unit do
+	// not change afterwards. Audited. Human-only (`x-agent: false`).
+	//
+	// POST /v1/material-valuations
+	CreateMaterialValuation(ctx context.Context, req *MaterialValuationCreate, params CreateMaterialValuationParams) (CreateMaterialValuationRes, error)
 	// CreateMemoRecord implements createMemoRecord operation.
 	//
 	// Creates an `active` memo record (ADR-0051 §7, T53d): an expected receipt (positive amount) or
@@ -4091,6 +4137,16 @@ type Handler interface {
 	//
 	// GET /v1/material-documents/{id}
 	GetMaterialDocument(ctx context.Context, params GetMaterialDocumentParams) (GetMaterialDocumentRes, error)
+	// GetMaterialValuation implements getMaterialValuation operation.
+	//
+	// One valuation of a material in a plant (ADR-0082 §8, S1d): its price control, price per price unit,
+	// valuation class, and the quantity and value of the material's stock in the plant, which its
+	// movements and price changes move; the material by number and description, the plant by code and
+	// name. Its `version` moves with each of them. One of a company the caller may not act in is not found
+	// (404).
+	//
+	// GET /v1/material-valuations/{id}
+	GetMaterialValuation(ctx context.Context, params GetMaterialValuationParams) (GetMaterialValuationRes, error)
 	// GetMemoRecord implements getMemoRecord operation.
 	//
 	// One memo record, with its status as of the read date: its legal entity's date at the read in its
@@ -5730,6 +5786,14 @@ type Handler interface {
 	//
 	// GET /v1/material-documents
 	ListMaterialDocuments(ctx context.Context, params ListMaterialDocumentsParams) (ListMaterialDocumentsRes, error)
+	// ListMaterialValuations implements listMaterialValuations operation.
+	//
+	// The valuations of materials in the plants of the companies the caller may act in (ADR-0082 §8,
+	// S1d), each as `getMaterialValuation` gives it, in the order they were created. Filtered by material
+	// and plant. Sortable by: `created_at`.
+	//
+	// GET /v1/material-valuations
+	ListMaterialValuations(ctx context.Context, params ListMaterialValuationsParams) (ListMaterialValuationsRes, error)
 	// ListMaterials implements listMaterials operation.
 	//
 	// The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
@@ -7682,9 +7746,11 @@ type Handler interface {
 	// nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The
 	// reversal moves the stock back, so it is refused when the stock the original received has gone (409
 	// `inventory.insufficient_stock`, naming the material, the location and both quantities). The material
-	// may have been blocked since; the reversal is still posted. A document of a company the caller may
-	// not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only
-	// (`x-agent: false`).
+	// may have been blocked since; the reversal is still posted. Each line is valued at what its original
+	// line was, given back: what the stock does not take of it at its price now is a price difference, and
+	// the value is posted through the ledger as the original's was, reversed. A document of a company the
+	// caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted.
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/material-documents/{id}:reverse
 	ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (ReverseMaterialDocumentRes, error)
@@ -8415,6 +8481,16 @@ type Handler interface {
 	//
 	// PATCH /v1/materials/{id}
 	UpdateMaterial(ctx context.Context, req *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error)
+	// UpdateMaterialValuation implements updateMaterialValuation operation.
+	//
+	// Changes a valuation's class at the caller's version (`If-Match`, 412 otherwise; ADR-0082 §8, S1d)
+	// to another class of the company (422 `inventory.unknown_valuation_class`,
+	// `inventory.nothing_to_change`), while the material has no stock in the plant (409
+	// `inventory.valuation_class_with_stock`): its stock stands on its class's stock account. JSON Merge
+	// Patch. Audited with the class before. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/material-valuations/{id}
+	UpdateMaterialValuation(ctx context.Context, req *MaterialValuationUpdate, params UpdateMaterialValuationParams) (UpdateMaterialValuationRes, error)
 	// UpdateMemoRecord implements updateMemoRecord operation.
 	//
 	// Changes a memo record that is `proposed`, `active` or `expired` (409 `cash.memo_record_closed`

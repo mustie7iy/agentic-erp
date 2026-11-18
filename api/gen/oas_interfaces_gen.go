@@ -173,6 +173,10 @@ type CaptureSupplierInvoiceRes interface {
 	captureSupplierInvoiceRes()
 }
 
+type ChangeMaterialPriceRes interface {
+	changeMaterialPriceRes()
+}
+
 type ChangeSalesOrderRes interface {
 	changeSalesOrderRes()
 }
@@ -415,6 +419,10 @@ type CreateMaterialDocumentRes interface {
 
 type CreateMaterialRes interface {
 	createMaterialRes()
+}
+
+type CreateMaterialValuationRes interface {
+	createMaterialValuationRes()
 }
 
 type CreateMemoRecordRes interface {
@@ -1011,6 +1019,10 @@ type GetMaterialDocumentRes interface {
 
 type GetMaterialRes interface {
 	getMaterialRes()
+}
+
+type GetMaterialValuationRes interface {
+	getMaterialValuationRes()
 }
 
 type GetMemoRecordRes interface {
@@ -1627,6 +1639,10 @@ type ListMaterialChangesRes interface {
 
 type ListMaterialDocumentsRes interface {
 	listMaterialDocumentsRes()
+}
+
+type ListMaterialValuationsRes interface {
+	listMaterialValuationsRes()
 }
 
 type ListMaterialsRes interface {
@@ -2391,6 +2407,10 @@ type UpdateLegalEntityRes interface {
 
 type UpdateMaterialRes interface {
 	updateMaterialRes()
+}
+
+type UpdateMaterialValuationRes interface {
+	updateMaterialValuationRes()
 }
 
 type UpdateMemoRecordRes interface {

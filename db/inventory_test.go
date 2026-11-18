@@ -9,8 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestInventoryPermissions (S1c, migration 000376; ADR-0082 §7): the
-// permissions of inventory are seeded and are no approval permissions.
+// TestInventoryPermissions (S1c, migration 000376, and S1d, 000377;
+// ADR-0082 §7-§8): the permissions of inventory are seeded and are no
+// approval permissions.
 func TestInventoryPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'inventory.%' AND NOT is_approval ORDER BY code`)
@@ -21,7 +22,7 @@ func TestInventoryPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "inventory.movement.post inventory.stock.read"; got != want {
+	if got, want := strings.Join(codes, " "), "inventory.movement.post inventory.stock.read inventory.valuation.read inventory.valuation.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -48,9 +49,17 @@ func (s inventoryScene) movement(doc uuid.UUID, line int, qty, entry, unit strin
 		s.tenant, doc, line, s.material, s.plant, s.location, qty, entry, unit)
 }
 
+// valuation is the scene's material valued in its plant at a moving
+// price (S1d), which every movement needs.
+func (s inventoryScene) valuation() stmt {
+	return step(`INSERT INTO inventory.valuation (tenant_id, id, legal_entity_id, material_id, plant_id, valuation_class, price_control, currency,
+			price, price_unit, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, '3000', 'moving_average', 'EUR', 100, 1, $1, $1)`,
+		s.tenant, s.stock, s.company, s.material, s.plant)
+}
+
 // received is a 561 of 10 EA into the scene's stock.
 func (s inventoryScene) received() []stmt {
-	return []stmt{s.document(s.doc, "MD1", "561", nil), s.stockRow(), s.movement(s.doc, 1, "10", "10", "EA")}
+	return []stmt{s.valuation(), s.document(s.doc, "MD1", "561", nil), s.stockRow(), s.movement(s.doc, 1, "10", "10", "EA")}
 }
 
 // TestInventoryRules (S1c, migration 000376; ADR-0082 §7): a material
@@ -117,7 +126,12 @@ func TestInventoryRules(t *testing.T) {
 		{"a document deleted", func(s inventoryScene) []stmt {
 			return []stmt{s.document(s.doc, "MD1", "561", nil), step(`DELETE FROM inventory.material_document`)}
 		}, "permission denied"},
-		{"a movement of no document", func(s inventoryScene) []stmt { return []stmt{s.stockRow(), s.movement(s.doc, 1, "10", "10", "EA")} }, "movement_document_fkey"},
+		{"a movement of no document", func(s inventoryScene) []stmt {
+			return []stmt{s.valuation(), s.stockRow(), s.movement(s.doc, 1, "10", "10", "EA")}
+		}, "movement_document_fkey"},
+		{"a movement of no valuation", func(s inventoryScene) []stmt {
+			return []stmt{s.document(s.doc, "MD1", "561", nil), s.stockRow(), s.movement(s.doc, 1, "10", "10", "EA")}
+		}, "a movement is valued by its material's valuation in the plant"},
 		{"a movement into no stock row", func(s inventoryScene) []stmt {
 			return []stmt{s.document(s.doc, "MD1", "561", nil), s.movement(s.doc, 1, "10", "10", "EA")}
 		}, "a movement adds to a stock row written before it"},
@@ -269,4 +283,211 @@ func TestInventoryReversalCheck(t *testing.T) {
 	}
 	err = all(tx, s.document(s.doc, "MD1", "561", nil), s.document(id(), "MD2", "501", &s.doc))
 	failsOn(t, err, "material_document_reversal_check")
+}
+
+// TestValuationRules (S1d, migration 000377; ADR-0082 §8): a valuation
+// is once per material and plant, of a valuation class of 1 to 4 capitals
+// or digits, a known price control and currency, a price not below zero
+// per a price unit of 1 to 10000; it starts with no stock, its stock's
+// quantity and value are not below zero and without stock it has no
+// value, a standard-priced one is worth its quantity at its price; its
+// material, plant, company, price control, currency and price unit stay,
+// the application changes its class alone and deletes none. A movement
+// adds its quantity and value, a moving price following them. A price
+// change is of the valuation's price and stock as they are, changes the
+// price, names its entry exactly when it revalues, and is insert-only;
+// a material document names its whole entry, in its currency.
+func TestValuationRules(t *testing.T) {
+	need(t)
+	const valuation = `INSERT INTO inventory.valuation (tenant_id, id, legal_entity_id, material_id, plant_id, valuation_class, price_control, currency,
+		price, price_unit, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $1, $1)`
+	with := func(s inventoryScene, class, control, currency string, price, unit int) stmt {
+		return step(valuation, s.tenant, s.stock, s.company, s.material, s.plant, class, control, currency, price, unit)
+	}
+	standard := func(s inventoryScene) stmt { return with(s, "3000", "standard", "EUR", 100, 3) }
+	valued := func(s inventoryScene, qty string, amount int) stmt {
+		return step(`INSERT INTO inventory.movement (tenant_id, material_document_id, line_no, item_no, material_id, plant_id, storage_location_id,
+				quantity, entry_quantity, entry_uom_code, amount) VALUES ($1, $2, (SELECT count(*) + 1 FROM inventory.movement WHERE material_document_id = $2),
+				1, $3, $4, $5, $6::numeric, abs($6::numeric), 'EA', $7)`, s.tenant, s.doc, s.material, s.plant, s.location, qty, amount)
+	}
+	doc := func(s inventoryScene) []stmt { return []stmt{s.document(s.doc, "MD1", "561", nil), s.stockRow()} }
+	change := func(s inventoryScene, old, price int, qty string, amount int, entry bool) stmt {
+		var id any
+		if entry {
+			id = s.doc
+		}
+		return step(`INSERT INTO inventory.price_change (tenant_id, id, valuation_id, old_price, new_price, quantity, amount, posting_date,
+				journal_entry_id, journal_entry_year, journal_entry_number, created_by) VALUES ($1, $2, $3, $4, $5, $6::numeric, $7, '2026-11-20', $8,
+				CASE WHEN $8::uuid IS NULL THEN NULL ELSE 2026 END, CASE WHEN $8::uuid IS NULL THEN NULL ELSE 'PR1' END, $1)`,
+			s.tenant, s.doc, s.stock, old, price, qty, amount, id)
+	}
+	cases := []struct {
+		name string
+		run  func(s inventoryScene) []stmt
+		want string
+	}{
+		{"a standard valuation with its stock", func(s inventoryScene) []stmt {
+			return append([]stmt{standard(s)}, append(doc(s), valued(s, "10", 333))...)
+		}, ""},
+		{"a standard stock not worth its price", func(s inventoryScene) []stmt {
+			return append([]stmt{standard(s)}, append(doc(s), valued(s, "10", 334))...)
+		},
+			"valuation_standard_value"},
+		{"an issue leaving value without stock", func(s inventoryScene) []stmt {
+			return append([]stmt{with(s, "3000", "moving_average", "EUR", 100, 1)}, append(doc(s), valued(s, "10", 1000), valued(s, "-10", -999))...)
+		}, "valuation_value_without_stock"},
+		{"an issue of more value than the stock", func(s inventoryScene) []stmt {
+			return append([]stmt{with(s, "3000", "moving_average", "EUR", 100, 1)}, append(doc(s), valued(s, "10", 1000), valued(s, "-5", -1001))...)
+		}, "valuation_value_check"},
+		{"a class of five", func(s inventoryScene) []stmt { return []stmt{with(s, "30000", "standard", "EUR", 1, 1)} }, "valuation_class_check"},
+		{"an unknown price control", func(s inventoryScene) []stmt { return []stmt{with(s, "3000", "fifo", "EUR", 1, 1)} }, "valuation_price_control_check"},
+		{"an unknown currency", func(s inventoryScene) []stmt { return []stmt{with(s, "3000", "standard", "XXX", 1, 1)} }, "valuation_currency_fkey"},
+		{"a negative price", func(s inventoryScene) []stmt { return []stmt{with(s, "3000", "standard", "EUR", -1, 1)} }, "valuation_price_check"},
+		{"a price unit of 0", func(s inventoryScene) []stmt { return []stmt{with(s, "3000", "standard", "EUR", 1, 0)} }, "valuation_price_unit_check"},
+		{"a price unit of 10001", func(s inventoryScene) []stmt { return []stmt{with(s, "3000", "standard", "EUR", 1, 10001)} }, "valuation_price_unit_check"},
+		{"twice", func(s inventoryScene) []stmt {
+			return []stmt{standard(s), step(valuation, s.tenant, id(), s.company, s.material, s.plant, "3000", "standard", "EUR", 1, 1)}
+		}, "valuation_once"},
+		{"created with stock", func(s inventoryScene) []stmt {
+			return []stmt{step(`INSERT INTO inventory.valuation (tenant_id, id, legal_entity_id, material_id, plant_id, valuation_class, price_control,
+				currency, price, price_unit, quantity, created_by, updated_by) VALUES ($1, $2, $1, $1, $1, '3000', 'standard', 'EUR', 1, 1, 1, $1, $1)`, s.tenant, s.stock)}
+		}, "a valuation starts with no stock"},
+		{"its class changed", func(s inventoryScene) []stmt {
+			return []stmt{standard(s), step(`UPDATE inventory.valuation SET valuation_class = '3100', version = version + 1`)}
+		}, ""},
+		{"its price set", func(s inventoryScene) []stmt {
+			return []stmt{standard(s), step(`UPDATE inventory.valuation SET price = 5, version = version + 1`)}
+		},
+			"permission denied"},
+		{"deleted", func(s inventoryScene) []stmt { return []stmt{standard(s), step(`DELETE FROM inventory.valuation`)} }, "permission denied"},
+		{"a moving price following a receipt", func(s inventoryScene) []stmt {
+			return append([]stmt{with(s, "3000", "moving_average", "EUR", 0, 10)}, append(doc(s), valued(s, "4", 1000),
+				step(`SELECT 1/(price = 2500)::int FROM inventory.valuation`))...)
+		}, ""},
+		{"a price change revaluing", func(s inventoryScene) []stmt {
+			return append([]stmt{standard(s)}, append(doc(s), valued(s, "9", 300), change(s, 100, 200, "9", 300, true),
+				step(`SELECT 1/(price = 200 AND value = 600)::int FROM inventory.valuation`))...)
+		}, ""},
+		{"a price change of another price", func(s inventoryScene) []stmt { return []stmt{standard(s), change(s, 99, 200, "0", 0, false)} },
+			"a price change is of its valuation's price and stock as they are"},
+		{"a price change of another stock", func(s inventoryScene) []stmt { return []stmt{standard(s), change(s, 100, 200, "1", 0, false)} },
+			"a price change is of its valuation's price and stock as they are"},
+		{"a price change to the same price", func(s inventoryScene) []stmt { return []stmt{standard(s), change(s, 100, 100, "0", 0, false)} },
+			"price_change_changes"},
+		{"a revaluation without its entry", func(s inventoryScene) []stmt { return []stmt{standard(s), change(s, 100, 200, "0", 5, false)} }, "price_change_entry"},
+		{"an entry without a revaluation", func(s inventoryScene) []stmt { return []stmt{standard(s), change(s, 100, 200, "0", 0, true)} }, "price_change_entry"},
+		{"a price change changed", func(s inventoryScene) []stmt {
+			return []stmt{standard(s), change(s, 100, 200, "0", 0, false), step(`UPDATE inventory.price_change SET amount = 1`)}
+		}, "permission denied"},
+		{"a document's entry without its year", func(s inventoryScene) []stmt {
+			return []stmt{step(`INSERT INTO inventory.material_document (tenant_id, id, legal_entity_id, fiscal_year, number, movement_type, posting_date,
+				currency, journal_entry_id, journal_entry_number, created_by) VALUES ($1, $2, $1, 2026, 'MD1', '561', '2026-11-20', 'EUR', $2, 'WE1', $1)`,
+				s.tenant, s.doc)}
+		}, "material_document_entry"},
+		{"a document's entry without its currency", func(s inventoryScene) []stmt {
+			return []stmt{step(`INSERT INTO inventory.material_document (tenant_id, id, legal_entity_id, fiscal_year, number, movement_type, posting_date,
+				journal_entry_id, journal_entry_year, journal_entry_number, created_by) VALUES ($1, $2, $1, 2026, 'MD1', '561', '2026-11-20', $2, 2026, 'WE1', $1)`,
+				s.tenant, s.doc)}
+		}, "material_document_entry"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := inventoryScene{tenant: id(), company: id(), doc: id(), stock: id(), material: id(), plant: id(), location: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestValuationTriggersAsOwner (S1d, migration 000377): past the grants,
+// as the owner, a valuation's material, plant, company, price control,
+// currency and price unit stay, it starts empty, and a price change is
+// of its valuation's price, changes it and stays as written. Each case
+// runs on a valuation whose price was changed from 1.00 to 1.50.
+func TestValuationTriggersAsOwner(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	s := inventoryScene{tenant: id(), company: id(), doc: id(), stock: id(), material: id(), plant: id(), location: id()}
+	for name, c := range map[string]struct {
+		st   stmt
+		want string
+	}{
+		"its price control changed": {step(`UPDATE inventory.valuation SET price_control = 'standard', price = 100, version = version + 1 WHERE id = $1`, s.stock),
+			"valuation_fixed"},
+		"its price unit changed": {step(`UPDATE inventory.valuation SET price_unit = 2, version = version + 1 WHERE id = $1`, s.stock), "valuation_fixed"},
+		"its plant changed":      {step(`UPDATE inventory.valuation SET plant_id = gen_random_uuid(), version = version + 1 WHERE id = $1`, s.stock), "valuation_fixed"},
+		"a second, with stock": {step(`INSERT INTO inventory.valuation (tenant_id, id, legal_entity_id, material_id, plant_id, valuation_class, price_control,
+			currency, price, price_unit, value, created_by, updated_by) VALUES ($1, $2, $1, $1, $1, '3000', 'standard', 'EUR', 1, 1, 1, $1, $1)`, s.tenant, id()),
+			"valuation_fixed"},
+		"a price change changed": {step(`UPDATE inventory.price_change SET amount = 1`), "insert-only"},
+		"a price change to its price": {step(`INSERT INTO inventory.price_change (tenant_id, id, valuation_id, old_price, new_price, quantity, amount,
+			posting_date, created_by) VALUES ($1, $2, $3, 150, 150, 0, 0, '2026-11-20', $1)`, s.tenant, id(), s.stock), "price_change_changes"},
+		"a price change of another price": {step(`INSERT INTO inventory.price_change (tenant_id, id, valuation_id, old_price, new_price, quantity, amount,
+			posting_date, created_by) VALUES ($1, $2, $3, 100, 120, 0, 0, '2026-11-20', $1)`, s.tenant, id(), s.stock), "price_change_valuation"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tx, err := testDB.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			if _, err := tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", s.tenant.String()); err != nil {
+				t.Fatal(err)
+			}
+			if err := all(tx, s.valuation(), step(`INSERT INTO inventory.price_change (tenant_id, id, valuation_id, old_price, new_price, quantity, amount,
+				posting_date, created_by) VALUES ($1, $2, $3, 100, 150, 0, 0, '2026-11-20', $1)`, s.tenant, id(), s.stock)); err != nil {
+				t.Fatal(err)
+			}
+			err = exec(tx, c.st.sql, c.st.args...)
+			if c.want == "insert-only" {
+				failsWith(t, err, c.want)
+				return
+			}
+			failsOn(t, err, c.want)
+		})
+	}
+}
+
+// TestInventoryKeys (S1d, migrations 000377 and 000378): the account
+// determination takes the keys of valuation classes, and the journal the
+// source context inventory.
+func TestInventoryKeys(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	for _, c := range []struct{ key, want string }{{"inventory_stock:3000", ""}, {"inventory_revaluation:A1", ""},
+		{"inventory_bogus:3000", "account_determination_key_check"}, {"inventory_stock:30000", "account_determination_key_check"}} {
+		t.Run(c.key, func(t *testing.T) {
+			tx, err := testDB.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			// The account's foreign key aside: the key's check is what is tested.
+			if _, err := tx.Exec(ctx, "SET LOCAL session_replication_role = replica"); err != nil {
+				t.Fatal(err)
+			}
+			err = exec(tx, `INSERT INTO ledger.account_determination (tenant_id, legal_entity_id, key, account_id, updated_by) VALUES ($1, $1, $2, $1, $1)`, id(), c.key)
+			if c.want == "" {
+				if err != nil {
+					t.Fatalf("got %v, want no error", err)
+				}
+				return
+			}
+			failsOn(t, err, c.want)
+		})
+	}
+	var def string
+	if err := testDB.QueryRow(ctx, `SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'journal_entry_source_context_check'
+		AND conrelid = 'ledger.journal_entry'::regclass`).Scan(&def); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(def, "'inventory'") {
+		t.Errorf("source contexts: got %s, want inventory among them", def)
+	}
 }

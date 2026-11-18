@@ -1637,7 +1637,11 @@ migrated_down_payment() {
 # activation posts to (T88b, ADR-0073 §7; no pack ships them), the
 # customer payment tolerance and its accounts 6850 and 4850 (T75f, SAP
 # OBA3: underpayments up to CAD 5.00 and 1% written off, overpayments up to
-# CAD 1.00 and 0.5% kept; no pack ships them),
+# CAD 1.00 and 0.5% kept; no pack ships them), valuation class 3100 of
+# trading goods with its inventory accounts (S1d, ADR-0082 §8; 1416 stock,
+# 2196 receipts without an order, 3996 initial entries, 5116 consumption,
+# 5126 scrapping, 5196 price differences, 5197 revaluation) and the WA
+# and PR journal ranges its postings need (no pack ships them),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1672,7 +1676,14 @@ PILOT_SETTINGS='
       {"number": "6720", "name": "Interest on lease liabilities", "type": "expense"},
       {"number": "6730", "name": "Depreciation of right-of-use assets", "type": "expense"},
       {"number": "6850", "name": "Customer payment differences", "type": "expense"},
-      {"number": "4850", "name": "Customer overpayments kept", "type": "revenue"}]
+      {"number": "4850", "name": "Customer overpayments kept", "type": "revenue"},
+      {"number": "1416", "name": "Inventory - trading goods", "type": "asset"},
+      {"number": "2196", "name": "Goods received without an order", "type": "liability"},
+      {"number": "3996", "name": "Initial entries of stock", "type": "equity"},
+      {"number": "5116", "name": "Consumption of materials", "type": "expense"},
+      {"number": "5126", "name": "Scrapped materials", "type": "expense"},
+      {"number": "5196", "name": "Inventory price differences", "type": "expense"},
+      {"number": "5197", "name": "Inventory revaluation", "type": "expense"}]
     | .account_determination.right_of_use_asset = "1660"
     | .account_determination.lease_liability = "2650"
     | .account_determination.lease_interest = "6720"
@@ -1680,6 +1691,8 @@ PILOT_SETTINGS='
     | .account_determination.right_of_use_accumulated_depreciation = "1669"
     | .account_determination.payment_difference_expense = "6850"
     | .account_determination.payment_difference_revenue = "4850"
+    | .account_determination.inventory = [{"valuation_class": "3100", "stock": "1416", "receipt": "2196", "initial_entry": "3996",
+        "consumption": "5116", "scrapping": "5126", "price_difference": "5196", "revaluation": "5197"}]
     | .receivables.payment_tolerance = {"underpayment_amount": "5.00", "underpayment_percent": "1", "overpayment_amount": "1.00",
         "overpayment_percent": "0.5"}
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
@@ -1709,7 +1722,9 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "lease_contract", "fiscal_year": @YEAR@, "prefix": "LC", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "expense_report", "fiscal_year": @YEAR@, "prefix": "ER", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "material_document", "fiscal_year": @YEAR@, "prefix": "MD", "first": 1, "last": 9999999}]'
+    {"company": "@CC@", "document_type": "material_document", "fiscal_year": @YEAR@, "prefix": "MD", "first": 1, "last": 9999999},
+    {"company": "@CC@", "document_type": "journal_wa", "fiscal_year": @YEAR@, "prefix": "WA", "first": 1, "last": 9999999},
+    {"company": "@CC@", "document_type": "journal_pr", "fiscal_year": @YEAR@, "prefix": "PR", "first": 1, "last": 9999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -13230,41 +13245,102 @@ stock_at() {
   field '.items[0] | if . == null then "none" else "\(.quantity.value) \(.quantity.unit)" end'
 }
 
-# step_goods_movements is S1c (ADR-0082 §7, plan-supply-chain.md): Wade,
-# the warehouse clerk, enters the bracket's opening stock in Toronto's
-# main store, issues some to a cost center and moves some to the spare
-# parts store, each a material document numbered from Maple's range; an
-# issue of more than the store holds is refused naming both quantities;
-# he reverses the transfer, which a second reversal cannot repeat. The
-# stock is read now and as at the day before, when there was none.
-# Nothing is posted to the ledger yet (S1d values the movements).
-step_goods_movements() {
-  heading "Step 124 — Goods movements: an initial entry of stock by the box, an issue to a cost center, a transfer between storage locations and its reversal, each a numbered material document; an issue beyond the stock refused; the stock now and as at the day before"
-  local cc doc transfer yesterday
+# valuation reads the material's valuation in a plant as "quantity unit:
+# value currency at price per price unit unit".
+valuation() {
+  QUIET=1 api 200 '' listMaterialValuations -p "material_id=$1" -p "plant_id=$PLANT"
+  field '.items[0] | "\(.quantity.value) \(.quantity.unit): \(.value.amount) \(.value.currency) at \(.price.amount) per \(.price_unit) \(.quantity.unit)"'
+}
+
+# step_valuation is S1d (ADR-0082 §8, plan-supply-chain.md): Ines, the
+# inventory accountant, values the bracket in Toronto at a moving price
+# under Maple's valuation class 3100 (its stock on 1416), and a hex bolt
+# Mira creates and Priya approves at a standard price; a class Maple's
+# account determination lacks is refused, and so is a movement of a
+# material not yet valued. Every goods movement of step 125 is valued and
+# posted from then on.
+step_valuation() {
+  heading "Step 124 — Valuation: the bracket valued at a moving price and a hex bolt at a standard price in the Toronto plant, under a valuation class of the account determination; an unknown class and a movement of an unvalued material refused"
+  local bolt
   [ -n "$MATERIAL" ] || fail "step 122's material is not there"
+  as mira
+  say "Mira creates the M10 hex bolt, kept in the Toronto plant's main store; Priya approves it:"
+  api 201 '"material \(.number) \(.description): \(.status)"' createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Hex bolt M10\", \"base_unit\": \"EA\",
+      \"material_type\": \"raw_material\", \"material_group\": \"FASTENERS\", \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}]}"
+  bolt=$(field .id)
+  approve priya "$(material_request "$bolt")" "Standard fastener."
+  as ada
+  say "Ada adds Ines, the inventory accountant, to the team:"
+  person ines "Ines Inventory" finance_staff
+  as ines
+  say "A material moves only once it is valued in its plant (ADR-0082 §8):"
+  refused 422 inventory.no_valuation createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$bolt\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  say "Maple's account determination names the accounts of valuation class 3100, trading goods; 7920 is none of its:"
+  refused 422 inventory.unknown_valuation_class createMaterialValuation -body "{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"7920\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"2.00\", \"currency\": \"CAD\"}}"
+  say "Ines values the bracket at a moving price of 2.00 CAD each, which its receipts will move, and the bolt at a"
+  say "standard price of 0.50 CAD each, which its stock is always worth:"
+  api 201 '"\(.material_number) in \(.plant_code): \(.price_control), class \(.valuation_class), \(.price.amount) \(.price.currency) per \(.price_unit), stock \(.quantity.value) \(.quantity.unit) worth \(.value.amount)"' \
+    createMaterialValuation -body "{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\", \"price_control\": \"moving_average\",
+      \"price\": {\"amount\": \"2.00\", \"currency\": \"CAD\"}}"
+  api 201 '"\(.material_number) in \(.plant_code): \(.price_control), class \(.valuation_class), \(.price.amount) \(.price.currency) per \(.price_unit)"' \
+    createMaterialValuation -body "{\"material_id\": \"$bolt\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\", \"price_control\": \"standard\",
+      \"price\": {\"amount\": \"0.50\", \"currency\": \"CAD\"}}"
+  BOLT=$bolt
+  passed
+}
+
+# step_goods_movements is S1c and S1d (ADR-0082 §7-§8,
+# plan-supply-chain.md): Wade, the warehouse clerk, enters the bracket's
+# opening stock in Toronto's main store, valued at its moving price; a
+# receipt worth more raises the moving price; he issues some to a cost
+# center, which posts its value to consumption, and moves some to the
+# spare parts store, which stays in the valuation area and posts nothing;
+# each a material document numbered from Maple's range. An issue of more
+# than the store holds is refused naming both quantities; he reverses the
+# transfer, which a second reversal cannot repeat. The stock is read now
+# and as at the day before, when there was none. Last, the bolts' opening
+# stock at their standard price, and Ines's price change, which revalues
+# it.
+step_goods_movements() {
+  heading "Step 125 — Goods movements: an initial entry by the box and a receipt at a price, an issue to a cost center posted to consumption, a transfer between storage locations and its reversal, each a numbered material document; an issue beyond the stock refused; the stock now and as at the day before; a standard price changed, the stock revalued"
+  local cc doc transfer yesterday
+  [ -n "$BOLT" ] || fail "step 124's valuations are not there"
+  accounts
   as ada
   say "Ada adds Wade, the warehouse clerk, to the team:"
   person wade "Wade Warehouse" finance_staff
   as wade
   say "Wade counts the brackets on the main store's shelves and enters them as opening stock (movement type 561):"
-  say "5 boxes, which the material converts to its base unit exactly (ADR-0082 §5):"
-  api 201 '"material document \(.number) (\(.movement_type) \(.movement_type_name)) on \(.posting_date)", (.lines[] | "  line \(.line_no): \(.material_number) at \(.plant_code)/\(.storage_location_code): \(.quantity.value) \(.quantity.unit), entered as \(.entry_quantity.value) \(.entry_quantity.unit)")' \
+  say "5 boxes, which the material converts to its base unit exactly (ADR-0082 §5), worth 100 at the moving price:"
+  api 201 '"material document \(.number) (\(.movement_type) \(.movement_type_name)) on \(.posting_date), journal entry \(.journal_entry_number)", (.lines[] | "  line \(.line_no): \(.material_number) at \(.plant_code)/\(.storage_location_code): \(.quantity.value) \(.quantity.unit), entered as \(.entry_quantity.value) \(.entry_quantity.unit), worth \(.amount.amount) \(.amount.currency)")' \
     createMaterialDocument -body "{\"movement_type\": \"561\", \"header_text\": \"Opening count of the main store\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\",
       \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"5\", \"unit\": \"BOX\"}}]}"
   case "$(field .number)" in MD*) ;; *) fail "the material document's number: got $(field .number), want one of the MD range" ;; esac
   expect "the opening stock" "$(stock_at "$MAIN_STORE")" "100 EA"
-  say "Maintenance takes 12 brackets for cost center CC-1100 (201):"
+  say "Its entry (WE) puts the stock on 1416 against the initial entries of 3996:"
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  say "A delivery of 100 more arrives without an order, worth 300.00 CAD (501): the moving price rises to 2.50:"
+  api 201 '"material document \(.number) (\(.movement_type)): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) worth \(.lines[0].amount.amount) \(.lines[0].amount.currency)"' \
+    createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}}]}"
+  expect "the bracket's valuation" "$(valuation "$MATERIAL")" "200 EA: 500.00 CAD at 2.50 per 1 EA"
+  say "Maintenance takes 12 brackets for cost center CC-1100 (201); their value goes to consumption:"
   QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
   cc=$(field '.items[0].id')
-  api 201 '"material document \(.number) (\(.movement_type)): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) to cost center \(.lines[0].cost_center_code)"' \
+  api 201 '"material document \(.number) (\(.movement_type)): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) to cost center \(.lines[0].cost_center_code), worth \(.lines[0].amount.amount)"' \
     createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
       \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"cost_center_id\": \"$cc\"}]}"
-  say "He moves 30 to the spare parts store (311): one item, two lines, the issue and the receipt:"
-  api 201 '"material document \(.number) (\(.movement_type)):", (.lines[] | "  line \(.line_no): \(.storage_location_code) \(.quantity.value) \(.quantity.unit)")' \
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the issue's entry" "$(field '[.lines[] | .amount.amount] | sort | join(" ")')" "-30.00 30.00"
+  say "He moves 30 to the spare parts store (311): one item, two lines, the issue and the receipt, within the plant, so"
+  say "no value leaves it and nothing is posted:"
+  api 201 '"material document \(.number) (\(.movement_type)), journal entry \(.journal_entry_number // "none"):", (.lines[] | "  line \(.line_no): \(.storage_location_code) \(.quantity.value) \(.quantity.unit)")' \
     createMaterialDocument -body "{\"movement_type\": \"311\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
       \"to_storage_location_id\": \"$SPARES_STORE\", \"quantity\": {\"value\": \"30\", \"unit\": \"EA\"}}]}"
   transfer=$(field .id)
-  expect "the main store after the transfer" "$(stock_at "$MAIN_STORE")" "58 EA"
+  expect "the main store after the transfer" "$(stock_at "$MAIN_STORE")" "158 EA"
   expect "the spare parts store" "$(stock_at "$SPARES_STORE")" "30 EA"
   say "An issue of three boxes from the spare parts store is more than it holds; it is refused, and no stock goes"
   say "below zero:"
@@ -13280,13 +13356,26 @@ step_goods_movements() {
   refused 409 inventory.already_reversed reverseMaterialDocument -p "id=$transfer" -if-match "$ETAG"
   yesterday=$(date_add "$TODAY" -1)
   say "The stock now and as at the end of $yesterday, before any of today's documents:"
-  QUIET=1 api 200 '' listStock -p "material_id=$MATERIAL"
   api 200 '.items[] | "  \(.material_number) at \(.plant_code)/\(.storage_location_code): \(.quantity.value) \(.quantity.unit)"' listStock -p "material_id=$MATERIAL"
-  expect "the main store now" "$(stock_at "$MAIN_STORE")" "88 EA"
+  expect "the main store now" "$(stock_at "$MAIN_STORE")" "188 EA"
   expect "the spare parts store now" "$(stock_at "$SPARES_STORE")" "none"
   expect "the main store as at $yesterday" "$(stock_at "$MAIN_STORE" "$yesterday")" "none"
+  expect "the bracket's valuation" "$(valuation "$MATERIAL")" "188 EA: 470.00 CAD at 2.50 per 1 EA"
   api 200 '.items[] | "  \(.number) \(.movement_type) \(.movement_type_name)\(if .reversed_by_number then ", reversed by \(.reversed_by_number)" else "" end)"' \
     listMaterialDocuments -p "material_id=$MATERIAL"
+  say "Wade enters the 1000 bolts on the shelves; at the standard price they are worth 500.00 CAD:"
+  api 201 '"material document \(.number) (\(.movement_type)): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) worth \(.lines[0].amount.amount) \(.lines[0].amount.currency)"' \
+    createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$BOLT\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"quantity\": {\"value\": \"1000\", \"unit\": \"EA\"}}]}"
+  as ines
+  say "Ines raises the bolt's standard price to 0.55 CAD (SAP MR21): the stock is revalued by 50.00 CAD, posted from"
+  say "the revaluation account 5197 to the stock (PR):"
+  QUIET=1 api 200 '' listMaterialValuations -p "material_id=$BOLT" -p "plant_id=$PLANT"
+  doc=$(field '.items[0].id')
+  QUIET=1 api 200 '' getMaterialValuation -p "id=$doc"
+  api 200 '"\(.material_number): \(.price.amount) \(.price.currency) per \(.price_unit), stock \(.quantity.value) \(.quantity.unit) worth \(.value.amount) \(.value.currency)"' \
+    changeMaterialPrice -p "id=$doc" -if-match "$ETAG" -body '{"price": {"amount": "0.55", "currency": "CAD"}}'
+  expect "the bolt's valuation" "$(valuation "$BOLT")" "1000 EA: 550.00 CAD at 0.55 per 1 EA"
   passed
 }
 
@@ -15320,7 +15409,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_goods_movements step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_close'
 
 main() {
   stop_unseen

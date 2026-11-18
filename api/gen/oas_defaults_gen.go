@@ -139,6 +139,14 @@ func (s *MaterialCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *MaterialValuationCreate) setDefaults() {
+	{
+		val := int32(1)
+		s.PriceUnit.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *PlanCategoryCopy) setDefaults() {
 	{
 		val := bool(false)

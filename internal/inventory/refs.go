@@ -9,6 +9,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
@@ -93,12 +94,17 @@ func (e *Endpoints) record(ctx context.Context, action string, d Document, r ref
 		if l.CostCenterID != nil {
 			line["cost_center_code"] = r.centers[*l.CostCenterID].Code
 		}
+		if d.Currency != "" {
+			line["amount"], line["price_difference"] = money.EventAmount(l.Amount, d.Currency, d.Exponent), money.EventAmount(l.Difference, d.Currency, d.Exponent)
+		}
 		lines[i] = line
 	}
 	payload := map[string]any{"material_document_id": d.ID, "number": d.Number, "legal_entity_id": d.LegalEntityID, "legal_entity_code": le.Code,
 		"fiscal_year": d.FiscalYear, "movement_type": d.MovementType, "posting_date": d.PostingDate.Format(time.DateOnly),
-		"reversal_of_id": d.ReversalOfID, "reversal_of_number": d.ReversalOfNumber, "lines": lines}
+		"reversal_of_id": d.ReversalOfID, "reversal_of_number": d.ReversalOfNumber, "journal_entry_id": d.EntryID, "journal_entry_year": d.EntryYear,
+		"journal_entry_number": d.EntryNumber, "lines": lines}
 	detail["number"], detail["movement_type"], detail["posting_date"], detail["lines"] = d.Number, d.MovementType, payload["posting_date"], lines
+	detail["journal_entry_id"] = d.EntryID
 	if err := audit.Record(ctx, action, "inventory.material_document", d.ID, detail,
 		outbox.Event{Context: "inventory", Name: "material_document_posted", AggregateType: "inventory.material_document", AggregateID: d.ID,
 			Payload: payload}); err != nil {

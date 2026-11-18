@@ -537,11 +537,12 @@ channels:
   inventory:
     address: 'erp.{cell}.inventory.{tenant}.{event}'
     title: Inventory management events
-    description: Goods movements posted as material documents and their reversals (ADR-0082 §7).
+    description: Goods movements posted as material documents and their reversals, and price changes of materials (ADR-0082 §7, §8).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       MaterialDocumentPosted: {$ref: '#/components/messages/MaterialDocumentPosted'}
+      MaterialPriceChanged: {$ref: '#/components/messages/MaterialPriceChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -903,6 +904,7 @@ operations:
     channel: {$ref: '#/channels/inventory'}
     messages:
       - $ref: '#/channels/inventory/messages/MaterialDocumentPosted'
+      - $ref: '#/channels/inventory/messages/MaterialPriceChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -4922,7 +4924,8 @@ components:
         movement type and posting date and its lines, each with its
         material, plant and storage location by id and number or code,
         its quantity in the material's base unit, signed, and its cost
-        center by id and code. The header text is left out.
+        center by id and code, and from S1d the value each line moves and
+        the journal entry that posted it. The header text is left out.
         `GET /v1/material-documents/{id}` returns the document. Not
         offered to webhooks until a consumer asks. Subject is the
         document id.
@@ -4937,6 +4940,29 @@ components:
         - name: issued
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001401, source: /erp/eu-1/inventory, type: com.example.erp.inventory.material_document_posted.v1, subject: 0192a000-0000-7000-8000-000000001411, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {material_document_id: 0192a000-0000-7000-8000-000000001411, number: MD1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', fiscal_year: 2026, movement_type: '201', posting_date: '2026-11-20', reversal_of_id: null, reversal_of_number: null, lines: [{line_no: 1, item_no: 1, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, storage_location_id: 0192a000-0000-7000-8000-000000001322, storage_location_code: SL01, quantity: '-10', unit: EA, cost_center_id: 0192a000-0000-7000-8000-000000001431, cost_center_code: CC-1100}]}
+    MaterialPriceChanged:
+      name: MaterialPriceChanged
+      title: Material price changed
+      summary: A material's price in a plant was changed and its stock revalued.
+      description: |
+        Emitted when a valuation's price is changed (ADR-0082 §8, S1d; SAP
+        MR21): the price before and after, the stock revalued and by how
+        much, and the journal entry that posted it (null when nothing was
+        revalued), the material, plant and company by id and number or
+        code. `GET /v1/material-valuations/{id}` returns the valuation at
+        `version` or later. Not offered to webhooks until a consumer asks.
+        Subject is the valuation id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.inventory.material_price_changed.v1}
+      payload: {$ref: '#/components/schemas/MaterialPriceChangedV1'}
+      examples:
+        - name: revalued
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001402, source: /erp/eu-1/inventory, type: com.example.erp.inventory.material_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001441, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {price_change_id: 0192a000-0000-7000-8000-000000001442, valuation_id: 0192a000-0000-7000-8000-000000001441, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', price_control: standard, old_price: {amount: '0.50', currency: CAD}, new_price: {amount: '0.55', currency: CAD}, price_unit: 1, quantity: '1000', revaluation: {amount: '50.00', currency: CAD}, posting_date: '2026-11-20', journal_entry_id: 0192a000-0000-7000-8000-000000001443, journal_entry_year: 2026, journal_entry_number: PR1, version: 3}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -6386,6 +6412,13 @@ components:
             - $ref: '#/components/schemas/Uuid'
             - type: 'null'
         reversal_of_number: {type: [string, 'null'], description: "That document's number; null with it."}
+        journal_entry_id:
+          description: "The journal entry that posted its value, `ledger.journal_entry.id`; null when it moved none (S1d). Not among the required fields, since a field added to a published event is not required of it (ADR-0041)."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        journal_entry_year: {type: [integer, 'null'], description: "That entry's fiscal year; null with it."}
+        journal_entry_number: {type: [string, 'null'], description: "That entry's document number; null with it."}
         lines:
           type: array
           description: Its lines, in line order.
@@ -6409,6 +6442,35 @@ components:
                   - $ref: '#/components/schemas/Uuid'
                   - type: 'null'
               cost_center_code: {type: [string, 'null'], description: "The cost center's code; null with it."}
+              amount: {$ref: '#/components/schemas/Money', description: "What the line moves in value, signed as its quantity is (S1d); not required (ADR-0041)."}
+              price_difference: {$ref: '#/components/schemas/Money', description: "What it is valued at beyond that (S1d); not required (ADR-0041)."}
+    MaterialPriceChangedV1:
+      type: object
+      required: [price_change_id, valuation_id, material_id, material_number, plant_id, plant_code, legal_entity_id, legal_entity_code, price_control, old_price, new_price, price_unit, quantity, revaluation, posting_date, journal_entry_id, journal_entry_year, journal_entry_number, version]
+      properties:
+        price_change_id: {$ref: '#/components/schemas/Uuid', description: '`inventory.price_change.id`.'}
+        valuation_id: {$ref: '#/components/schemas/Uuid', description: '`inventory.valuation.id`.'}
+        material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
+        material_number: {type: string, description: "The material's number."}
+        plant_id: {$ref: '#/components/schemas/Uuid', description: 'The plant: `tenancy.org_unit.id`.'}
+        plant_code: {type: string, description: "The plant's code."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: "The plant's company."}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        price_control: {type: string, description: 'Open enum: standard, moving_average.'}
+        old_price: {$ref: '#/components/schemas/Money', description: The price before, per price unit.}
+        new_price: {$ref: '#/components/schemas/Money', description: The price after, per price unit.}
+        price_unit: {type: integer, description: The base units the price is for.}
+        quantity: {type: string, description: "The stock revalued, in the material's base unit, a decimal."}
+        revaluation: {$ref: '#/components/schemas/Money', description: What the stock was revalued by, signed.}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The company's date it was posted on."}
+        journal_entry_id:
+          description: "The journal entry that posted the revaluation, `ledger.journal_entry.id`; null when nothing was revalued."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        journal_entry_year: {type: [integer, 'null'], description: "That entry's fiscal year; null with it."}
+        journal_entry_number: {type: [string, 'null'], description: "That entry's document number; null with it."}
+        version: {type: integer, description: "The valuation's version after the change."}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]

@@ -172,14 +172,15 @@ Not followed:
   exceptions' is (`approvals.DefaultExceptionRole`); a configurable role
   or policy is Later.
 
-### 8. Inventory account determination (S1d, planned)
+### 8. Inventory account determination (S1d)
 
 The configuration's account determination (`companies[].account_determination`)
 gains keys per valuation class for the stock account (SAP BSX), the
 offsetting accounts of issues to consumption, scrapping and initial
 entries (GBB with its modifiers), price differences (PRD) and
-revaluation (UMB); GR/IR stays the existing key (WRX). The SAP specialist
-confirms the mapping before S1d is built.
+revaluation (UMB); GR/IR stays the existing key (WRX). The mapping is
+stated from memory and built as the safer default (S1d As built); the
+SAP specialist is to confirm it.
 
 ### 9. Governance (S1b)
 
@@ -392,6 +393,88 @@ create with such a match is refused (409) unless the request confirms it.
   audit, which says whether there is one (ADR-0079). Writes are
   human-only (`x-agent: false`); no agent's never-list names an inventory
   operation, as no agent posts goods movements.
-- Walkthrough step 124, `step_goods_movements`; the pilot's settings add
+- Walkthrough step 125, `step_goods_movements` (numbered after S1d's
+  step 124, which values its materials first); the pilot's settings add
   Maple's `MD` range (`material_document`), as the fixture's companies
   have theirs.
+
+### S1d (2026-11-18)
+
+- Migrations 000377 and 000378: `inventory.valuation` (MBEW: price
+  control `standard` or `moving_average`, the price per price unit in the
+  company's currency, the valuation class, the stock's quantity and value
+  in the plant, the valuation area) and `inventory.price_change` (MR21),
+  with RLS and the rules of 03 §3.35 under schema tests; `movement.amount`
+  and `.difference`; the material document's currency and journal entry.
+  The account determination's key check takes
+  `inventory_<kind>:<class>` and the journal's source contexts
+  `inventory`, widened NOT VALID and validated by 000378. Permissions
+  `inventory.valuation.read` and `.write`.
+- **The database keeps the valuation.** `movement_stock` adds each line's
+  quantity and value to its material's valuation in the plant, which
+  must exist (`movement_valuation`), and sets a moving price to the value
+  per price unit of the quantity, rounded half away from zero, while there
+  is stock; `price_change_valuation` sets the price and adds the
+  revaluation, of the price and stock as they are. The application may
+  change a valuation's class alone; a standard-priced valuation is worth
+  its quantity at its price (`valuation_standard_value`), so a wrong
+  amount cannot be written.
+- **Valuing a line** (`valueLines`, in line order as the database applies
+  them): out of stock, a line takes what the value left leaves (at a
+  standard price the rest is worth its quantity at the price; at a moving
+  price the value in proportion, an issue of the whole stock its whole
+  value), so the rounding of an issue is taken by the value left; into
+  stock at a standard price it adds what the stock is then worth at the
+  price, at a moving price what it is worth: the receipt's `amount` (501
+  and 561 only), what a transfer's issue took, what a reversal's original
+  was, or else its quantity at the moving price (422 `inventory.no_price`
+  while that is zero). What a line is valued at beyond what its stock
+  takes is its price difference.
+- **Accounts by valuation class** (`companies[].account_determination.inventory`,
+  each class's `stock`, `receipt` (501), `initial_entry` (561),
+  `consumption` (201), `scrapping` (551), `price_difference` and
+  `revaluation`; the configuration checks them, they are automatic
+  accounts, and a company with classes needs `journal_we`, `journal_wa`
+  and `journal_pr` ranges with its `material_document` ones). The ledger
+  writes them as account determination keys (`config.InventoryKey`);
+  inventory reads them through `ledger.Accounts.Determination`. A country
+  pack ships none, and applying one keeps a document's classes.
+- **One journal entry per document** through `ledger.Postings.Post`
+  (source context `inventory`, the material document as source document),
+  dated its posting date in the company's currency: each line's value on
+  its class's stock account with its quantity, its price difference on
+  the price difference account, the rest on its movement type's account
+  with the item's cost center; document type `WE` for 501, 561 and their
+  reversals, `WA` for the rest. A transfer between plants posts both
+  stock lines (SAP's 301 posts BSX twice, from memory); a transfer within
+  a plant (311, 312) posts none. A class without an account a line needs
+  is refused (422 `inventory.no_inventory_account`) before anything is
+  posted; the ledger's refusals (a closed period) refuse the movement.
+- **Reversals** value each line at what its original line was, given
+  back, its stock's share at the price now, the rest a price difference,
+  against the original's accounts.
+- **Valuation** of a stocked material extended to an active plant of a
+  company the caller may act in, pending or blocked materials too (their
+  accounting view is master data); refused when stock was moved there
+  unvalued (409 `inventory.stock_without_valuation`, possible only for S1c
+  documents). The class changes while there is no stock (409
+  `inventory.valuation_class_with_stock`), as SAP refuses it with stock
+  (from memory). Decided by default.
+- **Price change** (`:changePrice`, If-Match): checked by `Postable` on the
+  company's day (409 `ledger.period_not_open`), the stock revalued at
+  quantity × new price / price unit against the class's revaluation
+  account (document type `PR`), a moving price too; without stock the
+  price is set and nothing posted. `MaterialPriceChanged`.
+- **Locks.** A posting locks the valuations of its lines (material,
+  plant order), then their stock rows, then draws numbers; a price change
+  locks its valuation first. Valuations are read under the lock, so two
+  postings value against what the other left.
+- `MaterialDocumentPosted` gains the journal entry and each line's
+  `amount` and `price_difference`, not required (ADR-0041).
+- Walkthrough step 124, `step_valuation`, before step 125; the pilot's
+  settings add valuation class 3100 with accounts 1416, 2196, 3996, 5116,
+  5126, 5196 and 5197 and the `WA` and `PR` journal ranges.
+- **Not built** (Later): the material ledger and actual costing, split
+  valuation, future and previous period prices, revaluation into a past
+  period, below-zero moving prices, small-difference tolerances. Totals
+  of the stock list (ADR S1c) stay Later.

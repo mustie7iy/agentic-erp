@@ -6241,8 +6241,10 @@ the ledger's cost centers and fiscal calendar and the configuration's
 number ranges and company dates through its ports, and keeps no foreign
 key out of its schema but `ref`'s (02 §2.1). S1c (migration 000376) builds
 the schema with its outbox and inbox, material documents, their movements
-and the stock. Documents and movements are insert-only: a mistaken
-document is reversed by another. Nothing is posted to the ledger in S1c.
+and the stock; S1d (000377, 000378) the valuations and price changes, and
+posts the value of movements and price changes through the ledger's
+posting port. Documents, movements and price changes are insert-only: a
+mistaken document is reversed by another.
 
 ```mermaid
 erDiagram
@@ -6267,6 +6269,20 @@ erDiagram
     numeric entry_quantity "positive"
     text entry_uom_code "ref"
     uuid cost_center_id "ledger" }
+  valuation ||--o{ price_change : "revalued by"
+  valuation { uuid id PK
+    uuid material_id "once per material and plant"
+    uuid plant_id
+    text valuation_class
+    text price_control "standard, moving_average"
+    bigint price "per price_unit"
+    numeric quantity
+    bigint value }
+  price_change { uuid id PK
+    bigint old_price
+    bigint new_price
+    bigint amount "revaluation"
+    uuid journal_entry_id "ledger" }
   stock { uuid id PK
     uuid legal_entity_id "tenancy: the plant's company"
     uuid material_id "once per material, plant and location"
@@ -6308,6 +6324,42 @@ erDiagram
   its row lock needs, and nothing else) and never below zero
   (`stock_not_negative`). The list reads by `stock_by_created_at`, a
   plant's stock by `stock_by_plant`.
+- `inventory.valuation` (S1d, migration 000377): a material's valuation
+  in a plant (SAP MBEW), once (`valuation_once`), of a valuation class of
+  1 to 4 capitals or digits (`valuation_class_check`), price control
+  `standard` or `moving_average` (`valuation_price_control_check`), a
+  currency (`valuation_currency_fkey`), a price not below zero
+  (`valuation_price_check`) per a price unit of 1 to 10000
+  (`valuation_price_unit_check`), and the quantity and value of the
+  material's stock in the plant, neither below zero
+  (`valuation_quantity_check`, `valuation_value_check`), no value without
+  stock (`valuation_value_without_stock`), a standard-priced one worth its
+  quantity at its price rounded half away from zero
+  (`valuation_standard_value`). It starts empty and keeps its material,
+  plant, company, price control, currency and price unit
+  (`valuation_fixed`, a trigger); the application changes its class alone
+  (and its version), deletes none; its quantity, value and moving price
+  change with its movements (`movement_stock`, which needs it:
+  `movement_valuation`) and its price with its price changes. The list
+  reads by `valuation_by_created_at`.
+- `inventory.price_change` (S1d): a price change (SAP MR21) of a
+  valuation (`price_change_valuation_fkey`), to another price
+  (`price_change_changes`), neither below zero, of the stock it revalued
+  and by how much, naming its journal entry exactly when it revalued
+  (`price_change_entry`); of the valuation's price and stock as they are,
+  which it sets (`price_change_valuation`, a security definer trigger).
+  Insert-only (`price_change_insert_only`); read by
+  `price_change_by_valuation`.
+- `inventory.movement` gains `amount` and `difference` (S1d): the value a
+  line moves on its valuation and its price difference.
+  `inventory.material_document` gains `currency` and the journal entry it
+  posted, given together and with the currency
+  (`material_document_entry`).
+- `ledger.account_determination` takes the keys of valuation classes,
+  `inventory_<kind>:<class>` (`account_determination_key_check`, 000377,
+  validated by 000378), and `ledger.journal_entry` the source context
+  `inventory`.
 - `inventory.outbox`, `inventory.inbox`: the context's events
-  (`MaterialDocumentPosted`).
-- Permissions `inventory.movement.post` and `inventory.stock.read`.
+  (`MaterialDocumentPosted`, `MaterialPriceChanged`).
+- Permissions `inventory.movement.post`, `inventory.stock.read`,
+  `inventory.valuation.read` and `.write`.
