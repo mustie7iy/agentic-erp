@@ -32,11 +32,15 @@ func (e env) buyer(t *testing.T, number, limit string) uuid.UUID {
 	return id
 }
 
-// limited sets the customer's credit limit in company 2000, in EUR.
+// limited sets the customer's credit limit in company 2000, in EUR, and
+// has the controller approve it, which it needs to take effect (ADR-0066,
+// As built T77d).
 func (e env) limited(t *testing.T, customer uuid.UUID, limit string) {
 	t.Helper()
-	e.Must(201, "POST", "/v1/credit-limits", fmt.Sprintf(`{"legal_entity_id": %q, "customer_id": %q, "limit": {"amount": %q, "currency": "EUR"}}`,
+	got, _ := e.Must(201, "POST", "/v1/credit-limits", fmt.Sprintf(`{"legal_entity_id": %q, "customer_id": %q, "limit": {"amount": %q, "currency": "EUR"}}`,
 		e.DE, customer, limit), "")
+	e.Controller(t)
+	e.Approve(t, got["pending_change_id"].(string))
 }
 
 // drafted creates an order of the items for the customer in the

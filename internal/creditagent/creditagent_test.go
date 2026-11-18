@@ -38,6 +38,7 @@ type fakeAPI struct {
 	mu       sync.Mutex
 	calls    []string
 	noLimit  bool
+	unused   bool // the limit exists but is not in effect (T77c, T77d)
 	exposure int  // the exposure's status; 0: 200
 	invoices int  // the invoices' status; 0: 200
 	today    int  // the company's day's status; 0: 200
@@ -74,6 +75,9 @@ func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		answer(200, `[]`)
 	case path == "/v1/credit-exposure" && a.exposure != 0:
 		answer(a.exposure, `{"code": "request.not_found", "status": 404}`)
+	case path == "/v1/credit-exposure" && a.unused:
+		answer(200, `{"company_code": "3000", "customer_id": "`+customer+`", "customer_number": "100042", "customer_name": "Northwind Traders",
+			"currency": "CAD", "exposure": {"amount": "1470.00", "currency": "CAD"}, "has_limit": false, "credit_limit_id": "`+limit+`"}`)
 	case path == "/v1/credit-exposure" && a.noLimit:
 		answer(200, `{"company_code": "3000", "customer_id": "`+customer+`", "customer_number": "100042", "customer_name": "Northwind Traders",
 			"currency": "CAD", "exposure": {"amount": "1470.00", "currency": "CAD"}, "has_limit": false}`)
@@ -265,6 +269,30 @@ func TestScoreWithoutALimit(t *testing.T) {
 	}
 	if !strings.Contains(model.Requests[0], "It has no credit limit.") {
 		t.Errorf("prompt: got %s, want it to say the customer has no limit", model.Requests[0])
+	}
+}
+
+// TestScoreALimitNotInEffect: a customer whose limit is pending or
+// outside its validity is recommended on that limit, never given a
+// second one, and the prompt says the limit is not in effect (T77c,
+// T77d).
+func TestScoreALimitNotInEffect(t *testing.T) {
+	a := &fakeAPI{unused: true}
+	model := llmtest.New(t, exposureRead,
+		llmtest.ToolFn("createRecommendation", rec("set_limit", "Limit 1470.00 CAD.", "business_partner", customer)),
+		invoicesRead,
+		llmtest.ToolFn("createRecommendation", rec("keep_limit", "Limit 1470.00 CAD: what it owes; its largest invoice is 3000.00 CAD.")),
+		llmtest.Final("Recommended keeping the limit."))
+	res, err := (&creditagent.Agent{LLM: model.Runner(), API: client(t, a)}).Score(context.Background(), "3000", customer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []recommend.Made{{ID: "r1", ObjectType: "credit_limit", ObjectID: limit, Kind: "keep_limit"}}
+	if !slices.Equal(res.Recommendations, want) {
+		t.Errorf("recommendations: got %v, want %v", res.Recommendations, want)
+	}
+	if !strings.Contains(model.Requests[0], "not in effect today") {
+		t.Errorf("prompt: got %s, want it to say the limit is not in effect", model.Requests[0])
 	}
 }
 

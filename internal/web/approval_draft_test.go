@@ -218,8 +218,10 @@ func TestSummaries(t *testing.T) {
 		"material change": {&gen.MaterialChangeHeaders{Response: gen.MaterialChange{Number: "MC00000001", Kind: "create", MaterialNumber: "MA1",
 			MaterialDescription: "Bracket", Status: "pending", Reason: "New"}}, []string{"Number MC00000001", "Kind of change create", "Title MA1 Bracket", "Reason given New"}, ""},
 		"credit limit change": {&gen.CreditLimitChangeHeaders{Response: gen.CreditLimitChange{Kind: "change", CustomerNumber: "BP1", CustomerName: "Northwind",
-			CompanyCode: "3000", Limit: gen.Money{Amount: "7500.00", Currency: "CAD"}, Status: "pending"}},
-			[]string{"Kind of change change", "Title BP1 Northwind, 3000", "Total", "7,500.00", "Status pending"}, ""},
+			CompanyCode: "3000", Limit: gen.Money{Amount: "7500.00", Currency: "CAD"}, LimitBefore: gen.NewOptMoney(gen.Money{Amount: "5000.00", Currency: "CAD"}),
+			ValidFrom: gen.NewOptDate(day), ValidTo: gen.NewOptDate(day), Status: "pending"}},
+			[]string{"Kind of change change", "Title BP1 Northwind, 3000", "Total before the change", "5,000.00", "Total after the change", "7,500.00",
+				"From 2026-10-22", "To 2026-10-22", "Status pending"}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			sum, ok := summaryOf(tc.res)

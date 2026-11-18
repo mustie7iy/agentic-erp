@@ -5500,9 +5500,9 @@ type Invoker interface {
 	//
 	// The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
 	// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, the
-	// limit in the company's currency, its validity and its next review date. Filtered by company and
-	// customer, and by `due_by`, the worklist of limits due for review or expiring (T77c). Sortable by:
-	// `customer_number` (default).
+	// limit in the company's currency, its validity and its next review date. Filtered by company,
+	// customer and status (T77d), and by `due_by`, the worklist of limits due for review or expiring
+	// (T77c). Sortable by: `customer_number` (default).
 	//
 	// GET /v1/credit-limits
 	ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (ListCreditLimitsRes, error)
@@ -8613,8 +8613,8 @@ type Invoker interface {
 	// UpdateCreditLimit invokes updateCreditLimit operation.
 	//
 	// Changes the amount, the validity or the next review date of a credit limit, with the caller's
-	// version of it (`If-Match`; 412 when another change came first): the change holds at once. The amount
-	// is in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`,
+	// version of it (`If-Match`; 412 when another change came first). The amount is in the limit's
+	// currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`,
 	// `credit.invalid_amount` naming `limit.amount`); `valid_from`, `valid_to` and `next_review_on` are
 	// days, `null` clearing them (T77c), and a validity ending before it starts is refused (422
 	// `credit.invalid_validity`, naming `valid_to`). A change of an `active` limit that raises nothing,
@@ -70815,9 +70815,9 @@ func (c *Client) sendListCreditLimitChanges(ctx context.Context, params ListCred
 //
 // The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
 // `getCreditLimit` gives it: with its company's code and name, its customer's number and name, the
-// limit in the company's currency, its validity and its next review date. Filtered by company and
-// customer, and by `due_by`, the worklist of limits due for review or expiring (T77c). Sortable by:
-// `customer_number` (default).
+// limit in the company's currency, its validity and its next review date. Filtered by company,
+// customer and status (T77d), and by `due_by`, the worklist of limits due for review or expiring
+// (T77c). Sortable by: `customer_number` (default).
 //
 // GET /v1/credit-limits
 func (c *Client) ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (ListCreditLimitsRes, error) {
@@ -70896,6 +70896,23 @@ func (c *Client) sendListCreditLimits(ctx context.Context, params ListCreditLimi
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.CustomerID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
 		}); err != nil {
@@ -117017,8 +117034,8 @@ func (c *Client) sendUpdateCostCenter(ctx context.Context, request *CenterTextsU
 // UpdateCreditLimit invokes updateCreditLimit operation.
 //
 // Changes the amount, the validity or the next review date of a credit limit, with the caller's
-// version of it (`If-Match`; 412 when another change came first): the change holds at once. The amount
-// is in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`,
+// version of it (`If-Match`; 412 when another change came first). The amount is in the limit's
+// currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`,
 // `credit.invalid_amount` naming `limit.amount`); `valid_from`, `valid_to` and `next_review_on` are
 // days, `null` clearing them (T77c), and a validity ending before it starts is refused (422
 // `credit.invalid_validity`, naming `valid_to`). A change of an `active` limit that raises nothing,

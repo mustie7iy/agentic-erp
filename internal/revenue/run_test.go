@@ -452,8 +452,10 @@ func TestRecognitionRunSchedule(t *testing.T) {
 func TestRecognitionRunReads(t *testing.T) {
 	e := setup(t)
 	e.contract(t, e.goods()) // a draft
-	e.Must(201, "POST", "/v1/credit-limits", fmt.Sprintf(`{"legal_entity_id": %q, "customer_id": %q, "limit": {"amount": "100.00", "currency": "EUR"}}`,
+	limit, _ := e.Must(201, "POST", "/v1/credit-limits", fmt.Sprintf(`{"legal_entity_id": %q, "customer_id": %q, "limit": {"amount": "100.00", "currency": "EUR"}}`,
 		e.DE, e.customer), "")
+	e.Controller(t)
+	e.Approve(t, limit["pending_change_id"].(string)) // a limit takes effect once approved (ADR-0066, As built T77d)
 	draft := e.draft(t, "EUR", e.goods())["id"].(string)
 	confirmed, _ := e.Must(200, "POST", "/v1/sales-orders/"+draft+":confirm", "", `"1"`)
 	if confirmed["credit_block"] != "blocked" {

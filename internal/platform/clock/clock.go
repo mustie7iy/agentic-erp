@@ -38,6 +38,15 @@ func AddMonths(d time.Time, n int) time.Time {
 	return first.AddDate(0, 0, min(d.Day(), last)-1)
 }
 
+// SameDay says whether two optional dates are the same: both absent, or
+// both the one instant.
+func SameDay(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
+}
+
 // Later is the later of two times; Earlier the earlier. Where both are
 // the same instant, either is returned.
 func Later(a, b time.Time) time.Time {

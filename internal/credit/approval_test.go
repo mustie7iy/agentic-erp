@@ -204,6 +204,14 @@ func TestPendingLimit(t *testing.T) {
 	if s := shownLimit(t, again); s != "active 100.00 EUR -" {
 		t.Errorf("asked again and approved: got %s, want active 100.00 EUR -", s)
 	}
+	t.Run("listed by status", func(t *testing.T) {
+		for status, want := range map[string]int{"pending": 0, "active": 1, "blocked": 0} {
+			page, _ := e.In(t).Must(200, "GET", "/v1/credit-limits?status="+status+"&customer_id="+e.north.String(), "", "")
+			if n := len(objects(t, page, "items")); n != want {
+				t.Errorf("%s limits: got %d, want %d", status, n, want)
+			}
+		}
+	})
 	creates, _ := e.Must(200, "GET", "/v1/credit-limit-changes?status=applied&credit_limit_id="+id, "", "")
 	if items := objects(t, creates, "items"); len(items) != 1 || items[0]["kind"] != "create" {
 		t.Errorf("the change applied: got %v, want one create", items)

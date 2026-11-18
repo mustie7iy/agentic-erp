@@ -151,7 +151,10 @@ func (a *Agent) Score(ctx context.Context, company, customer string) (recommend.
 		Observe: map[string]func(apitools.Response){},
 		Check:   r.check,
 	}
-	if e.HasLimit {
+	// A customer with a limit, in effect or not (pending its approval or
+	// outside its validity, ADR-0066 As built T77c, T77d), is recommended
+	// on its limit: it cannot be given a second one.
+	if e.CreditLimitID != "" {
 		task.Objects = map[string]string{e.CreditLimitID: LimitObject}
 	}
 	for _, read := range history {
@@ -174,11 +177,15 @@ func agent(maxIterations int) recommend.Agent {
 // that recommends.
 func Tools() []string { return agent(0).Tools() }
 
-// limitNow says in the prompt whether the customer has a limit; its
-// amount is the tools' to return.
+// limitNow says in the prompt whether the customer has a limit and
+// whether it is in effect today; its amount is the tools' to return.
 func limitNow(e exposure) string {
-	if e.HasLimit {
+	switch {
+	case e.HasLimit:
 		return "It has a credit limit, " + e.CreditLimitID + "."
+	case e.CreditLimitID != "":
+		return "It has a credit limit, " + e.CreditLimitID + ", not in effect today: pending its approval or outside its validity " +
+			"(listCreditLimits gives its status and validity)."
 	}
 	return "It has no credit limit."
 }
@@ -241,7 +248,10 @@ func (r *review) check(p recommend.Proposed, f *recommend.Figures) error {
 	if p.Kind != Keep && r.history == 0 {
 		return ErrNoHistory
 	}
-	if p.Kind == Set {
+	// A limit not in effect today (pending or outside its validity) has
+	// no amount in the exposure to compare with: the credit manager judges
+	// the direction.
+	if p.Kind == Set || !r.e.HasLimit {
 		return nil
 	}
 	limit, now := new(big.Rat), new(big.Rat)

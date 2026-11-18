@@ -129,7 +129,7 @@ func (e *Endpoints) ListCreditLimits(ctx context.Context, params gen.ListCreditL
 		return nil, err
 	}
 	le, customer, due := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerID), apitypes.Ptr[time.Time](params.DueBy)
-	scope := fmt.Sprintf("listCreditLimits|%s|%s|%s", le, customer, due)
+	scope := fmt.Sprintf("listCreditLimits|%s|%s|%s|%s", le, customer, due, params.Status.Value)
 	ks, err := e.Pages.Keyset(limitSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("credit: page of credit limits: %w", err)
@@ -139,8 +139,8 @@ func (e *Endpoints) ListCreditLimits(ctx context.Context, params gen.ListCreditL
 		return nil, fmt.Errorf("credit: company access for credit limits: %w", err)
 	}
 	q, args := ks.SQL(limitSelect+` WHERE ($1 OR l.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR l.legal_entity_id = $3)
-		AND ($4::uuid IS NULL OR l.customer_id = $4) AND ($5::date IS NULL OR l.next_review_on <= $5 OR l.valid_to <= $5)`,
-		[]any{access.All, access.IDs, le, customer, due})
+		AND ($4::uuid IS NULL OR l.customer_id = $4) AND ($5::date IS NULL OR l.next_review_on <= $5 OR l.valid_to <= $5)
+		AND ($6 = '' OR l.status = $6)`, []any{access.All, access.IDs, le, customer, due, params.Status.Value})
 	rows, _ := tx.Query(ctx, q, args...)
 	limits, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Limit, error) { return scanLimit(r) })
 	if err != nil {

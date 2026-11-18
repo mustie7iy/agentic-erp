@@ -20627,7 +20627,7 @@ paths:
       tags:
         - credit
       summary: List credit limits
-      description: "The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as `getCreditLimit` gives it: with its company's code and name, its customer's number and name, the limit in the company's currency, its validity and its next review date. Filtered by company and customer, and by `due_by`, the worklist of limits due for review or expiring (T77c). Sortable by: `customer_number` (default)."
+      description: "The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as `getCreditLimit` gives it: with its company's code and name, its customer's number and name, the limit in the company's currency, its validity and its next review date. Filtered by company, customer and status (T77d), and by `due_by`, the worklist of limits due for review or expiring (T77c). Sortable by: `customer_number` (default)."
       x-permission: credit.limit.read
       x-problem-codes:
         - request.invalid_order_by
@@ -20642,6 +20642,15 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: status
+          in: query
+          required: false
+          description: "Only the limits in this status (T77d): `pending`, not in effect, asked for and not yet approved (or rejected or withdrawn, and to be asked for again), or `active`. A value that is no status matches none."
+          schema:
+            type: string
+            maxLength: 20
+            description: "Credit limit status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [pending, active]
         - name: due_by
           in: query
           required: false
@@ -20777,7 +20786,7 @@ paths:
       tags:
         - credit
       summary: Change a credit limit
-      description: "Changes the amount, the validity or the next review date of a credit limit, with the caller's version of it (`If-Match`; 412 when another change came first): the change holds at once. The amount is in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`); `valid_from`, `valid_to` and `next_review_on` are days, `null` clearing them (T77c), and a validity ending before it starts is refused (422 `credit.invalid_validity`, naming `valid_to`). A change of an `active` limit that raises nothing, its amount not above the limit's and its validity as it is (the next review date may change with it), holds at once. Any other (a raise, a change of the validity) and any change of a `pending` limit opens a credit limit change waiting for its approval by a holder of the role `controller` other than the requester (T77d): the limit is answered as it is, naming the change in `pending_change_id`, and takes the change's amount and dates when it is approved; rejected or withdrawn, it stays as it is. A limit with a change waiting is refused (409 `credit.change_pending`). The customer, the company and the currency of a limit do not change. A change that leaves an active limit as it is is refused (422 `credit.nothing_to_change`); a pending limit is asked for again as it is. The audit record carries what changed before and after, and CreditLimitChanged the limit after and its amount before. JSON Merge Patch (RFC 7396): absent fields stay. A limit of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      description: "Changes the amount, the validity or the next review date of a credit limit, with the caller's version of it (`If-Match`; 412 when another change came first). The amount is in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`); `valid_from`, `valid_to` and `next_review_on` are days, `null` clearing them (T77c), and a validity ending before it starts is refused (422 `credit.invalid_validity`, naming `valid_to`). A change of an `active` limit that raises nothing, its amount not above the limit's and its validity as it is (the next review date may change with it), holds at once. Any other (a raise, a change of the validity) and any change of a `pending` limit opens a credit limit change waiting for its approval by a holder of the role `controller` other than the requester (T77d): the limit is answered as it is, naming the change in `pending_change_id`, and takes the change's amount and dates when it is approved; rejected or withdrawn, it stays as it is. A limit with a change waiting is refused (409 `credit.change_pending`). The customer, the company and the currency of a limit do not change. A change that leaves an active limit as it is is refused (422 `credit.nothing_to_change`); a pending limit is asked for again as it is. The audit record carries what changed before and after, and CreditLimitChanged the limit after and its amount before. JSON Merge Patch (RFC 7396): absent fields stay. A limit of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
       x-permission: credit.limit.write
       x-agent: false
       x-problem-codes:

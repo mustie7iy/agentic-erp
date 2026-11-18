@@ -141,8 +141,8 @@ type Limit struct {
 }
 
 const limitSelect = `SELECT l.id, l.legal_entity_id, l.customer_id, l.customer_number, l.currency, c.exponent, l.amount,
-		l.valid_from, l.valid_to, l.next_review_on, l.status, (SELECT c.id FROM credit.credit_limit_change c
-			WHERE c.tenant_id = l.tenant_id AND c.credit_limit_id = l.id AND c.status = 'pending') AS pending_change_id, l.version, l.created_at, l.created_by, l.updated_at, l.updated_by
+		l.valid_from, l.valid_to, l.next_review_on, l.status, (SELECT ch.id FROM credit.credit_limit_change ch
+			WHERE ch.tenant_id = l.tenant_id AND ch.credit_limit_id = l.id AND ch.status = 'pending') AS pending_change_id, l.version, l.created_at, l.created_by, l.updated_at, l.updated_by
 	FROM credit.credit_limit l JOIN ref.currency c ON c.code = l.currency`
 
 func scanLimit(row pgx.Row) (Limit, error) {

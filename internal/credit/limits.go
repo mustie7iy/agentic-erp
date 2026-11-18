@@ -10,6 +10,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -147,16 +148,10 @@ func patched(l Limit, ch LimitChange) (Limit, error) {
 	return to, validity(to.ValidFrom, to.ValidTo)
 }
 
-// sameDay says whether two optional days are the same: both open or both
-// the one day.
-func sameDay(a, b *time.Time) bool {
-	return (a == nil) == (b == nil) && (a == nil || a.Equal(*b))
-}
-
 // unchanged says whether the limit after a change is the limit before.
 func unchanged(before, after Limit) bool {
-	return before.Amount == after.Amount && sameDay(before.ValidFrom, after.ValidFrom) && sameDay(before.ValidTo, after.ValidTo) &&
-		sameDay(before.NextReview, after.NextReview)
+	return before.Amount == after.Amount && clock.SameDay(before.ValidFrom, after.ValidFrom) && clock.SameDay(before.ValidTo, after.ValidTo) &&
+		clock.SameDay(before.NextReview, after.NextReview)
 }
 
 // raisesNothing says whether a change of an active limit applies at once
@@ -165,7 +160,7 @@ func unchanged(before, after Limit) bool {
 // change waits for its approval: a raise, and a change of the validity,
 // which decides on which days the limit restricts at all.
 func raisesNothing(before, after Limit) bool {
-	return after.Amount <= before.Amount && sameDay(before.ValidFrom, after.ValidFrom) && sameDay(before.ValidTo, after.ValidTo)
+	return after.Amount <= before.Amount && clock.SameDay(before.ValidFrom, after.ValidFrom) && clock.SameDay(before.ValidTo, after.ValidTo)
 }
 
 // ChangeLimit changes the amount, the validity or the next review date
