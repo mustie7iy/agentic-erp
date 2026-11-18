@@ -217,6 +217,19 @@ create with such a match is refused (409) unless the request confirms it.
 
 ## As built
 
+### Pilot assumption (product owner, 2026-11-18)
+
+The plan's pilot assumption (`plan-supply-chain.md`, "Pilot relevance")
+is confirmed and refined: materials are valued by material type, purchased
+ones (`raw_material`, `trading_good`) at moving average and own-produced
+ones (`semi_finished`, `finished_good`) at standard price, as SAP practice
+is; one plant per physical stock site; production stays outside this ERP
+(option A), finished goods received by a `501` at a standard price set by
+hand (`:changePrice`) and components issued by a `201`; manufacturing comes
+after completion. Nothing of S1a-S1d changes: price control stays the
+inventory accountant's choice per valuation, which the pilot's settings
+follow by type.
+
 ### S1a (2026-11-17)
 
 - Migration 000373: schema `materials` with its outbox and inbox,
