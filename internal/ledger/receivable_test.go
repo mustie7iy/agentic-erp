@@ -164,6 +164,28 @@ func TestReceivableItems(t *testing.T) {
 		_, err := ledger.OpenItems{}.Receivable(ctx, e.de, nil)
 		return err
 	})
+	// The items open on a date after every posting and clearing are those
+	// open now (T75l; the receivables context tests the days between).
+	later := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	var now, on []ledger.ReceivableItem
+	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+		if now, err = (ledger.OpenItems{}).Receivable(ctx, e.de, nil); err == nil {
+			on, err = ledger.OpenItems{}.ReceivableOn(ctx, e.de, nil, later)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(on, now) {
+		t.Errorf("the items open on %s: got %+v, want those open now, %+v", later.Format(time.DateOnly), on, now)
+	}
+	if _, err := (ledger.OpenItems{}).ReceivableOn(context.Background(), e.de, nil, later); err == nil {
+		t.Error("open on a date, outside a unit of work: got nil error, want an error")
+	}
+	apitest.EveryFailure(t, e.ten, e.ten.Human, "receivable items on a date", func(ctx context.Context) error {
+		_, err := ledger.OpenItems{}.ReceivableOn(ctx, e.de, nil, later)
+		return err
+	})
 	receivableItem(t, e, first, ledger.ItemRef{FiscalYear: 2026, EntryID: paid.ID, LineNo: 1})
 }
 

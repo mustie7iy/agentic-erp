@@ -51,6 +51,12 @@ type ReceivableItem struct {
 	Reference        *string
 	SourceContext    string
 	SourceDocumentID *uuid.UUID
+	// ProfitCenterID and SegmentID are the customer line's own
+	// assignment as posted (ADR-0050 §5), nil for none: a customer
+	// invoice's line carries none, a manual entry's what it names (the
+	// AR aging by profit center or segment, T75m).
+	ProfitCenterID *uuid.UUID
+	SegmentID      *uuid.UUID
 }
 
 // NetDueDate is when the customer item is due: by the payment terms it
@@ -138,7 +144,7 @@ func (OpenItems) ReceivableItem(ctx context.Context, legalEntity uuid.UUID, ref 
 const (
 	receivableSelect = `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, l.posting_date,
 			e.currency_tc, ctc.exponent, l.amount_tc, e.currency_lc, clc.exponent, l.amount_lc, l.special_gl, e.document_number, e.reference,
-			e.source_context, e.source_document_id, ` + termsColumns + `
+			e.source_context, e.source_document_id, l.profit_center_id, l.segment_id, ` + termsColumns + `
 		FROM ledger.journal_line l
 		LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
 			AND t.line_no = l.line_no
@@ -157,6 +163,6 @@ func scanReceivable(r pgx.CollectableRow) (ReceivableItem, error) {
 	var err error
 	it.Terms, err = scanWithTerms(r, "scan receivable item", []any{&it.FiscalYear, &it.EntryID, &it.LineNo, &it.AccountID, &it.PartnerID, &it.DocumentDate,
 		&it.PostingDate, &it.Currency, &it.Exponent, &it.Amount, &it.LocalCurrency, &it.LocalExponent, &it.AmountLC, &it.SpecialGL, &it.Number, &it.Reference,
-		&it.SourceContext, &it.SourceDocumentID})
+		&it.SourceContext, &it.SourceDocumentID, &it.ProfitCenterID, &it.SegmentID})
 	return it, err
 }

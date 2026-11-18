@@ -164,6 +164,11 @@ func TestDatabaseFailures(t *testing.T) {
 				OpenOn: gen.NewOptString("key_date")})
 			return err
 		},
+		"aging by profit center": func(ctx context.Context) error {
+			_, err := h.GetReceivablesAging(ctx, gen.GetReceivablesAgingParams{LegalEntityID: e.DE, KeyDate: date(t, "2026-05-15"),
+				GroupBy: gen.NewOptString("profit_center")})
+			return err
+		},
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateCustomerInvoice(ctx, create, gen.CreateCustomerInvoiceParams{})
 			return err

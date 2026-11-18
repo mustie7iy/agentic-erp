@@ -59365,9 +59365,24 @@ func (s *Server) handleGetQuotationRequest(args [1]string, argsEscaped bool, w h
 // memo, a payment on the account) is negative and reduces its customer's bucket and total. `totals`
 // are those of every customer the request selects, on every page, and equal the open items of the
 // company's customer reconciliation accounts. `items` is one row per customer with open items, by
-// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
-// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
-// naming `key_date`).
+// customer id, in cursor pages; `customer_id` selects one customer. `profit_center_id` and
+// `segment_id` (T75m) select the items whose customer line carries that profit center or segment, the
+// item's own assignment as posted (ADR-0050 §5; a customer invoice's line carries none), and the
+// totals are then theirs; an id that names no center selects nothing. With `group_by` `profit_center`
+// or `segment` (T75m) the rows are `groups` instead, one per profit center or segment the selected
+// items carry, by its id, and one without (`profit_center_id` or `segment_id` absent) for the items
+// carrying none, first; each with its code and name, how many customers and items and their amount and
+// buckets, in cursor pages; `items` is then empty. `format` `csv` (T75m) gives the page as CSV
+// instead, for a spreadsheet: UTF-8 with a byte order mark, lines ending in LF, a header row
+// `row,id,code,name,currency,customer_count,item_count,amount` and a column per bucket (`not_due`,
+// `overdue_<from>_<to>`, the last overdue bucket `overdue_<from>_plus`, `no_due_date`), then a row per
+// row of the page (`row` `customer`, `profit_center` or `segment`; `id` the customer's or the
+// center's, empty for the row without; `code` the customer's number or the center's code) and, on the
+// last page only, the totals' row (`row` `total`); every amount an exact decimal in `currency`; a text
+// cell quoted, and one beginning as a formula (`=`, `+`, `-`, `@`, a tab or a line break) kept as text
+// by a leading apostrophe, as OWASP's CSV injection guidance advises; the next page's token in
+// `Next-Page-Token`, as with JSON. The company must be one the caller may act in. The key date is in
+// the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`).
 //
 // GET /v1/receivables-aging
 func (s *Server) handleGetReceivablesAgingRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -59524,6 +59539,22 @@ func (s *Server) handleGetReceivablesAgingRequest(args [0]string, argsEscaped bo
 					Name: "customer_id",
 					In:   "query",
 				}: params.CustomerID,
+				{
+					Name: "profit_center_id",
+					In:   "query",
+				}: params.ProfitCenterID,
+				{
+					Name: "segment_id",
+					In:   "query",
+				}: params.SegmentID,
+				{
+					Name: "group_by",
+					In:   "query",
+				}: params.GroupBy,
+				{
+					Name: "format",
+					In:   "query",
+				}: params.Format,
 				{
 					Name: "open_on",
 					In:   "query",

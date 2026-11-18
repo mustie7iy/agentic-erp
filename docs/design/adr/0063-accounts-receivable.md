@@ -1327,3 +1327,60 @@ memo (§5, plan default 3).
   by document date the bucket names stay T75e's (`not_due`, `overdue`)
   rather than new ones, the description saying what they count; (5) no
   new permission, problem code or table.
+
+### T75m AR aging by profit center or segment, and its CSV export (no migration)
+- `GET /v1/receivables-aging` takes `profit_center_id` and `segment_id`
+  (the items whose customer line carries it; both together select the
+  items carrying both), `group_by` `customer` (the default), `profit_center`
+  or `segment`, and `format` `json` (the default) or `csv`; `group_by` and
+  `format` are open enumerations refused as `open_on` is. The response
+  says `group_by` and the filters; grouped, its rows are `groups`
+  (`ReceivablesAgingGroup`: the center by id, code and name, its
+  customers, items, amount and buckets) and `items` is empty. The page
+  token is signed for the grouping and both filters.
+- **The assignment** is the customer line's own, as posted (ADR-0050 §5):
+  `ledger.ReceivableItem` now carries the line's `profit_center_id` and
+  `segment_id`, read by T75b's reader for every consumer. A customer
+  invoice posts its customer line without a center (its items carry
+  them), so its item is in the row without; a manual or migrated entry's
+  customer line carries what it names, the segment always its profit
+  center's. No center is derived for the customer line here: that would
+  be document splitting, which nothing has decided (listed for the product
+  owner).
+- **Grouping** is on read (`age`): each selected item falls in one row by
+  its customer, profit center or segment (`groupKey`), the rows ordered by
+  id with the row without a center (the nil id) first, paged by that key
+  as the customers are; a row counts each customer once (the items come
+  ordered by customer). The centers are named through the ledger's
+  `CenterNames` (`References`), widened to segments; the customers
+  through the partner context as before. An id that names no center
+  selects nothing, an empty report rather than a refusal, as a customer
+  filter does.
+- **CSV** is the existing form of a report in the API (`format=csv` of
+  `GET /v1/process-event-logs`, the next page in `Next-Page-Token`, now
+  declared on this report's 200 for JSON too) with the workspace's
+  spreadsheet-safe cells (ADR-0052 Built in T73j4): `safeCell`, the byte
+  order mark and the row writer moved from `internal/web` to
+  `internal/platform/csvcell` (`Safe`, `ByteOrderMark`, `Write`), which
+  the workspace's downloads now call, rather than copied. A header row
+  `row,id,code,name,currency,customer_count,item_count,amount` and a
+  column per bucket (`not_due`, `overdue_<from>_<to>`,
+  `overdue_<from>_plus`, `no_due_date`), a row per row of the page, and
+  the totals' row (`total`) on the last page only, so the pages of an
+  export add up to one file with one total; amounts are exact decimals in
+  the company's currency, the currency in its own column.
+- Walkthrough `step_aging_by_center` (step 131): Alex charges Harbour
+  Tools CAD 200.00 on PC-MTL (segment CA) by a manual entry; Harbour Tools'
+  aging by profit center is the row without (step 130's invoice) and
+  PC-MTL's, by segment CA's, filtered by PC-MTL the charge; the company's
+  groups add up to its totals; the CSV has the byte order mark, the
+  header, PC-MTL's row and the totals.
+- **Decided by default:** (1) the row without a center is a row of its
+  own, first, so the groups always add up to the totals; (2) grouped
+  rows are a new array rather than customer rows with a center, so a
+  customer row keeps its required fields; (3) CSV cells are made safe for
+  a spreadsheet, as the workspace's downloads are (the safer default for
+  customer names typed by people), at the cost of an apostrophe a machine
+  reader must strip from a text cell beginning as a formula; (4) the
+  totals' row only on the last page; (5) no new permission or problem
+  code.

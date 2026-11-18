@@ -128,8 +128,9 @@ func asAsset(err error) error {
 // CenterName is a cost or profit center by its code and name.
 type CenterName struct{ Code, Name string }
 
-// CenterNames returns the codes and names of the cost and profit centers
-// among ids, by id; an id of neither is left out.
+// CenterNames returns the codes and names of the cost centers, profit
+// centers and segments among ids, by id (the AR aging names its segments
+// so, T75m); an id of none of them is left out.
 func (AssetReads) CenterNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]CenterName, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -137,7 +138,8 @@ func (AssetReads) CenterNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UU
 	}
 	out := map[uuid.UUID]CenterName{}
 	rows, _ := tx.Query(ctx, `SELECT id, code, name FROM ledger.cost_center WHERE id = ANY($1)
-		UNION ALL SELECT id, code, name FROM ledger.profit_center WHERE id = ANY($1)`, ids)
+		UNION ALL SELECT id, code, name FROM ledger.profit_center WHERE id = ANY($1)
+		UNION ALL SELECT id, code, name FROM ledger.segment WHERE id = ANY($1)`, ids)
 	var id uuid.UUID
 	var n CenterName
 	_, err = pgx.ForEachRow(rows, []any{&id, &n.Code, &n.Name}, func() error { out[id] = n; return nil })

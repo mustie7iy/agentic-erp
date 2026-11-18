@@ -510,7 +510,8 @@ requires a router and a web per region, which goes beyond this ADR (facts).
   error.
 - **Imports.** `internal/web` may import `api/gen`, `internal/platform`
   packages that hold no database or tenant scope (`problem`, `etag`,
-  `money` formatting, `tlsconf`, `authn`, `secrets`, `telemetry`), and its
+  `money` formatting, `tlsconf`, `authn`, `secrets`, `telemetry`; since
+  T75m `csvcell`, the spreadsheet-safe CSV cells), and its
   own session store. It may not import any context, `uow`, `reqctx` or the
   database packages. The layout test (`TestImportRules`) gets these rules,
   so the BFF cannot become a second backend.
@@ -3355,7 +3356,9 @@ the contract or T73j's downloads settled it:
   before `=`, `+`, `-`, `@`, a tab and a carriage return, and quoted a
   cell only when it held a comma, a quote or a line break, or began
   with a space. Three gaps,
-  fixed in `safeCell` for every download: a line feed and the four
+  fixed in `safeCell` (since T75m `csvcell.Safe` in
+  `internal/platform/csvcell`, shared with the API's CSV of the AR aging)
+  for every download: a line feed and the four
   full-width characters now take the apostrophe too, and every text
   cell is quoted, its quotes doubled, so a semicolon, the other
   separator OWASP names, starts no new cell. Numbers (an

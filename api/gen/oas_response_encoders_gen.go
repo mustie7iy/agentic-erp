@@ -56356,13 +56356,67 @@ func encodeGetQuotationResponse(response GetQuotationRes, w http.ResponseWriter,
 
 func encodeGetReceivablesAgingResponse(response GetReceivablesAgingRes, w http.ResponseWriter, span trace.Span) error {
 	switch response := response.(type) {
-	case *ReceivablesAging:
+	case *ReceivablesAgingHeaders:
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Access-Control-Expose-Headers", "Next-Page-Token")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Next-Page-Token" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Next-Page-Token",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.NextPageToken.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Next-Page-Token header")
+				}
+			}
+		}
 		w.WriteHeader(200)
 
 		e := new(jx.Encoder)
-		response.Encode(e)
+		response.Response.Encode(e)
 		if _, err := e.WriteTo(w); err != nil {
+			return errors.Wrap(err, "write")
+		}
+
+		return nil
+
+	case *GetReceivablesAgingOKTextCsvHeaders:
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Access-Control-Expose-Headers", "Next-Page-Token")
+		// Encoding response headers.
+		{
+			h := uri.NewHeaderEncoder(w.Header())
+			// Encode "Next-Page-Token" header.
+			{
+				cfg := uri.HeaderParameterEncodingConfig{
+					Name:    "Next-Page-Token",
+					Explode: false,
+				}
+				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+					if val, ok := response.NextPageToken.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
+				}); err != nil {
+					return errors.Wrap(err, "encode Next-Page-Token header")
+				}
+			}
+		}
+		w.WriteHeader(200)
+
+		writer := w
+		if closer, ok := response.Response.Data.(io.Closer); ok {
+			defer closer.Close()
+		}
+		if _, err := io.Copy(writer, response.Response); err != nil {
 			return errors.Wrap(err, "write")
 		}
 

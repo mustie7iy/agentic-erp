@@ -50881,6 +50881,51 @@ type GetReceivablesAgingForbidden Problem
 
 func (*GetReceivablesAgingForbidden) getReceivablesAgingRes() {}
 
+// A header row `row,id,code,name,currency,customer_count,item_count,amount` and a column per bucket, a
+// row per row of the page and, on the last page, the totals' row; UTF-8 with a byte order mark, lines
+// ending in LF, text cells safe for a spreadsheet.
+type GetReceivablesAgingOKTextCsv struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetReceivablesAgingOKTextCsv) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// GetReceivablesAgingOKTextCsvHeaders wraps GetReceivablesAgingOKTextCsv with response headers.
+type GetReceivablesAgingOKTextCsvHeaders struct {
+	NextPageToken OptString
+	Response      GetReceivablesAgingOKTextCsv
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *GetReceivablesAgingOKTextCsvHeaders) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetResponse returns the value of Response.
+func (s *GetReceivablesAgingOKTextCsvHeaders) GetResponse() GetReceivablesAgingOKTextCsv {
+	return s.Response
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *GetReceivablesAgingOKTextCsvHeaders) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetReceivablesAgingOKTextCsvHeaders) SetResponse(val GetReceivablesAgingOKTextCsv) {
+	s.Response = val
+}
+
+func (*GetReceivablesAgingOKTextCsvHeaders) getReceivablesAgingRes() {}
+
 type GetReceivablesAgingUnprocessableEntity Problem
 
 func (*GetReceivablesAgingUnprocessableEntity) getReceivablesAgingRes() {}
@@ -91253,13 +91298,23 @@ type ReceivablesAging struct {
 	// The date an item's days are counted from: its net due date or its document date. Open enumeration:
 	// clients must accept and preserve values not listed here; values may be added within /v1.
 	AgingBasis string `json:"aging_basis"`
+	// What a row is: a customer (`items`), a profit center or a segment (`groups`). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	GroupBy string `json:"group_by"`
+	// The profit center the items were selected by, when one was.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The segment the items were selected by, when one was.
+	SegmentID OptUUID `json:"segment_id"`
 	// The company's local currency (ISO 4217), every amount's.
 	Currency string `json:"currency"`
 	// The overdue buckets' last days, as asked for or the default.
 	AgingDays []int32                `json:"aging_days"`
 	Totals    ReceivablesAgingTotals `json:"totals"`
-	// The customers on this page, by customer id.
+	// The customers on this page, by customer id; empty with `group_by` `profit_center` or `segment`.
 	Items []ReceivablesAgingCustomer `json:"items"`
+	// With `group_by` `profit_center` or `segment`: the groups on this page, the one without first, then
+	// by id; absent otherwise.
+	Groups []ReceivablesAgingGroup `json:"groups"`
 	// Opaque cursor for the next page; absent on the last page.
 	NextPageToken OptString `json:"next_page_token"`
 }
@@ -91294,6 +91349,21 @@ func (s *ReceivablesAging) GetAgingBasis() string {
 	return s.AgingBasis
 }
 
+// GetGroupBy returns the value of GroupBy.
+func (s *ReceivablesAging) GetGroupBy() string {
+	return s.GroupBy
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *ReceivablesAging) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *ReceivablesAging) GetSegmentID() OptUUID {
+	return s.SegmentID
+}
+
 // GetCurrency returns the value of Currency.
 func (s *ReceivablesAging) GetCurrency() string {
 	return s.Currency
@@ -91312,6 +91382,11 @@ func (s *ReceivablesAging) GetTotals() ReceivablesAgingTotals {
 // GetItems returns the value of Items.
 func (s *ReceivablesAging) GetItems() []ReceivablesAgingCustomer {
 	return s.Items
+}
+
+// GetGroups returns the value of Groups.
+func (s *ReceivablesAging) GetGroups() []ReceivablesAgingGroup {
+	return s.Groups
 }
 
 // GetNextPageToken returns the value of NextPageToken.
@@ -91349,6 +91424,21 @@ func (s *ReceivablesAging) SetAgingBasis(val string) {
 	s.AgingBasis = val
 }
 
+// SetGroupBy sets the value of GroupBy.
+func (s *ReceivablesAging) SetGroupBy(val string) {
+	s.GroupBy = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *ReceivablesAging) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *ReceivablesAging) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *ReceivablesAging) SetCurrency(val string) {
 	s.Currency = val
@@ -91369,12 +91459,15 @@ func (s *ReceivablesAging) SetItems(val []ReceivablesAgingCustomer) {
 	s.Items = val
 }
 
+// SetGroups sets the value of Groups.
+func (s *ReceivablesAging) SetGroups(val []ReceivablesAgingGroup) {
+	s.Groups = val
+}
+
 // SetNextPageToken sets the value of NextPageToken.
 func (s *ReceivablesAging) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
-
-func (*ReceivablesAging) getReceivablesAgingRes() {}
 
 // One bucket of the AR aging: the open items in it and their amount in the company's local currency, a
 // credit item negative.
@@ -91524,6 +91617,162 @@ func (s *ReceivablesAgingCustomer) SetAmount(val Money) {
 func (s *ReceivablesAgingCustomer) SetBuckets(val []ReceivablesAgingBucket) {
 	s.Buckets = val
 }
+
+// A profit center's or a segment's row of the AR aging (T75m): the open items whose customer line
+// carries it, or, without `profit_center_id` and `segment_id`, those carrying none.
+// Ref: #/components/schemas/ReceivablesAgingGroup
+type ReceivablesAgingGroup struct {
+	// The profit center (`GET /v1/profit-centers/{id}`), with `group_by` `profit_center`; absent on the
+	// row of the items without one.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The profit center's code.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The profit center's name, as it is now.
+	ProfitCenterName OptString `json:"profit_center_name"`
+	// The segment (`GET /v1/segments/{id}`), with `group_by` `segment`; absent on the row of the items
+	// without one.
+	SegmentID OptUUID `json:"segment_id"`
+	// The segment's code.
+	SegmentCode OptString `json:"segment_code"`
+	// The segment's name, as it is now.
+	SegmentName OptString `json:"segment_name"`
+	// How many customers the group's items are of.
+	CustomerCount int64 `json:"customer_count"`
+	// How many open items the group has.
+	ItemCount int64 `json:"item_count"`
+	// The group's open items in local currency, added up; the sum of `buckets`.
+	Amount Money `json:"amount"`
+	// The group's items by bucket: every bucket of the report, in its order.
+	Buckets []ReceivablesAgingBucket `json:"buckets"`
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *ReceivablesAgingGroup) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *ReceivablesAgingGroup) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *ReceivablesAgingGroup) GetProfitCenterName() OptString {
+	return s.ProfitCenterName
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *ReceivablesAgingGroup) GetSegmentID() OptUUID {
+	return s.SegmentID
+}
+
+// GetSegmentCode returns the value of SegmentCode.
+func (s *ReceivablesAgingGroup) GetSegmentCode() OptString {
+	return s.SegmentCode
+}
+
+// GetSegmentName returns the value of SegmentName.
+func (s *ReceivablesAgingGroup) GetSegmentName() OptString {
+	return s.SegmentName
+}
+
+// GetCustomerCount returns the value of CustomerCount.
+func (s *ReceivablesAgingGroup) GetCustomerCount() int64 {
+	return s.CustomerCount
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingGroup) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingGroup) GetAmount() Money {
+	return s.Amount
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *ReceivablesAgingGroup) GetBuckets() []ReceivablesAgingBucket {
+	return s.Buckets
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *ReceivablesAgingGroup) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *ReceivablesAgingGroup) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *ReceivablesAgingGroup) SetProfitCenterName(val OptString) {
+	s.ProfitCenterName = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *ReceivablesAgingGroup) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
+}
+
+// SetSegmentCode sets the value of SegmentCode.
+func (s *ReceivablesAgingGroup) SetSegmentCode(val OptString) {
+	s.SegmentCode = val
+}
+
+// SetSegmentName sets the value of SegmentName.
+func (s *ReceivablesAgingGroup) SetSegmentName(val OptString) {
+	s.SegmentName = val
+}
+
+// SetCustomerCount sets the value of CustomerCount.
+func (s *ReceivablesAgingGroup) SetCustomerCount(val int64) {
+	s.CustomerCount = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingGroup) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingGroup) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *ReceivablesAgingGroup) SetBuckets(val []ReceivablesAgingBucket) {
+	s.Buckets = val
+}
+
+// ReceivablesAgingHeaders wraps ReceivablesAging with response headers.
+type ReceivablesAgingHeaders struct {
+	NextPageToken OptString
+	Response      ReceivablesAging
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReceivablesAgingHeaders) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetResponse returns the value of Response.
+func (s *ReceivablesAgingHeaders) GetResponse() ReceivablesAging {
+	return s.Response
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReceivablesAgingHeaders) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReceivablesAgingHeaders) SetResponse(val ReceivablesAging) {
+	s.Response = val
+}
+
+func (*ReceivablesAgingHeaders) getReceivablesAgingRes() {}
 
 // The totals of the AR aging: every customer the request selects, whatever the page.
 // Ref: #/components/schemas/ReceivablesAgingTotals

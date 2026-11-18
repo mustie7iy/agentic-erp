@@ -50,6 +50,12 @@ func buckets(t *testing.T, of map[string]any) string {
 func agingScene(t *testing.T) (env, uuid.UUID) {
 	t.Helper()
 	e := setup(t)
+	return e, agingItems(t, e)
+}
+
+// agingItems posts agingScene's items and returns Contoso.
+func agingItems(t *testing.T, e env) uuid.UUID {
+	t.Helper()
 	other := e.partner(t, "BP70000002", "Contoso", "active", "customer")
 	e.companyData(t, other, "NT30")
 	invoice := e.post(t, e.entered(t, e.invoice(e.customer, "2026-03-10", e.item("100.00", ""))), "2026-03-12")
@@ -62,7 +68,7 @@ func agingScene(t *testing.T) (env, uuid.UUID) {
 	memo := e.post(t, e.entered(t, e.memo(other, cleared["id"].(string), "2026-03-14", e.item("40.00", ""))), "2026-03-14")
 	e.Must(201, "POST", "/v1/clearings", fmt.Sprintf(`{"legal_entity_id": %q, "clearing_date": "2026-03-15", "items": [%s, %s]}`, e.DE,
 		itemRef(cleared["journal_entry_id"], 1), itemRef(memo["journal_entry_id"], 1)), "")
-	return e, other
+	return other
 }
 
 // TestReceivablesAging (T75e acceptance): each open customer item falls

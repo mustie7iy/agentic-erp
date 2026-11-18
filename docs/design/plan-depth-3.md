@@ -379,12 +379,13 @@ by their document date instead of their net due date.
   item then aged by its days past its document date, as if due that day;
   both said in the response. A ledger reader of the customer items open
   on a date (`ledger.OpenItems.ReceivableOn`); no table, no migration.
-- **Walkthrough:** `step_aging_as_at`: Ruth posts a manual entry charging
-  Northwind CAD 300.00 and Carla reverses it later in the period; the
-  aging as at the day it was posted shows it, the aging as at the
-  reversal's day and today's do not; an invoice dated 40 days back on
-  NT30 is 10 days overdue by its net due date and 40 days old by its
-  document date.
+- **Walkthrough:** `step_aging_as_at`: Ruth sets up the customer
+  Harbour Tools; Alex charges it CAD 300.00 by a manual entry and
+  reverses it later in the period, and Ruth's invoice of CAD 1,000.00
+  dated today on NT30 posts on the reversal's day; the aging as at the
+  charge's day shows the charge, the aging as at the reversal's day and
+  today's the invoice alone; 45 days on the invoice is 15 days past its
+  net due date and 45 past its document date.
 - **Acceptance:** with `open_on=key_date` an item posted after the key
   date is left out, one cleared after it is aged as open, one cleared on
   or before it is not, one whose clearing was reset after the key date is
@@ -424,12 +425,13 @@ report as CSV for a spreadsheet.
   the last page the totals' row, each bucket a column, the amounts exact
   decimals with the currency in a column of its own, UTF-8 with a byte
   order mark, cells safe for a spreadsheet.
-- **Walkthrough:** `step_aging_by_center`: Ruth charges Northwind a
-  service on profit center PC-1000 through a manual entry; the aging by
-  profit center shows PC-1000's row with that item and the row without a
-  profit center with the invoices of earlier steps; filtered by PC-1000
-  the totals are that item's; by segment, the segment's row; the CSV of
-  the report by profit center has the header, the rows and the totals.
+- **Walkthrough:** `step_aging_by_center`: Alex charges Harbour Tools
+  a service on profit center PC-MTL (segment CA) through a manual entry;
+  its aging by profit center shows the row without a profit center (the
+  invoice of step 130) and PC-MTL's; filtered by PC-MTL the totals are
+  the charge; by segment, CA's row; the company's groups add up to its
+  totals; the CSV of the report by profit center has the header, the
+  rows and the totals.
 - **Acceptance:** each item is in exactly one group, the groups add up to
   the totals; a filter and a group together select and group; an
   unknown center selects nothing (an empty report, not an error); a
