@@ -807,14 +807,15 @@ type Handler interface {
 	// the run was started, or was dunned since by another confirmed run of the company (its recorded level
 	// is no longer the run's `previous_level`), the proposal is stale and refused (409
 	// `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the
-	// item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a
-	// stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays
-	// `proposed`. A dispute case opened on an item after the run was started does not make the proposal
-	// stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not
-	// `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and
-	// publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without
-	// notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company
-	// the caller may not act in is not found (404). Human-only (`x-agent: false`).
+	// item or its customer, placed since and holding for the run's key date, blocks (T76e), and one with
+	// an item a customer promised since, by a date on or after the run's key date, to pay (T76f). Nothing
+	// of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run
+	// stays `proposed`. A dispute case opened on an item after the run was started does not make the
+	// proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that
+	// is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records
+	// and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run
+	// without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a
+	// company the caller may not act in is not found (404). Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
@@ -1563,24 +1564,27 @@ type Handler interface {
 	// new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its
 	// own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the
 	// run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items`
-	// (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs
-	// recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one
-	// dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
-	// highest level stays there. A notice's level is the highest among its items. The company's dunning
-	// procedure applies as the configuration has it when the run is started, and the run keeps it (T76d):
-	// an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose
-	// notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the
-	// run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its
-	// level's `charge`, and each item at a level that charges `interest` is charged interest at
-	// `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue`
-	// ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it
-	// asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date
-	// after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
-	// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
-	// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
-	// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
-	// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
-	// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
+	// (T76e). An item a customer promised to pay (`createPromiseToPay`) by a date on or after the key date
+	// is in no notice either, unless blocked: the run lists it in `promised_items` with its promise,
+	// outside its totals, and not in `disputed_items` (T76f). An item rises one level per confirmed run at
+	// most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one
+	// never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the
+	// second level's days, and one at the highest level stays there. A notice's level is the highest among
+	// its items. The company's dunning procedure applies as the configuration has it when the run is
+	// started, and the run keeps it (T76d): an item overdue by no more than
+	// `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be
+	// below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in
+	// `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`,
+	// and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a
+	// year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away
+	// from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges
+	// and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused
+	// (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused
+	// (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed
+	// ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet)
+	// and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A
+	// key date at which nothing is overdue gives a run without notices. A retry with the same
+	// `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs
 	CreateDunningRun(ctx context.Context, req *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error)
@@ -1975,6 +1979,31 @@ type Handler interface {
 	//
 	// POST /v1/profit-centers
 	CreateProfitCenter(ctx context.Context, req *ProfitCenterCreate, params CreateProfitCenterParams) (CreateProfitCenterRes, error)
+	// CreatePromiseToPay implements createPromiseToPay operation.
+	//
+	// Records a customer's promise to pay (ADR-0065 As built, T76f): the customer (`customer_id`) promises
+	// the company to pay `promised_amount` by `promised_date` for some of its open items, each named by
+	// its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names
+	// it). The company is one the caller may act in (422 `request.reference_not_found` naming
+	// `legal_entity_id`); the customer a business partner of the tenant (422 `request.reference_not_found`
+	// naming `customer_id`); each item an open item on a customer reconciliation account of the company in
+	// the leading ledger that this customer owes (422 `collections.item_not_open` naming
+	// `items[n].journal_entry_id`), named once (422 `request.validation_failed`). `promised_amount` is in
+	// the company's currency (422 `collections.currency_mismatch` naming `promised_amount.currency`),
+	// above zero and at most what the items amount to in it as booked (422
+	// `collections.invalid_promised_amount` naming `promised_amount.amount`). `promised_date` is from the
+	// company's today, in its time zone, to 2100-12-31 (422 `collections.invalid_promised_date` naming
+	// `promised_date`). An item in another promise whose date is today or later is refused (409
+	// `collections.promise_exists`): an item is promised once at a time. The promise reads `open` until it
+	// is kept or broken: `kept` once its items no longer open add up to the promised amount, `broken` once
+	// the company's today is past `promised_date` and it is not kept. A dunning run at a key date up to
+	// `promised_date` leaves the promised items still open out of its notices and names them in
+	// `promised_items`; a run proposed before the promise is refused as stale when it is confirmed
+	// (`confirmDunningRun`). Recording a promise posts nothing and changes nothing on the items. Audited.
+	// A retry with the same `Idempotency-Key` answers the promise recorded. Human-only (`x-agent: false`).
+	//
+	// POST /v1/promises-to-pay
+	CreatePromiseToPay(ctx context.Context, req *PromiseToPayCreate, params CreatePromiseToPayParams) (CreatePromiseToPayRes, error)
 	// CreatePurchaseOrder implements createPurchaseOrder operation.
 	//
 	// Creates a draft purchase order, optionally from an approved requisition (one live order per
@@ -3229,16 +3258,21 @@ type Handler interface {
 	// amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's
 	// currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`;
 	// T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
-	// An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is
-	// past its net due date, which is that of the payment terms it was posted with or, for an item posted
-	// without payment terms (a manual or migrated entry's), its document date; an item due on the key date
-	// is not overdue, so an item without terms is overdue from the day after its document date, and credit
-	// items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The
-	// worklist is computed at the read from one database state (a repeatable-read snapshot) and stores
-	// nothing: the items are the ones open now on the company's customer reconciliation accounts in the
-	// leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in
-	// the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`,
-	// `disputed_amount` and `open_dispute_cases` at the top are the totals of every customer listed, not
+	// Each customer also shows its promises to pay as they stand on the key date (T76f): what its open
+	// promises promise (`promised_amount`), how many they are, the earliest promised date among them, and
+	// how many of its promises are broken; a promise is open on the key date when its `promised_date` is
+	// on or after it and it is not kept (its items no longer open add up to less than the promised
+	// amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run
+	// counts it: the customer owes it (a debit) and the key date is past its net due date, which is that
+	// of the payment terms it was posted with or, for an item posted without payment terms (a manual or
+	// migrated entry's), its document date; an item due on the key date is not overdue, so an item without
+	// terms is overdue from the day after its document date, and credit items reduce no overdue amount. A
+	// customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read
+	// from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open
+	// now on the company's customer reconciliation accounts in the leading ledger, whoever posted them,
+	// and the key date only counts what is overdue. Amounts are in the company's currency, as the items
+	// were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`,
+	// `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not
 	// of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key
 	// date. Each page is computed anew and continues after the last customer's overdue amount and id: a
 	// customer whose overdue amount fell between two pages can be listed again with its new amount, and
@@ -4112,6 +4146,15 @@ type Handler interface {
 	//
 	// GET /v1/profitability-report
 	GetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (GetProfitabilityReportRes, error)
+	// GetPromiseToPay implements getPromiseToPay operation.
+	//
+	// One promise to pay (ADR-0065 As built, T76f) with its company's code and name, its customer's number
+	// and name, the promised amount and date, its items (each with whether it is still open), what of them
+	// is paid (`paid_amount`) and its status on the company's today (`status_date`), and who recorded it.
+	// One of a company the caller may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/promises-to-pay/{id}
+	GetPromiseToPay(ctx context.Context, params GetPromiseToPayParams) (GetPromiseToPayRes, error)
 	// GetPurchaseOrder implements getPurchaseOrder operation.
 	//
 	// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
@@ -5725,6 +5768,15 @@ type Handler interface {
 	//
 	// GET /v1/profit-centers
 	ListProfitCenters(ctx context.Context, params ListProfitCentersParams) (ListProfitCentersRes, error)
+	// ListPromisesToPay implements listPromisesToPay operation.
+	//
+	// The promises to pay of the companies the caller may act in (ADR-0065 As built, T76f), each as
+	// `getPromiseToPay` gives it: with its company's code and name, its customer's number and name, the
+	// promised amount and date, its items and its status on the company's today. Filtered by company and
+	// customer. Sortable by: `created_at` (default, the latest first).
+	//
+	// GET /v1/promises-to-pay
+	ListPromisesToPay(ctx context.Context, params ListPromisesToPayParams) (ListPromisesToPayRes, error)
 	// ListPurchaseOrderChanges implements listPurchaseOrderChanges operation.
 	//
 	// The order changes of a released purchase order, newest first: its versions, each with the order as

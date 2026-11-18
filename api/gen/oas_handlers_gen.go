@@ -11359,14 +11359,15 @@ func (s *Server) handleCompleteYearCloseTaskRequest(args [2]string, argsEscaped 
 // the run was started, or was dunned since by another confirmed run of the company (its recorded level
 // is no longer the run's `previous_level`), the proposal is stale and refused (409
 // `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the
-// item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a
-// stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays
-// `proposed`. A dispute case opened on an item after the run was started does not make the proposal
-// stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not
-// `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and
-// publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without
-// notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company
-// the caller may not act in is not found (404). Human-only (`x-agent: false`).
+// item or its customer, placed since and holding for the run's key date, blocks (T76e), and one with
+// an item a customer promised since, by a date on or after the run's key date, to pay (T76f). Nothing
+// of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run
+// stays `proposed`. A dispute case opened on an item after the run was started does not make the
+// proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that
+// is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records
+// and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run
+// without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a
+// company the caller may not act in is not found (404). Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs/{id}:confirm
 func (s *Server) handleConfirmDunningRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -18590,24 +18591,27 @@ func (s *Server) handleCreateDunningBlockRequest(args [0]string, argsEscaped boo
 // new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its
 // own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the
 // run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items`
-// (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs
-// recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one
-// dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
-// highest level stays there. A notice's level is the highest among its items. The company's dunning
-// procedure applies as the configuration has it when the run is started, and the run keeps it (T76d):
-// an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose
-// notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the
-// run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its
-// level's `charge`, and each item at a level that charges `interest` is charged interest at
-// `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue`
-// ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it
-// asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date
-// after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
-// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
-// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
-// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
-// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
-// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
+// (T76e). An item a customer promised to pay (`createPromiseToPay`) by a date on or after the key date
+// is in no notice either, unless blocked: the run lists it in `promised_items` with its promise,
+// outside its totals, and not in `disputed_items` (T76f). An item rises one level per confirmed run at
+// most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one
+// never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the
+// second level's days, and one at the highest level stays there. A notice's level is the highest among
+// its items. The company's dunning procedure applies as the configuration has it when the run is
+// started, and the run keeps it (T76d): an item overdue by no more than
+// `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be
+// below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in
+// `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`,
+// and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a
+// year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away
+// from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges
+// and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused
+// (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused
+// (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed
+// ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet)
+// and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A
+// key date at which nothing is overdue gives a run without notices. A retry with the same
+// `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (s *Server) handleCreateDunningRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -23514,6 +23518,227 @@ func (s *Server) handleCreateProfitCenterRequest(args [0]string, argsEscaped boo
 	}
 
 	if err := encodeCreateProfitCenterResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleCreatePromiseToPayRequest handles createPromiseToPay operation.
+//
+// Records a customer's promise to pay (ADR-0065 As built, T76f): the customer (`customer_id`) promises
+// the company to pay `promised_amount` by `promised_date` for some of its open items, each named by
+// its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names
+// it). The company is one the caller may act in (422 `request.reference_not_found` naming
+// `legal_entity_id`); the customer a business partner of the tenant (422 `request.reference_not_found`
+// naming `customer_id`); each item an open item on a customer reconciliation account of the company in
+// the leading ledger that this customer owes (422 `collections.item_not_open` naming
+// `items[n].journal_entry_id`), named once (422 `request.validation_failed`). `promised_amount` is in
+// the company's currency (422 `collections.currency_mismatch` naming `promised_amount.currency`),
+// above zero and at most what the items amount to in it as booked (422
+// `collections.invalid_promised_amount` naming `promised_amount.amount`). `promised_date` is from the
+// company's today, in its time zone, to 2100-12-31 (422 `collections.invalid_promised_date` naming
+// `promised_date`). An item in another promise whose date is today or later is refused (409
+// `collections.promise_exists`): an item is promised once at a time. The promise reads `open` until it
+// is kept or broken: `kept` once its items no longer open add up to the promised amount, `broken` once
+// the company's today is past `promised_date` and it is not kept. A dunning run at a key date up to
+// `promised_date` leaves the promised items still open out of its notices and names them in
+// `promised_items`; a run proposed before the promise is refused as stale when it is confirmed
+// (`confirmDunningRun`). Recording a promise posts nothing and changes nothing on the items. Audited.
+// A retry with the same `Idempotency-Key` answers the promise recorded. Human-only (`x-agent: false`).
+//
+// POST /v1/promises-to-pay
+func (s *Server) handleCreatePromiseToPayRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createPromiseToPay"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/promises-to-pay"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreatePromiseToPayOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreatePromiseToPayOperation,
+			ID:   "createPromiseToPay",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreatePromiseToPayOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreatePromiseToPayParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreatePromiseToPayRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreatePromiseToPayRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreatePromiseToPayOperation,
+			OperationSummary: "Record a customer's promise to pay",
+			OperationID:      "createPromiseToPay",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *PromiseToPayCreate
+			Params   = CreatePromiseToPayParams
+			Response = CreatePromiseToPayRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreatePromiseToPayParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreatePromiseToPay(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreatePromiseToPay(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreatePromiseToPayResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -41392,16 +41617,21 @@ func (s *Server) handleGetCloseCalendarRequest(args [0]string, argsEscaped bool,
 // amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's
 // currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`;
 // T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
-// An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is
-// past its net due date, which is that of the payment terms it was posted with or, for an item posted
-// without payment terms (a manual or migrated entry's), its document date; an item due on the key date
-// is not overdue, so an item without terms is overdue from the day after its document date, and credit
-// items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The
-// worklist is computed at the read from one database state (a repeatable-read snapshot) and stores
-// nothing: the items are the ones open now on the company's customer reconciliation accounts in the
-// leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in
-// the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`,
-// `disputed_amount` and `open_dispute_cases` at the top are the totals of every customer listed, not
+// Each customer also shows its promises to pay as they stand on the key date (T76f): what its open
+// promises promise (`promised_amount`), how many they are, the earliest promised date among them, and
+// how many of its promises are broken; a promise is open on the key date when its `promised_date` is
+// on or after it and it is not kept (its items no longer open add up to less than the promised
+// amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run
+// counts it: the customer owes it (a debit) and the key date is past its net due date, which is that
+// of the payment terms it was posted with or, for an item posted without payment terms (a manual or
+// migrated entry's), its document date; an item due on the key date is not overdue, so an item without
+// terms is overdue from the day after its document date, and credit items reduce no overdue amount. A
+// customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read
+// from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open
+// now on the company's customer reconciliation accounts in the leading ledger, whoever posted them,
+// and the key date only counts what is overdue. Amounts are in the company's currency, as the items
+// were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`,
+// `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not
 // of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key
 // date. Each page is computed anew and continues after the last customer's overdue amount and id: a
 // customer whose overdue amount fell between two pages can be listed again with its new amount, and
@@ -54749,6 +54979,196 @@ func (s *Server) handleGetProfitabilityReportRequest(args [0]string, argsEscaped
 	}
 
 	if err := encodeGetProfitabilityReportResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetPromiseToPayRequest handles getPromiseToPay operation.
+//
+// One promise to pay (ADR-0065 As built, T76f) with its company's code and name, its customer's number
+// and name, the promised amount and date, its items (each with whether it is still open), what of them
+// is paid (`paid_amount`) and its status on the company's today (`status_date`), and who recorded it.
+// One of a company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/promises-to-pay/{id}
+func (s *Server) handleGetPromiseToPayRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPromiseToPay"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/promises-to-pay/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetPromiseToPayOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetPromiseToPayOperation,
+			ID:   "getPromiseToPay",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetPromiseToPayOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetPromiseToPayParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetPromiseToPayRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetPromiseToPayOperation,
+			OperationSummary: "Get a promise to pay",
+			OperationID:      "getPromiseToPay",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetPromiseToPayParams
+			Response = GetPromiseToPayRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetPromiseToPayParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetPromiseToPay(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetPromiseToPay(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetPromiseToPayResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -86856,6 +87276,212 @@ func (s *Server) handleListProfitCentersRequest(args [0]string, argsEscaped bool
 	}
 
 	if err := encodeListProfitCentersResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListPromisesToPayRequest handles listPromisesToPay operation.
+//
+// The promises to pay of the companies the caller may act in (ADR-0065 As built, T76f), each as
+// `getPromiseToPay` gives it: with its company's code and name, its customer's number and name, the
+// promised amount and date, its items and its status on the company's today. Filtered by company and
+// customer. Sortable by: `created_at` (default, the latest first).
+//
+// GET /v1/promises-to-pay
+func (s *Server) handleListPromisesToPayRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPromisesToPay"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/promises-to-pay"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListPromisesToPayOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListPromisesToPayOperation,
+			ID:   "listPromisesToPay",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListPromisesToPayOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListPromisesToPayParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListPromisesToPayRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListPromisesToPayOperation,
+			OperationSummary: "List promises to pay",
+			OperationID:      "listPromisesToPay",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "customer_id",
+					In:   "query",
+				}: params.CustomerID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListPromisesToPayParams
+			Response = ListPromisesToPayRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListPromisesToPayParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListPromisesToPay(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListPromisesToPay(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListPromisesToPayResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

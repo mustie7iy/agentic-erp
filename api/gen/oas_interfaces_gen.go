@@ -437,6 +437,10 @@ type CreateProfitCenterRes interface {
 	createProfitCenterRes()
 }
 
+type CreatePromiseToPayRes interface {
+	createPromiseToPayRes()
+}
+
 type CreatePurchaseOrderChangeRes interface {
 	createPurchaseOrderChangeRes()
 }
@@ -1057,6 +1061,10 @@ type GetProfitabilityReportRes interface {
 	getProfitabilityReportRes()
 }
 
+type GetPromiseToPayRes interface {
+	getPromiseToPayRes()
+}
+
 type GetPurchaseOrderChangeRes interface {
 	getPurchaseOrderChangeRes()
 }
@@ -1667,6 +1675,10 @@ type ListProfitCenterPlanActualRes interface {
 
 type ListProfitCentersRes interface {
 	listProfitCentersRes()
+}
+
+type ListPromisesToPayRes interface {
+	listPromisesToPayRes()
 }
 
 type ListPurchaseOrderChangesRes interface {

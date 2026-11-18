@@ -2974,9 +2974,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A collections specialist records a customer's promise to pay an amount by a date for some of its open items; the promise reads open, kept or broken by the company's today, the worklist shows each customer's open and broken promises, and a dunning run holds the promised items back up to the promised date",
-        "r": "T76f · docs/design/plan-depth-2.md §T76f · ADR-0065",
+        "r": "T76f · docs/design/plan-depth-2.md §T76f · db/migrations/000363 · collections.promise_to_pay, promise_to_pay_item · dunning_run.promised_items · POST /v1/promises-to-pay · GET /v1/promises-to-pay · GET /v1/promises-to-pay/{id} · collections.worklist.write · walkthrough step_promise_to_pay · ADR-0065 As built",
         "src": "split:T76c · po:2026-11-17",
         "c": []
        },

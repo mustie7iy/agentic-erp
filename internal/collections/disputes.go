@@ -153,7 +153,7 @@ func (e *Endpoints) OpenCase(ctx context.Context, in CaseInput) (Case, error) {
 	if err != nil {
 		return Case{}, fmt.Errorf("collections: legal entity of a dispute case: %w", err)
 	}
-	it, err := e.openItem(ctx, le, in.Item)
+	it, err := e.openItem(ctx, le, in.Item, "journal_entry_id")
 	if err != nil {
 		return Case{}, err
 	}
@@ -188,8 +188,8 @@ func (e *Endpoints) OpenCase(ctx context.Context, in CaseInput) (Case, error) {
 
 // openItem is the company's open customer item at the journal line, one
 // the customer owes (a debit); any other line is refused, naming the
-// journal entry.
-func (e *Endpoints) openItem(ctx context.Context, le tenancy.Entity, ref ledger.ItemRef) (ledger.ReceivableItem, error) {
+// journal entry's field.
+func (e *Endpoints) openItem(ctx context.Context, le tenancy.Entity, ref ledger.ItemRef, field string) (ledger.ReceivableItem, error) {
 	it, ok, err := e.OpenItems.ReceivableItem(ctx, le.ID, ref)
 	if err != nil {
 		return ledger.ReceivableItem{}, fmt.Errorf("collections: open customer item of company %s: %w", le.Code, err)
@@ -197,8 +197,8 @@ func (e *Endpoints) openItem(ctx context.Context, le tenancy.Entity, ref ledger.
 	if ok && it.Amount > 0 {
 		return it, nil
 	}
-	return ledger.ReceivableItem{}, problem.Invalid("collections.item_not_open", "journal_entry_id", fmt.Sprintf("Line %d of the journal entry "+
-		"of fiscal year %d is no open item a customer owes company %s: a dispute case and an item's dunning block name an uncleared "+
+	return ledger.ReceivableItem{}, problem.Invalid("collections.item_not_open", field, fmt.Sprintf("Line %d of the journal entry "+
+		"of fiscal year %d is no open item a customer owes company %s: a dispute case, an item's dunning block and a promise to pay name an uncleared "+
 		"debit on a customer reconciliation account in the leading ledger.", ref.LineNo, ref.FiscalYear, le.Code))
 }
 

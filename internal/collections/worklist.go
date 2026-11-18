@@ -32,8 +32,12 @@ import (
 // date for a customer none of whose open items was dunned. Disputed is
 // what the open dispute cases of its open items dispute, in the
 // company's currency, and DisputedCases how many they are (T86b); they
-// change neither Open nor Overdue. Number, Name, Level and LastDunned are
-// read for the customers of a page (describe).
+// change neither Open nor Overdue. Promised is what its promises to pay
+// open on the key date promise, in the company's currency, OpenPromises
+// how many they are and NextPromised the earliest of their dates;
+// BrokenPromises how many of its promises are broken on the key date
+// (T76f). Number, Name, Level, LastDunned and BrokenPromises are read for
+// the customers of a page (describe).
 type WorklistCustomer struct {
 	CustomerID    uuid.UUID
 	Number        string
@@ -45,6 +49,11 @@ type WorklistCustomer struct {
 	LastDunned    *time.Time
 	Disputed      money.Minor
 	DisputedCases int32
+	Promised      money.Minor
+	OpenPromises  int32
+	NextPromised  *time.Time
+	// BrokenPromises is read for a page's customers (describe).
+	BrokenPromises int32
 
 	items []ledger.ReceivableItem // its open items
 }
@@ -52,8 +61,9 @@ type WorklistCustomer struct {
 // Worklist is a company's collection worklist on a key date (ADR-0065
 // §9, T76c): its customers with overdue items, the largest overdue amount
 // first, and their totals, the disputed amount and open dispute cases of
-// every customer listed among them (T86b). Exponent is the minor-unit
-// digits of the company's currency, which every amount is in.
+// every customer listed among them (T86b) and what their open promises to
+// pay promise (T76f). Exponent is the minor-unit digits of the company's
+// currency, which every amount is in.
 type Worklist struct {
 	Company       tenancy.Entity
 	KeyDate       time.Time
@@ -62,8 +72,14 @@ type Worklist struct {
 	Overdue       money.Minor
 	Disputed      money.Minor
 	DisputedCases int32
+	Promised      money.Minor
 	Customers     []WorklistCustomer
+
+	open map[ledger.ItemRef]bool // the company's open customer items
 }
+
+// isOpen is whether the company's customer item is open now.
+func (w Worklist) isOpen(ref ledger.ItemRef) bool { return w.open[ref] }
 
 // inWorklistOrder orders the worklist: the largest overdue amount first
 // (plan default 7), customers with the same amount by id, so the order is
@@ -114,8 +130,16 @@ func (e *Endpoints) WorklistOf(ctx context.Context, legalEntity uuid.UUID, keyDa
 	if err != nil {
 		return Worklist{}, err
 	}
-	w := Worklist{Company: le, KeyDate: keyDate, Exponent: exp}
-	if !w.add(open, disputes) {
+	promises, err := readPromises(ctx, tx, "the promises to pay of company "+le.Code, promiseSelect+
+		` WHERE p.legal_entity_id = $1 AND p.promised_date >= $2 ORDER BY p.promised_date, p.id`, le.ID, keyDate)
+	if err != nil {
+		return Worklist{}, err
+	}
+	w := Worklist{Company: le, KeyDate: keyDate, Exponent: exp, open: make(map[ledger.ItemRef]bool, len(open))}
+	for _, it := range open {
+		w.open[it.ItemRef] = true
+	}
+	if !w.add(open, disputes) || !w.promise(promises) {
 		return Worklist{}, errTooLarge()
 	}
 	slices.SortFunc(w.Customers, inWorklistOrder)
@@ -164,6 +188,33 @@ func (w *Worklist) add(open []ledger.ReceivableItem, disputes map[ledger.ItemRef
 	return fits
 }
 
+// promise gives the listed customers what their promises to pay open on
+// the key date promise (those dated on or after it, read by date, and not
+// kept by the items open now), and the worklist its total. It reports
+// false when amounts add up to more than an amount holds.
+func (w *Worklist) promise(promises []Promise) bool {
+	at := make(map[uuid.UUID]int, len(w.Customers))
+	for i, c := range w.Customers {
+		at[c.CustomerID] = i
+	}
+	fits := true
+	for _, p := range promises {
+		i, listed := at[p.CustomerID]
+		if p.stillOpen(w.isOpen); !listed || p.StatusOn(w.KeyDate) != PromiseOpen {
+			continue
+		}
+		c := &w.Customers[i]
+		promised, err := money.Sum(c.Promised, p.Amount)
+		total, errTotal := money.Sum(w.Promised, p.Amount)
+		fits = fits && err == nil && errTotal == nil // money.Sum's only error is the range
+		c.Promised, w.Promised, c.OpenPromises = promised, total, c.OpenPromises+1
+		if c.NextPromised == nil {
+			c.NextPromised = &p.Date // the promises are read by date: the first is the earliest
+		}
+	}
+	return fits
+}
+
 // worklistCursor is where a page of the worklist ended: its last
 // customer's place in the worklist's order.
 type worklistCursor struct {
@@ -200,8 +251,9 @@ func (e *Endpoints) page(w Worklist, scope string, size int, token string, hasTo
 
 // describe completes the customers of a page with what they are shown
 // with: each one's number and name, the highest dunning level and latest
-// dunning date recorded for its open items.
-func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, page []WorklistCustomer) error {
+// dunning date recorded for its open items, and how many of its promises
+// to pay are broken on the worklist's key date.
+func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, w Worklist, page []WorklistCustomer) error {
 	ids := make([]uuid.UUID, len(page))
 	var refs []ledger.ItemRef
 	for i, c := range page {
@@ -218,13 +270,17 @@ func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, page []WorklistCust
 	if err != nil {
 		return err
 	}
+	broken, err := w.broken(ctx, tx, ids)
+	if err != nil {
+		return err
+	}
 	for i := range page {
 		c := &page[i]
 		named, ok := names[c.CustomerID]
 		if !ok { // the ledger posts customer items to business partners only, and none is deleted
 			return fmt.Errorf("collections: customer %s of an open item is no business partner", c.CustomerID)
 		}
-		c.Number, c.Name = named.Number, named.Name
+		c.Number, c.Name, c.BrokenPromises = named.Number, named.Name, broken[c.CustomerID]
 		for _, it := range c.items {
 			d, ok := levels[it.ItemRef]
 			if !ok {
@@ -237,4 +293,23 @@ func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, page []WorklistCust
 		}
 	}
 	return nil
+}
+
+// broken counts the customers' promises to pay broken on the worklist's
+// key date: dated before it and not kept by the items open now. Only a
+// page's customers are read (over the index promise_to_pay_by_customer),
+// as their names are.
+func (w Worklist) broken(ctx context.Context, tx pgx.Tx, customers []uuid.UUID) (map[uuid.UUID]int32, error) {
+	promises, err := readPromises(ctx, tx, fmt.Sprintf("the promises to pay of %d customers", len(customers)), promiseSelect+
+		` WHERE p.legal_entity_id = $1 AND p.customer_id = ANY($2) AND p.promised_date < $3 ORDER BY p.id`, w.Company.ID, customers, w.KeyDate)
+	if err != nil {
+		return nil, err
+	}
+	out := map[uuid.UUID]int32{}
+	for _, p := range promises {
+		if p.stillOpen(w.isOpen); p.StatusOn(w.KeyDate) == PromiseBroken {
+			out[p.CustomerID]++
+		}
+	}
+	return out, nil
 }

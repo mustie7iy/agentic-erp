@@ -828,14 +828,15 @@ type Invoker interface {
 	// the run was started, or was dunned since by another confirmed run of the company (its recorded level
 	// is no longer the run's `previous_level`), the proposal is stale and refused (409
 	// `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the
-	// item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a
-	// stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays
-	// `proposed`. A dispute case opened on an item after the run was started does not make the proposal
-	// stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not
-	// `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and
-	// publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without
-	// notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company
-	// the caller may not act in is not found (404). Human-only (`x-agent: false`).
+	// item or its customer, placed since and holding for the run's key date, blocks (T76e), and one with
+	// an item a customer promised since, by a date on or after the run's key date, to pay (T76f). Nothing
+	// of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run
+	// stays `proposed`. A dispute case opened on an item after the run was started does not make the
+	// proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that
+	// is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records
+	// and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run
+	// without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a
+	// company the caller may not act in is not found (404). Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
@@ -1584,24 +1585,27 @@ type Invoker interface {
 	// new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its
 	// own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the
 	// run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items`
-	// (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs
-	// recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one
-	// dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
-	// highest level stays there. A notice's level is the highest among its items. The company's dunning
-	// procedure applies as the configuration has it when the run is started, and the run keeps it (T76d):
-	// an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose
-	// notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the
-	// run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its
-	// level's `charge`, and each item at a level that charges `interest` is charged interest at
-	// `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue`
-	// ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it
-	// asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date
-	// after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
-	// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
-	// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
-	// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
-	// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
-	// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
+	// (T76e). An item a customer promised to pay (`createPromiseToPay`) by a date on or after the key date
+	// is in no notice either, unless blocked: the run lists it in `promised_items` with its promise,
+	// outside its totals, and not in `disputed_items` (T76f). An item rises one level per confirmed run at
+	// most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one
+	// never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the
+	// second level's days, and one at the highest level stays there. A notice's level is the highest among
+	// its items. The company's dunning procedure applies as the configuration has it when the run is
+	// started, and the run keeps it (T76d): an item overdue by no more than
+	// `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be
+	// below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in
+	// `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`,
+	// and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a
+	// year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away
+	// from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges
+	// and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused
+	// (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused
+	// (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed
+	// ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet)
+	// and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A
+	// key date at which nothing is overdue gives a run without notices. A retry with the same
+	// `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs
 	CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error)
@@ -1996,6 +2000,31 @@ type Invoker interface {
 	//
 	// POST /v1/profit-centers
 	CreateProfitCenter(ctx context.Context, request *ProfitCenterCreate, params CreateProfitCenterParams) (CreateProfitCenterRes, error)
+	// CreatePromiseToPay invokes createPromiseToPay operation.
+	//
+	// Records a customer's promise to pay (ADR-0065 As built, T76f): the customer (`customer_id`) promises
+	// the company to pay `promised_amount` by `promised_date` for some of its open items, each named by
+	// its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names
+	// it). The company is one the caller may act in (422 `request.reference_not_found` naming
+	// `legal_entity_id`); the customer a business partner of the tenant (422 `request.reference_not_found`
+	// naming `customer_id`); each item an open item on a customer reconciliation account of the company in
+	// the leading ledger that this customer owes (422 `collections.item_not_open` naming
+	// `items[n].journal_entry_id`), named once (422 `request.validation_failed`). `promised_amount` is in
+	// the company's currency (422 `collections.currency_mismatch` naming `promised_amount.currency`),
+	// above zero and at most what the items amount to in it as booked (422
+	// `collections.invalid_promised_amount` naming `promised_amount.amount`). `promised_date` is from the
+	// company's today, in its time zone, to 2100-12-31 (422 `collections.invalid_promised_date` naming
+	// `promised_date`). An item in another promise whose date is today or later is refused (409
+	// `collections.promise_exists`): an item is promised once at a time. The promise reads `open` until it
+	// is kept or broken: `kept` once its items no longer open add up to the promised amount, `broken` once
+	// the company's today is past `promised_date` and it is not kept. A dunning run at a key date up to
+	// `promised_date` leaves the promised items still open out of its notices and names them in
+	// `promised_items`; a run proposed before the promise is refused as stale when it is confirmed
+	// (`confirmDunningRun`). Recording a promise posts nothing and changes nothing on the items. Audited.
+	// A retry with the same `Idempotency-Key` answers the promise recorded. Human-only (`x-agent: false`).
+	//
+	// POST /v1/promises-to-pay
+	CreatePromiseToPay(ctx context.Context, request *PromiseToPayCreate, params CreatePromiseToPayParams) (CreatePromiseToPayRes, error)
 	// CreatePurchaseOrder invokes createPurchaseOrder operation.
 	//
 	// Creates a draft purchase order, optionally from an approved requisition (one live order per
@@ -3250,16 +3279,21 @@ type Invoker interface {
 	// amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's
 	// currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`;
 	// T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
-	// An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is
-	// past its net due date, which is that of the payment terms it was posted with or, for an item posted
-	// without payment terms (a manual or migrated entry's), its document date; an item due on the key date
-	// is not overdue, so an item without terms is overdue from the day after its document date, and credit
-	// items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The
-	// worklist is computed at the read from one database state (a repeatable-read snapshot) and stores
-	// nothing: the items are the ones open now on the company's customer reconciliation accounts in the
-	// leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in
-	// the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`,
-	// `disputed_amount` and `open_dispute_cases` at the top are the totals of every customer listed, not
+	// Each customer also shows its promises to pay as they stand on the key date (T76f): what its open
+	// promises promise (`promised_amount`), how many they are, the earliest promised date among them, and
+	// how many of its promises are broken; a promise is open on the key date when its `promised_date` is
+	// on or after it and it is not kept (its items no longer open add up to less than the promised
+	// amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run
+	// counts it: the customer owes it (a debit) and the key date is past its net due date, which is that
+	// of the payment terms it was posted with or, for an item posted without payment terms (a manual or
+	// migrated entry's), its document date; an item due on the key date is not overdue, so an item without
+	// terms is overdue from the day after its document date, and credit items reduce no overdue amount. A
+	// customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read
+	// from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open
+	// now on the company's customer reconciliation accounts in the leading ledger, whoever posted them,
+	// and the key date only counts what is overdue. Amounts are in the company's currency, as the items
+	// were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`,
+	// `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not
 	// of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key
 	// date. Each page is computed anew and continues after the last customer's overdue amount and id: a
 	// customer whose overdue amount fell between two pages can be listed again with its new amount, and
@@ -4133,6 +4167,15 @@ type Invoker interface {
 	//
 	// GET /v1/profitability-report
 	GetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (GetProfitabilityReportRes, error)
+	// GetPromiseToPay invokes getPromiseToPay operation.
+	//
+	// One promise to pay (ADR-0065 As built, T76f) with its company's code and name, its customer's number
+	// and name, the promised amount and date, its items (each with whether it is still open), what of them
+	// is paid (`paid_amount`) and its status on the company's today (`status_date`), and who recorded it.
+	// One of a company the caller may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/promises-to-pay/{id}
+	GetPromiseToPay(ctx context.Context, params GetPromiseToPayParams) (GetPromiseToPayRes, error)
 	// GetPurchaseOrder invokes getPurchaseOrder operation.
 	//
 	// Returns one purchase order. Expandable: `supplier`, for a caller who may read business partners
@@ -5746,6 +5789,15 @@ type Invoker interface {
 	//
 	// GET /v1/profit-centers
 	ListProfitCenters(ctx context.Context, params ListProfitCentersParams) (ListProfitCentersRes, error)
+	// ListPromisesToPay invokes listPromisesToPay operation.
+	//
+	// The promises to pay of the companies the caller may act in (ADR-0065 As built, T76f), each as
+	// `getPromiseToPay` gives it: with its company's code and name, its customer's number and name, the
+	// promised amount and date, its items and its status on the company's today. Filtered by company and
+	// customer. Sortable by: `created_at` (default, the latest first).
+	//
+	// GET /v1/promises-to-pay
+	ListPromisesToPay(ctx context.Context, params ListPromisesToPayParams) (ListPromisesToPayRes, error)
 	// ListPurchaseOrderChanges invokes listPurchaseOrderChanges operation.
 	//
 	// The order changes of a released purchase order, newest first: its versions, each with the order as
@@ -17288,14 +17340,15 @@ func (c *Client) sendCompleteYearCloseTask(ctx context.Context, request OptClose
 // the run was started, or was dunned since by another confirmed run of the company (its recorded level
 // is no longer the run's `previous_level`), the proposal is stale and refused (409
 // `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the
-// item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a
-// stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays
-// `proposed`. A dispute case opened on an item after the run was started does not make the proposal
-// stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not
-// `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and
-// publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without
-// notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company
-// the caller may not act in is not found (404). Human-only (`x-agent: false`).
+// item or its customer, placed since and holding for the run's key date, blocks (T76e), and one with
+// an item a customer promised since, by a date on or after the run's key date, to pay (T76f). Nothing
+// of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run
+// stays `proposed`. A dispute case opened on an item after the run was started does not make the
+// proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that
+// is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records
+// and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run
+// without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a
+// company the caller may not act in is not found (404). Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs/{id}:confirm
 func (c *Client) ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error) {
@@ -22342,24 +22395,27 @@ func (c *Client) sendCreateDunningBlock(ctx context.Context, request *DunningBlo
 // new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its
 // own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the
 // run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items`
-// (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs
-// recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one
-// dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
-// highest level stays there. A notice's level is the highest among its items. The company's dunning
-// procedure applies as the configuration has it when the run is started, and the run keeps it (T76d):
-// an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose
-// notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the
-// run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its
-// level's `charge`, and each item at a level that charges `interest` is charged interest at
-// `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue`
-// ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it
-// asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date
-// after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company
-// without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than
-// 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`:
-// larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422
-// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
-// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
+// (T76e). An item a customer promised to pay (`createPromiseToPay`) by a date on or after the key date
+// is in no notice either, unless blocked: the run lists it in `promised_items` with its promise,
+// outside its totals, and not in `disputed_items` (T76f). An item rises one level per confirmed run at
+// most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one
+// never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the
+// second level's days, and one at the highest level stays there. A notice's level is the highest among
+// its items. The company's dunning procedure applies as the configuration has it when the run is
+// started, and the run keeps it (T76d): an item overdue by no more than
+// `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be
+// below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in
+// `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`,
+// and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a
+// year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away
+// from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges
+// and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused
+// (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused
+// (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed
+// ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet)
+// and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A
+// key date at which nothing is overdue gives a run without notices. A retry with the same
+// `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (c *Client) CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error) {
@@ -25648,6 +25704,155 @@ func (c *Client) sendCreateProfitCenter(ctx context.Context, request *ProfitCent
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateProfitCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreatePromiseToPay invokes createPromiseToPay operation.
+//
+// Records a customer's promise to pay (ADR-0065 As built, T76f): the customer (`customer_id`) promises
+// the company to pay `promised_amount` by `promised_date` for some of its open items, each named by
+// its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names
+// it). The company is one the caller may act in (422 `request.reference_not_found` naming
+// `legal_entity_id`); the customer a business partner of the tenant (422 `request.reference_not_found`
+// naming `customer_id`); each item an open item on a customer reconciliation account of the company in
+// the leading ledger that this customer owes (422 `collections.item_not_open` naming
+// `items[n].journal_entry_id`), named once (422 `request.validation_failed`). `promised_amount` is in
+// the company's currency (422 `collections.currency_mismatch` naming `promised_amount.currency`),
+// above zero and at most what the items amount to in it as booked (422
+// `collections.invalid_promised_amount` naming `promised_amount.amount`). `promised_date` is from the
+// company's today, in its time zone, to 2100-12-31 (422 `collections.invalid_promised_date` naming
+// `promised_date`). An item in another promise whose date is today or later is refused (409
+// `collections.promise_exists`): an item is promised once at a time. The promise reads `open` until it
+// is kept or broken: `kept` once its items no longer open add up to the promised amount, `broken` once
+// the company's today is past `promised_date` and it is not kept. A dunning run at a key date up to
+// `promised_date` leaves the promised items still open out of its notices and names them in
+// `promised_items`; a run proposed before the promise is refused as stale when it is confirmed
+// (`confirmDunningRun`). Recording a promise posts nothing and changes nothing on the items. Audited.
+// A retry with the same `Idempotency-Key` answers the promise recorded. Human-only (`x-agent: false`).
+//
+// POST /v1/promises-to-pay
+func (c *Client) CreatePromiseToPay(ctx context.Context, request *PromiseToPayCreate, params CreatePromiseToPayParams) (CreatePromiseToPayRes, error) {
+	res, err := c.sendCreatePromiseToPay(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreatePromiseToPay(ctx context.Context, request *PromiseToPayCreate, params CreatePromiseToPayParams) (res CreatePromiseToPayRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createPromiseToPay"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/promises-to-pay"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreatePromiseToPayOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/promises-to-pay"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreatePromiseToPayRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreatePromiseToPayOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreatePromiseToPayResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -38863,16 +39068,21 @@ func (c *Client) sendGetCloseCalendar(ctx context.Context, params GetCloseCalend
 // amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's
 // currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`;
 // T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
-// An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is
-// past its net due date, which is that of the payment terms it was posted with or, for an item posted
-// without payment terms (a manual or migrated entry's), its document date; an item due on the key date
-// is not overdue, so an item without terms is overdue from the day after its document date, and credit
-// items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The
-// worklist is computed at the read from one database state (a repeatable-read snapshot) and stores
-// nothing: the items are the ones open now on the company's customer reconciliation accounts in the
-// leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in
-// the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`,
-// `disputed_amount` and `open_dispute_cases` at the top are the totals of every customer listed, not
+// Each customer also shows its promises to pay as they stand on the key date (T76f): what its open
+// promises promise (`promised_amount`), how many they are, the earliest promised date among them, and
+// how many of its promises are broken; a promise is open on the key date when its `promised_date` is
+// on or after it and it is not kept (its items no longer open add up to less than the promised
+// amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run
+// counts it: the customer owes it (a debit) and the key date is past its net due date, which is that
+// of the payment terms it was posted with or, for an item posted without payment terms (a manual or
+// migrated entry's), its document date; an item due on the key date is not overdue, so an item without
+// terms is overdue from the day after its document date, and credit items reduce no overdue amount. A
+// customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read
+// from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open
+// now on the company's customer reconciliation accounts in the leading ledger, whoever posted them,
+// and the key date only counts what is overdue. Amounts are in the company's currency, as the items
+// were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`,
+// `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not
 // of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key
 // date. Each page is computed anew and continues after the last customer's overdue amount and id: a
 // customer whose overdue amount fell between two pages can be listed again with its new amount, and
@@ -49084,6 +49294,140 @@ func (c *Client) sendGetProfitabilityReport(ctx context.Context, params GetProfi
 
 	stage = "DecodeResponse"
 	result, err := decodeGetProfitabilityReportResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetPromiseToPay invokes getPromiseToPay operation.
+//
+// One promise to pay (ADR-0065 As built, T76f) with its company's code and name, its customer's number
+// and name, the promised amount and date, its items (each with whether it is still open), what of them
+// is paid (`paid_amount`) and its status on the company's today (`status_date`), and who recorded it.
+// One of a company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/promises-to-pay/{id}
+func (c *Client) GetPromiseToPay(ctx context.Context, params GetPromiseToPayParams) (GetPromiseToPayRes, error) {
+	res, err := c.sendGetPromiseToPay(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPromiseToPay(ctx context.Context, params GetPromiseToPayParams) (res GetPromiseToPayRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPromiseToPay"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/promises-to-pay/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPromiseToPayOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/promises-to-pay/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPromiseToPayOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPromiseToPayResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -81881,6 +82225,211 @@ func (c *Client) sendListProfitCenters(ctx context.Context, params ListProfitCen
 
 	stage = "DecodeResponse"
 	result, err := decodeListProfitCentersResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListPromisesToPay invokes listPromisesToPay operation.
+//
+// The promises to pay of the companies the caller may act in (ADR-0065 As built, T76f), each as
+// `getPromiseToPay` gives it: with its company's code and name, its customer's number and name, the
+// promised amount and date, its items and its status on the company's today. Filtered by company and
+// customer. Sortable by: `created_at` (default, the latest first).
+//
+// GET /v1/promises-to-pay
+func (c *Client) ListPromisesToPay(ctx context.Context, params ListPromisesToPayParams) (ListPromisesToPayRes, error) {
+	res, err := c.sendListPromisesToPay(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPromisesToPay(ctx context.Context, params ListPromisesToPayParams) (res ListPromisesToPayRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPromisesToPay"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/promises-to-pay"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPromisesToPayOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/promises-to-pay"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPromisesToPayOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPromisesToPayResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

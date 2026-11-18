@@ -17664,7 +17664,7 @@ paths:
       tags:
         - collections
       summary: Get a company's collection worklist
-      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned), and beside its overdue amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`; T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases. An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount` and `open_dispute_cases` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
+      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned), and beside its overdue amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`; T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases. Each customer also shows its promises to pay as they stand on the key date (T76f): what its open promises promise (`promised_amount`), how many they are, the earliest promised date among them, and how many of its promises are broken; a promise is open on the key date when its `promised_date` is on or after it and it is not kept (its items no longer open add up to less than the promised amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`, `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
       x-permission: collections.worklist.read
       x-slo-class: report
       x-snapshot: true
@@ -18175,6 +18175,149 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/promises-to-pay:
+    get:
+      operationId: listPromisesToPay
+      tags:
+        - collections
+      summary: List promises to pay
+      description: "The promises to pay of the companies the caller may act in (ADR-0065 As built, T76f), each as `getPromiseToPay` gives it: with its company's code and name, its customer's number and name, the promised amount and date, its items and its status on the company's today. Filtered by company and customer. Sortable by: `created_at` (default, the latest first)."
+      x-permission: collections.worklist.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the promises of this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of promises to pay.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromiseToPayPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createPromiseToPay
+      tags:
+        - collections
+      summary: Record a customer's promise to pay
+      description: "Records a customer's promise to pay (ADR-0065 As built, T76f): the customer (`customer_id`) promises the company to pay `promised_amount` by `promised_date` for some of its open items, each named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names it). The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`); the customer a business partner of the tenant (422 `request.reference_not_found` naming `customer_id`); each item an open item on a customer reconciliation account of the company in the leading ledger that this customer owes (422 `collections.item_not_open` naming `items[n].journal_entry_id`), named once (422 `request.validation_failed`). `promised_amount` is in the company's currency (422 `collections.currency_mismatch` naming `promised_amount.currency`), above zero and at most what the items amount to in it as booked (422 `collections.invalid_promised_amount` naming `promised_amount.amount`). `promised_date` is from the company's today, in its time zone, to 2100-12-31 (422 `collections.invalid_promised_date` naming `promised_date`). An item in another promise whose date is today or later is refused (409 `collections.promise_exists`): an item is promised once at a time. The promise reads `open` until it is kept or broken: `kept` once its items no longer open add up to the promised amount, `broken` once the company's today is past `promised_date` and it is not kept. A dunning run at a key date up to `promised_date` leaves the promised items still open out of its notices and names them in `promised_items`; a run proposed before the promise is refused as stale when it is confirmed (`confirmDunningRun`). Recording a promise posts nothing and changes nothing on the items. Audited. A retry with the same `Idempotency-Key` answers the promise recorded. Human-only (`x-agent: false`)."
+      x-permission: collections.worklist.write
+      x-agent: false
+      x-problem-codes:
+        - collections.amount_too_large
+        - collections.currency_mismatch
+        - collections.invalid_promised_amount
+        - collections.invalid_promised_date
+        - collections.item_not_open
+        - collections.promise_exists
+        - config.not_bootstrapped
+        - request.invalid_amount
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The promise to record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromiseToPayCreate"
+            examples:
+              invoice:
+                summary: A customer promises to pay an invoice by the end of the month
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  promised_amount: {amount: "600.00", currency: CAD}
+                  promised_date: "2027-01-31"
+                  items:
+                    - fiscal_year: 2026
+                      journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                      line_no: 1
+      responses:
+        "201":
+          description: "Created; the new promise to pay."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromiseToPay"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/promises-to-pay/{id}":
+    get:
+      operationId: getPromiseToPay
+      tags:
+        - collections
+      summary: Get a promise to pay
+      description: "One promise to pay (ADR-0065 As built, T76f) with its company's code and name, its customer's number and name, the promised amount and date, its items (each with whether it is still open), what of them is paid (`paid_amount`) and its status on the company's today (`status_date`), and who recorded it. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: collections.worklist.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The promise to pay.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromiseToPay"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/dunning-runs:
     get:
       operationId: listDunningRuns
@@ -18236,7 +18379,7 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items` (T76e). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. The company's dunning procedure applies as the configuration has it when the run is started, and the run keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`, and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items` (T76e). An item a customer promised to pay (`createPromiseToPay`) by a date on or after the key date is in no notice either, unless blocked: the run lists it in `promised_items` with its promise, outside its totals, and not in `disputed_items` (T76f). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. The company's dunning procedure applies as the configuration has it when the run is started, and the run keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`, and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -18325,7 +18468,7 @@ paths:
       tags:
         - collections
       summary: Confirm a dunning run
-      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the item or its customer, placed since and holding for the run's key date, blocks (T76e). Nothing of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the item or its customer, placed since and holding for the run's key date, blocks (T76e), and one with an item a customer promised since, by a date on or after the run's key date, to pay (T76f). Nothing of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -56039,7 +56182,7 @@ components:
     CollectionWorklistCustomer:
       type: object
       description: "A customer on a collection worklist: one with items overdue on the key date. Amounts are in the company's currency, as the items were booked."
-      required: [customer_id, customer_number, customer_name, open_amount, overdue_amount, oldest_due_date, dunning_level, disputed_amount, open_dispute_cases]
+      required: [customer_id, customer_number, customer_name, open_amount, overdue_amount, oldest_due_date, dunning_level, disputed_amount, open_dispute_cases, promised_amount, open_promises, broken_promises]
       properties:
         customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
         customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
@@ -56051,10 +56194,14 @@ components:
         last_dunning_date: {type: string, format: date, description: "The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items; absent when none was dunned.", readOnly: true}
         disputed_amount: {$ref: "#/components/schemas/Money", description: "What the open dispute cases of the customer's open items dispute, overdue or not, each case's share of its item as booked (`local_disputed_amount`); 0 without any. It changes neither `open_amount` nor `overdue_amount`: a disputed item stays open and overdue."}
         open_dispute_cases: {type: integer, format: int32, minimum: 0, description: "The open dispute cases of the customer's open items (`listDisputeCases?customer_id=&status=open`, which also lists a case whose item was cleared since).", readOnly: true}
+        promised_amount: {$ref: "#/components/schemas/Money", description: "What the customer's promises to pay open on the key date promise (T76f): those whose `promised_date` is on or after it and that are not kept; 0 without any. It changes neither `open_amount` nor `overdue_amount`."}
+        open_promises: {type: integer, format: int32, minimum: 0, description: "The customer's promises to pay open on the key date (`listPromisesToPay?customer_id=`).", readOnly: true}
+        next_promised_date: {type: string, format: date, description: "The earliest `promised_date` among those promises; absent without any.", readOnly: true}
+        broken_promises: {type: integer, format: int32, minimum: 0, description: "The customer's promises to pay broken on the key date: `promised_date` before it and not kept (its items no longer open add up to less than the promised amount).", readOnly: true}
     CollectionWorklist:
       type: object
       description: "A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers with overdue items, the largest overdue amount first, with the totals of every customer listed."
-      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, disputed_amount, open_dispute_cases, items]
+      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, disputed_amount, open_dispute_cases, promised_amount, items]
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
         company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -56066,6 +56213,7 @@ components:
         overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of `overdue_amount` of every customer on the worklist."}
         disputed_amount: {$ref: "#/components/schemas/Money", description: "The sum of `disputed_amount` of every customer on the worklist (T86b)."}
         open_dispute_cases: {type: integer, format: int32, minimum: 0, description: "The sum of `open_dispute_cases` of every customer on the worklist (T86b).", readOnly: true}
+        promised_amount: {$ref: "#/components/schemas/Money", description: "The sum of `promised_amount` of every customer on the worklist (T76f)."}
         items:
           type: array
           items: {$ref: "#/components/schemas/CollectionWorklistCustomer"}
@@ -56083,6 +56231,7 @@ components:
           overdue_amount: {amount: "1050.00", currency: CAD}
           disputed_amount: {amount: "150.00", currency: CAD}
           open_dispute_cases: 1
+          promised_amount: {amount: "600.00", currency: CAD}
           items:
             - customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
               customer_number: BP100042
@@ -56094,6 +56243,10 @@ components:
               last_dunning_date: "2026-12-31"
               disputed_amount: {amount: "150.00", currency: CAD}
               open_dispute_cases: 1
+              promised_amount: {amount: "600.00", currency: CAD}
+              open_promises: 1
+              next_promised_date: "2027-01-15"
+              broken_promises: 0
     DisputeCaseCreate:
       type: object
       description: "Open a dispute case on a customer's open item. It is created `open`."
@@ -56273,6 +56426,130 @@ components:
           items: {$ref: "#/components/schemas/DunningBlock"}
           description: The dunning blocks on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    PromiseToPayCreate:
+      type: object
+      description: "Record a customer's promise to pay an amount by a date for some of its open items."
+      required: [legal_entity_id, customer_id, promised_amount, promised_date, items]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company the customer promises to pay: a legal entity the caller may act in."}
+        customer_id: {type: string, format: uuid, description: "The customer (a business partner) that promises to pay, the owner of the items."}
+        promised_amount: {$ref: "#/components/schemas/Money", description: "What the customer promises to pay, in the company's currency: above zero and at most what the items amount to in it, as they were booked."}
+        promised_date: {type: string, format: date, description: "The date the customer promises to pay by: from the company's today to 2100-12-31."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: "#/components/schemas/PromiseToPayItemRef"}
+          description: "The open items the promise is for, each named once."
+    PromiseToPayItemRef:
+      type: object
+      description: "An open item a promise to pay is for, by its journal line."
+      required: [fiscal_year, journal_entry_id, line_no]
+      additionalProperties: false
+      properties:
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2100, description: "The fiscal year of the item's journal entry."}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name it)."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item."}
+    PromiseToPayItem:
+      type: object
+      description: "An item a promise to pay is for, as it was when the promise was recorded, and whether it is still open."
+      required: [fiscal_year, journal_entry_id, line_no, document_number, net_due_date, amount, local_amount, open]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the item.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
+        reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+        net_due_date: {type: string, format: date, description: "The item's net due date: by the payment terms it was posted with, or, posted without any, its document date.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the customer owed on the item when the promise was recorded, in the item's currency."}
+        local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
+        open: {type: boolean, description: "Whether the item is still open: false once it was cleared (paid or credited) or its entry reversed.", readOnly: true}
+    PromiseToPay:
+      description: "A customer's promise to pay (collections, ADR-0065 As built, T76f): an amount the customer promises the company to pay by a date for some of its open items."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, promised_amount, promised_date, status, status_date, paid_amount, items, created_by_name]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company the customer promises to pay.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number when the promise was recorded.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            promised_amount: {$ref: "#/components/schemas/Money", description: "What the customer promised to pay, in the company's currency."}
+            promised_date: {type: string, format: date, description: "The date the customer promised to pay by: a dunning run at a key date up to it leaves the promised items out.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [open, kept, broken]
+              description: "On `status_date`: `kept` when the promised items no longer open add up to `promised_amount` at least (`paid_amount`); `broken` when not kept and `status_date` is past `promised_date`; `open` otherwise. Judged when read from the items as they are then, so a promise paid after its date reads kept from then on. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            status_date: {type: string, format: date, description: "The company's today, in its time zone, which `status` is judged on.", readOnly: true}
+            paid_amount: {$ref: "#/components/schemas/Money", description: "What the promised items no longer open amount to in the company's currency, as they were booked (the sum of their `local_amount`): an item counts in full once it is cleared, whether paid, credited or reversed."}
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/PromiseToPayItem"}
+              description: "The items the promise is for, by journal line."
+              readOnly: true
+            created_by_name: {type: string, description: "The name of who recorded the promise (`created_by`), as it is now.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d95"
+          version: 1
+          created_at: "2026-12-01T09:12:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-12-01T09:12:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          promised_amount: {amount: "600.00", currency: CAD}
+          promised_date: "2027-01-31"
+          status: open
+          status_date: "2026-12-01"
+          paid_amount: {amount: "0.00", currency: CAD}
+          items:
+            - fiscal_year: 2026
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+              line_no: 1
+              document_number: "1800000007"
+              reference: CI2026000007
+              net_due_date: "2026-11-30"
+              amount: {amount: "600.00", currency: CAD}
+              local_amount: {amount: "600.00", currency: CAD}
+              open: true
+          created_by_name: Ruth Receivables
+    PromiseToPayPage:
+      type: object
+      description: One page of promises to pay.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/PromiseToPay"}
+          description: The promises to pay on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    DunningRunPromisedItem:
+      type: object
+      description: "An item a dunning run left out for a customer's promise to pay (T76f): a customer's open item overdue on the run's key date that would have reached a dunning level, as the run read it."
+      required: [promise_to_pay_id, promised_date, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, net_due_date, days_overdue, amount, local_amount]
+      properties:
+        promise_to_pay_id: {type: string, format: uuid, description: "The promise that held the item when the run was started (`GET /v1/promises-to-pay/{id}`).", readOnly: true}
+        promised_date: {type: string, format: date, description: "The date the customer promised to pay by, on or after the run's key date.", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
+        reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+        net_due_date: {type: string, format: date, description: "The item's net due date: by the payment terms it was posted with, or, posted without any, its document date.", readOnly: true}
+        days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency."}
+        local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
     DunningRunBlockedItem:
       type: object
       description: "An item a dunning run left out for a dunning block (T76e): a customer's open item overdue on the run's key date that would have reached a dunning level, as the run read it."
@@ -56295,7 +56572,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, charge_amount, interest_amount, total_amount, grace_days, minimum_amount, below_minimum_notice_count, below_minimum_amount, disputed_item_count, disputed_amount, disputed_items, blocked_item_count, blocked_amount, blocked_items]
+          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, charge_amount, interest_amount, total_amount, grace_days, minimum_amount, below_minimum_notice_count, below_minimum_amount, disputed_item_count, disputed_amount, disputed_items, blocked_item_count, blocked_amount, blocked_items, promised_item_count, promised_amount, promised_items]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customers the run duns.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -56332,6 +56609,13 @@ components:
               items: {$ref: "#/components/schemas/DunningRunBlockedItem"}
               description: "The items the run would have proposed but left out, each for an active dunning block of the item or its customer whose end date is on or after the key date (T76e), by customer and item; in no notice and in none of the run's totals. An item both blocked and disputed is listed here alone. Empty when none was blocked, and for runs started before dunning blocks existed."
               readOnly: true
+            promised_item_count: {type: integer, format: int32, minimum: 0, description: "The items the run left out for a promise to pay (`promised_items`); 0 when none was promised.", readOnly: true}
+            promised_amount: {$ref: "#/components/schemas/Money", description: "What those items add up to in the company's currency, as they were booked (the sum of `promised_items[].local_amount`): not dunned, not counted in `overdue_amount`."}
+            promised_items:
+              type: array
+              items: {$ref: "#/components/schemas/DunningRunPromisedItem"}
+              description: "The items the run would have proposed but left out, each for a promise to pay whose `promised_date` is on or after the key date (T76f), by customer and item; in no notice and in none of the run's totals. An item blocked is listed in `blocked_items` alone, and an item promised is not listed in `disputed_items`. Empty when none was promised, and for runs started before promises to pay existed."
+              readOnly: true
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
           version: 1
@@ -56361,6 +56645,9 @@ components:
           blocked_item_count: 0
           blocked_amount: {amount: "0.00", currency: CAD}
           blocked_items: []
+          promised_item_count: 0
+          promised_amount: {amount: "0.00", currency: CAD}
+          promised_items: []
           disputed_items:
             - dispute_case_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
               customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"

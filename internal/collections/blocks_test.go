@@ -114,7 +114,7 @@ func TestDunningBlocks(t *testing.T) {
 		id, tag := e.In(t).start(t, keyDate)
 		e.In(t).place(t, blockOf(e.DE, e.north, nil, lastHeld))
 		p := e.In(t).Problem(409, "collections.proposal_stale", "POST", "/v1/dunning-runs/"+id+":confirm", "", tag)
-		if d, _ := p["detail"].(string); !strings.Contains(d, "of its 2 items, 0 cleared, 0 dunned by another run and 2 blocked") {
+		if d, _ := p["detail"].(string); !strings.Contains(d, "of its 2 items, 0 cleared, 0 dunned by another run, 2 blocked from dunning and 0 promised") {
 			t.Errorf("detail: got %q, want Northwind's 2 items blocked", d)
 		}
 	})
