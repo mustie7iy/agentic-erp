@@ -25,8 +25,8 @@ var perms = []string{"receivables.invoice.read", "receivables.invoice.write", "r
 // (5%, levying its lines' subdivision, any of DE), AG (5%, levying it and
 // accepting DE-BY and DE-BE alone) and A2 (two components of 60%) on
 // account 230000, the customer reconciliation account 120000, number
-// ranges for the entries customer invoices and credit memos post
-// (journal_dr, journal_dg) and for
+// ranges for the entries customer invoices, credit memos and debit memos
+// post (journal_dr, journal_dg, journal_dd) and for
 // incoming payments and their clearing entries (incoming_payment,
 // journal_dz), house bank MAIN with the main bank account 102000 and the
 // incoming payments clearing account 103000, and a customer set up in the
@@ -60,7 +60,8 @@ func outputCodes(rounding string) func(*config.Config) {
 		for _, y := range fixture.Years() {
 			doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "journal_dr", FiscalYear: y, First: 100000, Last: 999999},
 				config.NumberRange{Company: "2000", DocumentType: "journal_dz", FiscalYear: y, First: 100000, Last: 999999},
-				config.NumberRange{Company: "2000", DocumentType: "journal_dg", FiscalYear: y, First: 100000, Last: 999999})
+				config.NumberRange{Company: "2000", DocumentType: "journal_dg", FiscalYear: y, First: 100000, Last: 999999},
+				config.NumberRange{Company: "2000", DocumentType: "journal_dd", FiscalYear: y, First: 100000, Last: 999999})
 			first := int64(100000)
 			if y != 2026 { // a range may not repeat another year's numbers (config.RangeRepeats)
 				first = 1000000

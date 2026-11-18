@@ -22,8 +22,8 @@ import (
 
 // references are what invoices name by id, as their consumer reads them
 // (REVIEW.md, API-consumer classes): the companies, the customers, the
-// items' accounts and centers, and a posted invoice's journal entry by
-// its document number. The invoice a credit memo credits is named with
+// items' accounts and centers, and a posted invoice's journal entry and a
+// reversed memo's reversal entry by their document numbers. The invoice a credit memo credits is named with
 // the memo (Invoice.ReferenceInvoiceNumber).
 type references struct {
 	companies map[uuid.UUID]tenancy.Entity
@@ -39,9 +39,7 @@ func (e *Endpoints) references(ctx context.Context, invoices []Invoice) (referen
 	var partners, accounts, centers, entries []uuid.UUID
 	for _, v := range invoices {
 		partners = append(partners, v.CustomerID)
-		if v.EntryID != nil {
-			entries = append(entries, *v.EntryID)
-		}
+		entries = append(entries, entriesOf(v)...)
 		for _, it := range v.Items {
 			accounts = append(accounts, it.AccountID)
 			for _, c := range []*uuid.UUID{it.CostCenterID, it.ProfitCenterID} {
@@ -75,6 +73,19 @@ func (e *Endpoints) references(ctx context.Context, invoices []Invoice) (referen
 	return refs, nil
 }
 
+// entriesOf are the journal entries a document names: the one it posted
+// and the reversal of a reversed memo.
+func entriesOf(v Invoice) []uuid.UUID {
+	var ids []uuid.UUID
+	if v.EntryID != nil {
+		ids = append(ids, *v.EntryID)
+	}
+	if v.Reversal != nil {
+		ids = append(ids, v.Reversal.EntryID)
+	}
+	return ids
+}
+
 // toAPI is an invoice as the API gives it, with what it names by id.
 func toAPI(v Invoice, refs references) gen.CustomerInvoice {
 	m := func(a money.Minor) gen.Money { return apitypes.Money(a, v.Currency, v.Exponent) }
@@ -91,6 +102,13 @@ func toAPI(v Invoice, refs references) gen.CustomerInvoice {
 	if v.EntryID != nil { // posted: its entry's year and number are known with it
 		out.JournalEntryYear.SetTo(int32(*v.EntryYear))
 		out.JournalEntryNumber.SetTo(refs.entries[*v.EntryID])
+	}
+	if r := v.Reversal; r != nil {
+		out.ReversalEntryID.SetTo(r.EntryID)
+		out.ReversalEntryYear.SetTo(int32(r.EntryYear))
+		out.ReversalEntryNumber.SetTo(refs.entries[r.EntryID])
+		out.ReversalPostingDate.SetTo(r.PostingDate)
+		out.ReversalReason.SetTo(r.Reason)
 	}
 	for i, it := range v.Items {
 		account := refs.accounts[it.AccountID]
@@ -135,6 +153,19 @@ func (e *Endpoints) CreateCustomerInvoice(ctx context.Context, req *gen.Customer
 // PostCustomerInvoice implements POST /v1/customer-invoices/{id}:post.
 func (e *Endpoints) PostCustomerInvoice(ctx context.Context, req gen.OptCustomerInvoicePost, params gen.PostCustomerInvoiceParams) (gen.PostCustomerInvoiceRes, error) {
 	v, err := e.PostInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), apitypes.Ptr[time.Time](req.Value.PostingDate))
+	if err != nil {
+		return nil, err
+	}
+	refs, err := e.references(ctx, []Invoice{v})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.PostCustomerInvoiceOKHeaders{ETag: gen.NewOptString(etag.Format(v.Version)), Response: toAPI(v, refs)}, nil
+}
+
+// ReverseCustomerInvoice implements POST /v1/customer-invoices/{id}:reverse.
+func (e *Endpoints) ReverseCustomerInvoice(ctx context.Context, req *gen.CustomerInvoiceReverse, params gen.ReverseCustomerInvoiceParams) (gen.ReverseCustomerInvoiceRes, error) {
+	v, err := e.ReverseInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), Reversal{Reason: req.Reason, PostingDate: apitypes.Ptr[time.Time](req.PostingDate)})
 	if err != nil {
 		return nil, err
 	}

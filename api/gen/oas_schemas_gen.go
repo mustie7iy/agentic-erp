@@ -27551,6 +27551,7 @@ func (*ConflictHeaders) retireEntryTemplateRes()                   {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
 func (*ConflictHeaders) reverseAssetRetirementRes()                {}
 func (*ConflictHeaders) reverseAssetTransferRes()                  {}
+func (*ConflictHeaders) reverseCustomerInvoiceRes()                {}
 func (*ConflictHeaders) reverseGoodsReceiptRes()                   {}
 func (*ConflictHeaders) reverseInternalOrderSettlementRes()        {}
 func (*ConflictHeaders) reverseJournalEntryRes()                   {}
@@ -37656,7 +37657,8 @@ type CustomerInvoice struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Principal that made the last change. Absent on resources whose table does not record it.
 	UpdatedBy OptUUID `json:"updated_by"`
-	// The document number, from the company's `customer_invoice` number range.
+	// The document number, from the company's `customer_invoice` number range, which numbers credit and
+	// debit memos too.
 	DocumentNumber string `json:"document_number"`
 	// The company that issued the invoice.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
@@ -37670,10 +37672,10 @@ type CustomerInvoice struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
-	// What the document is: `invoice`, or `credit_memo`, which credits the customer what was invoiced (Cr
-	// customer when posted). Its amounts are never negative; the kind gives their direction. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// What the document is: `invoice`, `credit_memo`, which credits the customer what was invoiced (Cr
+	// customer when posted), or `debit_memo`, which charges the customer more (Dr customer when posted, as
+	// an invoice). Its amounts are never negative; the kind gives their direction. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Kind string `json:"kind"`
 	// The posted invoice a credit memo credits (`GET /v1/customer-invoices/{id}`). Absent on an invoice
 	// and on a credit memo naming none.
@@ -37691,13 +37693,15 @@ type CustomerInvoice struct {
 	NetAmount Money `json:"net_amount"`
 	// The sum of the items' tax.
 	TaxAmount Money `json:"tax_amount"`
-	// `net_amount` and `tax_amount`: what the customer owes for an invoice, what the customer is credited
-	// by a credit memo.
+	// `net_amount` and `tax_amount`: what the customer owes for an invoice or a debit memo, what the
+	// customer is credited by a credit memo.
 	GrossAmount Money `json:"gross_amount"`
 	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its line on
-	// the customer's reconciliation account is the customer's open item, a debit for an invoice and a
-	// credit for a credit memo. Open enumeration: clients must accept and preserve values not listed here;
-	// values may be added within /v1.
+	// the customer's reconciliation account is the customer's open item, a debit for an invoice or a debit
+	// memo and a credit for a credit memo. `reversed`: a credit memo or debit memo whose entry was
+	// reversed (`reverseCustomerInvoice`, T75k); its item is cleared against the reversal's, and neither
+	// is open. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
 	Status string `json:"status"`
 	// The payment term entered; once posted, the term the invoice posted with (the customer's in the
 	// company when none was entered). Absent on a draft entered without one.
@@ -37718,6 +37722,17 @@ type CustomerInvoice struct {
 	SourceDocumentID OptUUID `json:"source_document_id"`
 	// That document's number; absent with `source_document_id`.
 	SourceDocumentNumber OptString `json:"source_document_number"`
+	// The journal entry that reversed the document's entry (`GET /v1/journal-entries/{id}`,
+	// `reverseCustomerInvoice`). Absent unless `reversed`.
+	ReversalEntryID OptUUID `json:"reversal_entry_id"`
+	// The reversal entry's fiscal year. Absent unless `reversed`.
+	ReversalEntryYear OptInt32 `json:"reversal_entry_year"`
+	// The reversal entry's document number. Absent unless `reversed`.
+	ReversalEntryNumber OptString `json:"reversal_entry_number"`
+	// The date the reversal posted on. Absent unless `reversed`.
+	ReversalPostingDate OptDate `json:"reversal_posting_date"`
+	// Why the document was reversed, as given. Absent unless `reversed`.
+	ReversalReason OptString `json:"reversal_reason"`
 	// The items, by item number.
 	Items []CustomerInvoiceItem `json:"items"`
 }
@@ -37870,6 +37885,31 @@ func (s *CustomerInvoice) GetSourceDocumentID() OptUUID {
 // GetSourceDocumentNumber returns the value of SourceDocumentNumber.
 func (s *CustomerInvoice) GetSourceDocumentNumber() OptString {
 	return s.SourceDocumentNumber
+}
+
+// GetReversalEntryID returns the value of ReversalEntryID.
+func (s *CustomerInvoice) GetReversalEntryID() OptUUID {
+	return s.ReversalEntryID
+}
+
+// GetReversalEntryYear returns the value of ReversalEntryYear.
+func (s *CustomerInvoice) GetReversalEntryYear() OptInt32 {
+	return s.ReversalEntryYear
+}
+
+// GetReversalEntryNumber returns the value of ReversalEntryNumber.
+func (s *CustomerInvoice) GetReversalEntryNumber() OptString {
+	return s.ReversalEntryNumber
+}
+
+// GetReversalPostingDate returns the value of ReversalPostingDate.
+func (s *CustomerInvoice) GetReversalPostingDate() OptDate {
+	return s.ReversalPostingDate
+}
+
+// GetReversalReason returns the value of ReversalReason.
+func (s *CustomerInvoice) GetReversalReason() OptString {
+	return s.ReversalReason
 }
 
 // GetItems returns the value of Items.
@@ -38027,6 +38067,31 @@ func (s *CustomerInvoice) SetSourceDocumentNumber(val OptString) {
 	s.SourceDocumentNumber = val
 }
 
+// SetReversalEntryID sets the value of ReversalEntryID.
+func (s *CustomerInvoice) SetReversalEntryID(val OptUUID) {
+	s.ReversalEntryID = val
+}
+
+// SetReversalEntryYear sets the value of ReversalEntryYear.
+func (s *CustomerInvoice) SetReversalEntryYear(val OptInt32) {
+	s.ReversalEntryYear = val
+}
+
+// SetReversalEntryNumber sets the value of ReversalEntryNumber.
+func (s *CustomerInvoice) SetReversalEntryNumber(val OptString) {
+	s.ReversalEntryNumber = val
+}
+
+// SetReversalPostingDate sets the value of ReversalPostingDate.
+func (s *CustomerInvoice) SetReversalPostingDate(val OptDate) {
+	s.ReversalPostingDate = val
+}
+
+// SetReversalReason sets the value of ReversalReason.
+func (s *CustomerInvoice) SetReversalReason(val OptString) {
+	s.ReversalReason = val
+}
+
 // SetItems sets the value of Items.
 func (s *CustomerInvoice) SetItems(val []CustomerInvoiceItem) {
 	s.Items = val
@@ -38039,15 +38104,16 @@ type CustomerInvoiceCreate struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The customer: an active business partner with the customer role.
 	CustomerID uuid.UUID `json:"customer_id"`
-	// What the document is: `invoice` (absent: an invoice) or `credit_memo`, which credits the customer
-	// what was invoiced and posts with the signs turned. Amounts are more than zero whatever the kind,
-	// which gives their direction. Fixed once entered. Open enumeration: values may be added within /v1;
-	// one this version does not know is refused (422 `receivables.unknown_kind`).
+	// What the document is: `invoice` (absent: an invoice), `credit_memo`, which credits the customer what
+	// was invoiced and posts with the signs turned, or `debit_memo`, which charges the customer more and
+	// posts as an invoice does. Amounts are more than zero whatever the kind, which gives their direction.
+	// Fixed once entered. Open enumeration: values may be added within /v1; one this version does not know
+	// is refused (422 `receivables.unknown_kind`).
 	Kind OptString `json:"kind"`
 	// The invoice a credit memo credits: a posted invoice of the same company and customer in the memo's
 	// currency (`GET /v1/customer-invoices`). The posted credit memos naming an invoice may not exceed its
 	// gross amount (`postCustomerInvoice`); absent: the memo names none and has no such limit. Never on an
-	// invoice.
+	// invoice or a debit memo.
 	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
 	// The document's date; the tax date its items' tax codes are rated on (ADR-0049 §4), a credit memo's
 	// own.
@@ -38520,6 +38586,37 @@ func (s *CustomerInvoicePost) GetPostingDate() OptDate {
 
 // SetPostingDate sets the value of PostingDate.
 func (s *CustomerInvoicePost) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// Reverse a posted customer credit memo or debit memo.
+// Ref: #/components/schemas/CustomerInvoiceReverse
+type CustomerInvoiceReverse struct {
+	// Why the document is reversed: a text, not white space alone (422 `request.validation_failed` naming
+	// `reason`). Kept with the document; not in the event or the audit record.
+	Reason string `json:"reason"`
+	// The reversal's posting date: in an open period and not before the document posted; absent: the
+	// document's own posting date.
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetReason returns the value of Reason.
+func (s *CustomerInvoiceReverse) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CustomerInvoiceReverse) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetReason sets the value of Reason.
+func (s *CustomerInvoiceReverse) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CustomerInvoiceReverse) SetPostingDate(val OptDate) {
 	s.PostingDate = val
 }
 
@@ -85119,7 +85216,8 @@ func (s *PostCustomerInvoiceOKHeaders) SetResponse(val CustomerInvoice) {
 	s.Response = val
 }
 
-func (*PostCustomerInvoiceOKHeaders) postCustomerInvoiceRes() {}
+func (*PostCustomerInvoiceOKHeaders) postCustomerInvoiceRes()    {}
+func (*PostCustomerInvoiceOKHeaders) reverseCustomerInvoiceRes() {}
 
 type PostCustomerInvoicePreconditionFailed Problem
 
@@ -98751,6 +98849,30 @@ type ReverseAssetTransferUnprocessableEntity Problem
 
 func (*ReverseAssetTransferUnprocessableEntity) reverseAssetTransferRes() {}
 
+type ReverseCustomerInvoiceBadRequest Problem
+
+func (*ReverseCustomerInvoiceBadRequest) reverseCustomerInvoiceRes() {}
+
+type ReverseCustomerInvoiceForbidden Problem
+
+func (*ReverseCustomerInvoiceForbidden) reverseCustomerInvoiceRes() {}
+
+type ReverseCustomerInvoiceNotFound Problem
+
+func (*ReverseCustomerInvoiceNotFound) reverseCustomerInvoiceRes() {}
+
+type ReverseCustomerInvoicePreconditionFailed Problem
+
+func (*ReverseCustomerInvoicePreconditionFailed) reverseCustomerInvoiceRes() {}
+
+type ReverseCustomerInvoicePreconditionRequired Problem
+
+func (*ReverseCustomerInvoicePreconditionRequired) reverseCustomerInvoiceRes() {}
+
+type ReverseCustomerInvoiceUnprocessableEntity Problem
+
+func (*ReverseCustomerInvoiceUnprocessableEntity) reverseCustomerInvoiceRes() {}
+
 type ReverseGoodsReceiptBadRequest Problem
 
 func (*ReverseGoodsReceiptBadRequest) reverseGoodsReceiptRes() {}
@@ -111226,6 +111348,7 @@ func (*TooManyRequestsHeaders) retireEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()                {}
 func (*TooManyRequestsHeaders) reverseAssetTransferRes()                  {}
+func (*TooManyRequestsHeaders) reverseCustomerInvoiceRes()                {}
 func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()                   {}
 func (*TooManyRequestsHeaders) reverseInternalOrderSettlementRes()        {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()                   {}
@@ -112152,6 +112275,7 @@ func (*UnauthorizedHeaders) retireEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()                {}
 func (*UnauthorizedHeaders) reverseAssetTransferRes()                  {}
+func (*UnauthorizedHeaders) reverseCustomerInvoiceRes()                {}
 func (*UnauthorizedHeaders) reverseGoodsReceiptRes()                   {}
 func (*UnauthorizedHeaders) reverseInternalOrderSettlementRes()        {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()                   {}

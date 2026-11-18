@@ -1727,7 +1727,8 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
     {"company": "@CC@", "document_type": "material_document", "fiscal_year": @YEAR@, "prefix": "MD", "first": 1, "last": 9999999},
     {"company": "@CC@", "document_type": "journal_wa", "fiscal_year": @YEAR@, "prefix": "WA", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "journal_pr", "fiscal_year": @YEAR@, "prefix": "PR", "first": 1, "last": 9999999}]'
+    {"company": "@CC@", "document_type": "journal_pr", "fiscal_year": @YEAR@, "prefix": "PR", "first": 1, "last": 9999999},
+    {"company": "@CC@", "document_type": "journal_dd", "fiscal_year": @YEAR@, "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -13394,6 +13395,133 @@ step_goods_movements() {
 # late asset in the previous period's close (T64l), its other checks
 # (T64c), its accrual proposals (T64e), its variances (T64h) and their
 # comments (T64i) and, last, its sign-off (T64d), which locks the period.
+# step_debit_memo is T75j (ADR-0063 §7 As built): Maple charges Northwind
+# freight its invoice of step 55 left out. Ruth enters a debit memo, the
+# customer invoice document with the kind debit_memo, and posts it as an
+# invoice is posted, as its own journal document type DD (range
+# journal_dd, which the pilot's settings of step 2 add): Dr Northwind on
+# 1200, Cr 4000 and 2300. The memo is Northwind's open item, due by
+# Northwind's term from its own date; a debit memo naming an invoice is
+# refused. step_memo_reversal reverses it.
+step_debit_memo() {
+  heading "Step 122 — Customer debit memos: freight charged after the invoice by a debit memo posted as an invoice is, as its own document type DD; the customer's open item"
+  local customer=$CUSTOMER sales memo entry due
+  [ -n "$customer" ] && [ -n "$CREDITED_INVOICE" ] || fail "step 55's invoice is not there"
+  as ruth
+  sales=$(account 4000)
+  due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Maple shipped step 55's parts by courier and invoiced no freight. Ruth enters a debit memo (T75j): the same"
+  say "document with the kind debit_memo, charging Northwind CAD 150.00 and 5% GST. It names no invoice:"
+  api 201 '"\(.kind) \(.document_number) to \(.customer_name): \(.status), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)"' \
+    createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"kind\": \"debit_memo\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"description\": \"Courier freight\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"150.00\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}]}"
+  memo=$(field .id)
+  expect "the debit memo" "$(field '"\(.kind) \(.status) \(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount) \(.gross_amount.currency)"')" \
+    "debit_memo draft 150.00 7.50 157.50 CAD"
+  say "Ruth posts it. It posts as an invoice does, with Northwind's term from its own date:"
+  api 200 '"\(.kind) \(.document_number): \(.status) as journal entry \(.journal_entry_number), terms \(.payment_term_code), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$memo" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the posted debit memo" "$(field '"\(.status) \(.payment_term_code) \(.net_due_date) \(.gross_amount.amount)"')" "posted NT30 $due 157.50"
+  entry=$(field .journal_entry_id)
+  say "Its entry has its own document type, DD, beside the invoice's DR: it debits Northwind on 1200 Trade"
+  say "receivables with the gross and credits 4000 Sales and 2300 GST/HST payable:"
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry's source" "$(field '"\(.document_type) \(.source_context) \(.source_document_id)"')" "DD receivables $memo"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "157.50 -150.00 -7.50"
+  expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $sales $(account 2300)"
+  expect "the receivable line's partner" "$(field '.lines[0].partner_id')" "$customer"
+  say "The debit memo is Northwind's open item:"
+  api 200 '.items[] | select(.journal_entry_id == "'"$entry"'") | "  open item \(.document_number): \(.amount.amount) \(.amount.currency), due \(.payment_terms.net_due_date)"' \
+    listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=100
+  expect "the debit memo's open item" "$(field "[.items[] | select(.journal_entry_id == \"$entry\") | \"\(.amount.amount) \(.payment_terms.net_due_date)\"] | join(\", \")")" "157.50 $due"
+  say "A debit memo charges more; it credits no invoice, so it names none:"
+  refused 422 receivables.reference_not_allowed createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"kind\": \"debit_memo\", \"reference_invoice_id\": \"$CREDITED_INVOICE\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" reference_invoice_id
+  DEBIT_MEMO=$memo DEBIT_MEMO_ENTRY=$entry
+  passed
+}
+
+# step_memo_reversal is T75k (ADR-0063 As built T75k): Ruth reverses
+# step_debit_memo's debit memo, entered twice by mistake (SAP's FB08):
+# the DD reversal turns its entry's signs on its own posting date and
+# clears its item against the reversal's, so neither is Northwind's open
+# item; a second reversal and an invoice's are refused. Maple invoices
+# Northwind CAD 210.00 and credits it in full by mistake, naming the
+# wrong invoice; a second credit of CAD 50.00 is refused by the invoice's
+# limit. With today's period closed for a moment (Ada), the credit memo's
+# reversal is refused with the period's problem; reopened, it is
+# reversed, and the CAD 50.00 credit posts within the limit freed.
+step_memo_reversal() {
+  heading "Step 123 — Credit and debit memos reversed: a reversal document turning the memo's entry, its item cleared against the reversal's; a reversed credit memo frees its invoice's limit; refused for an invoice, twice, and into a closed period"
+  local customer=$CUSTOMER sales memo reversal invoice full more leading period
+  [ -n "$customer" ] && [ -n "$DEBIT_MEMO" ] && [ -n "$CREDITED_INVOICE" ] || fail "steps 55 and 122's documents are not there"
+  as ruth
+  sales=$(account 4000)
+  say "Step 122's freight was charged on Maple's invoice after all: the debit memo charges it twice. Ruth reverses it"
+  say "(T75k). The reversal posts on the memo's own posting date, as no other date is given:"
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$DEBIT_MEMO"
+  api 200 '"\(.kind) \(.document_number): \(.status), reversed by journal entry \(.reversal_entry_number) on \(.reversal_posting_date): \(.reversal_reason)"' \
+    reverseCustomerInvoice -p "id=$DEBIT_MEMO" -if-match "$ETAG" -body '{"reason": "Freight was on the invoice already."}'
+  expect "the reversed debit memo" "$(field '"\(.status) \(.reversal_posting_date) \(.version)"')" "reversed $TODAY 3"
+  reversal=$(field .reversal_entry_id)
+  say "The reversal is the memo's entry with the signs turned, its document type DD and its source kept:"
+  api 200 '"journal entry \(.document_number), \(.document_type), reversing \(.reversal_of_id), source \(.source_context)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$reversal"
+  expect "the reversal" "$(field '"\(.document_type) \(.reversal_of_id) \(.source_context) \(.source_document_id)"')" "DD $DEBIT_MEMO_ENTRY receivables $DEBIT_MEMO"
+  expect "the reversal's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-157.50 150.00 7.50"
+  say "The memo's item is cleared against the reversal's; neither is Northwind's open item:"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer" -p page_size=100
+  expect "the memo and its reversal open" "$(field "[.items[] | select(.journal_entry_id == \"$DEBIT_MEMO_ENTRY\" or .journal_entry_id == \"$reversal\")] | length")" 0
+  say "A reversed memo is not reversed again, and an invoice is not reversed: a credit memo corrects it:"
+  refused 409 receivables.invalid_status reverseCustomerInvoice -p "id=$DEBIT_MEMO" -if-match '"3"' -body '{"reason": "Again."}'
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$CREDITED_INVOICE"
+  refused 409 receivables.invoice_not_reversible reverseCustomerInvoice -p "id=$CREDITED_INVOICE" -if-match "$ETAG" -body '{"reason": "Wrong price."}'
+  say "Maple invoices Northwind CAD 200.00 and 5% GST for a training day. Ruth credits it in full, meaning another"
+  say "invoice:"
+  item="{\"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"@NET@\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}"
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [${item/@NET@/200.00}]}"
+  invoice=$(field .id)
+  api 200 '"customer invoice \(.document_number): \(.status), gross \(.gross_amount.amount) \(.currency)"' postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"kind\": \"credit_memo\", \"reference_invoice_id\": \"$invoice\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [${item/@NET@/200.00}]}"
+  full=$(field .id)
+  api 200 '"\(.kind) \(.document_number): \(.status), gross \(.gross_amount.amount) \(.currency)"' postCustomerInvoice -p "id=$full" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  say "The invoice is credited in full, so a further credit of CAD 50.00 naming it is refused when it posts:"
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"kind\": \"credit_memo\", \"reference_invoice_id\": \"$invoice\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"50.00\", \"currency\": \"CAD\"}}]}"
+  more=$(field .id)
+  refused 422 receivables.credit_exceeds_invoice postCustomerInvoice -p "id=$more" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the refusal's figures" "$(field '.credit_limit | "\(.invoice_gross.amount) \(.credited.amount) \(.attempted.amount)"')" "210.00 210.00 50.00"
+  say "Ruth reverses the full credit. The period of today is closed for a moment (Ada closes it): the reversal is"
+  say "refused with the period's problem, and nothing changes:"
+  as ada
+  QUIET=1 api 200 '' listLedgers
+  leading=$(field '.items[] | select(.is_leading) | .id')
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${TODAY:0:4}" -p "ledger_id=$leading" -p page_size=100
+  period=$(field "[.items[] | select((.is_special | not) and .start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | \"\(.id)/\(.version)\"][0]")
+  api 200 '"period \(.fiscal_year)/\(.period) of the leading ledger: \(.status)"' closeFiscalPeriod -p "id=${period%/*}" -if-match "\"${period#*/}\""
+  period="${period%/*}/$(field .version)"
+  as ruth
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$full"
+  refused 409 ledger.period_not_open reverseCustomerInvoice -p "id=$full" -if-match "$ETAG" -body '{"reason": "Credited the wrong invoice."}'
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$full"
+  expect "the credit memo after the refusal" "$(field '"\(.status) \(.version)"')" "posted 2"
+  as ada
+  api 200 '"period \(.fiscal_year)/\(.period) of the leading ledger: \(.status)"' openFiscalPeriod -p "id=${period%/*}" -if-match "\"${period#*/}\""
+  as ruth
+  say "Reopened, the reversal posts; the credit memo no longer counts against the invoice's gross amount:"
+  api 200 '"\(.kind) \(.document_number): \(.status), reversed by journal entry \(.reversal_entry_number) on \(.reversal_posting_date)"' \
+    reverseCustomerInvoice -p "id=$full" -if-match '"2"' -body '{"reason": "Credited the wrong invoice."}'
+  expect "the reversed credit memo" "$(field '"\(.status) \(.reversal_posting_date)"')" "reversed $TODAY"
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$more"
+  api 200 '"\(.kind) \(.document_number): \(.status), gross \(.gross_amount.amount) \(.currency)"' postCustomerInvoice -p "id=$more" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the credit within the freed limit" "$(field .status)" posted
+  api 200 '.items[] | "  \(.kind) \(.document_number): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    listCustomerInvoices -p "reference_invoice_id=$invoice" -p kind=credit_memo
+  expect "the credit memos naming the invoice" "$(field '[.items[] | "\(.status) \(.id)"] | sort | join(", ")')" \
+    "$(printf '%s\n' "posted $more" "reversed $full" | sort | paste -sd, - | sed 's/,/, /g')"
+  passed
+}
+
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off, and the group's consolidated figures finalized"
   as ada
@@ -15415,7 +15543,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_debit_memo step_memo_reversal step_close'
 
 main() {
   stop_unseen

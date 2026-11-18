@@ -45,6 +45,7 @@ const DocumentType = "DR"
 // output tax, at its own date's rates; its credit line is the customer's
 // open credit item. One naming an invoice posts only within that
 // invoice's gross amount, under that invoice's row lock (creditedInvoice).
+// A debit memo (T75j) posts as an invoice does, as a DD entry.
 func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -134,7 +135,9 @@ func (e *Endpoints) postableCustomer(ctx context.Context, v Invoice) (partner.Cu
 // posting is the entry the document posts on the date, with the terms its
 // open item keeps: every amount in its kind's direction (signed), so a
 // credit memo credits the customer and debits its items' accounts and
-// output tax. credited is the invoice a credit memo names, nil for none.
+// output tax, and a debit memo posts as an invoice does, as its own
+// journal document type (documentTypes). credited is the invoice a credit
+// memo names, nil for none.
 func (e *Endpoints) posting(ctx context.Context, le tenancy.Entity, v Invoice, customer partner.Customer, credited *Invoice, date time.Time) (ledger.Posting, error) {
 	terms, err := e.invoiceTerms(ctx, v, customer, credited)
 	if err != nil {
@@ -144,10 +147,8 @@ func (e *Endpoints) posting(ctx context.Context, le tenancy.Entity, v Invoice, c
 	if err != nil {
 		return ledger.Posting{}, err
 	}
-	text, documentType := "Customer invoice "+v.DocumentNumber, DocumentType
-	if v.Kind == KindCreditMemo {
-		text, documentType = "Customer credit memo "+v.DocumentNumber, CreditDocumentType
-	}
+	types := documentTypes[v.Kind] // a stored document's kind is one of them (customer_invoice_kind_check)
+	text, documentType := types.text+v.DocumentNumber, types.journal
 	lines := make([]ledger.PostingLine, 0, 1+len(v.Items)+len(taxLines))
 	lines = append(lines, ledger.PostingLine{AccountID: customer.ReconciliationID, Amount: signed(v, v.Gross), PartnerID: &v.CustomerID, Text: &text})
 	for _, it := range v.Items {

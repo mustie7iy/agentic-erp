@@ -1557,7 +1557,10 @@ type Handler interface {
 	// than zero, its tax at its own date's rates, and posted with the signs turned. A credit memo may name
 	// the invoice it credits (`reference_invoice_id`): a posted invoice of the same company and customer
 	// in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field otherwise); an
-	// invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither is refused (422
+	// invoice names none (422 `receivables.reference_not_allowed`). With `kind` `debit_memo` the document
+	// is a customer debit memo (ADR-0063 §7 As built, T75j), charging the customer what an invoice did
+	// not: entered as an invoice is and posted as one, as its own journal document type; it names no
+	// invoice (422 `receivables.reference_not_allowed`). A kind that is none of these is refused (422
 	// `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the invoice entered.
 	// Human-only (`x-agent: false`).
 	//
@@ -5383,11 +5386,11 @@ type Handler interface {
 	ListCustomerContacts(ctx context.Context, params ListCustomerContactsParams) (ListCustomerContactsRes, error)
 	// ListCustomerInvoices implements listCustomerInvoices operation.
 	//
-	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
-	// memos (§7, T75d), each as `getCustomerInvoice` gives it: with its company's code and name, its
-	// customer's number and name, its totals and its items. Filtered by company, customer, kind, the
-	// invoice a credit memo names, status, document number and invoice date. Sortable by: `invoice_date`,
-	// `document_number`.
+	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), the credit memos
+	// (§7, T75d) and the debit memos (§7 As built, T75j), each as `getCustomerInvoice` gives it: with
+	// its company's code and name, its customer's number and name, its totals and its items. Filtered by
+	// company, customer, kind, the invoice a credit memo names, status, document number and invoice date.
+	// Sortable by: `invoice_date`, `document_number`.
 	//
 	// GET /v1/customer-invoices
 	ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error)
@@ -6761,22 +6764,28 @@ type Handler interface {
 	// `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a
 	// draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers
 	// the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry`
-	// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo. A
-	// credit memo (`kind` `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it
-	// credits the customer's reconciliation account with its gross amount and debits each item's account
-	// and output tax, at its own date's rates; the entry has the document type `DG`, and its credit line
-	// is the customer's open credit item, which clears against the invoice (`createClearing`) or nets when
-	// a payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo,
-	// counted from the memo's date; without one, a memo naming an invoice keeps that invoice's term from
-	// that invoice's date, so it is due when its invoice is, and a memo naming none the customer's term
-	// from its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the
-	// gross amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not
-	// exceed that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the
-	// problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the
-	// amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid
-	// invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a
-	// lock on the named invoice, so of two credit memos posted at once that together exceed it one is
-	// refused. Human-only (`x-agent: false`).
+	// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo; a
+	// credit memo or debit memo is reversed by `reverseCustomerInvoice` (T75k). A credit memo (`kind`
+	// `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it credits the
+	// customer's reconciliation account with its gross amount and debits each item's account and output
+	// tax, at its own date's rates; the entry has the document type `DG`, and its credit line is the
+	// customer's open credit item, which clears against the invoice (`createClearing`) or nets when a
+	// payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo, counted
+	// from the memo's date; without one, a memo naming an invoice keeps that invoice's term from that
+	// invoice's date, so it is due when its invoice is, and a memo naming none the customer's term from
+	// its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the gross
+	// amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not exceed
+	// that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the problem's
+	// `credit_limit` giving the invoice, its gross amount, the amount already credited and the amount
+	// refused. The limit is the invoice's gross amount, not what is still open of it, so a paid invoice is
+	// credited too; a reversed credit memo (`reverseCustomerInvoice`, T75k) frees its amount; a credit
+	// memo naming no invoice has no such limit. It is checked under a lock on the named invoice, so of two
+	// credit memos posted at once that together exceed it one is refused. A debit memo (`kind`
+	// `debit_memo`, T75j) posts as an invoice does, debiting the customer and crediting its items'
+	// accounts and output tax at its own date's rates, with the entry's document type `DD` (number range
+	// `journal_dd`; 422 `config.no_number_range` in a company without it): its debit line is the
+	// customer's open item, with the term entered with it, else the customer's in the company, counted
+	// from its own date. Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices/{id}:post
 	PostCustomerInvoice(ctx context.Context, req OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error)
@@ -7680,6 +7689,32 @@ type Handler interface {
 	//
 	// POST /v1/asset-transfers/{id}:reverse
 	ReverseAssetTransfer(ctx context.Context, req *AssetTransferReverse, params ReverseAssetTransferParams) (ReverseAssetTransferRes, error)
+	// ReverseCustomerInvoice implements reverseCustomerInvoice operation.
+	//
+	// Reverses a posted customer credit memo or debit memo, once (ADR-0063 As built T75k): the ledger
+	// posts the reversal of its journal entry, the original's lines with the signs turned, its document
+	// type, reference and `source_context` kept, its tax items taken back on the original's tax date, and
+	// clears the memo's open item against the reversal's, so neither is open. The reversal posts on
+	// `posting_date`, else on the memo's own posting date; that date must be in an open period (409
+	// `ledger.period_not_open`, the period's problem: give a date in an open period) and not before the
+	// memo posted (422 `receivables.reversal_before_posting` naming `posting_date`). The document becomes
+	// `reversed` and shows its reversal (`reversal_entry_id`, `reversal_entry_year`,
+	// `reversal_entry_number`, `reversal_posting_date`) and the `reason`; an audit record and
+	// CustomerInvoiceReversed, without the reason, are written with it. A reversed credit memo no longer
+	// counts against the gross amount of the invoice it names (`postCustomerInvoice`, 422
+	// `receivables.credit_exceeds_invoice`): the credit it took is free for another memo. Refused: a
+	// document that is not posted, a draft or one reversed already (409 `receivables.invalid_status`); an
+	// invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit
+	// memo another context entered from its own document, a billing document's cancellation or a credit
+	// memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is
+	// corrected there; a memo whose open item is cleared, netted when a payment was applied or cleared
+	// against its invoice (409 `receivables.document_cleared`: undo that clearing first;
+	// `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under
+	// its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry
+	// with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`).
+	//
+	// POST /v1/customer-invoices/{id}:reverse
+	ReverseCustomerInvoice(ctx context.Context, req *CustomerInvoiceReverse, params ReverseCustomerInvoiceParams) (ReverseCustomerInvoiceRes, error)
 	// ReverseGoodsReceipt implements reverseGoodsReceipt operation.
 	//
 	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -7730,9 +7765,12 @@ type Handler interface {
 	// (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
 	// reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with
 	// `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse`
-	// (a depreciation run's entries never one by one). Entries of any other context are 409
-	// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
-	// entry. Human-only.
+	// (a depreciation run's entries never one by one); an accounts receivable entry (`receivables`) is 409
+	// `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed
+	// with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit
+	// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`.
+	// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
+	// them yet. Returns the new reversal entry. Human-only.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, req OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)

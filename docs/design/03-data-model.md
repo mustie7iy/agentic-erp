@@ -4532,7 +4532,7 @@ erDiagram
     text document_number "customer_invoice range, unique per company"
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner, customer role"
-    text kind "invoice, credit_memo"
+    text kind "invoice, credit_memo, debit_memo"
     uuid reference_invoice_id "the invoice a credit memo credits, optional"
     date invoice_date "the tax date"
     date posting_date "optional; set when posted"
@@ -4540,13 +4540,17 @@ erDiagram
     bigint net_amount
     bigint tax_amount
     bigint gross_amount "net + tax"
-    text status "draft, posted"
+    text status "draft, posted, reversed"
     text payment_term_code "optional; the term posted with"
     date net_due_date "when posted"
     smallint journal_entry_year "when posted"
     uuid journal_entry_id "ledger, when posted"
     uuid source_document_id "optional: sales, the billing document"
     text source_document_number "with source_document_id"
+    date reversal_date "when reversed"
+    smallint reversal_entry_year "when reversed"
+    uuid reversal_entry_id "ledger, when reversed"
+    text reversal_reason "when reversed"
     int version }
   customer_invoice_item { int item_no PK
     text description
@@ -4601,20 +4605,31 @@ erDiagram
   their direction. `gross_amount = net_amount + tax_amount`
   (`customer_invoice_totals`). The number is unique per company
   (`customer_invoice_number_once`). The kind is `invoice` alone
-  (`customer_invoice_kind_check`), which T75d widens (`credit_memo`); the
-  status is `draft` or `posted` (`customer_invoice_status_check`). A
+  (`customer_invoice_kind_check`), which T75d widens (`credit_memo`) and
+  T75j (`debit_memo`, migration 000373, validated by 000374); the
+  status is `draft` or `posted` (`customer_invoice_status_check`), and
+  `reversed` since T75k (migration 000375, validated by 000376). A
   posted invoice names its journal entry with its year, its posting
   date, the payment term it posted with and its net due date, and a
   draft names no entry (`customer_invoice_posted`); an entry is one
-  invoice's (`customer_invoice_entry_once`). Posting is the only change:
-  the application may update the columns posting sets, and the trigger
-  `customer_invoice_posted_once` refuses a change of anything but a
-  draft being posted. Nothing deletes an invoice. An invoice another
+  invoice's (`customer_invoice_entry_once`). Posting, and reversing a
+  memo (T75k, below), are the only changes: the application may update
+  the columns they set, and the trigger `customer_invoice_posted_once`
+  refuses a change of anything but a draft being posted or a posted
+  document being reversed. Nothing deletes an invoice. An invoice another
   context entered names the document it came from by id and number, both
   or neither (`customer_invoice_source`; T79b, migration 000296: a
   billing document of sales), and a document is invoiced once
   (`customer_invoice_source_once`); the source is written with the
-  invoice and not among the columns the application may update.
+  invoice and not among the columns the application may update. A
+  reversed credit or debit memo (T75k, migration 000375) names the
+  reversal of its entry by year and id, the date it posted on and a
+  reason of 1 to 200 characters, all together exactly when reversed; only
+  a credit or debit memo without a source document is reversed, on or
+  after its posting date (`customer_invoice_reversed`); a reversal entry
+  is one document's (`customer_invoice_reversal_once`); the trigger
+  `customer_invoice_posted_once` admits posted → reversed, keeping what
+  the document posted with, and no change after it.
 - `receivables.customer_invoice_item`: a net amount above zero
   (`customer_invoice_item_net_positive`) on an account, with the tax its
   output tax code gave at the invoice date, never negative and 0 without a
@@ -4684,6 +4699,7 @@ erDiagram
   is refused while a clearing or a payment was reset.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
+  `CustomerInvoiceReversed`,
   `IncomingPaymentApplied`, `IncomingPaymentOnAccountApplied`,
   `IncomingPaymentReset`).
 - Permissions `receivables.invoice.read`, `.write` and `.post`, and

@@ -84,7 +84,13 @@ func TestDatabaseFailures(t *testing.T) {
 	spreadID := uuid.MustParse(spread["id"].(string))
 	e.Must(201, "POST", "/v1/incoming-payments/"+spreadID.String()+"/applications",
 		fmt.Sprintf(`{"posting_date": "2026-03-22", "items": [%s]}`, e.invoiced(t, e.customer, "30.00", "2026-03-10")), "")
+	// A posted debit memo to reverse (T75k).
+	debit := uuid.MustParse(e.post(t, e.entered(t, e.debitMemo(e.customer, "2026-03-10", e.item("10.00", "A1"))), "2026-03-12")["id"].(string))
 	calls := map[string]func(ctx context.Context) error{
+		"reverse a debit memo": func(ctx context.Context) error {
+			_, err := h.ReverseCustomerInvoice(ctx, &gen.CustomerInvoiceReverse{Reason: "Entered twice"}, gen.ReverseCustomerInvoiceParams{ID: debit, IfMatch: `"2"`})
+			return err
+		},
 		"undo a payment": func(ctx context.Context) error {
 			_, err := h.ResetIncomingPayment(ctx, &gen.IncomingPaymentReset{Reason: "Wrong invoice"},
 				gen.ResetIncomingPaymentParams{ID: uuid.MustParse(applied["id"].(string)), IfMatch: `"1"`})
