@@ -7910,9 +7910,13 @@ type Handler interface {
 	// (a depreciation run's entries never one by one); an accounts receivable entry (`receivables`) is 409
 	// `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed
 	// with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit
-	// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`.
-	// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
-	// them yet. Returns the new reversal entry. Human-only.
+	// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`; an
+	// inventory entry (`inventory`) is 409 `ledger.entry_owned_elsewhere` naming its path: a material
+	// document's entry is reversed with `POST /v1/material-documents/{id}:reverse`, which posts its own
+	// entry, and a price change's (document type `PR`) is not reversed but corrected by another price
+	// change (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409
+	// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
+	// entry. Human-only.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, req OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)

@@ -1564,7 +1564,10 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry, cancelling uu
 //   - controlling: internal-orders/{id}/settlements/{settlement id}:reverse
 //     (T60i) and allocation-runs/{id}:reverse (T60k);
 //   - receivables: customer-invoices/{id}:reverse for credit and debit
-//     memos (T75k), incoming-payments/{id}:reset for applications (T75i).
+//     memos (T75k), incoming-payments/{id}:reset for applications (T75i);
+//   - inventory: material-documents/{id}:reverse for a material
+//     document's entry (ADR-0082 §7); a price change's (PR) is corrected
+//     by another price change, material-valuations/{id}:changePrice.
 //
 // Entries of contexts without such a reversal stay the ledger's to
 // reverse: manual ones, those a migration run loaded (their source
@@ -1598,6 +1601,8 @@ func requireOwnEntry(orig Entry) error {
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for receivables document "+orig.SourceDocumentID.String()+
 			"; a customer credit memo or debit memo is reversed with POST /v1/customer-invoices/"+orig.SourceDocumentID.String()+
 			":reverse, a customer invoice is corrected by a credit memo, and an incoming payment's application is undone with POST /v1/incoming-payments/{id}:reset.")
+	case orig.SourceContext == "inventory" && orig.SourceDocumentID != nil:
+		return inventoryOwned(orig)
 	case orig.SourceContext == "assets" && orig.SourceDocumentID != nil:
 		// The entry does not say which kind of assets document posted it,
 		// so the document's paths are named (ADR-0057 §4).
@@ -1608,6 +1613,20 @@ func requireOwnEntry(orig Entry) error {
 	}
 	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted by the "+orig.SourceContext+
 		" context, and no reversal path exists yet for that context's entries, so it cannot be reversed.")
+}
+
+// inventoryOwned is requireOwnEntry's refusal of an inventory entry
+// (ADR-0082 §7, §8). A material document's (WE, WA) names the document's
+// reversal. A price change's (PR) names no reversal: a price change is
+// corrected by another (SAP's MR21, from memory) on the material's
+// valuation, whose id the entry does not hold.
+func inventoryOwned(orig Entry) error {
+	if orig.DocumentType == "PR" {
+		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for inventory price change "+orig.SourceDocumentID.String()+
+			"; a price change is not reversed but corrected by another, with POST /v1/material-valuations/{valuation id}:changePrice.")
+	}
+	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for material document "+orig.SourceDocumentID.String()+
+		"; a material document is reversed with POST /v1/material-documents/"+orig.SourceDocumentID.String()+":reverse, which posts its own entry.")
 }
 
 // reversalLines are the entry's lines with every amount and quantity

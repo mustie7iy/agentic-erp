@@ -397,6 +397,16 @@ create with such a match is refused (409) unless the request confirms it.
   step 124, which values its materials first); the pilot's settings add
   Maple's `MD` range (`material_document`), as the fixture's companies
   have theirs.
+- **The ledger's refusal** (review of batch 80, batch 81): the ledger's
+  `reverseJournalEntry` refuses an inventory entry (409
+  `ledger.entry_owned_elsewhere`, `requireOwnEntry`) naming where it is
+  reversed, as it names the other owners': a material document's entry
+  (WE, WA) with `POST /v1/material-documents/{id}:reverse` and the
+  document's id; a price change's (PR, S1d) names no reversal, since a
+  price change is corrected by another price change
+  (`POST /v1/material-valuations/{valuation id}:changePrice`; SAP's MR21,
+  from memory). Before, the refusal said no reversal path existed.
+  `TestReversalBelongsToTheOwner`.
 
 ### S1d (2026-11-18)
 
