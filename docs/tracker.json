@@ -4878,9 +4878,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales representative adds items to an open sales order, removes an item of which nothing is delivered or billed, and changes the order's payment term while nothing of it is billed, each in a numbered change; a confirmed order's revenue contract follows (POST /v1/sales-orders/{id}:change)",
-        "r": "T78e · docs/design/plan-depth-2.md §T78e · ADR-0067",
+        "r": "T78e · docs/design/plan-depth-2.md §T78e · db/migrations/000364 · sales.sales_order_item.removed_in_change · POST /v1/sales-orders/{id}:change new_items, removed_items, payment_term_code · walkthrough step_sales_order_items · ADR-0067 As built T78e",
         "src": "split:T78b · po:2026-11-17",
         "c": []
        },

@@ -40,6 +40,7 @@ BEGIN
 END $$;
 
 DROP TABLE revenue.contract_change;
+DROP FUNCTION revenue.check_contract_change_followed();
 ALTER TABLE revenue.performance_obligation
   DROP CONSTRAINT performance_obligation_ended_unallocated,
   DROP COLUMN ended_at;

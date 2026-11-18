@@ -112,9 +112,13 @@ DECLARE
   following boolean;
 BEGIN
   SELECT c.status, c.changes, c.ended_at INTO k FROM revenue.contract c WHERE c.tenant_id = NEW.tenant_id AND c.id = NEW.contract_id FOR UPDATE;
-  IF k.ended_at IS NOT NULL OR (TG_OP = 'UPDATE' AND OLD.ended_at IS NOT NULL) THEN
-    RAISE EXCEPTION 'performance obligation % of revenue contract %: it has ended, so it changes no more', NEW.obligation_no, NEW.contract_id
+  IF k.ended_at IS NOT NULL THEN
+    RAISE EXCEPTION 'performance obligation % of revenue contract %: the contract has ended, so it changes no more', NEW.obligation_no, NEW.contract_id
       USING ERRCODE = 'check_violation', CONSTRAINT = 'contract_ended';
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.ended_at IS NOT NULL THEN
+    RAISE EXCEPTION 'performance obligation % of revenue contract %: it has ended, so it changes no more', NEW.obligation_no, NEW.contract_id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'performance_obligation_ended';
   END IF;
   following := EXISTS (SELECT FROM revenue.contract_change c
     WHERE c.tenant_id = NEW.tenant_id AND c.contract_id = NEW.contract_id AND c.change_no = k.changes + 1);
@@ -137,6 +141,25 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+
+-- A kept follow is the contract's: by the end of its transaction the
+-- contract counts it, and an active contract's shares are its price
+-- (the price and shares checked when the contract is written, again here
+-- for a follow whose contract is never written).
+CREATE FUNCTION revenue.check_contract_change_followed() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM revenue.contract k WHERE k.tenant_id = NEW.tenant_id AND k.id = NEW.contract_id AND k.changes >= NEW.change_no
+      AND (k.status <> 'active' OR k.transaction_price = (SELECT sum(o.allocated_amount) FROM revenue.performance_obligation o
+        WHERE o.tenant_id = k.tenant_id AND o.contract_id = k.id))) THEN
+    RAISE EXCEPTION 'revenue contract %: follow % is kept, but the contract does not follow it', NEW.contract_id, NEW.change_no
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'contract_change_followed';
+  END IF;
+  RETURN NULL;
+END $$;
+ALTER FUNCTION revenue.check_contract_change_followed() OWNER TO erp_owner;
+CREATE CONSTRAINT TRIGGER contract_change_followed AFTER INSERT ON revenue.contract_change
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION revenue.check_contract_change_followed();
 
 GRANT UPDATE (transaction_price, changes, ended_at) ON revenue.contract TO erp_app;
 GRANT UPDATE (net_amount, ended_at) ON revenue.performance_obligation TO erp_app;

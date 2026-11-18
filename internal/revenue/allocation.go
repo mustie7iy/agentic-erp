@@ -31,6 +31,18 @@ func init() {
 	problem.RegisterConstraint("contract_fixed_once_active", notDraft)
 	problem.RegisterConstraint("performance_obligation_fixed_once_active", notDraft)
 	problem.RegisterConstraint("contract_ended", contractEnded)
+	problem.RegisterConstraint("performance_obligation_ended", func() *problem.Problem { return obligationEnded(0) })
+}
+
+// obligationEnded refuses a change of an obligation that has ended, its
+// order item removed (T78e); no is the obligation's number, 0 when it is
+// not known (409 revenue.obligation_ended).
+func obligationEnded(no int32) *problem.Problem {
+	which := "The performance obligation"
+	if no > 0 {
+		which = fmt.Sprintf("Performance obligation %d", no)
+	}
+	return problem.Conflict("revenue.obligation_ended", which+" has ended, its sales order item being removed; it is not changed.")
 }
 
 // contractEnded refuses a change or an activation of a contract whose
@@ -176,6 +188,9 @@ func applied(c Contract, changes []ObligationChange) ([]Obligation, error) {
 				fmt.Sprintf("Obligation %d is named twice; a request names an obligation once.", ch.No))
 		}
 		seen[ch.No] = true
+		if c.Obligations[j].EndedAt != nil {
+			return nil, obligationEnded(ch.No)
+		}
 		o, err := set(c, c.Obligations[j], ch, field)
 		if err != nil {
 			return nil, err
@@ -292,9 +307,13 @@ func (e *Endpoints) Activate(ctx context.Context, id uuid.UUID, ifMatch func(int
 	if err != nil {
 		return Contract{}, err
 	}
-	numbers, prices := make([]int32, len(c.Obligations)), make([]money.Minor, len(c.Obligations))
-	for i, o := range c.Obligations {
-		numbers[i], prices[i] = o.No, o.StandalonePrice
+	// An ended obligation (its item removed, T78e) weighs nothing, and keeps the nothing its follow allocated it.
+	var numbers []int32
+	var prices []money.Minor
+	for _, o := range c.Obligations {
+		if o.EndedAt == nil {
+			numbers, prices = append(numbers, o.No), append(prices, o.StandalonePrice)
+		}
 	}
 	shares := allocate(c.TransactionPrice, prices)
 	amounts := make([]int64, len(shares))

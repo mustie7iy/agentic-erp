@@ -244593,6 +244593,18 @@ func (s *SalesOrderChange) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PaymentTermCodeBefore.Set {
+			e.FieldStart("payment_term_code_before")
+			s.PaymentTermCodeBefore.Encode(e)
+		}
+	}
+	{
+		if s.PaymentTermCodeAfter.Set {
+			e.FieldStart("payment_term_code_after")
+			s.PaymentTermCodeAfter.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("credit_block_before")
 		e.Str(s.CreditBlockBefore)
 	}
@@ -244618,7 +244630,7 @@ func (s *SalesOrderChange) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesOrderChange = [14]string{
+var jsonFieldsNameOfSalesOrderChange = [16]string{
 	0:  "id",
 	1:  "change_no",
 	2:  "sales_order_id",
@@ -244628,11 +244640,13 @@ var jsonFieldsNameOfSalesOrderChange = [14]string{
 	6:  "net_amount_after",
 	7:  "requested_delivery_date_before",
 	8:  "requested_delivery_date_after",
-	9:  "credit_block_before",
-	10: "credit_block_after",
-	11: "items",
-	12: "created_at",
-	13: "created_by",
+	9:  "payment_term_code_before",
+	10: "payment_term_code_after",
+	11: "credit_block_before",
+	12: "credit_block_after",
+	13: "items",
+	14: "created_at",
+	15: "created_by",
 }
 
 // Decode decodes SalesOrderChange from json.
@@ -244742,8 +244756,28 @@ func (s *SalesOrderChange) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"requested_delivery_date_after\"")
 			}
+		case "payment_term_code_before":
+			if err := func() error {
+				s.PaymentTermCodeBefore.Reset()
+				if err := s.PaymentTermCodeBefore.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_term_code_before\"")
+			}
+		case "payment_term_code_after":
+			if err := func() error {
+				s.PaymentTermCodeAfter.Reset()
+				if err := s.PaymentTermCodeAfter.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_term_code_after\"")
+			}
 		case "credit_block_before":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.CreditBlockBefore = string(v)
@@ -244755,7 +244789,7 @@ func (s *SalesOrderChange) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"credit_block_before\"")
 			}
 		case "credit_block_after":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.CreditBlockAfter = string(v)
@@ -244767,7 +244801,7 @@ func (s *SalesOrderChange) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"credit_block_after\"")
 			}
 		case "items":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				s.Items = make([]SalesOrderChangeItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -244785,7 +244819,7 @@ func (s *SalesOrderChange) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "created_at":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -244797,7 +244831,7 @@ func (s *SalesOrderChange) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -244819,7 +244853,7 @@ func (s *SalesOrderChange) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b01101111,
-		0b00111110,
+		0b11111000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -244879,6 +244913,10 @@ func (s *SalesOrderChangeItem) encodeFields(e *jx.Encoder) {
 		e.Int32(s.ItemNo)
 	}
 	{
+		e.FieldStart("change")
+		e.Str(s.Change)
+	}
+	{
 		e.FieldStart("quantity_before")
 		s.QuantityBefore.Encode(e)
 	}
@@ -244912,16 +244950,17 @@ func (s *SalesOrderChangeItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesOrderChangeItem = [9]string{
+var jsonFieldsNameOfSalesOrderChangeItem = [10]string{
 	0: "item_no",
-	1: "quantity_before",
-	2: "quantity_after",
-	3: "unit_price_before",
-	4: "unit_price_after",
-	5: "price_unit_before",
-	6: "price_unit_after",
-	7: "net_amount_before",
-	8: "net_amount_after",
+	1: "change",
+	2: "quantity_before",
+	3: "quantity_after",
+	4: "unit_price_before",
+	5: "unit_price_after",
+	6: "price_unit_before",
+	7: "price_unit_after",
+	8: "net_amount_before",
+	9: "net_amount_after",
 }
 
 // Decode decodes SalesOrderChangeItem from json.
@@ -244945,8 +244984,20 @@ func (s *SalesOrderChangeItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"item_no\"")
 			}
-		case "quantity_before":
+		case "change":
 			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Change = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"change\"")
+			}
+		case "quantity_before":
+			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
 				if err := s.QuantityBefore.Decode(d); err != nil {
 					return err
@@ -244956,7 +245007,7 @@ func (s *SalesOrderChangeItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"quantity_before\"")
 			}
 		case "quantity_after":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				if err := s.QuantityAfter.Decode(d); err != nil {
 					return err
@@ -244966,7 +245017,7 @@ func (s *SalesOrderChangeItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"quantity_after\"")
 			}
 		case "unit_price_before":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				if err := s.UnitPriceBefore.Decode(d); err != nil {
 					return err
@@ -244976,7 +245027,7 @@ func (s *SalesOrderChangeItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"unit_price_before\"")
 			}
 		case "unit_price_after":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				if err := s.UnitPriceAfter.Decode(d); err != nil {
 					return err
@@ -244986,7 +245037,7 @@ func (s *SalesOrderChangeItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"unit_price_after\"")
 			}
 		case "price_unit_before":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.PriceUnitBefore = int32(v)
@@ -244998,7 +245049,7 @@ func (s *SalesOrderChangeItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"price_unit_before\"")
 			}
 		case "price_unit_after":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.PriceUnitAfter = int32(v)
@@ -245010,7 +245061,7 @@ func (s *SalesOrderChangeItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"price_unit_after\"")
 			}
 		case "net_amount_before":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				if err := s.NetAmountBefore.Decode(d); err != nil {
 					return err
@@ -245020,7 +245071,7 @@ func (s *SalesOrderChangeItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"net_amount_before\"")
 			}
 		case "net_amount_after":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				if err := s.NetAmountAfter.Decode(d); err != nil {
 					return err
@@ -245040,7 +245091,7 @@ func (s *SalesOrderChangeItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000001,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -245231,6 +245282,12 @@ func (s *SalesOrderChangeRequest) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PaymentTermCode.Set {
+			e.FieldStart("payment_term_code")
+			s.PaymentTermCode.Encode(e)
+		}
+	}
+	{
 		if s.Items != nil {
 			e.FieldStart("items")
 			e.ArrStart()
@@ -245240,12 +245297,35 @@ func (s *SalesOrderChangeRequest) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.NewItems != nil {
+			e.FieldStart("new_items")
+			e.ArrStart()
+			for _, elem := range s.NewItems {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
+		if s.RemovedItems != nil {
+			e.FieldStart("removed_items")
+			e.ArrStart()
+			for _, elem := range s.RemovedItems {
+				e.Int32(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSalesOrderChangeRequest = [3]string{
+var jsonFieldsNameOfSalesOrderChangeRequest = [6]string{
 	0: "reason",
 	1: "requested_delivery_date",
-	2: "items",
+	2: "payment_term_code",
+	3: "items",
+	4: "new_items",
+	5: "removed_items",
 }
 
 // Decode decodes SalesOrderChangeRequest from json.
@@ -245276,6 +245356,16 @@ func (s *SalesOrderChangeRequest) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"requested_delivery_date\"")
 			}
+		case "payment_term_code":
+			if err := func() error {
+				s.PaymentTermCode.Reset()
+				if err := s.PaymentTermCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_term_code\"")
+			}
 		case "items":
 			if err := func() error {
 				s.Items = make([]SalesOrderItemChange, 0)
@@ -245292,6 +245382,42 @@ func (s *SalesOrderChangeRequest) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"items\"")
+			}
+		case "new_items":
+			if err := func() error {
+				s.NewItems = make([]SalesItemCreate, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SalesItemCreate
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.NewItems = append(s.NewItems, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"new_items\"")
+			}
+		case "removed_items":
+			if err := func() error {
+				s.RemovedItems = make([]int32, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem int32
+					v, err := d.Int32()
+					elem = int32(v)
+					if err != nil {
+						return err
+					}
+					s.RemovedItems = append(s.RemovedItems, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"removed_items\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -245574,9 +245700,15 @@ func (s *SalesOrderItem) encodeFields(e *jx.Encoder) {
 		e.FieldStart("returned_quantity")
 		s.ReturnedQuantity.Encode(e)
 	}
+	{
+		if s.RemovedInChange.Set {
+			e.FieldStart("removed_in_change")
+			s.RemovedInChange.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfSalesOrderItem = [16]string{
+var jsonFieldsNameOfSalesOrderItem = [17]string{
 	0:  "item_no",
 	1:  "item_key",
 	2:  "description",
@@ -245593,6 +245725,7 @@ var jsonFieldsNameOfSalesOrderItem = [16]string{
 	13: "delivered_quantity",
 	14: "billed_quantity",
 	15: "returned_quantity",
+	16: "removed_in_change",
 }
 
 // Decode decodes SalesOrderItem from json.
@@ -245600,7 +245733,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode SalesOrderItem to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -245786,6 +245919,16 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"returned_quantity\"")
 			}
+		case "removed_in_change":
+			if err := func() error {
+				s.RemovedInChange.Reset()
+				if err := s.RemovedInChange.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"removed_in_change\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -245795,9 +245938,10 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11111101,
 		0b11101111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

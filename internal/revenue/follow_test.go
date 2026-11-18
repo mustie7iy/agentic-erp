@@ -102,7 +102,7 @@ func TestContractFollowsOrderChange(t *testing.T) {
 		t.Errorf("ended_at: got %v, want none", got["ended_at"])
 	}
 	kept := `[{"obligation_no": 1, "net_amount_before": 150000, "net_amount_after": 156000, "allocated_amount_before": null, "allocated_amount_after": null,
-		"ended": false}]`
+		"ended": false, "added": false}]`
 	if n := e.count(t, `SELECT count(*) FROM revenue.contract_change WHERE tenant_id = $1 AND contract_id = $2 AND change_no = 1 AND cause = 'sales_order_changed'
 		AND sales_order_changes = 1 AND transaction_price_before = 270000 AND transaction_price_after = 276000 AND obligations = $3::jsonb`, id, kept); n != 1 {
 		t.Errorf("the kept follow: got %d with its prices 270000 > 276000 and its obligations %s, want 1", n, kept)
@@ -212,6 +212,35 @@ func TestRunAfterFollow(t *testing.T) {
 	}
 }
 
+// TestRunBeforeTheEvent: a recognition run, and a schedule read, after an
+// order's change and before the consumer reads its event take the
+// contract as the follow makes it: the run follows it in its own
+// transaction, and the event read afterwards adds nothing (T81e, review
+// round 1).
+func TestRunBeforeTheEvent(t *testing.T) {
+	e := setup(t)
+	id, order := e.active(t, e.goods())
+	e.delivered(t, order, 1, "100", "2026-01-15")
+	e.changeOrder(t, order, itemChange(1, "150", ""))
+	s := e.mustSchedule(t, id, "2026-01-31")
+	if got := s.RecognizedAmount.Amount; got != "1250.00" {
+		t.Errorf("the schedule before the follow: got %s recognized, want 1250.00, 100 of 150 at the order's 1875.00 (not 1000.00 of the old 1500.00)", got)
+	}
+	january := e.ran(t, 1)
+	if got, want := moved(t, postings(t, january)[0]), "1 400000: 1250.00 EUR - 0.00 EUR, 1250.00 EUR"; got != want {
+		t.Errorf("January's posting: got %s, want %s", got, want)
+	}
+	if n := e.follows(t, id, "sales_order_changed"); n != 1 {
+		t.Errorf("follows kept by the run: got %d, want 1", n)
+	}
+	events := len(e.events(t, order))
+	var log pgtest.SyncBuffer
+	e.handled(t, consumer(t, &log), order)
+	if n := len(e.events(t, order)); n != events {
+		t.Errorf("RevenueContractChanged after the event: got %d, want %d, nothing left to follow", n, events)
+	}
+}
+
 // TestCancelledOrderEndsContract: an order's cancellation ends its
 // contract: every obligation ends with nothing allocated, the transaction
 // price is zero, and the next run takes off what earlier runs recognized
@@ -275,11 +304,11 @@ func TestCancelledOrderEndsContract(t *testing.T) {
 		e.handled(t, c, other)
 		got := e.contractOf(t, other)
 		fields(t, got, map[string]any{"status": "draft", "changes": float64(1)})
-		if a := allocated(t, got); !slices.Equal(a, []string{"-"}) {
-			t.Errorf("allocated amounts: got %v, want none", a)
+		if a := allocated(t, got); !slices.Equal(a, []string{"0.00 EUR"}) {
+			t.Errorf("allocated amounts: got %v, want nothing for the ended obligation", a)
 		}
-		_, tag := e.Must(200, "GET", contracts+"/"+draft, "", "")
-		e.Problem(409, "revenue.contract_ended", "POST", contracts+"/"+draft+":activate", "", tag)
+		_, tag := e.In(t).Must(200, "GET", contracts+"/"+draft, "", "")
+		e.In(t).Problem(409, "revenue.contract_ended", "POST", contracts+"/"+draft+":activate", "", tag)
 	})
 	t.Run("an order cancelled without a contract", func(t *testing.T) {
 		other := e.draft(t, "EUR", e.goods())["id"].(string)
@@ -378,4 +407,55 @@ func TestFollowDatabaseFailures(t *testing.T) {
 	if n := e.follows(t, id, "sales_order_changed"); n != 1 {
 		t.Errorf("follows after the event read without a failure: got %d, want 1", n)
 	}
+}
+
+// TestContractFollowsItemsAddedRemoved: an item added to the order gets
+// an obligation, numbered after the highest, at a point in time with its
+// net value as its stand-alone selling price; a removed item's obligation
+// ends with nothing allocated; an active contract allocates its price
+// again over the obligations that stand; an ended obligation is not
+// changed, and a draft activated later gives it nothing (T78e, T81e).
+func TestContractFollowsItemsAddedRemoved(t *testing.T) {
+	e := setup(t)
+	id, order := e.active(t, e.goods(), e.support())
+	var log pgtest.SyncBuffer
+	c := consumer(t, &log)
+	e.changeOrder(t, order, fmt.Sprintf(`{"removed_items": [2], "new_items": [%s]}`, e.item("Installation", "INSTALL", "1", "300.00", "EUR")))
+	e.handled(t, c, order)
+	got := e.contractOf(t, order)
+	fields(t, got, map[string]any{"status": "active", "changes": float64(1)})
+	if a := amount(t, got, "transaction_price"); a != "1800.00 EUR" {
+		t.Errorf("transaction price: got %s, want 1800.00 EUR, the brackets and the installation", a)
+	}
+	obs := obligations(t, got)
+	if len(obs) != 3 {
+		t.Fatalf("obligations: got %d, want 3", len(obs))
+	}
+	fields(t, obs[2], map[string]any{"obligation_no": float64(3), "order_item_no": float64(3), "item_key": "INSTALL", "timing": "point_in_time"})
+	if p := amount(t, obs[2], "standalone_selling_price"); p != "300.00 EUR" {
+		t.Errorf("the new obligation's stand-alone selling price: got %s, want its net value 300.00 EUR", p)
+	}
+	if _, ok := obs[1]["ended_at"]; !ok {
+		t.Error("the removed item's obligation: got it standing, want it ended")
+	}
+	if a := allocated(t, got); !slices.Equal(a, []string{"1500.00 EUR", "0.00 EUR", "300.00 EUR"}) {
+		t.Errorf("allocated amounts: got %v, want 1500.00, 0.00 and 300.00 EUR", a)
+	}
+	var added bool
+	pgtest.Scan(t, `SELECT obligations @> '[{"obligation_no": 3, "added": true}, {"obligation_no": 2, "ended": true}]' FROM revenue.contract_change
+		WHERE tenant_id = $1 AND contract_id = $2`, []any{e.Tenant.ID, id}, &added)
+	if !added {
+		t.Error("the kept follow: got no added obligation 3 and ended obligation 2, want both")
+	}
+	t.Run("a draft's ended obligation", func(t *testing.T) {
+		draft, other := e.contract(t, e.goods(), e.support())
+		e.changeOrder(t, other, `{"removed_items": [2]}`)
+		e.handled(t, c, other)
+		_, tag := e.In(t).Must(200, "GET", contracts+"/"+draft, "", "")
+		e.In(t).Problem(409, "revenue.obligation_ended", "PATCH", contracts+"/"+draft, set(overTime(2, "2026-01-01", "2026-12-31", "1300.00")), tag)
+		activated, _ := e.In(t).Must(200, "POST", contracts+"/"+draft+":activate", "", tag)
+		if a := allocated(t, activated); !slices.Equal(a, []string{"1500.00 EUR", "0.00 EUR"}) {
+			t.Errorf("allocated at activation: got %v, want 1500.00 EUR and nothing for the ended obligation", a)
+		}
+	})
 }

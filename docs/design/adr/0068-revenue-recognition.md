@@ -460,6 +460,11 @@ answered, none read from the standard):
   adds distinct goods or services at their stand-alone selling price be
   a separate contract, or another change the termination of the old
   contract and a new one, recognized prospectively (from memory, §18–21)?
+- **The stand-alone selling price is kept on a change** (T81e): a
+  quantity change leaves the person's stand-alone selling price as it
+  was, so an obligation whose quantity falls is allocated more than its
+  order value at the expense of the others. Should the price be rescaled
+  by quantity, or estimated again?
 - **A cancelled order** (T81e) ends every obligation with nothing
   allocated, so what earlier runs recognized over time or on a named day
   is taken off by the next run. Is revenue for performance to date kept
@@ -856,9 +861,10 @@ as revenue accounting items, is the reference.
 - **Decided by default while building.** (1) The follow is the
   consumer's, after the change's commit (ADR-0068 §4's mechanism, SAP
   RAR's), not a call in the change's transaction, so sales does not
-  depend on revenue at run time either; until the event is read, a
-  contract's figures are the order's before the change (a second or
-  two). (2) A follow reads the order as it is, not the event's figures:
+  depend on revenue at run time either; until the event is read, the
+  stored contract is the order's before the change (a second or two),
+  while a recognition run follows it first and a schedule read computes
+  it as followed (review round 1, below). (2) A follow reads the order as it is, not the event's figures:
   idempotent per state, whatever the order of the events. (3) A change of
   quantity or price is a change of the transaction price, allocated by
   the stand-alone selling prices of inception, which stay the person's;
@@ -871,3 +877,18 @@ as revenue accounting items, is the reference.
   the run's active contracts, so the run that follows its end takes its
   accruals off; once at zero it posts nothing. (6) The follows are kept
   in a table the contract's rules read; a list of them by API is later.
+- **Review round 1.** A recognition run brings each active contract to
+  its order before it reads it (`current`: the order FOR SHARE, the
+  contract FOR UPDATE, the consumer's order), so a run made before the
+  consumer read an order's change posts the figures after the follow;
+  a schedule read computes them without writing (`asOrdered`). A kept
+  follow is checked at commit: its contract counts it and, active, its
+  shares are its price (`contract_change_followed`, a deferred
+  constraint trigger). A person's change of an ended obligation is 409
+  `revenue.obligation_ended`; activation gives an ended obligation
+  nothing.
+- **T78e.** An item added to the order gets an obligation, numbered after
+  the highest, at a point in time with its net value as its stand-alone
+  selling price (`newObligations`, as §3 starts one); a removed item's
+  obligation ends with nothing allocated, a draft's too, so the draft's
+  activation gives it nothing.

@@ -5206,7 +5206,12 @@ erDiagram
   cancelled once, while no item has anything delivered. A cancelled
   order changes no more. The application may also update
   `requested_delivery_date`, `net_amount`, `changes` and the
-  cancellation's three columns.
+  cancellation's three columns. T78e (migration 000364) lets it update
+  `payment_term_code` too: only with `changes` moved to a kept change
+  (`sales_order_payment_term_kept`) and while no billing document of the
+  order stands that is not cancelled (`sales_order_payment_term_billed`),
+  for the tables' owner too; `net_amount` is the sum of the items that
+  are not removed.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
@@ -5222,7 +5227,19 @@ erDiagram
   trigger `sales_order_item_change`, on an update that sets one of them,
   refuses an item with anything billed and an item of a cancelled order,
   for the tables' owner too; a quantity stays at least what is delivered
-  (`sales_order_item_quantities`).
+  (`sales_order_item_quantities`). T78e (migration 000364) adds
+  `removed_in_change`, the change that removed the item: set only in the
+  transaction that keeps the order's next change, which it names
+  (`sales_order_item_removed_kept`), on an item with nothing delivered
+  (`sales_order_item_removed_undelivered`, which also refuses a later
+  delivery), after which the item changes no more
+  (`sales_order_item_removed_fixed`); and an insert rule
+  (`sales_order_item_added`): an item is written with its order before
+  any change is kept, else only with the order's next change kept
+  (`sales_order_item_added_kept`), numbered after the order's highest
+  (`sales_order_item_added_after`), never to a cancelled order. A removed
+  item stays, out of the order's value, its credit exposure and the
+  sales lines.
 - `sales.sales_order_change` (T78d, migration 000355): a change of an
   order, numbered from 1 within it (`sales_order_change_no_positive`,
   `sales_order_change_once`), with the order's version after it
@@ -5231,9 +5248,12 @@ erDiagram
   net value before and after (above zero), its requested delivery date
   and credit block before and after, and `items`, a JSON array of the
   items changed, each with its quantity, unit price, price unit and net
-  value before and after (`sales_order_change_items_check`). Insert-only
-  (`platform.forbid_mutation`); the list reads an order's changes by
-  number.
+  value before and after (`sales_order_change_items_check`); from T78e
+  each with its `change` (`changed`, `added`, `removed`; absent in a
+  change kept before, which is `changed`), and the payment term before
+  and after, both or neither (`sales_order_change_payment_term`).
+  Insert-only (`platform.forbid_mutation`); the list reads an order's
+  changes by number.
 - `sales.delivery` (T78c, migration 000292): a confirmation that
   quantities of an order's items were delivered on `delivery_date`,
   numbered within its order (`delivery_no_positive`, `delivery_no_once`).

@@ -1820,3 +1820,58 @@ its own whose accounting document reverses the invoice) is the reference.
   contract is not changed, its run reading the negative billing; (8) the
   analytical store's `sales_lines` (ADR-0044, the analytics context's
   extract) lists posted documents only, so a cancelled one leaves it.
+
+### T78e Sales order items added and removed, payment term changed (migration 000364)
+
+`docs/design/plan-depth-2.md` §T78e (product owner 2026-11-17). It lifts
+T78d's default (2) for adding and removing items and the payment term;
+SAP's VA02 (an item added to an open order, one without follow-on
+documents deleted, the header's terms of payment changed, each in the
+change documents) is the reference.
+
+- `internal/sales/order_items.go` (`changedTerm`, `changeCheck`,
+  `removeItems`, `addItems`, `asNewItem`, `writeItemsAddedRemoved`);
+  `order_change.go`'s `changeItems` and `writeChange` take them;
+  `standing` (`orders.go`) is the order's items that are not removed, which
+  its net value, the confirmation's and a change's credit check
+  (`credit.go`) and a delivery (`deliveries.go`) take; the open orders of
+  credit exposure and the analytics extract's sales lines leave removed
+  items out.
+- Migration 000364: `sales.sales_order_item.removed_in_change` with its
+  rules, the insert rule for items added, the payment term's rule and
+  grant, and on `sales.sales_order_change` the payment term before and
+  after (03-data-model §3.29). Schema tests in `db/sales_items_test.go`.
+- `POST /v1/sales-orders/{id}:change` takes `new_items` (as
+  `createSalesOrder`'s items, checked and priced on the order's date,
+  refusals naming `new_items[i]`, numbered after the highest; at most 999
+  items an order, 422 `sales.too_many_items`), `removed_items` (each once,
+  not also changed, 422 `sales.item_repeated`; known,
+  `sales.unknown_order_item`; not removed already,
+  `sales.order_item_removed`; nothing delivered,
+  `sales.order_item_delivered`; not the last, `sales.order_needs_item`)
+  and `payment_term_code` (configured, `sales.unknown_payment_term`; no
+  billing document standing, 422 `sales.order_billed`). A removed item is
+  not changed or delivered (422 `sales.order_item_removed`, the delivery's
+  `items[i].item_no`). The kept change lists each item's `change` and the
+  payment term before and after; the order's items show
+  `removed_in_change`.
+- A change that raises a confirmed order's value is checked for credit as
+  T78d's change is; adding an item is such a change.
+- The revenue contract follows (ADR-0068 As built T81e): an added item
+  gets an obligation, a removed item's obligation ends.
+- Walkthrough step 117 (`step_sales_order_items`): step 116's order
+  loses its installation, gains 120 wall anchors and changes its term to
+  NT14 in one change (1380.00); the change reads back with each item's
+  kind; the installation takes no delivery; the contract follows, 1314.29
+  and 65.71 allocated and the installation's obligation ended.
+- **Decided by default:** (1) a removed item stays on the order, marked
+  with its change, since the application deletes no business data
+  (000011); SAP deletes the row; (2) only an item with nothing delivered
+  is removed (nothing billed follows, as only what is delivered is billed);
+  an item with deliveries keeps waiting for the reason for rejection
+  (later); (3) the payment term changes only while no billing document
+  stands that is not cancelled, since a billing document reads its
+  order's term; (4) an added item is numbered after the order's highest
+  item, removed ones included, so a number is never reused (an
+  obligation names it); (5) an order keeps at most 999 items, removed ones
+  included, as a new order takes.

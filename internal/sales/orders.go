@@ -48,15 +48,31 @@ func quotationOrdered() *problem.Problem {
 // unit.
 // Deliveries are the item's deliveries by date (T78c) and Billings its
 // posted billings by posting date (T79b); Orders.Order reads them, the
-// API's reads of an order do not and leave them nil.
+// API's reads of an order do not and leave them nil. RemovedInChange is
+// the change that removed the item (T78e), nil while it stands: a removed
+// item keeps its values and is out of the order's net value, delivery and
+// billing.
 type OrderItem struct {
 	Item
-	Delivered  string         `json:"delivered_quantity"`
-	Billed     string         `json:"billed_quantity"`
-	Returned   string         `json:"returned_quantity"`
-	Deliveries []ItemDelivery `json:"deliveries"`
-	Billings   []ItemBilling  `json:"billings"`
-	Credits    []ItemCredit   `json:"credits"`
+	Delivered       string         `json:"delivered_quantity"`
+	Billed          string         `json:"billed_quantity"`
+	Returned        string         `json:"returned_quantity"`
+	RemovedInChange *int32         `json:"removed_in_change"`
+	Deliveries      []ItemDelivery `json:"deliveries"`
+	Billings        []ItemBilling  `json:"billings"`
+	Credits         []ItemCredit   `json:"credits"`
+}
+
+// standing are the order's items that are not removed (T78e): those its
+// net value, its credit check and its delivery take.
+func standing(items []OrderItem) []OrderItem {
+	out := make([]OrderItem, 0, len(items))
+	for _, it := range items {
+		if it.RemovedInChange == nil {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // Order is a row of sales.sales_order with its items. Amounts are minor
@@ -126,7 +142,7 @@ func orderQuery(extra string) string {
 		o.cancelled_by, o.cancelled_by_name, o.credit_block, o.credit_released_by, o.credit_released_by_name, o.credit_released_at, ` +
 		itemsJSON("sales_order_item", "sales_order_id", "o",
 			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text,
-				'returned_quantity', trim_scale(t.returned_quantity)::text`+extra) + `,
+				'returned_quantity', trim_scale(t.returned_quantity)::text, 'removed_in_change', t.removed_in_change`+extra) + `,
 		o.capture, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
 	FROM sales.sales_order o JOIN ref.currency c ON c.code = o.currency`
 }

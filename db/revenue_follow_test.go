@@ -17,8 +17,8 @@ import (
 // none of them; a contract ends with its price at zero and every
 // obligation ended with nothing allocated, and an ended contract or
 // obligation changes no more; the rules hold for the tables' owner too; a
-// follow is written once, numbered once within its contract, and never
-// changed.
+// follow is written once, numbered once within its contract, never
+// changed, and by the end of its transaction followed by its contract.
 func TestRevenueFollowRules(t *testing.T) {
 	need(t)
 	const header = `INSERT INTO revenue.contract (tenant_id, id, legal_entity_id, customer_id, sales_order_id, sales_order_number, currency,
@@ -54,6 +54,7 @@ func TestRevenueFollowRules(t *testing.T) {
 		return []stmt{change(s, 1, "sales_order_cancelled", 0), step(end), step(ended, 1)}
 	}
 	owner := step(`SET LOCAL ROLE erp_owner`)
+	immediate := step(`SET CONSTRAINTS ALL IMMEDIATE`) // the deferred follow check, as at commit
 	cases := []struct {
 		name string
 		run  func(s scene) []stmt
@@ -126,6 +127,17 @@ func TestRevenueFollowRules(t *testing.T) {
 			return active(s, owner, change(s, 1, "sales_order_changed", 270000),
 				step(`UPDATE revenue.performance_obligation SET standalone_selling_price = 1 WHERE obligation_no = 1`))
 		}, "a follow keeps what a person judged"},
+		{"a follow kept without the contract following", func(s scene) []stmt {
+			return active(s, change(s, 1, "sales_order_changed", 270000), step(share, 1, 140000), step(share, 2, 130000), immediate)
+		}, "the contract does not follow it"},
+		{"a follow kept with shares that are not the price", func(s scene) []stmt {
+			return active(s, change(s, 1, "sales_order_changed", 270000), step(followed, 1, 270000), change(s, 2, "sales_order_changed", 270000),
+				step(share, 1, 1), immediate)
+		}, "the contract does not follow it"},
+		{"a follow kept without the contract following, by the tables' owner", func(s scene) []stmt {
+			return draft(s, owner, change(s, 1, "sales_order_changed", 270000), immediate)
+		}, "the contract does not follow it"},
+		{"followed, checked at once", func(s scene) []stmt { return active(s, append(raised(s), immediate)...) }, ""},
 		{"a follow numbered twice", func(s scene) []stmt {
 			return draft(s, change(s, 1, "sales_order_changed", 276000), change(s, 1, "sales_order_changed", 276000))
 		}, "contract_change_once"},

@@ -225,16 +225,13 @@ func (e *Endpoints) make(ctx context.Context, tx pgx.Tx, p reqctx.Principal, b b
 	if tag.RowsAffected() == 0 {
 		return Contract{}, false, nil
 	}
-	numbers, keys, descriptions, nets := make([]int32, len(o.Items)), make([]*string, len(o.Items)), make([]string, len(o.Items)), make([]int64, len(o.Items))
+	obligations := make([]Obligation, len(o.Items))
 	for i, it := range o.Items {
-		numbers[i], keys[i], descriptions[i], nets[i] = it.ItemNo, it.ItemKey, it.Description, int64(it.Net)
+		obligations[i] = Obligation{No: int32(i + 1), OrderItemNo: it.ItemNo, ItemKey: it.ItemKey, Description: it.Description, Net: it.Net,
+			Timing: PointInTime, StandalonePrice: it.Net}
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO revenue.performance_obligation (tenant_id, contract_id, obligation_no, order_item_no, item_key, description,
-			net_amount, timing, standalone_selling_price)
-		SELECT $1, $2, i.ordinality, i.item_no, i.item_key, i.description, i.net_amount, $7, i.net_amount
-		FROM unnest($3::int[], $4::text[], $5::text[], $6::bigint[]) WITH ORDINALITY AS i (item_no, item_key, description, net_amount, ordinality)`,
-		p.TenantID, id, numbers, keys, descriptions, nets, PointInTime); err != nil {
-		return Contract{}, false, fmt.Errorf("revenue: insert the obligations of contract %s: %w", id, err)
+	if err := insertObligations(ctx, tx, p.TenantID, id, obligations); err != nil {
+		return Contract{}, false, err
 	}
 	c, err := load(ctx, tx, id)
 	if err != nil {
@@ -245,4 +242,33 @@ func (e *Endpoints) make(ctx context.Context, tx pgx.Tx, p reqctx.Principal, b b
 		return Contract{}, false, fmt.Errorf("revenue: customer of contract %s: %w", id, err)
 	}
 	return c, true, record(ctx, "revenue.contract.create", source, c, b.le, names[c.CustomerID].Number, nil, nil)
+}
+
+// insertObligations writes obligations of the contract, each with its
+// number, order item, what it promises, order value, timing, stand-alone
+// selling price and, once the contract is active, allocated amount.
+func insertObligations(ctx context.Context, tx pgx.Tx, tenant, contract uuid.UUID, obligations []Obligation) error {
+	if len(obligations) == 0 {
+		return nil
+	}
+	n := len(obligations)
+	numbers, items, keys, descriptions := make([]int32, n), make([]int32, n), make([]*string, n), make([]string, n)
+	nets, timings, prices, allocated := make([]int64, n), make([]string, n), make([]int64, n), make([]*int64, n)
+	for i, o := range obligations {
+		numbers[i], items[i], keys[i], descriptions[i], nets[i], timings[i], prices[i] = o.No, o.OrderItemNo, o.ItemKey, o.Description, int64(o.Net),
+			o.Timing, int64(o.StandalonePrice)
+		if o.Allocated != nil {
+			a := int64(*o.Allocated)
+			allocated[i] = &a
+		}
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO revenue.performance_obligation (tenant_id, contract_id, obligation_no, order_item_no, item_key, description,
+			net_amount, timing, standalone_selling_price, allocated_amount)
+		SELECT $1, $2, i.no, i.item_no, i.item_key, i.description, i.net_amount, i.timing, i.price, i.allocated
+		FROM unnest($3::int[], $4::int[], $5::text[], $6::text[], $7::bigint[], $8::text[], $9::bigint[], $10::bigint[])
+			AS i (no, item_no, item_key, description, net_amount, timing, price, allocated)`,
+		tenant, contract, numbers, items, keys, descriptions, nets, timings, prices, allocated); err != nil {
+		return fmt.Errorf("revenue: insert the obligations of contract %s: %w", contract, err)
+	}
+	return nil
 }

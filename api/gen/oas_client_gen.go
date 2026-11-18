@@ -645,15 +645,18 @@ type Invoker interface {
 	// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
 	// (`cancelBillingDocument`). A confirmed order's revenue contract (`getRevenueContract`) follows the
 	// change by itself, shortly after it (ADR-0068, As built T81e). `requested_delivery_date` is on or
-	// after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request
-	// that changes nothing is refused (422 `sales.nothing_changed`). The order's net value is the sum of
-	// its items' again. A change that raises a confirmed order's net value checks the customer's credit
-	// for the increase, as a confirmation checks the order (`confirmSalesOrder`): an order that no longer
-	// fits the limit is blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked),
-	// whatever an earlier release; a lower value leaves the block as it is. The change is kept, numbered
-	// within the order, with its reason and its values before and after (`listSalesOrderChanges`), and the
-	// order's `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry
-	// with the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+	// after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. From T78e a
+	// change also adds items (`new_items`), removes items with nothing delivered (`removed_items`) and
+	// changes the payment term while nothing of the order is billed (`payment_term_code`); a removed item
+	// is not changed again (422 `sales.order_item_removed`). A request that changes nothing is refused
+	// (422 `sales.nothing_changed`). The order's net value is the sum of its items' that stand again. A
+	// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
+	// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
+	// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
+	// release; a lower value leaves the block as it is. The change is kept, numbered within the order,
+	// with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes`
+	// counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+	// `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:change
 	ChangeSalesOrder(ctx context.Context, request *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error)
@@ -15351,15 +15354,18 @@ func (c *Client) sendCaptureSupplierInvoice(ctx context.Context, request *Suppli
 // (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
 // (`cancelBillingDocument`). A confirmed order's revenue contract (`getRevenueContract`) follows the
 // change by itself, shortly after it (ADR-0068, As built T81e). `requested_delivery_date` is on or
-// after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request
-// that changes nothing is refused (422 `sales.nothing_changed`). The order's net value is the sum of
-// its items' again. A change that raises a confirmed order's net value checks the customer's credit
-// for the increase, as a confirmation checks the order (`confirmSalesOrder`): an order that no longer
-// fits the limit is blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked),
-// whatever an earlier release; a lower value leaves the block as it is. The change is kept, numbered
-// within the order, with its reason and its values before and after (`listSalesOrderChanges`), and the
-// order's `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry
-// with the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+// after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. From T78e a
+// change also adds items (`new_items`), removes items with nothing delivered (`removed_items`) and
+// changes the payment term while nothing of the order is billed (`payment_term_code`); a removed item
+// is not changed again (422 `sales.order_item_removed`). A request that changes nothing is refused
+// (422 `sales.nothing_changed`). The order's net value is the sum of its items' that stand again. A
+// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
+// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
+// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
+// release; a lower value leaves the block as it is. The change is kept, numbered within the order,
+// with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes`
+// counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+// `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:change
 func (c *Client) ChangeSalesOrder(ctx context.Context, request *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error) {

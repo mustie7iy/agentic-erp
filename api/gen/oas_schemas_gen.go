@@ -77536,7 +77536,8 @@ type PerformanceObligation struct {
 	// The obligation's share of the contract's transaction price, allocated in proportion to the
 	// stand-alone selling prices when the contract is activated, and again when it follows a change of its
 	// sales order (T81e); the obligations' shares add up to the transaction price exactly. Zero once the
-	// obligation has ended. Absent while the contract is a `draft`.
+	// obligation has ended, also in a `draft`. Absent while the contract is a `draft`, for an obligation
+	// that stands.
 	AllocatedAmount OptMoney `json:"allocated_amount"`
 	// When the obligation ended, its sales order being cancelled (T81e): it keeps its last order value and
 	// has nothing allocated, so a recognition run takes off what earlier runs recognized of it. Absent
@@ -97855,7 +97856,7 @@ type SalesOrder struct {
 	// The payment term the order is billed with: the one given with it, else the customer's in the company
 	// when it was created.
 	PaymentTermCode string `json:"payment_term_code"`
-	// The sum of the items' net values.
+	// The sum of the net values of the items that are not removed (`removed_in_change`).
 	NetAmount Money `json:"net_amount"`
 	// `draft`: created; `confirmed`: confirmed, once (`:confirm`); `cancelled`: cancelled, once, with
 	// nothing delivered (`:cancel`, T78d). Open enumeration: clients must accept and preserve values not
@@ -98452,6 +98453,10 @@ type SalesOrderChange struct {
 	RequestedDeliveryDateBefore OptDate `json:"requested_delivery_date_before"`
 	// The requested delivery date after it; absent when there is none.
 	RequestedDeliveryDateAfter OptDate `json:"requested_delivery_date_after"`
+	// The payment term before the change (T78e); absent when the change kept it.
+	PaymentTermCodeBefore OptString `json:"payment_term_code_before"`
+	// The payment term after it; absent when the change kept it.
+	PaymentTermCodeAfter OptString `json:"payment_term_code_after"`
 	// The order's credit block before the change. Open enumeration: clients must accept and preserve
 	// values not listed here; values may be added within /v1.
 	CreditBlockBefore string `json:"credit_block_before"`
@@ -98459,8 +98464,8 @@ type SalesOrderChange struct {
 	// customer's limit. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	CreditBlockAfter string `json:"credit_block_after"`
-	// The items the change changed, by item number; none when it changed the requested delivery date
-	// alone.
+	// The items the change changed, added or removed, by item number; none when it changed the requested
+	// delivery date or the payment term alone.
 	Items []SalesOrderChangeItem `json:"items"`
 	// When the change was made.
 	CreatedAt time.Time `json:"created_at"`
@@ -98511,6 +98516,16 @@ func (s *SalesOrderChange) GetRequestedDeliveryDateBefore() OptDate {
 // GetRequestedDeliveryDateAfter returns the value of RequestedDeliveryDateAfter.
 func (s *SalesOrderChange) GetRequestedDeliveryDateAfter() OptDate {
 	return s.RequestedDeliveryDateAfter
+}
+
+// GetPaymentTermCodeBefore returns the value of PaymentTermCodeBefore.
+func (s *SalesOrderChange) GetPaymentTermCodeBefore() OptString {
+	return s.PaymentTermCodeBefore
+}
+
+// GetPaymentTermCodeAfter returns the value of PaymentTermCodeAfter.
+func (s *SalesOrderChange) GetPaymentTermCodeAfter() OptString {
+	return s.PaymentTermCodeAfter
 }
 
 // GetCreditBlockBefore returns the value of CreditBlockBefore.
@@ -98583,6 +98598,16 @@ func (s *SalesOrderChange) SetRequestedDeliveryDateAfter(val OptDate) {
 	s.RequestedDeliveryDateAfter = val
 }
 
+// SetPaymentTermCodeBefore sets the value of PaymentTermCodeBefore.
+func (s *SalesOrderChange) SetPaymentTermCodeBefore(val OptString) {
+	s.PaymentTermCodeBefore = val
+}
+
+// SetPaymentTermCodeAfter sets the value of PaymentTermCodeAfter.
+func (s *SalesOrderChange) SetPaymentTermCodeAfter(val OptString) {
+	s.PaymentTermCodeAfter = val
+}
+
 // SetCreditBlockBefore sets the value of CreditBlockBefore.
 func (s *SalesOrderChange) SetCreditBlockBefore(val string) {
 	s.CreditBlockBefore = val
@@ -98609,10 +98634,16 @@ func (s *SalesOrderChange) SetCreatedBy(val uuid.UUID) {
 }
 
 // An item a change changed, with its quantity, unit price, price unit and net value before and after.
+// An item added had nothing before it (a quantity and a net value of zero), a removed one has nothing
+// after it.
 // Ref: #/components/schemas/SalesOrderChangeItem
 type SalesOrderChangeItem struct {
 	// The order's item.
 	ItemNo int32 `json:"item_no"`
+	// What the change did to the item: `changed` its quantity or price, `added` it or `removed` it (T78e).
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Change string `json:"change"`
 	// Its quantity before.
 	QuantityBefore Quantity `json:"quantity_before"`
 	// Its quantity after.
@@ -98634,6 +98665,11 @@ type SalesOrderChangeItem struct {
 // GetItemNo returns the value of ItemNo.
 func (s *SalesOrderChangeItem) GetItemNo() int32 {
 	return s.ItemNo
+}
+
+// GetChange returns the value of Change.
+func (s *SalesOrderChangeItem) GetChange() string {
+	return s.Change
 }
 
 // GetQuantityBefore returns the value of QuantityBefore.
@@ -98679,6 +98715,11 @@ func (s *SalesOrderChangeItem) GetNetAmountAfter() Money {
 // SetItemNo sets the value of ItemNo.
 func (s *SalesOrderChangeItem) SetItemNo(val int32) {
 	s.ItemNo = val
+}
+
+// SetChange sets the value of Change.
+func (s *SalesOrderChangeItem) SetChange(val string) {
+	s.Change = val
 }
 
 // SetQuantityBefore sets the value of QuantityBefore.
@@ -98752,16 +98793,34 @@ func (s *SalesOrderChangePage) SetNextPageToken(val OptString) {
 
 func (*SalesOrderChangePage) listSalesOrderChangesRes() {}
 
-// What a change of a sales order changes (`changeSalesOrder`): items' quantities and unit prices and
-// the requested delivery date; what is absent stays.
+// What a change of a sales order changes (`changeSalesOrder`): items' quantities and unit prices, the
+// requested delivery date, and from T78e items added and removed and the payment term; what is absent
+// stays.
 // Ref: #/components/schemas/SalesOrderChangeRequest
 type SalesOrderChangeRequest struct {
 	// Why the order changes; kept with the change.
 	Reason OptString `json:"reason"`
 	// The day the customer asks to be delivered on: the order's date or later; `null` clears it.
 	RequestedDeliveryDate OptNilDate `json:"requested_delivery_date"`
+	// The payment term the order is billed with from now on (T78e): a configured term (422
+	// `sales.unknown_payment_term`), changed only while no billing document of the order stands that is
+	// not cancelled (422 `sales.order_billed`), since a billing document is billed with its order's term.
+	// Absent, or the order's own: it stays.
+	PaymentTermCode OptString `json:"payment_term_code"`
 	// The items that change, each named by its number, once.
 	Items []SalesOrderItemChange `json:"items"`
+	// The items added (T78e), each checked and priced as a new order's item is (`createSalesOrder`), on
+	// the order's date, and numbered in this order after the order's highest item; refusals name
+	// `new_items[i]`. An order holds at most 999 items, removed ones included (422
+	// `sales.too_many_items`).
+	NewItems []SalesItemCreate `json:"new_items"`
+	// The items removed, by number (T78e): each an item of the order (422 `sales.unknown_order_item`
+	// naming `removed_items[i]`), not also in `items` (422 `sales.item_repeated`), not removed already
+	// (422 `sales.order_item_removed`) and with nothing delivered (422 `sales.order_item_delivered`; only
+	// what is delivered is billed). A removed item stays on the order, marked with the change
+	// (`removed_in_change`), out of its net value, its delivery and its billing. The order keeps at least
+	// one item (422 `sales.order_needs_item`: cancel it instead).
+	RemovedItems []int32 `json:"removed_items"`
 }
 
 // GetReason returns the value of Reason.
@@ -98774,9 +98833,24 @@ func (s *SalesOrderChangeRequest) GetRequestedDeliveryDate() OptNilDate {
 	return s.RequestedDeliveryDate
 }
 
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *SalesOrderChangeRequest) GetPaymentTermCode() OptString {
+	return s.PaymentTermCode
+}
+
 // GetItems returns the value of Items.
 func (s *SalesOrderChangeRequest) GetItems() []SalesOrderItemChange {
 	return s.Items
+}
+
+// GetNewItems returns the value of NewItems.
+func (s *SalesOrderChangeRequest) GetNewItems() []SalesItemCreate {
+	return s.NewItems
+}
+
+// GetRemovedItems returns the value of RemovedItems.
+func (s *SalesOrderChangeRequest) GetRemovedItems() []int32 {
+	return s.RemovedItems
 }
 
 // SetReason sets the value of Reason.
@@ -98789,9 +98863,24 @@ func (s *SalesOrderChangeRequest) SetRequestedDeliveryDate(val OptNilDate) {
 	s.RequestedDeliveryDate = val
 }
 
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *SalesOrderChangeRequest) SetPaymentTermCode(val OptString) {
+	s.PaymentTermCode = val
+}
+
 // SetItems sets the value of Items.
 func (s *SalesOrderChangeRequest) SetItems(val []SalesOrderItemChange) {
 	s.Items = val
+}
+
+// SetNewItems sets the value of NewItems.
+func (s *SalesOrderChangeRequest) SetNewItems(val []SalesItemCreate) {
+	s.NewItems = val
+}
+
+// SetRemovedItems sets the value of RemovedItems.
+func (s *SalesOrderChangeRequest) SetRemovedItems(val []int32) {
+	s.RemovedItems = val
 }
 
 // Create a sales order: from an accepted quotation (`quotation_id` alone, with `payment_term_code` if
@@ -98985,6 +99074,10 @@ type SalesOrderItem struct {
 	// The quantity the returns orders for the order's billing documents take (`createReturnsOrder`),
 	// drafts included, in the item's unit; at most `billed_quantity`.
 	ReturnedQuantity Quantity `json:"returned_quantity"`
+	// The change that removed the item (`changeSalesOrder`, T78e; `listSalesOrderChanges`): it keeps its
+	// values, is not in the order's net value and is not delivered or billed. Absent while the item
+	// stands.
+	RemovedInChange OptInt32 `json:"removed_in_change"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -99067,6 +99160,11 @@ func (s *SalesOrderItem) GetReturnedQuantity() Quantity {
 	return s.ReturnedQuantity
 }
 
+// GetRemovedInChange returns the value of RemovedInChange.
+func (s *SalesOrderItem) GetRemovedInChange() OptInt32 {
+	return s.RemovedInChange
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *SalesOrderItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -99145,6 +99243,11 @@ func (s *SalesOrderItem) SetBilledQuantity(val Quantity) {
 // SetReturnedQuantity sets the value of ReturnedQuantity.
 func (s *SalesOrderItem) SetReturnedQuantity(val Quantity) {
 	s.ReturnedQuantity = val
+}
+
+// SetRemovedInChange sets the value of RemovedInChange.
+func (s *SalesOrderItem) SetRemovedInChange(val OptInt32) {
+	s.RemovedInChange = val
 }
 
 // A change of one item of a sales order: its new quantity, its new unit price, or both.

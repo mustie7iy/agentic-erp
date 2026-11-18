@@ -176,13 +176,19 @@ func (e *Endpoints) notAfterToday(ctx context.Context, company string, date time
 // deliverable checks a delivery's items against the order's, read under
 // its lock (taking): each names an item of the order, once, with a
 // quantity more than zero in the item's unit that is at most the item's
-// open quantity, what was ordered less what is delivered. Every refusal
+// open quantity, what was ordered less what is delivered; a removed item
+// (T78e) takes no delivery. Every refusal
 // names the request's own field, and the last the item with what is open
 // of it.
 func deliverable(o Order, in []DeliveryItemInput) error {
 	ordered := make(map[int32]OrderItem, len(o.Items))
 	for _, it := range o.Items {
 		ordered[it.ItemNo] = it
+	}
+	for i, d := range in {
+		if it, ok := ordered[d.ItemNo]; ok && it.RemovedInChange != nil {
+			return itemRemoved(fmt.Sprintf("items[%d].item_no", i), o, it)
+		}
 	}
 	short, err := taking{document: "A delivery", noField: "item_no",
 		find: func(no int32) (string, *big.Rat, bool) {

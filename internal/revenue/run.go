@@ -367,7 +367,7 @@ func entryLines(p Posting, b runBasis) []ledger.PostingLine {
 }
 
 // read computes the company's active contracts at the period's last
-// day: the run with its totals, and the postings of the contracts that
+// day, each brought to its order first (current): the run with its totals, and the postings of the contracts that
 // moved, not posted yet. A day a contract's schedule has no fiscal
 // period for is refused naming the contract's order (422
 // revenue.no_fiscal_period); totals beyond an amount are refused (422
@@ -386,10 +386,14 @@ func (e *Endpoints) read(ctx context.Context, tx pgx.Tx, b runBasis) (Run, error
 	cal := &calendar{source: e.Calendar, company: b.le}
 	recognized, billed := make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts))
 	assets, liabilities, revenue := make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts))
+	_, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Run{}, err
+	}
 	for i, k := range contracts {
-		order, _, err := e.SalesOrders.Order(ctx, k.SalesOrderID) // a stored contract's sales order exists
+		k, order, err := e.current(ctx, tx, p.TenantID, k)
 		if err != nil {
-			return Run{}, fmt.Errorf("revenue: sales order of contract %s: %w", k.ID, err)
+			return Run{}, err
 		}
 		s, err := cal.scheduleOf(ctx, k, order, b.period.End)
 		if err != nil {

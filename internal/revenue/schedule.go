@@ -323,5 +323,5 @@ func (e *Endpoints) GetSchedule(ctx context.Context, id uuid.UUID) (Schedule, er
 		return Schedule{}, fmt.Errorf("revenue: sales order of contract %s: %w", id, err)
 	}
 	cal := &calendar{source: e.Calendar, company: le}
-	return cal.scheduleOf(ctx, k, order, asOf)
+	return cal.scheduleOf(ctx, asOrdered(k, order), order, asOf)
 }

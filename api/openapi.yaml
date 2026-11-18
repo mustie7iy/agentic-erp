@@ -21272,7 +21272,7 @@ paths:
       tags:
         - sales
       summary: Change a sales order
-      description: "Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date. The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`). Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422 `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and the unit price given, in the order's currency, with its price unit; what is not given stays. A changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the order's date: an entered price stays entered, an item priced from the price records takes the record valid on that date again, with the pricing procedure's discounts; its account and tax code are checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first (`cancelBillingDocument`). A confirmed order's revenue contract (`getRevenueContract`) follows the change by itself, shortly after it (ADR-0068, As built T81e). `requested_delivery_date` is on or after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A change that raises a confirmed order's net value checks the customer's credit for the increase, as a confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier release; a lower value leaves the block as it is. The change is kept, numbered within the order, with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`)."
+      description: "Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date. The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`). Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422 `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and the unit price given, in the order's currency, with its price unit; what is not given stays. A changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the order's date: an entered price stays entered, an item priced from the price records takes the record valid on that date again, with the pricing procedure's discounts; its account and tax code are checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first (`cancelBillingDocument`). A confirmed order's revenue contract (`getRevenueContract`) follows the change by itself, shortly after it (ADR-0068, As built T81e). `requested_delivery_date` is on or after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. From T78e a change also adds items (`new_items`), removes items with nothing delivered (`removed_items`) and changes the payment term while nothing of the order is billed (`payment_term_code`); a removed item is not changed again (422 `sales.order_item_removed`). A request that changes nothing is refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' that stand again. A change that raises a confirmed order's net value checks the customer's credit for the increase, as a confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier release; a lower value leaves the block as it is. The change is kept, numbered within the order, with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`)."
       x-permission: sales.order.write
       x-agent: false
       x-problem-codes:
@@ -21292,13 +21292,19 @@ paths:
         - sales.item_repeated
         - sales.no_price
         - sales.nothing_changed
+        - sales.order_billed
         - sales.order_item_billed
+        - sales.order_item_delivered
+        - sales.order_item_removed
+        - sales.order_needs_item
         - sales.quantity_below_delivered
         - sales.quotation_ordered
         - sales.tax_jurisdiction_not_supported
+        - sales.too_many_items
         - sales.unit_mismatch
         - sales.unknown_currency
         - sales.unknown_order_item
+        - sales.unknown_payment_term
         - sales.unknown_tax_code
         - sales.unknown_unit
       parameters:
@@ -21495,6 +21501,7 @@ paths:
         - sales.item_repeated
         - sales.items_required
         - sales.order_credit_blocked
+        - sales.order_item_removed
         - sales.order_not_confirmed
         - sales.unit_mismatch
         - sales.unknown_order_item
@@ -21763,6 +21770,7 @@ paths:
         # The database's answer to an obligation written under an active contract (performance_obligation_fixed_once_active), which
         # TestProblemCodes lists for every operation that writes obligations; creating cannot reach it, its contract being a new draft.
         - revenue.invalid_status
+        - revenue.obligation_ended
         - revenue.order_not_confirmed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -21852,6 +21860,7 @@ paths:
         - revenue.currency_mismatch
         - revenue.invalid_service_period
         - revenue.invalid_status
+        - revenue.obligation_ended
         - revenue.obligation_repeated
         - revenue.price_not_positive
         - revenue.satisfied_on_not_allowed
@@ -21925,6 +21934,7 @@ paths:
         - request.version_mismatch
         - revenue.contract_ended
         - revenue.invalid_status
+        - revenue.obligation_ended
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -22571,8 +22581,11 @@ paths:
         - ledger.zero_tax_base
         - request.invalid_amount
         - revenue.amount_too_large
+        - revenue.contract_ended
+        - revenue.invalid_status
         - revenue.no_contract_accounts
         - revenue.no_fiscal_period
+        - revenue.obligation_ended
         - revenue.period_not_regular
         - revenue.recognition_period_not_later
         - revenue.recognition_run_exists
@@ -56986,19 +56999,34 @@ components:
             delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
             billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's unit; at most `delivered_quantity`."}
             returned_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity the returns orders for the order's billing documents take (`createReturnsOrder`), drafts included, in the item's unit; at most `billed_quantity`."}
+            removed_in_change: {type: integer, format: int32, minimum: 1, description: "The change that removed the item (`changeSalesOrder`, T78e; `listSalesOrderChanges`): it keeps its values, is not in the order's net value and is not delivered or billed. Absent while the item stands.", readOnly: true}
     SalesOrderChangeRequest:
       type: object
-      description: "What a change of a sales order changes (`changeSalesOrder`): items' quantities and unit prices and the requested delivery date; what is absent stays."
+      description: "What a change of a sales order changes (`changeSalesOrder`): items' quantities and unit prices, the requested delivery date, and from T78e items added and removed and the payment term; what is absent stays."
       additionalProperties: false
       properties:
         reason: {type: string, minLength: 1, maxLength: 500, description: "Why the order changes; kept with the change."}
         requested_delivery_date: {type: [string, "null"], format: date, description: "The day the customer asks to be delivered on: the order's date or later; `null` clears it."}
+        payment_term_code: {type: string, minLength: 1, maxLength: 20, description: "The payment term the order is billed with from now on (T78e): a configured term (422 `sales.unknown_payment_term`), changed only while no billing document of the order stands that is not cancelled (422 `sales.order_billed`), since a billing document is billed with its order's term. Absent, or the order's own: it stays."}
         items:
           type: array
           minItems: 1
           maxItems: 999
           items: {$ref: "#/components/schemas/SalesOrderItemChange"}
           description: "The items that change, each named by its number, once."
+        new_items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/SalesItemCreate"}
+          description: "The items added (T78e), each checked and priced as a new order's item is (`createSalesOrder`), on the order's date, and numbered in this order after the order's highest item; refusals name `new_items[i]`. An order holds at most 999 items, removed ones included (422 `sales.too_many_items`)."
+        removed_items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          uniqueItems: true
+          items: {type: integer, format: int32, minimum: 1}
+          description: "The items removed, by number (T78e): each an item of the order (422 `sales.unknown_order_item` naming `removed_items[i]`), not also in `items` (422 `sales.item_repeated`), not removed already (422 `sales.order_item_removed`) and with nothing delivered (422 `sales.order_item_delivered`; only what is delivered is billed). A removed item stays on the order, marked with the change (`removed_in_change`), out of its net value, its delivery and its billing. The order keeps at least one item (422 `sales.order_needs_item`: cancel it instead)."
     SalesOrderItemChange:
       type: object
       description: "A change of one item of a sales order: its new quantity, its new unit price, or both."
@@ -57023,6 +57051,8 @@ components:
         net_amount_after: {$ref: "#/components/schemas/Money", description: "The order's net value after it."}
         requested_delivery_date_before: {type: string, format: date, description: "The requested delivery date before the change; absent when there was none.", readOnly: true}
         requested_delivery_date_after: {type: string, format: date, description: "The requested delivery date after it; absent when there is none.", readOnly: true}
+        payment_term_code_before: {type: string, description: "The payment term before the change (T78e); absent when the change kept it.", readOnly: true}
+        payment_term_code_after: {type: string, description: "The payment term after it; absent when the change kept it.", readOnly: true}
         credit_block_before:
           type: string
           x-extensible-enum: [none, blocked, released]
@@ -57036,7 +57066,7 @@ components:
         items:
           type: array
           items: {$ref: "#/components/schemas/SalesOrderChangeItem"}
-          description: "The items the change changed, by item number; none when it changed the requested delivery date alone."
+          description: "The items the change changed, added or removed, by item number; none when it changed the requested delivery date or the payment term alone."
           readOnly: true
         created_at: {type: string, format: date-time, description: "When the change was made.", readOnly: true}
         created_by: {type: string, format: uuid, description: "Who made it (`GET /v1/principals/{id}`).", readOnly: true}
@@ -57064,10 +57094,15 @@ components:
           created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
     SalesOrderChangeItem:
       type: object
-      description: "An item a change changed, with its quantity, unit price, price unit and net value before and after."
-      required: [item_no, quantity_before, quantity_after, unit_price_before, unit_price_after, price_unit_before, price_unit_after, net_amount_before, net_amount_after]
+      description: "An item a change changed, with its quantity, unit price, price unit and net value before and after. An item added had nothing before it (a quantity and a net value of zero), a removed one has nothing after it."
+      required: [item_no, change, quantity_before, quantity_after, unit_price_before, unit_price_after, price_unit_before, price_unit_after, net_amount_before, net_amount_after]
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The order's item.", readOnly: true}
+        change:
+          type: string
+          x-extensible-enum: [changed, added, removed]
+          description: "What the change did to the item: `changed` its quantity or price, `added` it or `removed` it (T78e). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
         quantity_before: {$ref: "#/components/schemas/Quantity", description: "Its quantity before."}
         quantity_after: {$ref: "#/components/schemas/Quantity", description: "Its quantity after."}
         unit_price_before: {$ref: "#/components/schemas/Money", description: "Its unit price before."}
@@ -57176,7 +57211,7 @@ components:
             order_date: {type: string, format: date, description: "The day the order was created: the company's date in its time zone.", readOnly: true}
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The order's currency (ISO 4217).", readOnly: true}
             payment_term_code: {type: string, description: "The payment term the order is billed with: the one given with it, else the customer's in the company when it was created.", readOnly: true}
-            net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' net values."}
+            net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the net values of the items that are not removed (`removed_in_change`)."}
             status:
               type: string
               x-extensible-enum: [draft, confirmed, cancelled]
@@ -57892,7 +57927,7 @@ components:
         service_to: {type: string, format: date, description: "The last day of that period, not before `service_from`; absent for a `point_in_time` obligation.", readOnly: true}
         satisfied_on: {type: string, format: date, description: "The day a `point_in_time` obligation is satisfied when that is not its order item's delivery confirmations, a person's judgement (ADR-0068 §8): the recognition schedule then has the whole allocated amount on this day. Absent when the delivery confirmations say it, which is how every obligation starts, and for an `over_time` obligation.", readOnly: true}
         standalone_selling_price: {$ref: "#/components/schemas/Money", description: "The obligation's stand-alone selling price, a person's judgement: it starts as the order item's net value."}
-        allocated_amount: {$ref: "#/components/schemas/Money", description: "The obligation's share of the contract's transaction price, allocated in proportion to the stand-alone selling prices when the contract is activated, and again when it follows a change of its sales order (T81e); the obligations' shares add up to the transaction price exactly. Zero once the obligation has ended. Absent while the contract is a `draft`."}
+        allocated_amount: {$ref: "#/components/schemas/Money", description: "The obligation's share of the contract's transaction price, allocated in proportion to the stand-alone selling prices when the contract is activated, and again when it follows a change of its sales order (T81e); the obligations' shares add up to the transaction price exactly. Zero once the obligation has ended, also in a `draft`. Absent while the contract is a `draft`, for an obligation that stands."}
         ended_at: {type: string, format: date-time, description: "When the obligation ended, its sales order being cancelled (T81e): it keeps its last order value and has nothing allocated, so a recognition run takes off what earlier runs recognized of it. Absent while it stands.", readOnly: true}
     RevenueContractUpdate:
       type: object

@@ -96,16 +96,28 @@ func TestFollowLeavesAnEndedObligation(t *testing.T) {
 	}}
 	o := sales.Order{Status: sales.Confirmed, Items: []sales.OrderItem{{Item: sales.Item{ItemNo: 1, Net: 6000}}, {Item: sales.Item{ItemNo: 2, Net: 12000}}}}
 	f, changed := followOf(k, o)
-	if !changed || f.price != 12000 {
-		t.Fatalf("the follow: got changed %v at %d, want a change to 12000", changed, f.price)
+	if !changed {
+		t.Fatal("the follow: got no change, want one")
 	}
-	if got := f.obligations[0]; got.Net != 5000 || *got.Allocated != 0 || got.EndedAt != &ended {
-		t.Errorf("the ended obligation: got %+v, want it as it was", got)
+	if f.price != 12000 {
+		t.Errorf("the transaction price: got %d, want 12000", f.price)
+	}
+	if got := f.obligations[0]; got.Net != 5000 {
+		t.Errorf("the ended obligation's order value: got %d, want 5000, as it was", got.Net)
+	}
+	if got := *f.obligations[0].Allocated; got != 0 {
+		t.Errorf("the ended obligation's share: got %d, want 0", got)
+	}
+	if got := f.obligations[0].EndedAt; got != &ended {
+		t.Errorf("the ended obligation's end: got %v, want %v", got, ended)
 	}
 	if *f.obligations[1].Allocated != 12000 {
 		t.Errorf("the obligation that stands: got %d allocated, want the whole 12000", *f.obligations[1].Allocated)
 	}
-	if len(f.changes) != 1 || f.changes[0].No != 2 {
-		t.Errorf("the changes: got %+v, want obligation 2's alone", f.changes)
+	if len(f.changes) != 1 {
+		t.Fatalf("the changes: got %+v, want obligation 2's alone", f.changes)
+	}
+	if f.changes[0].No != 2 {
+		t.Errorf("the change's obligation: got %d, want 2", f.changes[0].No)
 	}
 }

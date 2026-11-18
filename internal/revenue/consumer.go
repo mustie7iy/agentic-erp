@@ -155,7 +155,8 @@ func (c *Consumer) contract(ctx context.Context, tx pgx.Tx, builder reqctx.Princ
 			return err
 		}
 		if has {
-			return c.Endpoints.follow(ctx, tx, builder, k, o)
+			_, err := c.Endpoints.follow(ctx, tx, builder, k, o)
+			return err
 		}
 		if o.Status == sales.Cancelled {
 			return nil

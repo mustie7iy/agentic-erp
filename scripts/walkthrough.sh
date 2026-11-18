@@ -12714,6 +12714,57 @@ step_revenue_follows_order() {
   expect "the ended contract (after $i checks)" "$(field '"\(.changes) \(.transaction_price.amount) " + ([.obligations[] | .ended_at != null] | join(" "))')" "1 0.00 true"
   say "An ended contract is not activated:"
   refused 409 revenue.contract_ended activateRevenueContract -p "id=$ended" -if-match "$ETAG"
+  REVENUE_FOLLOWED_ORDER=$order
+  REVENUE_FOLLOWED_CONTRACT=$contract
+  passed
+}
+
+# step_sales_order_items is T78e (ADR-0067, As built T78e): Sally adds
+# an item to step 116's confirmed order, removes another and changes its
+# payment term in one change; the change reads back with each item's
+# kind and the term before and after; the removed item stays on the
+# order, out of its value, and is not delivered; the order's revenue
+# contract follows, an obligation added for the new item and the removed
+# item's ended. Nothing is posted.
+step_sales_order_items() {
+  heading "Step 117 — Sales order items added and removed, the payment term changed: one change adds an item, removes one with nothing delivered and changes the term; the removed item kept, out of the order's value, and not delivered; the revenue contract following"
+  local order=$REVENUE_FOLLOWED_ORDER contract=$REVENUE_FOLLOWED_CONTRACT sales item day i
+  [ -n "$order" ] || fail "step 116's order is not there"
+  as sally
+  sales=$(account 4000)
+  day=$(company_day)
+  item="{\"item_key\": \"ANCHOR\", \"description\": \"Wall anchors for the brackets\", \"quantity\": {\"value\": \"120\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"0.50\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  say "Northwind installs the brackets itself and wants wall anchors instead, and pays in 14 days. Sally removes the"
+  say "installation, adds 120 anchors at 0.50 and changes the payment term, in one change (SAP's VA02). Nothing of the"
+  say "installation is delivered, so it is removed; it stays on the order, marked with the change:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): change \(.changes), net \(.net_amount.amount), payment term \(.payment_term_code)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) = \(.net_amount.amount)" + (if .removed_in_change then ", removed in change \(.removed_in_change)" else "" end))' \
+    changeSalesOrder -p "id=$order" -if-match "$ETAG" \
+    -body "{\"reason\": \"Anchors instead of the installation\", \"payment_term_code\": \"NT14\", \"removed_items\": [2], \"new_items\": [$item]}"
+  expect "the changed order" "$(field '"\(.changes) \(.net_amount.amount) \(.payment_term_code) " + ([.items[] | "\(.item_no):\(.removed_in_change // "-")"] | join(" "))')" \
+    "3 1380.00 NT14 1:- 2:3 3:-"
+  say "The change is kept with each item's kind and the payment term before and after:"
+  api 200 '.items[-1] | "  change \(.change_no): \(.reason), payment term \(.payment_term_code_before) > \(.payment_term_code_after)", (.items[] | "    item \(.item_no) \(.change): \(.quantity_before.value) > \(.quantity_after.value), \(.net_amount_before.amount) > \(.net_amount_after.amount)")' \
+    listSalesOrderChanges -p "id=$order"
+  expect "the change's items" "$(field '[.items[-1].items[] | "\(.item_no) \(.change) \(.net_amount_before.amount)>\(.net_amount_after.amount)"] | join(", ")')" \
+    "2 removed 600.00>0.00, 3 added 0.00>60.00"
+  say "The removed installation takes no delivery:"
+  refused 422 sales.order_item_removed confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 2, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  as nora
+  say "The revenue contract follows: an obligation for the anchors, at their net value as their stand-alone selling"
+  say "price, and the installation's ended with nothing allocated. The 1380.00 is allocated again by the stand-alone"
+  say "selling prices that stand, the brackets' 1200.00 and the anchors' 60.00: 1314.29 and 65.71, to the cent."
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getRevenueContract -p "id=$contract"
+    if [ "$(field .changes)" = 3 ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '"revenue contract: \(.status), follow \(.changes), transaction price \(.transaction_price.amount)", (.obligations[] | "  obligation \(.obligation_no) \(.description): order value \(.net_amount.amount), allocated \(.allocated_amount.amount)" + (if .ended_at then ", ended" else "" end))' \
+    getRevenueContract -p "id=$contract"
+  expect "the followed contract (after $i checks)" \
+    "$(field '"\(.changes) \(.transaction_price.amount) " + ([.obligations[] | "\(.obligation_no):\(.allocated_amount.amount):\(.ended_at != null)"] | join(" "))')" \
+    "3 1380.00 1:1314.29:false 2:0.00:true 3:65.71:false"
   passed
 }
 
@@ -14747,7 +14798,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_revenue_follows_order step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_revenue_follows_order step_sales_order_items step_close'
 
 main() {
   stop_unseen
