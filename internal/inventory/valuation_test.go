@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
@@ -270,9 +272,11 @@ func TestValuationChanges(t *testing.T) {
 		{"the same class", `{"valuation_class": "3100"}`, 422, "inventory.nothing_to_change"},
 		{"an unknown class", `{"valuation_class": "77"}`, 422, "inventory.unknown_valuation_class"},
 	} {
-		if status, got, _ := e.Do("PATCH", valuations+"/"+id, c.body, tag); status != c.status || got["code"] != c.code {
-			t.Errorf("%s: got %d %v, want %d %s", c.name, status, got, c.status, c.code)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			if status, got, _ := e.Do("PATCH", valuations+"/"+id, c.body, tag); status != c.status || got["code"] != c.code {
+				t.Errorf("got %d %v, want %d %s", status, got, c.status, c.code)
+			}
+		})
 	}
 	e.Must(200, "PATCH", valuations+"/"+id, `{"valuation_class": "3000"}`, tag)
 	e.post(t, "561", e.item("10", "EA", nil))
@@ -286,14 +290,18 @@ func TestValuationChanges(t *testing.T) {
 		{"a stale version", valuations + "/" + id + ":changePrice", `{"price": {"amount": "2.50", "currency": "EUR"}}`, `"1"`, 412, "request.version_mismatch"},
 		{"the same price", valuations + "/" + id + ":changePrice", `{"price": {"amount": "2.00", "currency": "EUR"}}`, tag, 422, "inventory.nothing_to_change"},
 	} {
-		method := "POST"
-		if !strings.Contains(c.path, ":") {
-			method = "PATCH"
-		}
-		if status, got, _ := e.Do(method, c.path, c.body, c.tag); status != c.status || got["code"] != c.code {
-			t.Errorf("%s: got %d %v, want %d %s", c.name, status, got, c.status, c.code)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			method := "POST"
+			if !strings.Contains(c.path, ":") {
+				method = "PATCH"
+			}
+			if status, got, _ := e.Do(method, c.path, c.body, c.tag); status != c.status || got["code"] != c.code {
+				t.Errorf("got %d %v, want %d %s", status, got, c.status, c.code)
+			}
+		})
 	}
+	// Company 2000's time zone is UTC (the fixture's configuration), so its
+	// day is UTC's.
 	day := time.Now().UTC()
 	pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
 		AND fiscal_year = $3 AND period = $4`, e.Tenant.ID, e.DE, day.Year(), int(day.Month()))
@@ -338,6 +346,9 @@ func TestValuationEdges(t *testing.T) {
 	huge := e.material(t, "Gold bar", "trading_good", true)
 	e.Must(201, "POST", valuations, mustJSON(t, map[string]any{"material_id": huge, "plant_id": e.p1, "valuation_class": "3000",
 		"price_control": "standard", "price": amount("90000000000000000.00")}), "")
+	fine := e.material(t, "Bracket by the ten thousand", "trading_good", true)
+	e.Must(201, "POST", valuations, mustJSON(t, map[string]any{"material_id": fine, "plant_id": e.p1, "valuation_class": "3000",
+		"price_control": "moving_average", "price": amount("1.00"), "price_unit": 10000}), "")
 	diff := e.material(t, "Bracket without differences", "trading_good", true)
 	e.Must(201, "POST", valuations, mustJSON(t, map[string]any{"material_id": diff, "plant_id": e.p1, "valuation_class": "3200",
 		"price_control": "standard", "price": amount("1.00")}), "")
@@ -356,6 +367,8 @@ func TestValuationEdges(t *testing.T) {
 		{"an amount of one decimal", "POST", docs, body(t, "501", e.item("1", "EA", map[string]any{"amount": amount("1.5")})), "", 400, "request.invalid_amount"},
 		{"a value beyond an amount", "POST", docs, body(t, "561", e.item("100", "EA", map[string]any{"material_id": huge})), "", 422,
 			"inventory.amount_too_large"},
+		{"a moving price beyond an amount", "POST", docs, body(t, "501", e.item("1", "EA", map[string]any{"material_id": fine,
+			"amount": amount("90000000000000.00")})), "", 422, "inventory.amount_too_large"},
 		{"receipts worth more than an amount", "POST", docs, body(t, "501", e.item("1", "EA", map[string]any{"amount": amount("90000000000000000.00")}),
 			e.item("1", "EA", map[string]any{"amount": amount("90000000000000000.00")})), "", 422, "inventory.amount_too_large"},
 		{"a price difference without its account", "POST", docs, body(t, "561", e.item("1", "EA", map[string]any{"material_id": diff,
@@ -420,5 +433,108 @@ func TestTransferReversalAfterReceipt(t *testing.T) {
 	}
 	if got := e.balance(t, "150000"); got != 4000 {
 		t.Errorf("the stock account: got %d, want 4000, the valuation's value", got)
+	}
+}
+
+// TestStandardTransfersAndReversals: a transfer into a standard-priced
+// plant puts what it is valued at beyond the standard price on the price
+// difference account, and its reversal takes it back; an issue's
+// reversal at a standard price gives back what the issue took, its
+// rounding a price difference; a transfer within a plant reversed after
+// a price change leaves the value as it is. The stock account always
+// holds the valuations' value.
+func TestStandardTransfersAndReversals(t *testing.T) {
+	e := setup(t)
+	washer := e.material(t, "Washer M10", "raw_material", true)
+	e.value(t, washer, e.p1, "moving_average", "1.00")
+	e.Must(201, "POST", valuations, mustJSON(t, map[string]any{"material_id": washer, "plant_id": e.p2, "valuation_class": "3000",
+		"price_control": "standard", "price": amount("0.40")}), "")
+	item := func(qty string, over map[string]any) map[string]any {
+		it := e.item(qty, "EA", over)
+		it["material_id"] = washer
+		return it
+	}
+	e.post(t, "501", item("10", map[string]any{"amount": amount("10.00")}))
+	move := e.post(t, "301", item("5", map[string]any{"to_plant_id": e.p2, "to_storage_location_id": e.s3}))
+	if got := e.entry(t, move); got != "WA 150000:-500 150000:200 517000:300" {
+		t.Errorf("the transfer: got %s, want WA 150000:-500 150000:200 517000:300", got)
+	}
+	_, tag := e.Must(200, "GET", docs+"/"+move["id"].(string), "", "")
+	back, _ := e.Must(200, "POST", docs+"/"+move["id"].(string)+":reverse", "", tag)
+	if got := e.entry(t, back); got != "WA 150000:-200 517000:-300 150000:500" {
+		t.Errorf("its reversal: got %s, want WA 150000:-200 517000:-300 150000:500", got)
+	}
+	bolt := e.material(t, "Bolt by the three", "raw_material", true)
+	e.Must(201, "POST", valuations, mustJSON(t, map[string]any{"material_id": bolt, "plant_id": e.p1, "valuation_class": "3000",
+		"price_control": "standard", "price": amount("1.00"), "price_unit": 3}), "")
+	boltItem := func(qty string, over map[string]any) map[string]any {
+		it := e.item(qty, "EA", over)
+		it["material_id"] = bolt
+		return it
+	}
+	e.post(t, "561", boltItem("10", nil))
+	first := e.post(t, "201", boltItem("1", map[string]any{"cost_center_id": e.c1}))
+	e.post(t, "201", boltItem("1", map[string]any{"cost_center_id": e.c1}))
+	e.post(t, "201", boltItem("1", map[string]any{"cost_center_id": e.c1}))
+	_, tag = e.Must(200, "GET", docs+"/"+first["id"].(string), "", "")
+	rev, _ := e.Must(200, "POST", docs+"/"+first["id"].(string)+":reverse", "", tag)
+	if got := e.entry(t, rev); got != "WA 150000:34 517000:-1 515000:-33" {
+		t.Errorf("the issue's reversal: got %s, want WA 150000:34 517000:-1 515000:-33", got)
+	}
+	shift := e.post(t, "311", boltItem("3", map[string]any{"to_storage_location_id": e.s2}))
+	page, _ := e.Must(200, "GET", valuations+"?material_id="+bolt, "", "")
+	id := rows(t, page, "items")[0]["id"].(string)
+	_, vtag := e.Must(200, "GET", valuations+"/"+id, "", "")
+	e.Must(200, "POST", valuations+"/"+id+":changePrice", `{"price": {"amount": "2.00", "currency": "EUR"}}`, vtag)
+	_, tag = e.Must(200, "GET", docs+"/"+shift["id"].(string), "", "")
+	e.Must(200, "POST", docs+"/"+shift["id"].(string)+":reverse", "", tag)
+	if got := e.valuation(t, bolt, e.p1); got != "8 EA 5.33 2.00/3" {
+		t.Errorf("the bolt after its transfer's reversal: got %s, want 8 EA 5.33 2.00/3", got)
+	}
+	var total int64
+	pgtest.Scan(t, `SELECT sum(value)::bigint FROM inventory.valuation WHERE tenant_id = $1`, []any{e.Tenant.ID}, &total)
+	if got := e.balance(t, "150000"); got != total {
+		t.Errorf("the stock account: got %d, want %d, the valuations' value", got, total)
+	}
+}
+
+// TestValuationAtOnce: receipts and price changes of one valuation at
+// once each post, none waiting on another for good, and the stock
+// account holds the valuation's value after them.
+func TestValuationAtOnce(t *testing.T) {
+	e := setup(t)
+	e.post(t, "501", e.item("10", "EA", map[string]any{"amount": amount("20.00")}))
+	page, _ := e.Must(200, "GET", valuations+"?material_id="+e.bracket+"&plant_id="+e.p1.String(), "", "")
+	id := rows(t, page, "items")[0]["id"].(string)
+	var wg sync.WaitGroup
+	statuses := make([]int, 10)
+	for i := range statuses {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if i%5 != 0 {
+				statuses[i], _, _ = e.Do("POST", docs, body(t, "501", e.item("1", "EA", map[string]any{"amount": amount(fmt.Sprintf("%d.00", i))})), "")
+				return
+			}
+			for {
+				_, tag := e.Must(200, "GET", valuations+"/"+id, "", "")
+				status, _, _ := e.Do("POST", valuations+"/"+id+":changePrice", fmt.Sprintf(`{"price": {"amount": "%d.00", "currency": "EUR"}}`, 5+i), tag)
+				if status != 412 { // another write came first: read again
+					statuses[i] = status
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	for i, s := range statuses {
+		if s != 200 && s != 201 {
+			t.Errorf("write %d: got %d, want it to succeed", i, s)
+		}
+	}
+	page, _ = e.Must(200, "GET", valuations+"/"+id, "", "")
+	value, _ := money.ParseAmount(page["value"].(map[string]any)["amount"].(string), 2)
+	if got := e.balance(t, "150000"); got != int64(value) {
+		t.Errorf("the stock account: got %d, want %d, the valuation's value", got, value)
 	}
 }

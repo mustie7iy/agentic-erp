@@ -553,6 +553,17 @@ type InventoryAccounts struct {
 	Revaluation     string `yaml:"revaluation,omitempty" json:"revaluation,omitempty"`
 }
 
+// The kinds of a valuation class's accounts (InventoryAccounts.Accounts).
+const (
+	InventoryStock           = "stock"
+	InventoryReceipt         = "receipt"
+	InventoryInitialEntry    = "initial_entry"
+	InventoryConsumption     = "consumption"
+	InventoryScrapping       = "scrapping"
+	InventoryPriceDifference = "price_difference"
+	InventoryRevaluation     = "revaluation"
+)
+
 // InventoryKey is the account determination key of a valuation class's
 // account (ledger.account_determination): its kind and the class.
 func InventoryKey(kind, valuationClass string) string {
@@ -563,8 +574,9 @@ func InventoryKey(kind, valuationClass string) string {
 // initial_entry, consumption, scrapping, price_difference, revaluation),
 // in that order, the empty ones too.
 func (a InventoryAccounts) Accounts() [][2]string {
-	return [][2]string{{"stock", a.Stock}, {"receipt", a.Receipt}, {"initial_entry", a.InitialEntry}, {"consumption", a.Consumption},
-		{"scrapping", a.Scrapping}, {"price_difference", a.PriceDifference}, {"revaluation", a.Revaluation}}
+	return [][2]string{{InventoryStock, a.Stock}, {InventoryReceipt, a.Receipt}, {InventoryInitialEntry, a.InitialEntry},
+		{InventoryConsumption, a.Consumption}, {InventoryScrapping, a.Scrapping}, {InventoryPriceDifference, a.PriceDifference},
+		{InventoryRevaluation, a.Revaluation}}
 }
 
 // InventoryClass is the company's valuation class with the code, ok =

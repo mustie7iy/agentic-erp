@@ -35,7 +35,8 @@ func TestStock(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	day := func(days int) string { return "&as_of=" + time.Now().AddDate(0, 0, days).Format(time.DateOnly) }
+	// Company 2000's day is UTC's (the fixture's time zone).
+	day := func(days int) string { return "&as_of=" + time.Now().UTC().AddDate(0, 0, days).Format(time.DateOnly) }
 	for _, c := range []struct{ name, query, want string }{
 		{"now", "", "S2 3 EA"},
 		{"as at four days ago", day(-4), "S1 10 EA, S2 3 EA"},

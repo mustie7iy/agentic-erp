@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
-	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	platformcurrency "github.com/mustie7iy/agentic-erp/internal/platform/currency"
@@ -58,7 +57,7 @@ type PriceChange struct {
 	OldPrice    money.Minor `json:"old_price"`
 	NewPrice    money.Minor `json:"new_price"`
 	Amount      money.Minor `json:"amount"`
-	PostingDate string      `json:"posting_date"`
+	PostingDate time.Time   `json:"posting_date"`
 	EntryID     *uuid.UUID  `json:"journal_entry_id"`
 	EntryYear   *int16      `json:"journal_entry_year"`
 	EntryNumber *string     `json:"journal_entry_number"`
@@ -68,7 +67,7 @@ type PriceChange struct {
 
 const valuationSelect = `SELECT v.id, v.legal_entity_id, v.material_id, v.plant_id, v.valuation_class, v.price_control, v.currency, c.exponent,
 		v.price, v.price_unit, trim_scale(v.quantity)::text, v.value, v.version, v.created_at, v.created_by, v.updated_at, v.updated_by,
-		(SELECT json_build_object('id', p.id, 'old_price', p.old_price, 'new_price', p.new_price, 'amount', p.amount, 'posting_date', p.posting_date,
+		(SELECT json_build_object('id', p.id, 'old_price', p.old_price, 'new_price', p.new_price, 'amount', p.amount, 'posting_date', to_char(p.posting_date, 'YYYY-MM-DD"T00:00:00Z"'),
 				'journal_entry_id', p.journal_entry_id, 'journal_entry_year', p.journal_entry_year, 'journal_entry_number', p.journal_entry_number,
 				'created_at', p.created_at, 'created_by', p.created_by)
 			FROM inventory.price_change p WHERE p.tenant_id = v.tenant_id AND p.valuation_id = v.id ORDER BY p.created_at DESC, p.id DESC LIMIT 1) AS last_price_change
@@ -133,19 +132,20 @@ func (e *Endpoints) CreateValuation(ctx context.Context, in ValuationInput) (Val
 		return Valuation{}, problem.Invalid("inventory.material_not_stocked", "material_id", "Material "+m.Number+" is of type "+m.Type+
 			", which is kept in no stock.")
 	}
-	company, err := plantOf(m, in.PlantID, r)
+	plant, err := plantAt("plant_id", m, in.PlantID, r)
 	if err != nil {
 		return Valuation{}, err
 	}
-	le, co, err := e.company(ctx, company)
+	c, err := e.companyOf(ctx, plant.LegalEntityID)
 	if err != nil {
 		return Valuation{}, err
 	}
+	le := c.le
 	exp, err := platformcurrency.Exponent(ctx, tx, le.LocalCurrency, nil)
 	if err != nil {
 		return Valuation{}, fmt.Errorf("inventory: currency of company %s: %w", le.Code, err)
 	}
-	price, err := checkValuation(co, le, exp, in)
+	price, err := checkValuation(c.co, le, exp, in)
 	if err != nil {
 		return Valuation{}, err
 	}
@@ -165,47 +165,17 @@ func (e *Endpoints) CreateValuation(ctx context.Context, in ValuationInput) (Val
 	return v, recordValuation(ctx, "inventory.valuation.create", v, m.Number, r.units[v.PlantID].Code, nil)
 }
 
-// plantOf checks a plant a material is valued in: an active plant of a
-// company the caller may act in that the material is extended to; it
-// answers the plant's company.
-func plantOf(m materials.Material, plant uuid.UUID, r refs) (uuid.UUID, error) {
-	u, ok := r.units[plant]
-	switch {
-	case !ok || u.Kind != kindPlant || u.Status != tenancy.Active || !r.access.Allows(u.LegalEntityID):
-		return uuid.Nil, problem.Invalid("inventory.plant_invalid", "plant_id", "No active plant with this id in a company you can access.")
-	case !hasPlant(m, plant):
-		return uuid.Nil, problem.Invalid("inventory.plant_not_extended", "plant_id", "Material "+m.Number+" is not extended to plant "+u.Code+".")
-	}
-	return u.LegalEntityID, nil
-}
-
-// company is the company and its settings in the active configuration,
-// nil when the configuration holds none of it: then it has no valuation
-// classes (config.Company.InventoryClass).
-func (e *Endpoints) company(ctx context.Context, id uuid.UUID) (tenancy.Entity, *config.Company, error) {
-	le, _, err := e.LegalEntities.Entity(ctx, id) // a plant's or a valuation's company exists
-	if err != nil {
-		return tenancy.Entity{}, nil, fmt.Errorf("inventory: company %s: %w", id, err)
-	}
-	doc, _, err := e.Settings.Document(ctx)
-	if err != nil {
-		return tenancy.Entity{}, nil, fmt.Errorf("inventory: configuration of company %s: %w", le.Code, err)
-	}
-	return le, doc.Company(le.Code), nil
-}
-
 // checkValuation checks a valuation's class, price control and price,
 // and answers the price in minor units.
 func checkValuation(co *config.Company, le tenancy.Entity, exp int, in ValuationInput) (money.Minor, error) {
 	if _, ok := co.InventoryClass(in.ValuationClass); !ok {
-		return 0, problem.Invalid("inventory.unknown_valuation_class", "valuation_class", "Company "+le.Code+" has no valuation class "+
-			in.ValuationClass+" (companies[].account_determination.inventory).")
+		return 0, unknownClass(le.Code, in.ValuationClass)
 	}
 	if in.PriceControl != Standard && in.PriceControl != MovingAverage {
 		return 0, problem.Invalid("inventory.unknown_price_control", "price_control", fmt.Sprintf("%q is not a price control; they are standard "+
 			"and moving_average.", in.PriceControl))
 	}
-	price, err := priceOf("price", in.Price, in.Currency, le.LocalCurrency, exp)
+	price, err := amountOf("price", Amount{Value: in.Price, Currency: in.Currency}, le.LocalCurrency, exp, "inventory.invalid_price")
 	if err != nil {
 		return 0, err
 	}
@@ -213,23 +183,6 @@ func checkValuation(co *config.Company, le tenancy.Entity, exp int, in Valuation
 		return 0, problem.Invalid("inventory.invalid_price", "price.amount", "A standard price is above zero.")
 	}
 	return price, nil
-}
-
-// priceOf reads a price in the company's currency local, exp decimals:
-// not negative, in the currency's form (400 request.invalid_amount
-// otherwise).
-func priceOf(field, amount, currency, local string, exp int) (money.Minor, error) {
-	if currency != local {
-		return 0, problem.Invalid("inventory.currency_mismatch", field+".currency", "Prices are in the company's currency "+local+".")
-	}
-	m, err := platformcurrency.ParseAmount(amount, local, exp, field+".amount")
-	if err != nil {
-		return 0, err
-	}
-	if m < 0 {
-		return 0, problem.Invalid("inventory.invalid_price", field+".amount", "A price is not negative.")
-	}
-	return m, nil
 }
 
 // noStock refuses a valuation of a material whose stock in the plant was

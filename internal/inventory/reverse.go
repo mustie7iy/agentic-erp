@@ -50,11 +50,11 @@ func (e *Endpoints) Reverse(ctx context.Context, id uuid.UUID, ifMatch func(Docu
 	if err != nil {
 		return Document{}, err
 	}
-	le, day, err := e.today(ctx, orig.LegalEntityID)
+	c, err := e.companyOf(ctx, orig.LegalEntityID)
 	if err != nil {
 		return Document{}, err
 	}
-	d, err := e.write(ctx, tx, p, posting{company: le, movementType: mt.reversal, day: day.Date, reversalOf: &orig.ID, lines: negated(orig.Lines)}, r)
+	d, err := e.write(ctx, tx, p, posting{company: c.le, movementType: mt.reversal, day: c.day.Date, reversalOf: &orig.ID, lines: negated(orig.Lines)}, r)
 	if err != nil {
 		return Document{}, err
 	}

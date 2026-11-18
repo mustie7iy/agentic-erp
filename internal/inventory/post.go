@@ -74,14 +74,14 @@ func (e *Endpoints) Post(ctx context.Context, in Input) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
-	le, day, err := e.today(ctx, company)
+	c, err := e.companyOf(ctx, company)
 	if err != nil {
 		return Document{}, err
 	}
-	if err := e.costCenters(ctx, in.Items, r, company, day.Date); err != nil {
+	if err := e.costCenters(ctx, in.Items, r, company, c.day.Date); err != nil {
 		return Document{}, err
 	}
-	d, err := e.write(ctx, tx, p, posting{company: le, movementType: in.MovementType, day: day.Date, headerText: in.HeaderText, lines: lines,
+	d, err := e.write(ctx, tx, p, posting{company: c.le, movementType: in.MovementType, day: c.day.Date, headerText: in.HeaderText, lines: lines,
 		items: in.Items}, r)
 	if err != nil {
 		return Document{}, err
@@ -89,18 +89,36 @@ func (e *Endpoints) Post(ctx context.Context, in Input) (Document, error) {
 	return d, e.record(ctx, "inventory.material_document.post", d, r, map[string]any{"has_header_text": d.HeaderText != nil})
 }
 
-// today is the company and its date today in its time zone, which a
-// document is posted on.
-func (e *Endpoints) today(ctx context.Context, company uuid.UUID) (tenancy.Entity, config.CompanyDay, error) {
-	le, _, err := e.LegalEntities.Entity(ctx, company) // a plant's company exists
+// companyOf is a company, its settings in the active configuration (nil
+// when the configuration holds none of it: then it has no valuation
+// classes) and its date today in its time zone, which documents and price
+// changes are posted on.
+type companyOf struct {
+	le  tenancy.Entity
+	co  *config.Company
+	day config.CompanyDay
+}
+
+func (e *Endpoints) companyOf(ctx context.Context, id uuid.UUID) (companyOf, error) {
+	le, _, err := e.LegalEntities.Entity(ctx, id) // a plant's, document's or valuation's company exists
 	if err != nil {
-		return tenancy.Entity{}, config.CompanyDay{}, fmt.Errorf("inventory: company %s: %w", company, err)
+		return companyOf{}, fmt.Errorf("inventory: company %s: %w", id, err)
 	}
 	day, err := config.DocumentDay(ctx, e.Settings, le.Code, clock.Now(e.Now))
 	if err != nil {
-		return tenancy.Entity{}, config.CompanyDay{}, fmt.Errorf("inventory: today in company %s: %w", le.Code, err)
+		return companyOf{}, fmt.Errorf("inventory: today in company %s: %w", le.Code, err)
 	}
-	return le, day, nil
+	doc, _, err := e.Settings.Document(ctx)
+	if err != nil {
+		return companyOf{}, fmt.Errorf("inventory: configuration of company %s: %w", le.Code, err)
+	}
+	return companyOf{le: le, co: doc.Company(le.Code), day: day}, nil
+}
+
+// unknownClass refuses a valuation class the company lacks.
+func unknownClass(company, class string) error {
+	return problem.Invalid("inventory.unknown_valuation_class", "valuation_class", "Company "+company+" has no valuation class "+class+
+		" (companies[].account_determination.inventory).")
 }
 
 // inputRefs reads what a request's items name: their materials, plants
@@ -197,16 +215,12 @@ func usable(i int, id uuid.UUID, r refs) (materials.Material, error) {
 }
 
 // location checks a plant and a storage location the material is moved
-// at: an active plant of a company the caller may act in that the
-// material is extended to, and an active storage location under it the
-// material is kept at. It answers the plant's company.
+// at: the plant as plantAt checks it, and an active storage location
+// under it the material is kept at. It answers the plant's company.
 func location(plantField, locationField string, m materials.Material, plant, storageLocation uuid.UUID, r refs) (uuid.UUID, error) {
-	u, ok := r.units[plant]
-	switch {
-	case !ok || u.Kind != kindPlant || u.Status != tenancy.Active || !r.access.Allows(u.LegalEntityID):
-		return uuid.Nil, problem.Invalid("inventory.plant_invalid", plantField, "No active plant with this id in a company you can access.")
-	case !hasPlant(m, plant):
-		return uuid.Nil, problem.Invalid("inventory.plant_not_extended", plantField, "Material "+m.Number+" is not extended to plant "+u.Code+".")
+	u, err := plantAt(plantField, m, plant, r)
+	if err != nil {
+		return uuid.Nil, err
 	}
 	l, ok := r.units[storageLocation]
 	switch {
@@ -218,6 +232,20 @@ func location(plantField, locationField string, m materials.Material, plant, sto
 			l.Code+" of plant "+u.Code+".")
 	}
 	return u.LegalEntityID, nil
+}
+
+// plantAt checks a plant a material is moved or valued at: an active
+// plant of a company the caller may act in that the material is extended
+// to.
+func plantAt(field string, m materials.Material, plant uuid.UUID, r refs) (tenancy.Unit, error) {
+	u, ok := r.units[plant]
+	switch {
+	case !ok || u.Kind != kindPlant || u.Status != tenancy.Active || !r.access.Allows(u.LegalEntityID):
+		return tenancy.Unit{}, problem.Invalid("inventory.plant_invalid", field, "No active plant with this id in a company you can access.")
+	case !hasPlant(m, plant):
+		return tenancy.Unit{}, problem.Invalid("inventory.plant_not_extended", field, "Material "+m.Number+" is not extended to plant "+u.Code+".")
+	}
+	return u, nil
 }
 
 func hasPlant(m materials.Material, plant uuid.UUID) bool {
@@ -360,8 +388,8 @@ func (e *Endpoints) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in
 	if _, err := tx.Exec(ctx, `INSERT INTO inventory.material_document (tenant_id, id, legal_entity_id, fiscal_year, number, movement_type,
 			posting_date, header_text, reversal_of_id, currency, journal_entry_id, journal_entry_year, journal_entry_number, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-		p.TenantID, id, in.company.ID, year, number, in.movementType, in.day, in.headerText, in.reversalOf, vals[valuationKey{in.lines[0].MaterialID,
-			in.lines[0].PlantID}].Currency, entry.id, entry.year, entry.number, p.ID); err != nil {
+		p.TenantID, id, in.company.ID, year, number, in.movementType, in.day, in.headerText, in.reversalOf, in.company.LocalCurrency, entry.id,
+		entry.year, entry.number, p.ID); err != nil {
 		return Document{}, fmt.Errorf("inventory: insert material document %s: %w", number, err)
 	}
 	if err := writeLines(ctx, tx, p, id, in.lines); err != nil {

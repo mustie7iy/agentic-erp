@@ -1,22 +1,28 @@
 // Package inventory is the inventory management context (ADR-0082 §1-§3,
-// §7; 02-architecture §2.2, 03-data-model §3.35): goods movements of
+// §7-§8; 02-architecture §2.2, 03-data-model §3.35): goods movements of
 // materials at the storage locations of plants, each posted as a material
 // document numbered from its company's material_document range, their
 // reversal by another document, and the stock per material, plant and
-// storage location now or as at a date (S1c).
+// storage location now or as at a date (S1c); the valuation of materials
+// per plant at a standard or moving price under a valuation class, every
+// movement's value posted through the ledger's posting port by the
+// accounts of its class, and price changes that revalue the stock (S1d).
 //
-// Stock is the sum of its movements and never below zero: a movement
-// adds to its stock row in the database (inventory.movement_stock), and a
-// posting locks every stock row it moves, in one order, and checks the
-// quantity left before it writes the movements. Nothing is posted to the
-// ledger yet; valuation follows (S1d).
+// Stock is the sum of its movements and never below zero, and a
+// valuation's quantity and value the sum of its movements and price
+// changes: a movement adds to its stock row and its valuation in the
+// database (inventory.movement_stock). A posting locks the valuations and
+// stock rows it moves, each in one order, checks and values its lines in
+// the order the database applies them, then posts one journal entry
+// (journal.go) and writes the lines.
 //
 // The context reads the materials context's published API
 // (materials.Materials), tenancy's companies and org units, the ledger's
-// cost centers and fiscal calendar and the configuration's number ranges
-// and company dates through the ports below, which the composition root
-// wires; procurement will post its goods receipts through it (ADR-0082
-// §2-§3, S1e).
+// cost centers, fiscal calendar and account determination and the
+// configuration's number ranges, company dates and valuation classes, and
+// posts through the ledger's posting port, through the ports below, which
+// the composition root wires; procurement will post its goods receipts
+// through it (ADR-0082 §2-§3, S1e).
 package inventory
 
 import (

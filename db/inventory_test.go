@@ -329,6 +329,16 @@ func TestValuationRules(t *testing.T) {
 		{"a standard valuation with its stock", func(s inventoryScene) []stmt {
 			return append([]stmt{standard(s)}, append(doc(s), valued(s, "10", 333))...)
 		}, ""},
+		{"a standard stock at a tie, rounded away from zero", func(s inventoryScene) []stmt {
+			return append([]stmt{with(s, "3000", "standard", "EUR", 1, 3)}, append(doc(s), valued(s, "1.5", 1))...)
+		}, ""},
+		{"a standard stock at a tie, rounded down", func(s inventoryScene) []stmt {
+			return append([]stmt{with(s, "3000", "standard", "EUR", 1, 3)}, append(doc(s), valued(s, "1.5", 0))...)
+		}, "valuation_standard_value"},
+		{"a moving price at a tie, rounded away from zero", func(s inventoryScene) []stmt {
+			return append([]stmt{with(s, "3000", "moving_average", "EUR", 0, 1)}, append(doc(s), valued(s, "2", 3),
+				step(`SELECT 1/(price = 2)::int FROM inventory.valuation`))...)
+		}, ""},
 		{"a standard stock not worth its price", func(s inventoryScene) []stmt {
 			return append([]stmt{standard(s)}, append(doc(s), valued(s, "10", 334))...)
 		},

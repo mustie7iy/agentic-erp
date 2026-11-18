@@ -77,91 +77,115 @@ func lockValuations(ctx context.Context, tx pgx.Tx, lines []Line, r refs) (map[v
 //     the moving price, which is refused while that is zero;
 //   - what a line is valued at beyond what its stock takes is its price
 //     difference: a reversal is valued at what its original line was, and
-//     a transfer's receipt, its reversal's too, at what its issue took, so
-//     a transfer within a plant leaves the plant's value as it was.
+//     a transfer's receipt at what its issue took; within a plant (311,
+//     312) a reversal's too, so it leaves the plant's value as it was,
+//     while a 302 gives each plant back what its 301 moved.
 func valueLines(lines []Line, mt movementType, vals map[valuationKey]*Valuation, amounts map[int16]money.Minor, r refs) error {
 	for i := range lines {
 		l := &lines[i]
-		v := vals[valuationKey{l.MaterialID, l.PlantID}]
+		q := money.ParseRat(l.Quantity)
 		target := l.target
 		if a, ok := amounts[l.ItemNo]; ok && target == nil {
 			target = &a
 		}
-		if mt.transfer != noTransfer { // a transfer, or its reversal, receives what its issue took, the line before it
+		if mt.transfer == betweenStorageLocations || (mt.transfer == betweenPlants && mt.reverses == "") {
 			target = nil
-			if l.Quantity[0] != '-' && i > 0 && lines[i-1].ItemNo == l.ItemNo {
-				took := -lines[i-1].Amount
+			if issue, ok := issueOf(lines, i); ok && q.Sign() > 0 {
+				took := -issue.Amount
 				target = &took
 			}
 		}
-		amount, err := v.move(money.ParseRat(l.Quantity), target)
+		amount, err := vals[valuationKey{l.MaterialID, l.PlantID}].move(q, target)
 		if err != nil {
 			return lineErr(err, l, r)
 		}
-		l.Amount, l.Difference = amount, amount
+		l.Amount, l.Difference = amount, 0
 		if target != nil {
-			l.Difference = *target
+			l.Difference = *target - amount
 		}
-		l.Difference -= amount
 	}
 	return nil
+}
+
+// issueOf is the issue of the transfer whose receipt is lines[i]: the
+// line before it, of the same item. items gives each transfer's item its
+// issue and then its receipt, and negated, taking a reversal's lines last
+// first, gives the reversal of the receipt, an issue, before that of the
+// issue.
+func issueOf(lines []Line, i int) (Line, bool) {
+	if i == 0 || lines[i-1].ItemNo != lines[i].ItemNo {
+		return Line{}, false
+	}
+	return lines[i-1], true
 }
 
 // errNoPrice is move's refusal of a receipt at a moving price of zero
 // that names no amount.
 var errNoPrice = errors.New("no price")
 
-// move values a movement of the quantity into (positive) or out of the
-// valuation's stock, the value target when it is given, and applies it
-// as movement_stock does: every amount is rounded once, half away from
-// zero.
+// qty is the valuation's stock quantity, exactly.
+func (v *Valuation) qty() *big.Rat { return money.ParseRat(v.Quantity) }
+
+// move values a movement of the quantity q into (positive) or out of the
+// valuation's stock, at target when it is given, and applies it as
+// movement_stock does: every amount is rounded once, half away from zero.
 func (v *Valuation) move(q *big.Rat, target *money.Minor) (money.Minor, error) {
-	before := money.ParseRat(v.Quantity)
+	before := v.qty()
 	after := new(big.Rat).Add(before, q)
-	value, price, unit := rat(v.Value), rat(v.Price), rat(money.Minor(v.PriceUnit))
-	// The amount is worth, rounded, less offset.
-	worth, offset := new(big.Rat), v.Value
+	price, unit := rat(v.Price), rat(money.Minor(v.PriceUnit))
+	var amount money.Minor
+	var err error
 	switch {
-	case v.PriceControl == Standard: // what the stock after it is worth at the price
-		worth.Quo(worth.Mul(after, price), unit)
-	case q.Sign() < 0: // the value left in proportion to the quantity left
+	case v.PriceControl == Standard: // the stock after it at the price, less the value before
+		amount, err = valueLeft(new(big.Rat).Quo(new(big.Rat).Mul(after, price), unit), v.Value)
+	case q.Sign() < 0: // the value in proportion to the quantity left, less the value before
+		left := new(big.Rat)
 		if after.Sign() > 0 {
-			worth.Quo(worth.Mul(value, after), before)
+			left.Quo(left.Mul(rat(v.Value), after), before)
 		}
-	case target != nil:
-		worth, offset = rat(*target), 0
+		amount, err = valueLeft(left, v.Value)
+	case target != nil: // what it is worth
+		amount = *target
 	case v.Price == 0:
 		return 0, errNoPrice
 	default: // its quantity at the moving price
-		worth.Quo(worth.Mul(q, price), unit)
-		offset = 0
-	}
-	rounded, err := money.Round(worth, 0)
-	amount := rounded - offset
-	value2, serr := money.Sum(v.Value, amount)
-	err = errors.Join(err, serr)
-	newPrice := v.Price
-	if v.PriceControl == MovingAverage && after.Sign() > 0 {
-		var perr error
-		newPrice, perr = money.Round(new(big.Rat).Quo(new(big.Rat).Mul(rat(value2), unit), after), 0)
-		err = errors.Join(err, perr)
+		amount, err = money.Round(new(big.Rat).Quo(new(big.Rat).Mul(q, price), unit), 0)
 	}
 	if err != nil {
 		return 0, err
 	}
-	v.Quantity, v.Value, v.Price = money.PlainQuantity(after), value2, newPrice
+	value, err := money.Sum(v.Value, amount)
+	if err != nil {
+		return 0, err
+	}
+	if v.PriceControl == MovingAverage && after.Sign() > 0 {
+		if v.Price, err = money.Round(new(big.Rat).Quo(new(big.Rat).Mul(rat(value), unit), after), 0); err != nil {
+			return 0, err
+		}
+	}
+	v.Quantity, v.Value = money.PlainQuantity(after), value
 	return amount, nil
+}
+
+// valueLeft is what a movement takes from or adds to the value before:
+// the value it leaves, rounded, less that.
+func valueLeft(left *big.Rat, before money.Minor) (money.Minor, error) {
+	l, err := money.Round(left, 0)
+	return l - before, err
 }
 
 func rat(m money.Minor) *big.Rat { return new(big.Rat).SetInt64(int64(m)) }
 
-// lineErr is the refusal of a line move could not value.
+// lineErr is the refusal of a line move could not value: a receipt
+// without a price, or a value beyond the range of an amount.
 func lineErr(err error, l *Line, r refs) error {
 	m := r.materials[l.MaterialID]
 	if errors.Is(err, errNoPrice) {
 		return problem.Invalid("inventory.no_price", fmt.Sprintf("items[%d].amount", l.ItemNo-1), "Material "+m.Number+" has no moving price in plant "+
 			r.units[l.PlantID].Code+" yet; its receipt names the amount it is worth.")
 	}
+	// Else money.ErrOverflow: move's roundings and sums fail only beyond
+	// an amount's range.
 	return problem.Unprocessable("inventory.amount_too_large", "The value of material "+m.Number+"'s line "+fmt.Sprint(l.LineNo)+
 		" is beyond the range of an amount.")
 }
@@ -179,17 +203,28 @@ func itemAmounts(items []ItemInput, mt movementType, code string, vals map[valua
 			return nil, problem.Invalid("inventory.amount_not_allowed", field, "Only a receipt ("+code+" is not one) names what it is worth.")
 		}
 		v := vals[valuationKey{it.MaterialID, it.PlantID}]
-		if it.Amount.Currency != v.Currency {
-			return nil, problem.Invalid("inventory.currency_mismatch", field+".currency", "Amounts are in the company's currency "+v.Currency+".")
-		}
-		a, err := platformcurrency.ParseAmount(it.Amount.Value, v.Currency, v.Exponent, field+".amount")
+		a, err := amountOf(field, *it.Amount, v.Currency, v.Exponent, "inventory.invalid_amount")
 		if err != nil {
 			return nil, err
-		}
-		if a < 0 {
-			return nil, problem.Invalid("inventory.invalid_amount", field+".amount", "A receipt is worth an amount that is not negative.")
 		}
 		out[int16(i+1)] = a // at most 100 items (the contract's)
 	}
 	return out, nil
+}
+
+// amountOf reads an amount or price a request gives in the company's
+// currency, exp decimals: in its form (400 request.invalid_amount) and
+// not negative (422 code).
+func amountOf(field string, a Amount, currency string, exp int, code string) (money.Minor, error) {
+	if a.Currency != currency {
+		return 0, problem.Invalid("inventory.currency_mismatch", field+".currency", "Amounts are in the company's currency "+currency+".")
+	}
+	m, err := platformcurrency.ParseAmount(a.Value, currency, exp, field+".amount")
+	if err != nil {
+		return 0, err
+	}
+	if m < 0 {
+		return 0, problem.Invalid(code, field+".amount", "The amount is not negative.")
+	}
+	return m, nil
 }

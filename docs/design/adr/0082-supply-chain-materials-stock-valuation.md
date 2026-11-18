@@ -452,10 +452,11 @@ create with such a match is refused (409) unless the request confirms it.
   posted; the ledger's refusals (a closed period) refuse the movement.
 - **Reversals** value each line at what its original line was, given
   back, its stock's share at the price now, the rest a price difference,
-  against the original's accounts; a transfer's reversal, as a transfer,
-  receives what its issue took, so reversing a transfer within a plant
-  leaves its value as it was whatever moved since (review round 1,
-  `TestTransferReversalAfterReceipt`).
+  against the original's accounts; a 312, as a transfer within a plant,
+  receives what its issue took, so it leaves the plant's value as it was
+  whatever moved since (review round 1, `TestTransferReversalAfterReceipt`),
+  and a 302 gives each plant back what the 301 moved, its price
+  difference reversed (`TestStandardTransfersAndReversals`).
 - **Range.** A value beyond an amount's range is refused (422
   `inventory.amount_too_large`, `money.Sum` of the stock's value); the
   database computes a moving price by integer division of numerics,

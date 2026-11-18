@@ -53,8 +53,10 @@ CREATE TABLE inventory.valuation (
   -- No stock, no value.
   CONSTRAINT valuation_value_without_stock CHECK (quantity > 0 OR value = 0),
   -- A standard-priced stock is worth its quantity at its standard price,
-  -- rounded half away from zero, as an issue's value is taken from it.
-  CONSTRAINT valuation_standard_value CHECK (price_control <> 'standard' OR value = round(quantity * price / price_unit))
+  -- rounded half away from zero, as an issue's value is taken from it:
+  -- exactly, by integer division of numerics, as the application
+  -- computes it (a numeric quotient keeps only some sixteen digits).
+  CONSTRAINT valuation_standard_value CHECK (price_control <> 'standard' OR value = div(2 * quantity * price + price_unit, 2 * price_unit))
 );
 CREATE TRIGGER valuation_touch BEFORE UPDATE ON inventory.valuation FOR EACH ROW EXECUTE FUNCTION platform.touch();
 -- A valuation starts with no stock; its price control, currency, price
@@ -158,7 +160,7 @@ BEGIN
   END IF;
   UPDATE inventory.valuation SET quantity = quantity + NEW.quantity, value = value + NEW.amount, version = version + 1,
     price = CASE WHEN price_control = 'moving_average' AND quantity + NEW.quantity > 0
-      THEN div(2 * (value + NEW.amount)::numeric * price_unit + (quantity + NEW.quantity), 2 * (quantity + NEW.quantity))::bigint ELSE price END
+      THEN div(2 * (value::numeric + NEW.amount) * price_unit + (quantity + NEW.quantity), 2 * (quantity + NEW.quantity))::bigint ELSE price END
   WHERE tenant_id = NEW.tenant_id AND material_id = NEW.material_id AND plant_id = NEW.plant_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'a movement is valued by its material''s valuation in the plant' USING ERRCODE = 'foreign_key_violation', CONSTRAINT = 'movement_valuation';

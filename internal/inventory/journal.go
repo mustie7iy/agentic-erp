@@ -16,8 +16,9 @@ import (
 // movement type posts its value against (ADR-0082 §8; SAP's GBB
 // modifiers ZOB, BSA, VBR and VNG, from memory); a transfer posts against
 // none but stock and price differences.
-var counterKinds = map[string]string{"501": "receipt", "502": "receipt", "561": "initial_entry", "562": "initial_entry", "201": "consumption",
-	"202": "consumption", "551": "scrapping", "552": "scrapping"}
+var counterKinds = map[string]string{"501": config.InventoryReceipt, "502": config.InventoryReceipt, "561": config.InventoryInitialEntry,
+	"562": config.InventoryInitialEntry, "201": config.InventoryConsumption, "202": config.InventoryConsumption, "551": config.InventoryScrapping,
+	"552": config.InventoryScrapping}
 
 // entryRef is the journal entry a document or price change posted; all
 // nil when it posted none.
@@ -25,6 +26,11 @@ type entryRef struct {
 	id     *uuid.UUID
 	year   *int16
 	number *string
+}
+
+// entryOf is the entry the ledger posted.
+func entryOf(e ledger.Entry) entryRef {
+	return entryRef{id: &e.ID, year: &e.FiscalYear, number: &e.DocumentNumber}
 }
 
 // accounts finds the company's accounts of valuation classes by kind,
@@ -35,6 +41,10 @@ type accounts struct {
 	company uuid.UUID
 	code    string
 	found   map[string]uuid.UUID
+}
+
+func (e *Endpoints) accounts(company uuid.UUID, code string) *accounts {
+	return &accounts{e: e, company: company, code: code, found: map[string]uuid.UUID{}}
 }
 
 func (a *accounts) of(ctx context.Context, kind, class string) (uuid.UUID, error) {
@@ -60,7 +70,7 @@ func (a *accounts) of(ctx context.Context, kind, class string) (uuid.UUID, error
 // rest on the account its movement type posts against, with the line's
 // cost center. A line of no value posts nothing.
 func (e *Endpoints) entryLines(ctx context.Context, in posting, vals map[valuationKey]*Valuation, r refs) ([]ledger.PostingLine, error) {
-	a := &accounts{e: e, company: in.company.ID, code: in.company.Code, found: map[string]uuid.UUID{}}
+	a := e.accounts(in.company.ID, in.company.Code)
 	mt := movementTypes[in.movementType]
 	var out []ledger.PostingLine
 	add := func(kind, class string, amount money.Minor, line ledger.PostingLine) error {
@@ -68,17 +78,20 @@ func (e *Endpoints) entryLines(ctx context.Context, in posting, vals map[valuati
 			return nil
 		}
 		id, err := a.of(ctx, kind, class)
+		if err != nil {
+			return err
+		}
 		line.AccountID, line.Amount = id, amount
 		out = append(out, line)
-		return err
+		return nil
 	}
 	for _, l := range in.lines {
 		class := vals[valuationKey{l.MaterialID, l.PlantID}].ValuationClass
 		qty, unit := l.Quantity, r.materials[l.MaterialID].BaseUnit
-		if err := add("stock", class, l.Amount, ledger.PostingLine{Quantity: &qty, Unit: &unit}); err != nil {
+		if err := add(config.InventoryStock, class, l.Amount, ledger.PostingLine{Quantity: &qty, Unit: &unit}); err != nil {
 			return nil, err
 		}
-		if err := add("price_difference", class, l.Difference, ledger.PostingLine{}); err != nil {
+		if err := add(config.InventoryPriceDifference, class, l.Difference, ledger.PostingLine{}); err != nil {
 			return nil, err
 		}
 		if mt.transfer == noTransfer {
@@ -96,6 +109,7 @@ func (e *Endpoints) entryLines(ctx context.Context, in posting, vals map[valuati
 // day. A transfer between storage locations of a plant moves no value
 // out of the valuation area and posts none, as SAP's 311 posts no
 // accounting document (from memory).
+// The valuations are of the company's currency, which they were created in.
 func (e *Endpoints) post(ctx context.Context, in posting, id uuid.UUID, number string, vals map[valuationKey]*Valuation, r refs) (entryRef, error) {
 	if movementTypes[in.movementType].transfer == betweenStorageLocations {
 		return entryRef{}, nil
@@ -105,15 +119,14 @@ func (e *Endpoints) post(ctx context.Context, in posting, id uuid.UUID, number s
 		return entryRef{}, err
 	}
 	docType := "WA"
-	if k := counterKinds[in.movementType]; k == "receipt" || k == "initial_entry" {
+	if k := counterKinds[in.movementType]; k == config.InventoryReceipt || k == config.InventoryInitialEntry {
 		docType = "WE"
 	}
-	currency := vals[valuationKey{in.lines[0].MaterialID, in.lines[0].PlantID}].Currency // one company, one currency
 	text := "Material document " + number + " (" + in.movementType + " " + movementTypes[in.movementType].name + ")"
 	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: in.company.ID, DocumentType: docType, DocumentDate: in.day, PostingDate: in.day,
-		Currency: currency, Reference: &number, HeaderText: &text, SourceContext: "inventory", SourceDocumentID: id, Lines: lines})
+		Currency: in.company.LocalCurrency, Reference: &number, HeaderText: &text, SourceContext: "inventory", SourceDocumentID: id, Lines: lines})
 	if err != nil {
 		return entryRef{}, fmt.Errorf("inventory: post material document %s: %w", number, err)
 	}
-	return entryRef{id: &entry.ID, year: &entry.FiscalYear, number: &entry.DocumentNumber}, nil
+	return entryOf(entry), nil
 }

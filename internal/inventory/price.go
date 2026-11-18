@@ -3,14 +3,17 @@ package inventory
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -32,7 +35,7 @@ func (e *Endpoints) ChangeValuationClass(ctx context.Context, id uuid.UUID, ifMa
 	if err := ifMatch(v.Version); err != nil {
 		return Valuation{}, err
 	}
-	le, co, err := e.company(ctx, v.LegalEntityID)
+	c, err := e.companyOf(ctx, v.LegalEntityID)
 	if err != nil {
 		return Valuation{}, err
 	}
@@ -41,13 +44,12 @@ func (e *Endpoints) ChangeValuationClass(ctx context.Context, id uuid.UUID, ifMa
 		return Valuation{}, err
 	}
 	number := r.materials[v.MaterialID].Number
-	switch _, known := co.InventoryClass(class); {
+	switch _, known := c.co.InventoryClass(class); {
 	case class == v.ValuationClass:
 		return Valuation{}, problem.Unprocessable("inventory.nothing_to_change", "Material "+number+" is of valuation class "+class+" already.")
 	case !known:
-		return Valuation{}, problem.Invalid("inventory.unknown_valuation_class", "valuation_class", "Company "+le.Code+" has no valuation class "+
-			class+" (companies[].account_determination.inventory).")
-	case money.ParseRat(v.Quantity).Sign() > 0:
+		return Valuation{}, unknownClass(c.le.Code, class)
+	case v.qty().Sign() > 0:
 		return Valuation{}, problem.Conflict("inventory.valuation_class_with_stock", "Material "+number+" has stock in plant "+
 			r.units[v.PlantID].Code+"; its valuation class changes once it has none, as its stock stands on its class's account.")
 	}
@@ -81,41 +83,36 @@ func (e *Endpoints) ChangePrice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := ifMatch(v.Version); err != nil {
 		return Valuation{}, err
 	}
-	price, err := priceOf("price", amount, currency, v.Currency, v.Exponent)
-	if err != nil {
-		return Valuation{}, err
-	}
 	r, err := e.read(ctx, []uuid.UUID{v.MaterialID}, []uuid.UUID{v.PlantID}, nil, []uuid.UUID{v.LegalEntityID})
 	if err != nil {
 		return Valuation{}, err
 	}
 	number := r.materials[v.MaterialID].Number
-	switch {
-	case price == v.Price:
-		return Valuation{}, problem.Unprocessable("inventory.nothing_to_change", "Material "+number+"'s price is "+money.Minor(price).Plain(v.Exponent)+
-			" already.")
-	case price == 0 && v.PriceControl == Standard:
-		return Valuation{}, problem.Invalid("inventory.invalid_price", "price.amount", "A standard price is above zero.")
-	}
-	le, day, err := e.today(ctx, v.LegalEntityID)
+	price, err := newPrice(v, number, Amount{Value: amount, Currency: currency})
 	if err != nil {
 		return Valuation{}, err
 	}
-	if err := e.Postings.Postable(ctx, le.ID, day.Date); err != nil {
-		return Valuation{}, fmt.Errorf("inventory: change the price of material %s on %s: %w", number, day.Date.Format(time.DateOnly), err)
+	co, err := e.companyOf(ctx, v.LegalEntityID)
+	if err != nil {
+		return Valuation{}, err
 	}
-	worth, err := money.Scale(price, v.Quantity, int64(v.PriceUnit))
+	day := co.day.Date
+	if err := e.Postings.Postable(ctx, co.le.ID, day); err != nil {
+		return Valuation{}, fmt.Errorf("inventory: change the price of material %s on %s: %w", number, day.Format(time.DateOnly), err)
+	}
+	// money.Round of an exact quotient fails only beyond an amount's range.
+	worth, err := money.Round(new(big.Rat).Quo(new(big.Rat).Mul(v.qty(), rat(price)), rat(money.Minor(v.PriceUnit))), 0)
 	if err != nil {
 		return Valuation{}, problem.Unprocessable("inventory.amount_too_large", "Material "+number+"'s stock at the new price is beyond the range of an amount.")
 	}
-	change := priceChange{id: uuid.Must(uuid.NewV7()), v: v, price: price, amount: worth - v.Value, day: day.Date}
-	entry, err := e.revalue(ctx, change, le.Code, r.materials[v.MaterialID])
+	change := priceChange{id: uuid.Must(uuid.NewV7()), v: v, price: price, amount: worth - v.Value, day: day}
+	entry, err := e.revalue(ctx, change, co.le.Code, r.materials[v.MaterialID])
 	if err != nil {
 		return Valuation{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO inventory.price_change (tenant_id, id, valuation_id, old_price, new_price, quantity, amount, posting_date,
 			journal_entry_id, journal_entry_year, journal_entry_number, created_by) VALUES ($1, $2, $3, $4, $5, $6::numeric, $7, $8, $9, $10, $11, $12)`,
-		p.TenantID, change.id, v.ID, v.Price, price, v.Quantity, change.amount, day.Date, entry.id, entry.year, entry.number, p.ID); err != nil {
+		p.TenantID, change.id, v.ID, v.Price, price, v.Quantity, change.amount, day, entry.id, entry.year, entry.number, p.ID); err != nil {
 		return Valuation{}, fmt.Errorf("inventory: keep the price change of material %s: %w", number, err)
 	}
 	after, err := loadValuation(ctx, tx, id, false)
@@ -123,6 +120,21 @@ func (e *Endpoints) ChangePrice(ctx context.Context, id uuid.UUID, ifMatch func(
 		return Valuation{}, err
 	}
 	return after, recordPrice(ctx, change, after, r, entry)
+}
+
+// newPrice reads a valuation's new price: in its currency, not negative,
+// another than its price, and above zero for a standard price.
+func newPrice(v Valuation, number string, a Amount) (money.Minor, error) {
+	price, err := amountOf("price", a, v.Currency, v.Exponent, "inventory.invalid_price")
+	switch {
+	case err != nil:
+		return 0, err
+	case price == v.Price:
+		return 0, problem.Unprocessable("inventory.nothing_to_change", "Material "+number+"'s price is "+price.Plain(v.Exponent)+" already.")
+	case price == 0 && v.PriceControl == Standard:
+		return 0, problem.Invalid("inventory.invalid_price", "price.amount", "A standard price is above zero.")
+	}
+	return price, nil
 }
 
 // priceChange is a price change about to be kept.
@@ -142,12 +154,12 @@ func (e *Endpoints) revalue(ctx context.Context, c priceChange, company string, 
 	if c.amount == 0 {
 		return entryRef{}, nil
 	}
-	a := &accounts{e: e, company: c.v.LegalEntityID, code: company, found: map[string]uuid.UUID{}}
-	stock, err := a.of(ctx, "stock", c.v.ValuationClass)
+	a := e.accounts(c.v.LegalEntityID, company)
+	stock, err := a.of(ctx, config.InventoryStock, c.v.ValuationClass)
 	if err != nil {
 		return entryRef{}, err
 	}
-	reval, err := a.of(ctx, "revaluation", c.v.ValuationClass)
+	reval, err := a.of(ctx, config.InventoryRevaluation, c.v.ValuationClass)
 	if err != nil {
 		return entryRef{}, err
 	}
@@ -158,7 +170,7 @@ func (e *Endpoints) revalue(ctx context.Context, c priceChange, company string, 
 	if err != nil {
 		return entryRef{}, fmt.Errorf("inventory: post the price change of material %s: %w", number, err)
 	}
-	return entryRef{id: &entry.ID, year: &entry.FiscalYear, number: &entry.DocumentNumber}, nil
+	return entryOf(entry), nil
 }
 
 // recordPrice adds the audit record of a price change and publishes
@@ -172,9 +184,7 @@ func recordPrice(ctx context.Context, c priceChange, v Valuation, r refs, entry 
 		"price_unit": v.PriceUnit, "quantity": v.Quantity, "revaluation": money.EventAmount(c.amount, v.Currency, v.Exponent),
 		"posting_date": c.day.Format(time.DateOnly), "journal_entry_id": entry.id, "journal_entry_year": entry.year, "journal_entry_number": entry.number,
 		"version": v.Version}
-	if err := audit.Record(ctx, "inventory.valuation.change_price", "inventory.valuation", v.ID, payload,
-		outbox.Event{Context: "inventory", Name: "material_price_changed", AggregateType: "inventory.valuation", AggregateID: v.ID, Payload: payload}); err != nil {
-		return fmt.Errorf("inventory: record the price change of valuation %s: %w", v.ID, err)
-	}
-	return nil
+	return errs.Wrapf(audit.Record(ctx, "inventory.valuation.change_price", "inventory.valuation", v.ID, payload,
+		outbox.Event{Context: "inventory", Name: "material_price_changed", AggregateType: "inventory.valuation", AggregateID: v.ID, Payload: payload}),
+		"inventory: record the price change of valuation %s", v.ID)
 }
