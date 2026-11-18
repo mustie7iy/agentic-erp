@@ -185,3 +185,108 @@ func TestPricingTier(t *testing.T) {
 		})
 	}
 }
+
+// withGroups is withPricing with the customer price groups 01 and 02
+// (ADR-0067 §13).
+func withGroups(t *testing.T) *Config {
+	t.Helper()
+	c := withPricing(t)
+	c.Pricing.PriceGroups = []PriceGroup{{Code: "01", Name: "Wholesale"}, {Code: "02", Name: "Retail"}}
+	return c
+}
+
+// TestPriceGroups: price groups with unique codes and names validate,
+// with a procedure or without one; each rule refuses the setting's own
+// path; a group is found by its code; a group is never removed once
+// activated, its name may change and groups may be added; a group's
+// changes are tier 2 and its name tier 1 (T80f acceptance).
+func TestPriceGroups(t *testing.T) {
+	if fs := Validate(withGroups(t), currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("two groups: got %v, want no errors", fs)
+	}
+	many := make([]PriceGroup, MaxPriceGroups+1)
+	for i := range many {
+		many[i] = PriceGroup{Code: fmt.Sprintf("G%03d", i), Name: "Group"}
+	}
+	for name, tc := range map[string]struct {
+		change        func(*Pricing)
+		path, message string
+	}{
+		"without a procedure":               {func(p *Pricing) { p.ConditionTypes, p.Procedure = nil, nil }, "", ""},
+		"a name of 60 letters beyond ASCII": {func(p *Pricing) { p.PriceGroups[1].Name = strings.Repeat("é", 60) }, "", ""},
+		"a code in small letters":           {func(p *Pricing) { p.PriceGroups[0].Code = "w1" }, "pricing.price_groups[0].code", "1-10 capital letters"},
+		"a code twice":                      {func(p *Pricing) { p.PriceGroups[1].Code = "01" }, "pricing.price_groups[01]", "duplicate price group code"},
+		"no name":                           {func(p *Pricing) { p.PriceGroups[1].Name = " " }, "pricing.price_groups[02].name", "is required"},
+		"a name of 61 characters":           {func(p *Pricing) { p.PriceGroups[1].Name = strings.Repeat("n", 61) }, "pricing.price_groups[02].name", "at most 60"},
+		"too many groups":                   {func(p *Pricing) { p.PriceGroups = many }, "pricing.price_groups", "at most 100 price groups"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := withGroups(t)
+			tc.change(&c.Pricing)
+			fs := Validate(c, currency.Seeded())
+			if tc.path == "" {
+				if HasErrors(fs) {
+					t.Errorf("findings: got %v, want no errors", fs)
+				}
+				return
+			}
+			if !slices.ContainsFunc(fs, func(f Finding) bool {
+				return f.Severity == SevError && f.Path == tc.path && strings.Contains(f.Message, tc.message)
+			}) {
+				t.Errorf("findings: got %v, want an error at %s saying %q", fs, tc.path, tc.message)
+			}
+		})
+	}
+	p := withGroups(t).Pricing
+	if g, ok := p.PriceGroup("02"); !ok || g.Name != "Retail" {
+		t.Errorf("price group 02: got %v %v, want Retail", g, ok)
+	}
+	if _, ok := p.PriceGroup("03"); ok {
+		t.Error("price group 03: got one, want none")
+	}
+	for name, c := range map[string]struct {
+		change func(*Pricing)
+		path   string // of the expected error; "" when none
+	}{
+		"renamed": {func(p *Pricing) { p.PriceGroups[0].Name = "Distributors" }, ""},
+		"added":   {func(p *Pricing) { p.PriceGroups = append(p.PriceGroups, PriceGroup{Code: "03", Name: "Online"}) }, ""},
+		"removed": {func(p *Pricing) { p.PriceGroups = p.PriceGroups[:1] }, "pricing.price_groups[02]"},
+	} {
+		t.Run("transition "+name, func(t *testing.T) {
+			proposed := withGroups(t)
+			c.change(&proposed.Pricing)
+			fs := PricingTransitions(withGroups(t), proposed)
+			if c.path == "" && len(fs) != 0 {
+				t.Errorf("got %v, want none", fs)
+			}
+			if c.path != "" && !slices.ContainsFunc(fs, func(f Finding) bool { return f.Severity == SevError && f.Path == c.path }) {
+				t.Errorf("got %v, want an error at %s", fs, c.path)
+			}
+		})
+	}
+	renamed := withGroups(t)
+	renamed.Pricing.PriceGroups[1].Name = "Shops"
+	for name, c := range map[string]struct {
+		old, new *Config
+		tier     Tier
+		paths    string
+	}{
+		"groups added": {withPricing(t), withGroups(t), TierOperational, "pricing.price_groups[01] pricing.price_groups[02]"},
+		"a name":       {withGroups(t), renamed, TierCosmetic, "pricing.price_groups[02].name"},
+	} {
+		t.Run("tier when "+name, func(t *testing.T) {
+			diffs, _ := Diff(c.old, c.new) // Diff never fails
+			var paths []string
+			for _, d := range diffs {
+				paths = append(paths, d.Path)
+				if d.Tier != c.tier {
+					t.Errorf("tier of %s: got %v, want %v", d.Path, d.Tier, c.tier)
+				}
+			}
+			slices.Sort(paths)
+			if got := strings.Join(paths, " "); got != c.paths {
+				t.Errorf("changes: got %s, want %s", got, c.paths)
+			}
+		})
+	}
+}

@@ -47,6 +47,7 @@ var notPersonal = map[string]string{
 	"controlling.allocation_cycle.name":                       "an allocation cycle's name",
 	"controlling.internal_order.name":                         "an internal order's name",
 	"controlling.plan_category.name":                          "a plan category's name",
+	"controlling.statistical_key_figure.name":                 "a statistical key figure's name, such as Employees",
 	"identity.role.name":                                      "a role's name",
 	"integration.connector.name":                              "a connector's name",
 	"integration.webhook_delivery.subject":                    "an event's subject: the id of the resource it is about",

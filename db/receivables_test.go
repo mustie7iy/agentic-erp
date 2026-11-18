@@ -62,8 +62,11 @@ func TestCustomerInvoiceRules(t *testing.T) {
 			return all(tx, invoice(s, s.doc, "CI1", "invoice", 10000, 1900, 11900, "posted"))
 		}, "customer_invoice_posted"},
 		{"of another kind", func(tx pgx.Tx, s scene) error {
-			return all(tx, invoice(s, s.doc, "CI1", "debit_memo", 10000, 1900, 11900, "draft"))
+			return all(tx, invoice(s, s.doc, "CI1", "write_off", 10000, 1900, 11900, "draft"))
 		}, "customer_invoice_kind_check"},
+		{"a draft debit memo (T75j, migration 000379)", func(tx pgx.Tx, s scene) error {
+			return all(tx, invoice(s, s.doc, "CI1", "debit_memo", 10000, 1900, 11900, "draft"), step(item, s.tenant, s.doc, 1, 10000, &code, 1900))
+		}, ""},
 		{"a gross that is not net and tax", func(tx pgx.Tx, s scene) error {
 			return all(tx, invoice(s, s.doc, "CI1", "invoice", 10000, 1900, 11901, "draft"))
 		}, "customer_invoice_totals"},
@@ -89,7 +92,7 @@ func TestCustomerInvoiceRules(t *testing.T) {
 		}, "permission denied"},
 		{"a draft changed without being posted", func(tx pgx.Tx, s scene) error {
 			return all(tx, entered(s), step(`UPDATE receivables.customer_invoice SET posting_date = '2026-03-11', version = version + 1`))
-		}, "only a draft changes, and only by being posted"},
+		}, "only a draft is posted and a posted document reversed"},
 		{"an invoice deleted", func(tx pgx.Tx, s scene) error {
 			return all(tx, entered(s), step(`DELETE FROM receivables.customer_invoice`))
 		}, "permission denied"},
@@ -228,14 +231,14 @@ func TestCustomerInvoicePosting(t *testing.T) {
 		{"a draft given an entry", func(tx pgx.Tx, s scene) error {
 			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, none),
 				step(`UPDATE receivables.customer_invoice SET journal_entry_year = 2026, journal_entry_id = $1, net_due_date = '2026-04-09', version = version + 1`, s.entry))
-		}, "only a draft changes, and only by being posted"},
+		}, "only a draft is posted and a posted document reversed"},
 		{"posted twice", func(tx pgx.Tx, s scene) error {
 			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, none), posted(s), posted(s))
-		}, "only a draft changes, and only by being posted"},
+		}, "only a draft is posted and a posted document reversed"},
 		{"a posted invoice moved back to draft", func(tx pgx.Tx, s scene) error {
 			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, none), posted(s),
 				step(`UPDATE receivables.customer_invoice SET status = 'draft', journal_entry_year = NULL, journal_entry_id = NULL, net_due_date = NULL, version = version + 1`))
-		}, "only a draft changes, and only by being posted"},
+		}, "only a draft is posted and a posted document reversed"},
 		{"posted without moving its version", func(tx pgx.Tx, s scene) error {
 			return all(tx, step(draft, s.tenant, s.doc, "CI1", s.company, none), step(strings.Replace(post, "version = version + 1, ", "", 1),
 				s.doc, "2026-03-12", &term, "2026-04-09", &year, &s.entry))
@@ -286,6 +289,9 @@ func TestCustomerCreditMemoRules(t *testing.T) {
 		}, ""},
 		{"an invoice naming an invoice", func(tx pgx.Tx, s scene) error {
 			return all(tx, invoice(s), step(doc, s.tenant, s.memo, "CI2", s.company, "invoice", &s.invoice))
+		}, "customer_invoice_reference_on_credit"},
+		{"a debit memo naming an invoice (T75j)", func(tx pgx.Tx, s scene) error {
+			return all(tx, invoice(s), step(doc, s.tenant, s.memo, "CI2", s.company, "debit_memo", &s.invoice))
 		}, "customer_invoice_reference_on_credit"},
 		{"a credit memo naming no document of the tenant", func(tx pgx.Tx, s scene) error {
 			unknown := id()
@@ -815,4 +821,171 @@ func TestSeveralCustomersRevert(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDebitMemoRevert (T75j, migration 000379's down): the revert is
+// refused while a debit memo exists, the kind check it restores knowing
+// invoices and credit memos alone.
+func TestDebitMemoRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000379_customer_debit_memo").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+			currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by)
+			VALUES ($1, $1, 'CI1', $1, $1, 'debit_memo', '2026-03-10', 'EUR', 100, 0, 100, 'draft', $1, $1)`, tenant)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "customer_invoice_kind_check")
+}
+
+// TestCustomerMemoReversal (T75k, migration 000381; ADR-0063 As built): a
+// posted credit or debit memo a person entered moves to reversed once,
+// naming its reversal entry, the date on or after it posted and a reason,
+// all together, and keeping what it posted with; an invoice, a memo
+// another context entered and a draft are not reversed; nothing changes a
+// reversed document; a reversal entry is one document's.
+func TestCustomerMemoReversal(t *testing.T) {
+	need(t)
+	const doc = `INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+		currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, source_document_id, source_document_number,
+		posting_date, payment_term_code, net_due_date, journal_entry_year, journal_entry_id)
+		VALUES ($1, $2, $3, $4, gen_random_uuid(), $5, '2026-03-10', 'EUR', 100, 0, 100, $6, $1, $1, $7, $8,
+		'2026-03-12', 'NT30', CASE WHEN $6 = 'draft' THEN NULL ELSE '2026-04-09'::date END,
+		CASE WHEN $6 = 'draft' THEN NULL ELSE 2026 END, CASE WHEN $6 = 'draft' THEN NULL ELSE gen_random_uuid() END)`
+	const reverse = `UPDATE receivables.customer_invoice SET status = 'reversed', reversal_date = $2, reversal_entry_year = $3, reversal_entry_id = $4,
+		reversal_reason = $5, version = version + 1, updated_by = tenant_id WHERE id = $1`
+	type scene struct{ tenant, company, doc, entry uuid.UUID }
+	var noSource *uuid.UUID
+	var noNumber, noReason *string
+	var noDate *string
+	var noYear *int16
+	var noEntry *uuid.UUID
+	year, reason, later, before := int16(2026), "Entered twice", "2026-03-20", "2026-03-11"
+	posted := func(s scene, kind string) stmt {
+		return step(doc, s.tenant, s.doc, "CI1", s.company, kind, "posted", noSource, noNumber)
+	}
+	reversed := func(s scene) stmt { return step(reverse, s.doc, &later, &year, &s.entry, &reason) }
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a credit memo reversed", func(tx pgx.Tx, s scene) error { return all(tx, posted(s, "credit_memo"), reversed(s)) }, ""},
+		{"a debit memo reversed on the day it posted", func(tx pgx.Tx, s scene) error {
+			day := "2026-03-12"
+			return all(tx, posted(s, "debit_memo"), step(reverse, s.doc, &day, &year, &s.entry, &reason))
+		}, ""},
+		{"an invoice reversed", func(tx pgx.Tx, s scene) error { return all(tx, posted(s, "invoice"), reversed(s)) }, "customer_invoice_reversed"},
+		{"a memo entered from another context's document reversed", func(tx pgx.Tx, s scene) error {
+			source, number := id(), "BC1"
+			return all(tx, step(doc, s.tenant, s.doc, "CI1", s.company, "credit_memo", "posted", &source, &number), reversed(s))
+		}, "customer_invoice_reversed"},
+		{"reversed before it posted", func(tx pgx.Tx, s scene) error {
+			return all(tx, posted(s, "debit_memo"), step(reverse, s.doc, &before, &year, &s.entry, &reason))
+		}, "customer_invoice_reversed"},
+		{"reversed without its entry", func(tx pgx.Tx, s scene) error {
+			return all(tx, posted(s, "debit_memo"), step(reverse, s.doc, &later, noYear, noEntry, &reason))
+		}, "customer_invoice_reversed"},
+		{"reversed without its entry's year", func(tx pgx.Tx, s scene) error {
+			return all(tx, posted(s, "debit_memo"), step(reverse, s.doc, &later, noYear, &s.entry, &reason))
+		}, "customer_invoice_reversed"},
+		{"reversed without a date", func(tx pgx.Tx, s scene) error {
+			return all(tx, posted(s, "debit_memo"), step(reverse, s.doc, noDate, &year, &s.entry, &reason))
+		}, "customer_invoice_reversed"},
+		{"reversed without a reason", func(tx pgx.Tx, s scene) error {
+			return all(tx, posted(s, "debit_memo"), step(reverse, s.doc, &later, &year, &s.entry, noReason))
+		}, "customer_invoice_reversed"},
+		{"a reason of white space", func(tx pgx.Tx, s scene) error {
+			blank := "   "
+			return all(tx, posted(s, "debit_memo"), step(reverse, s.doc, &later, &year, &s.entry, &blank))
+		}, "customer_invoice_reversed"},
+		{"a reason of 201 characters", func(tx pgx.Tx, s scene) error {
+			long := strings.Repeat("r", 201)
+			return all(tx, posted(s, "debit_memo"), step(reverse, s.doc, &later, &year, &s.entry, &long))
+		}, "customer_invoice_reversed"},
+		{"a draft posted with a reversal", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(doc, s.tenant, s.doc, "CI1", s.company, "debit_memo", "draft", noSource, noNumber), step(`UPDATE receivables.customer_invoice
+				SET status = 'posted', net_due_date = '2026-04-09', journal_entry_year = 2026, journal_entry_id = gen_random_uuid(), reversal_date = $2,
+				reversal_entry_year = 2026, reversal_entry_id = $3, reversal_reason = 'x', version = version + 1 WHERE id = $1`, s.doc, later, s.entry))
+		}, "customer_invoice_reversed"},
+		{"a posted memo given a reversal without being reversed", func(tx pgx.Tx, s scene) error {
+			return all(tx, posted(s, "debit_memo"), step(`UPDATE receivables.customer_invoice SET reversal_reason = 'x', version = version + 1`))
+		}, "only a draft is posted and a posted document reversed"},
+		{"a draft reversed", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(doc, s.tenant, s.doc, "CI1", s.company, "debit_memo", "draft", noSource, noNumber), step(`UPDATE receivables.customer_invoice
+				SET status = 'reversed', reversal_date = $2, reversal_entry_year = 2026, reversal_entry_id = $3, reversal_reason = 'x',
+				net_due_date = '2026-04-09', journal_entry_year = 2026, journal_entry_id = $3, version = version + 1 WHERE id = $1`, s.doc, later, s.entry))
+		}, "only a draft is posted and a posted document reversed"},
+		{"reversed changing what it posted with", func(tx pgx.Tx, s scene) error {
+			return all(tx, posted(s, "debit_memo"), step(strings.Replace(reverse, "reversal_date = $2", "reversal_date = $2, net_due_date = '2026-05-01'", 1),
+				s.doc, &later, &year, &s.entry, &reason))
+		}, "only a draft is posted and a posted document reversed"},
+		{"a reversed memo changed again", func(tx pgx.Tx, s scene) error {
+			return all(tx, posted(s, "debit_memo"), reversed(s), step(`UPDATE receivables.customer_invoice SET reversal_reason = 'other', version = version + 1`))
+		}, "only a draft is posted and a posted document reversed"},
+		{"a reversed memo posted again", func(tx pgx.Tx, s scene) error {
+			return all(tx, posted(s, "debit_memo"), reversed(s), step(`UPDATE receivables.customer_invoice SET status = 'posted', reversal_date = NULL,
+				reversal_entry_year = NULL, reversal_entry_id = NULL, reversal_reason = NULL, version = version + 1`))
+		}, "only a draft is posted and a posted document reversed"},
+		{"reversed without its posted entry and due date", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(`INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+				currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, posting_date, payment_term_code,
+				reversal_date, reversal_entry_year, reversal_entry_id, reversal_reason)
+				VALUES ($1, $2, 'CI1', $3, gen_random_uuid(), 'debit_memo', '2026-03-10', 'EUR', 100, 0, 100, 'reversed', $1, $1, '2026-03-12', 'NT30',
+				'2026-03-20', 2026, $4, 'x')`, s.tenant, s.doc, s.company, s.entry))
+		}, "customer_invoice_posted"},
+		{"reversed without a payment term", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(`INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+				currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, posting_date, net_due_date, journal_entry_year, journal_entry_id,
+				reversal_date, reversal_entry_year, reversal_entry_id, reversal_reason)
+				VALUES ($1, $2, 'CI1', $3, gen_random_uuid(), 'debit_memo', '2026-03-10', 'EUR', 100, 0, 100, 'reversed', $1, $1, '2026-03-12', '2026-04-09',
+				2026, gen_random_uuid(), '2026-03-20', 2026, $4, 'x')`, s.tenant, s.doc, s.company, s.entry))
+		}, "customer_invoice_posted"},
+		{"two memos reversed by one entry", func(tx pgx.Tx, s scene) error {
+			other := id()
+			return all(tx, posted(s, "debit_memo"), step(doc, s.tenant, other, "CI2", s.company, "credit_memo", "posted", noSource, noNumber), reversed(s),
+				step(reverse, other, &later, &year, &s.entry, &reason))
+		}, "customer_invoice_reversal_once"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), company: id(), doc: id(), entry: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestCustomerMemoReversalRevert (T75k, migration 000381's down): the
+// revert is refused while a document was reversed.
+func TestCustomerMemoReversalRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000381_customer_memo_reversal").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+			currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, posting_date, payment_term_code, net_due_date,
+			journal_entry_year, journal_entry_id, reversal_date, reversal_entry_year, reversal_entry_id, reversal_reason)
+			VALUES ($1, $1, 'CI1', $1, $1, 'debit_memo', '2026-03-10', 'EUR', 100, 0, 100, 'reversed', $1, $1, '2026-03-12', 'NT30', '2026-04-09',
+			2026, gen_random_uuid(), '2026-03-12', 2026, gen_random_uuid(), 'Entered twice')`, tenant)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "000381 cannot be reverted")
 }

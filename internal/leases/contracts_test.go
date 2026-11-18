@@ -120,8 +120,8 @@ func TestPaymentDates(t *testing.T) {
 // refused naming the request's field, and nothing is written.
 func TestCreateRefusals(t *testing.T) {
 	e := setup(t)
-	other := e.costCenter(t, e.US, "CC-US", "2026-01-01", nil)
-	later := e.costCenter(t, e.DE, "CC-LATER", "2027-01-01", nil)
+	other := e.CostCenterFrom(t, e.US, "CC-US", "2026-01-01", nil)
+	later := e.CostCenterFrom(t, e.DE, "CC-LATER", "2027-01-01", nil)
 	stranger := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
 		VALUES ($1, $2, 'BP70000001', 'organization', 'Not a supplier', 'DE', 'active', $3, $3)`, e.Tenant.ID, stranger, e.Tenant.Human.ID)

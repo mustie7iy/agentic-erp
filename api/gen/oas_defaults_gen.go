@@ -131,6 +131,22 @@ func (s *JournalEntryCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *MaterialCreate) setDefaults() {
+	{
+		val := bool(false)
+		s.ConfirmDuplicate.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
+func (s *MaterialValuationCreate) setDefaults() {
+	{
+		val := int32(1)
+		s.PriceUnit.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *PlanCategoryCopy) setDefaults() {
 	{
 		val := bool(false)

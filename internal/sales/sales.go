@@ -13,7 +13,11 @@
 // that prices an item for both documents). A tenant whose configuration
 // has a pricing procedure has the discounts recorded for the item's key
 // taken off in the procedure's order, and the item keeps the conditions
-// applied (ADR-0067 §11). A returns order takes quantities of a posted
+// applied (ADR-0067 §11). A record may have scale levels by quantity or
+// value (§12, scales.go), and be for a customer price group, which a
+// customer's sales data in the company names (§13, sales_data.go): the
+// customer's records are found first, then its group's, then the
+// general ones. A returns order takes quantities of a posted
 // billing document's items that the customer sends back, with a reason,
 // and is confirmed once (returns.go; ADR-0067, As built T85a); a person
 // confirms the quantities that arrived, as a delivery is confirmed

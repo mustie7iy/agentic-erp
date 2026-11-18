@@ -46,7 +46,8 @@ func TestRepeated(t *testing.T) {
 // another year's numbers of its company and document type is refused, on
 // that range, the later one when both are new; journal ranges, other
 // companies and types, and two activated ranges that already repeated
-// each other are not.
+// each other are not. A material range is refused that repeats another
+// company's too, whatever the year: material numbers are the tenant's.
 func TestRangeRepeats(t *testing.T) {
 	r := func(company, dt string, year int, prefix string) NumberRange {
 		return NumberRange{Company: company, DocumentType: dt, FiscalYear: year, Prefix: prefix, First: 1, Last: 999999}
@@ -73,6 +74,13 @@ func TestRangeRepeats(t *testing.T) {
 		"a last raised into another year's numbers": {doc(span(py26, 1, 9), span(py27, 11, 19)), doc(span(py26, 1, 15), span(py27, 11, 19)),
 			"number_ranges[1000/payment_run/2026].prefix"},
 		"apart, activated before": {doc(span(py26, 1, 9), span(py27, 11, 19)), doc(span(py26, 1, 9), span(py27, 11, 29)), ""},
+		"materials of two companies": {doc(r("1000", "material", 2026, "PY")), doc(r("1000", "material", 2026, "PY"), r("2000", "material", 2026, "PY")),
+			"number_ranges[2000/material/2026].prefix"},
+		"materials of another company's later year": {nil, doc(r("1000", "material", 2026, "PY"), r("2000", "material", 2027, "PY")),
+			"number_ranges[2000/material/2027].prefix"},
+		"materials of two companies apart": {nil, doc(r("1000", "material", 2026, "PY"), r("2000", "material", 2026, "PZ")), ""},
+		"materials of a company's next year": {nil, doc(r("1000", "material", 2026, "PY"), r("1000", "material", 2027, "PY")),
+			"number_ranges[1000/material/2027].prefix"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var paths []string
@@ -84,6 +92,27 @@ func TestRangeRepeats(t *testing.T) {
 			}
 			if got := strings.Join(paths, " "); got != c.want {
 				t.Errorf("findings: got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestRepeatMessage: the refusal names the range repeated, by its year
+// within a company and by its company and year across companies.
+func TestRepeatMessage(t *testing.T) {
+	r := func(company string, year int) NumberRange {
+		return NumberRange{Company: company, DocumentType: "material", FiscalYear: year, Prefix: "MA", First: 1, Last: 9}
+	}
+	for name, c := range map[string]struct {
+		other NumberRange
+		want  string
+	}{
+		"another year":    {r("1000", 2026), "material numbers are unique across fiscal years, and this range would issue MA1, which fiscal year 2026's range issues too"},
+		"another company": {r("2000", 2026), "material numbers are unique in the tenant, and this range would issue MA1, which company 2000's range of fiscal year 2026 issues too"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := repeatMessage(r("1000", 2027), c.other, "MA1"); !strings.HasPrefix(got, c.want) {
+				t.Errorf("got %q, want it to start with %q", got, c.want)
 			}
 		})
 	}

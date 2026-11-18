@@ -202,14 +202,14 @@ func TestPriceRecordedAndReadBack(t *testing.T) {
 	wantGeneral := map[string]any{"price_id": general["id"], "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "item_key": "BRACKET-M8",
 		"customer_id": nil, "customer_number": nil, "kind": "price", "condition_type": nil, "unit": "EA",
 		"unit_price": map[string]any{"amount": "12.50", "currency": "EUR"}, "price_unit": float64(1), "percent": nil, "valid_from": "2020-01-01",
-		"valid_to": nil}
+		"valid_to": nil, "scale_basis": nil, "scale": []any{}, "price_group": nil}
 	if a, b := mustJSON(t, e.events(t, "sales_price_changed", "price_id", general["id"].(string))), mustJSON(t, []map[string]any{wantGeneral}); a != b {
 		t.Errorf("SalesPriceChanged of the general price: got %s, want %s", a, b)
 	}
 	wantOwn := map[string]any{"price_id": own["id"], "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "item_key": "BRACKET-M8",
 		"customer_id": e.customer.String(), "customer_number": "BP70000001", "kind": "price", "condition_type": nil, "unit": "EA",
 		"unit_price": map[string]any{"amount": "1175.00", "currency": "EUR"}, "price_unit": float64(100), "percent": nil,
-		"valid_from": "2026-01-01", "valid_to": "2026-12-31"}
+		"valid_from": "2026-01-01", "valid_to": "2026-12-31", "scale_basis": nil, "scale": []any{}, "price_group": nil}
 	if a, b := mustJSON(t, e.events(t, "sales_price_changed", "price_id", own["id"].(string))), mustJSON(t, []map[string]any{wantOwn}); a != b {
 		t.Errorf("SalesPriceChanged of the customer's price: got %s, want %s", a, b)
 	}

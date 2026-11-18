@@ -65,7 +65,7 @@ func withAccounts(t *testing.T, run bool) env {
 			ad.LeaseInterest, ad.RightOfUseDepreciation, ad.RightOfUseAccumulatedDepreciation = "672000", "673000", "161000"
 		}
 	}, perms...)}
-	e.center = e.costCenter(t, e.DE, "CC-LEASE", "2026-01-01", nil)
+	e.center = e.CostCenterFrom(t, e.DE, "CC-LEASE", "2026-01-01", nil)
 	e.rightOfUse, e.liability = e.Account(t, "2000", "160000"), e.Account(t, "2000", "260000")
 	return e
 }
@@ -74,31 +74,8 @@ func withAccounts(t *testing.T, run bool) env {
 func bare(t *testing.T) env {
 	t.Helper()
 	e := env{Env: fixture.New(t, perms...)}
-	e.center = e.costCenter(t, e.DE, "CC-LEASE", "2026-01-01", nil)
+	e.center = e.CostCenterFrom(t, e.DE, "CC-LEASE", "2026-01-01", nil)
 	return e
-}
-
-// costCenter writes an active cost center of the legal entity in force
-// from the day, until the day before to (nil: without end), without the
-// tables' triggers, as fixture.CostCenter writes its centers.
-func (e env) costCenter(t *testing.T, le uuid.UUID, code, from string, to *string) uuid.UUID {
-	t.Helper()
-	id := e.CostCenter(t, le, code)
-	ctx := context.Background()
-	admin := pgtest.Admin(t)
-	_, err := admin.Exec(ctx, `SET session_replication_role = replica`)
-	if err == nil {
-		_, err = admin.Exec(ctx, `INSERT INTO ledger.cost_center_period (tenant_id, id, cost_center_id, legal_entity_id, valid_from, valid_to, category,
-				change_id, created_by, updated_by)
-			VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, 'ADMIN', gen_random_uuid(), $6, $6)`, e.Tenant.ID, id, le, from, to, e.Tenant.Human.ID)
-	}
-	if err == nil {
-		_, err = admin.Exec(ctx, `RESET session_replication_role`)
-	}
-	if err != nil {
-		t.Fatalf("period of cost center %s: %v", code, err)
-	}
-	return id
 }
 
 // lease is a contract of company 2000 with the fixture's supplier and

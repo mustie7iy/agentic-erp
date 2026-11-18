@@ -27,6 +27,7 @@ var RefusalsAudited = map[string]audit.Entry{
 	"releaseSupplierInvoice":           {Action: "payables.supplier_invoice.release", ObjectType: "payables.supplier_invoice"},
 	"reverseSupplierInvoice":           {Action: "payables.supplier_invoice.reverse", ObjectType: "payables.supplier_invoice"},
 	"postCustomerInvoice":              {Action: "receivables.customer_invoice.post", ObjectType: "receivables.customer_invoice"},
+	"reverseCustomerInvoice":           {Action: "receivables.customer_invoice.reverse", ObjectType: "receivables.customer_invoice"},
 	"reverseJournalEntry":              {Action: "ledger.journal_entry.reverse", ObjectType: "ledger.journal_entry"},
 	"updatePurchaseOrder":              {Action: "procurement.purchase_order.update", ObjectType: "procurement.purchase_order"},
 	"cancelPurchaseOrder":              {Action: "procurement.purchase_order.cancel", ObjectType: "procurement.purchase_order"},

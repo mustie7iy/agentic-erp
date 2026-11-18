@@ -72,6 +72,9 @@ const (
 	// TaxReturn is a tax return's approval by a person other than its
 	// preparer, before it is recorded as filed (ADR-0049 §11, T61i).
 	TaxReturn = "tax_return"
+	// MaterialChange is the creation or change of a material, applied when
+	// approved (ADR-0082 §9, S1b).
+	MaterialChange = "material_change"
 )
 
 // Request statuses.
@@ -117,6 +120,11 @@ const DefaultGRIRClearingRole = "controller"
 // fixed role, config.TaxReturnRole, as for period unlocks.
 const DefaultTaxReturnRole = config.TaxReturnRole
 
+// DefaultMaterialChangeRole approves a material change (ADR-0082 §9): the
+// process owner, a fixed role as for supplier invoice exceptions, until a
+// configurable approver is planned.
+const DefaultMaterialChangeRole = "process_owner"
+
 // ObjectPermissions is the approval permission of each object type
 // (x-object-permissions of approveApprovalRequest).
 var ObjectPermissions = map[string]string{
@@ -131,6 +139,7 @@ var ObjectPermissions = map[string]string{
 	// release step.
 	PaymentRunRelease: "payments.run.release",
 	TaxReturn:         "tax.return.approve",
+	MaterialChange:    "materials.change.approve",
 }
 
 func init() {
@@ -478,6 +487,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		out = append(out, policyStep{DefaultGRIRClearingRole, 1})
 	case TaxReturn:
 		out = append(out, policyStep{DefaultTaxReturnRole, 1})
+	case MaterialChange:
+		out = append(out, policyStep{DefaultMaterialChangeRole, 1})
 	case ManualEntry:
 		return manualEntrySteps(ctx, rates, doc, in)
 	case PurchaseOrder, OrderChange:

@@ -77,7 +77,14 @@
 // shares split with money.Allocate so they add up to each account's cost
 // to the minor unit. The cycle is held FOR UPDATE while it runs: one run
 // per cycle and period. Defining and running are a person's
-// (controlling.allocation.write, .run), audited and published.
+// (controlling.allocation.write, .run), audited and published. Since
+// T60j a cycle's receivers' shares are fixed percentages or a statistical
+// key figure's values in the period run (keyfigures.go): a company's key
+// figure whose values are posted per cost center and period, insert-only,
+// a center's value the sum of its postings, read exact as big.Rat. Since
+// T60k an assessment may charge its receivers fixed amounts, and a run is
+// reversed in its period (allocationreversal.go), after which the cycle
+// may run for the period again: one run in force per cycle and period.
 //
 // The margin report (ADR-0075, T92b) stores nothing: a company's revenue,
 // cost of sales and margin by profit center over a range of periods are

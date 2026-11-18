@@ -29,11 +29,12 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 // read, which plan against actual and the orders' actuals need beside
 // theirs, the orders', posting journal entries to them, their budgets, and
 // settling and closing them, closing a fiscal period (a settlement into
-// a period that is not open), and the margin report's.
+// a period that is not open), the margin report's and the statistical key
+// figures'.
 var perms = []string{"controlling.plan.read", "controlling.plan.write", "controlling.plan.lock", "ledger.entry.read",
 	"controlling.order.read", "controlling.order.write", "controlling.order.release", "ledger.entry.post", "controlling.order.budget",
 	"controlling.order.settle", "ledger.period.read", "ledger.period.manage", "controlling.allocation.read", "controlling.allocation.write",
-	"controlling.allocation.run", "controlling.margin.read"}
+	"controlling.allocation.run", "controlling.margin.read", "controlling.key_figure.read", "controlling.key_figure.write"}
 
 // plan is a tenant with company 2000's centers (fixture.CostCenters: Admin
 // 1000, Sales 2000, Locked 3000, profit center PC1) and its accounts.

@@ -4,15 +4,26 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // Pricing is how the tenant prices sales items (ADR-0067 §11): its
-// condition types and the one procedure that applies them, in order. None
-// is shipped. A tenant without a procedure prices an item at its price
+// condition types and the one procedure that applies them, in order, and
+// the customer price groups price records may be for (§13). None is
+// shipped. A tenant without a procedure prices an item at its price
 // alone, entered or recorded (ADR-0067 §10).
 type Pricing struct {
 	ConditionTypes []ConditionType `yaml:"condition_types,omitempty" json:"condition_types,omitempty"`
 	Procedure      []ProcedureStep `yaml:"procedure,omitempty" json:"procedure,omitempty"`
+	PriceGroups    []PriceGroup    `yaml:"price_groups,omitempty" json:"price_groups,omitempty"`
+}
+
+// PriceGroup is a customer price group (ADR-0067 §13): customers of a
+// group, by their sales data in a company, take the records for it before
+// the general ones.
+type PriceGroup struct {
+	Code string `yaml:"code" json:"code"`
+	Name string `yaml:"name" json:"name"`
 }
 
 // ConditionType is a kind of pricing record: a price, or a discount as a
@@ -39,6 +50,9 @@ const (
 // item carries.
 const MaxConditionTypes = 50
 
+// MaxPriceGroups bounds the customer price groups.
+const MaxPriceGroups = 100
+
 var conditionCodeRe = regexp.MustCompile(`^[A-Z0-9_]{1,10}$`)
 
 // ConditionType returns the condition type of the code, if configured.
@@ -49,6 +63,17 @@ func (p Pricing) ConditionType(code string) (ConditionType, bool) {
 		}
 	}
 	return ConditionType{}, false
+}
+
+// PriceGroup returns the customer price group of the code, if
+// configured.
+func (p Pricing) PriceGroup(code string) (PriceGroup, bool) {
+	for _, g := range p.PriceGroups {
+		if g.Code == code {
+			return g, true
+		}
+	}
+	return PriceGroup{}, false
 }
 
 // Steps are the procedure's condition types in the order they apply: the
@@ -83,9 +108,7 @@ func (v *validator) pricing(c *Config) {
 		} else if _, dup := kinds[t.Code]; dup {
 			v.err(p, "duplicate condition type code")
 		}
-		if n := strings.TrimSpace(t.Name); n == "" || len(t.Name) > 60 {
-			v.err(p+".name", "is required, at most 60 characters")
-		}
+		v.name(p, t.Name)
 		if t.Kind != ConditionPrice && t.Kind != ConditionDiscountPercent {
 			v.err(p+".kind", "must be %s or %s", ConditionPrice, ConditionDiscountPercent)
 		}
@@ -107,14 +130,45 @@ func (v *validator) pricing(c *Config) {
 		}
 		used[s.ConditionType] = true
 	}
+	v.priceGroups(c.Pricing.PriceGroups)
 }
 
-// PricingTransitions checks the condition types against the base
-// document (nil for the first version): a condition type is never
-// removed once activated and keeps its kind, since price records name it
-// and say by it what they are, as a payment term is never removed
-// (partner.PaymentTerms.Check). Its name may change, and it may leave
-// the procedure.
+// name checks the name of a condition type or a price group at path p:
+// not white space alone, at most 60 characters (runes, not bytes).
+func (v *validator) name(p, name string) {
+	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > 60 {
+		v.err(p+".name", "is required, at most 60 characters")
+	}
+}
+
+// priceGroups checks the customer price groups: each a code, unique, and
+// a name.
+func (v *validator) priceGroups(groups []PriceGroup) {
+	if len(groups) > MaxPriceGroups {
+		v.err("pricing.price_groups", "at most %d price groups", MaxPriceGroups)
+	}
+	seen := map[string]bool{}
+	for i, g := range groups {
+		p := fmt.Sprintf("pricing.price_groups[%s]", g.Code)
+		if !conditionCodeRe.MatchString(g.Code) {
+			p = fmt.Sprintf("pricing.price_groups[%d]", i)
+			v.err(p+".code", "must be 1-10 capital letters, digits or underscores")
+		} else if seen[g.Code] {
+			v.err(p, "duplicate price group code")
+		}
+		v.name(p, g.Name)
+		seen[g.Code] = true
+	}
+}
+
+// PricingTransitions checks the condition types and the price groups
+// against the base document (nil for the first version): a condition
+// type is never removed once activated and keeps its kind, since price
+// records name it and say by it what they are, as a payment term is
+// never removed (partner.PaymentTerms.Check). Its name may change, and it
+// may leave the procedure. A price group is never removed either: price
+// records and customers' sales data name it (ADR-0067 §13); its name may
+// change.
 func PricingTransitions(base, proposed *Config) []Finding {
 	if base == nil {
 		return nil
@@ -128,6 +182,11 @@ func PricingTransitions(base, proposed *Config) []Finding {
 			out = append(out, Finding{SevError, p, "a condition type cannot be removed once activated"})
 		case now.Kind != was.Kind:
 			out = append(out, Finding{SevError, p + ".kind", "a condition type's kind cannot change once activated"})
+		}
+	}
+	for _, was := range base.Pricing.PriceGroups {
+		if _, ok := proposed.Pricing.PriceGroup(was.Code); !ok {
+			out = append(out, Finding{SevError, "pricing.price_groups[" + was.Code + "]", "a price group cannot be removed once activated"})
 		}
 	}
 	return out

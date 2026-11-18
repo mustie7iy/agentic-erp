@@ -1131,3 +1131,143 @@ document (from memory, not checked against a source in the lane). §6's
   `TestParallelClearing/reset` (ledger); `TestClearingResetRules`,
   `TestIncomingPaymentResetRules`, `TestClearingResetRevert` (db).
   Walkthrough `step_payment_reset` (step 117).
+
+### T75j Customer debit memo (migrations 000379, 000380)
+A variant of §7 (`plan-depth-3.md` §T75j): a customer debit memo charges
+the customer what an invoice did not (freight, a price correction), as
+SAP's debit memo does (FB70/FB75 in FI, billing type L2 in SD; from
+memory, not checked against a source in the lane).
+
+- `internal/receivables/kinds.go`: the kind `debit_memo` on
+  `POST /v1/customer-invoices` and as a filter of
+  `GET /v1/customer-invoices`. A debit memo is entered and checked as an
+  invoice is (items more than zero, each item's tax at its own date) and
+  names no invoice (422 `receivables.reference_not_allowed`, as an
+  invoice); a credit memo naming a debit memo is refused as one naming no
+  posted invoice (422 `receivables.invalid_reference_invoice`). Its
+  number is from the `customer_invoice` range, as a credit memo's.
+- **Posting** (`documentTypes`): as an invoice, Dr the customer's
+  reconciliation account with the gross, Cr each item's account and
+  output tax, at its own date's rates, as journal document type `DD`
+  with the header text "Customer debit memo <number>"; its entries draw
+  their numbers from the range `journal_dd` (422
+  `config.no_number_range` in a company without it, and nothing posts,
+  `TestDebitMemoWithoutRange`). Its open item keeps the term entered
+  with it, else the customer's in the company, from its own date. It is
+  not counted against any invoice's credit limit, which only credit
+  memos count. Events and audit records carry the kind, the amounts
+  positive (`signed` turns a credit memo's alone).
+- Migration 000379: `customer_invoice_kind_check` widened to
+  `debit_memo`, added `NOT VALID`; 000380 validates it. The down is
+  refused while a debit memo exists (`TestDebitMemoRevert`); schema
+  cases in `TestCustomerInvoiceRules` and `TestCustomerCreditMemoRules`
+  (a debit memo naming an invoice, `customer_invoice_reference_on_credit`).
+- Tests: `TestDebitMemo`, `TestDebitMemoWithoutRange`,
+  `TestCreditMemoRefusals` (a debit memo naming an invoice, a credit memo
+  naming a debit memo). Walkthrough `step_debit_memo` (step 126).
+- **Decided by default:** (1) the journal document type is `DD`, the
+  brief's own type and range beside the invoice's `DR` (SAP's standard
+  FI type for a customer debit memo is DR, from memory; a type of its own
+  lets the ledger and reports tell them apart, and `DD` is not a standard
+  SAP type); (2) the document's number is from the `customer_invoice`
+  range, as a credit memo's is; (3) a debit memo names no invoice (a
+  reference is the placeholder's "later"); (4) terms as an invoice's,
+  from its own date; (5) `journal_dd` is in no country pack: the pilot's
+  settings add it (walkthrough step 2, as they add `returns_order` and
+  the other ranges the packs lack), and a company on Canada 2026.9 or UAE
+  2026.6 adds it by a change request until a pack version brings it
+  (numbering-only versions need the product owner's word on the
+  sign-off, as 2026.9 and 2026.6 had; listed for the digest).
+
+### T75k Reversing a customer credit memo or debit memo (migrations 000381, 000382)
+A variant of §7 (`plan-depth-3.md` §T75k): a credit memo or debit memo
+posted in error is reversed, as SAP's FB08 reverses a document (from
+memory, not checked against a source in the lane). §7's "none is
+reversed in the first version, so no credit is ever freed" (T75d's
+default 5) no longer holds; an invoice is still corrected by a credit
+memo (§5, plan default 3).
+
+- `internal/receivables/reverse.go`: `POST /v1/customer-invoices/{id}:reverse`
+  (`reverseCustomerInvoice`; `receivables.invoice.post`, `If-Match`,
+  idempotent by `Idempotency-Key`, human-only) with a `reason` (1 to 200
+  characters, not white space alone) and an optional `posting_date`. The
+  memo's row is read `FOR UPDATE` (ADR-0008); the ledger's port
+  (`ledger.Postings.Reverse`) posts the reversal: the original's lines
+  with the signs turned, its document type (`DG`, `DD`, drawing from the
+  same range), reference and `source_context` kept, the header text
+  "Reversal of customer credit memo <number>" (or debit memo), its tax
+  items negated on the original's tax date (ADR-0049 §4), and clears the
+  memo's open item against the reversal's (`clearReversal`), so neither
+  is open. The document becomes `reversed` with `reversal_entry_id`,
+  `reversal_entry_year`, `reversal_entry_number`, `reversal_posting_date`
+  and `reversal_reason`; its version moves on.
+- **Refusals:** not posted (a draft, one reversed already) 409
+  `receivables.invalid_status`; an invoice 409
+  `receivables.invoice_not_reversible`; a memo another context entered
+  from its document (sales' billing cancellation or credit memo request,
+  `source_document_id`) 409 `receivables.entered_from_source`, since the
+  sales document would still show it as posting; a reason of white space
+  422 `request.validation_failed`; a date before the memo posted 422
+  `receivables.reversal_before_posting` (`posting_date`); a memo whose
+  item is cleared (netted in a payment, cleared against its invoice) 409
+  `receivables.document_cleared`; a period not open on the reversal's
+  date the ledger's 409 `ledger.period_not_open`, the period's problem,
+  and nothing changes; the ledger's other refusals of a reversal.
+- **Locks:** the memo's row, then the entry's lock the ledger takes in
+  `reverse`. Whether the item is cleared is read before the entry's lock
+  only to answer with this context's problem: an application or a
+  clearing of the item takes the entry's lock, and the ledger checks
+  again under it, so one that committed meanwhile refuses the reversal
+  with `ledger.entry_cleared` and the request rolls back
+  (`TestReverseRacesAClearing`). No other writer locks a posted memo's
+  row (no document names a credit or debit memo by foreign key; an
+  application locks entries only), and a credit memo's posting locks its
+  own row and then its invoice's, never a memo's, so no two writers wait
+  on each other in a cycle. Two reversals at once: the second waits for
+  the row lock and meets another version (412,
+  `TestReverseConcurrently`).
+- **The limit:** `creditedInvoice` counts posted credit memos alone, so a
+  reversed one frees what it took (`TestReverseCreditMemoFreesItsCredit`).
+  A reversal and a posting naming the same invoice need no common lock:
+  a reversal only lowers the sum the posting reads.
+- **Events and audit:** `CustomerInvoiceReversed` (`x-webhook`: the
+  customer by id and number, the kind, the invoice a credit memo names,
+  the totals signed as `CustomerInvoicePosted` gave them, the entry and
+  its reversal by id, year and number, the reversal's date) and the
+  audit record `receivables.customer_invoice.reverse`; neither carries
+  the reason, free text a person wrote (ADR-0079, the batch 79 review),
+  which the document keeps. The refusals are audited on the document
+  (`httpapi.RefusalsAudited`). The ledger's `reverseJournalEntry` now
+  names this path for receivables' entries (`requireOwnEntry`), with the
+  invoice's correction and T75i's reset.
+- Migration 000381: `reversal_date`, `reversal_entry_year`,
+  `reversal_entry_id`, `reversal_reason`; the status `reversed`
+  (`customer_invoice_status_check`); `customer_invoice_posted` admits a
+  reversed document with its entry; `customer_invoice_reversed` (the four
+  together exactly when reversed, a reason of 1 to 200 characters not
+  white space alone, only a credit or debit memo without a source
+  document, on or after its posting date);
+  `customer_invoice_reversal_once`; the trigger
+  `customer_invoice_posted_once` admits posted → reversed keeping what the
+  document posted with, and nothing after; the update grant on the four
+  columns. The checks are added `NOT VALID` and 000382 validates them;
+  the down is refused while a document was reversed. Schema tests:
+  `TestCustomerMemoReversal`, `TestCustomerMemoReversalRevert`.
+- Tests: `TestReverseDebitMemo`, `TestReverseCreditMemoFreesItsCredit`,
+  `TestReverseRefusals`, `TestReverseConcurrently`,
+  `TestReverseRacesAClearing`, `TestDatabaseFailures`; the ledger's
+  `TestReversalBelongsToTheOwner`. Walkthrough `step_memo_reversal`
+  (step 127).
+- **Decided by default:** (1) the reversal is dated the memo's own
+  posting date unless another is given, as the ledger's reversal and
+  T75i's are; a period closed since refuses it, and the person names a
+  date in an open period; (2) a date before the memo posted is refused
+  (SAP refuses a reversal dated before the original, from memory); (3) a
+  free-text reason is required and kept on the document, not in the
+  event or the audit record; reason codes are later; (4) the reversal
+  keeps the memo's document type and range, as the ledger's reversal of
+  any entry does; (5) a memo sales entered is refused rather than leaving
+  its sales document posted against a reversed memo; (6) only credit and
+  debit memos: an invoice stays corrected by a credit memo; (7) the
+  permission is `receivables.invoice.post`, as payables' reversal takes
+  its posting permission.

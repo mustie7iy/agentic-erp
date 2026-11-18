@@ -173,6 +173,10 @@ type CaptureSupplierInvoiceRes interface {
 	captureSupplierInvoiceRes()
 }
 
+type ChangeMaterialPriceRes interface {
+	changeMaterialPriceRes()
+}
+
 type ChangeSalesOrderRes interface {
 	changeSalesOrderRes()
 }
@@ -345,6 +349,10 @@ type CreateCustomerInvoiceRes interface {
 	createCustomerInvoiceRes()
 }
 
+type CreateCustomerSalesDataRes interface {
+	createCustomerSalesDataRes()
+}
+
 type CreateDisputeCaseRes interface {
 	createDisputeCaseRes()
 }
@@ -407,6 +415,18 @@ type CreateLeaseRunRes interface {
 
 type CreateLegalEntityRes interface {
 	createLegalEntityRes()
+}
+
+type CreateMaterialDocumentRes interface {
+	createMaterialDocumentRes()
+}
+
+type CreateMaterialRes interface {
+	createMaterialRes()
+}
+
+type CreateMaterialValuationRes interface {
+	createMaterialValuationRes()
 }
 
 type CreateMemoRecordRes interface {
@@ -539,6 +559,14 @@ type CreateSegmentRes interface {
 
 type CreateSodRuleRes interface {
 	createSodRuleRes()
+}
+
+type CreateStatisticalKeyFigurePostingRes interface {
+	createStatisticalKeyFigurePostingRes()
+}
+
+type CreateStatisticalKeyFigureRes interface {
+	createStatisticalKeyFigureRes()
 }
 
 type CreateSupplierInvoiceRes interface {
@@ -869,6 +897,10 @@ type GetCustomerInvoiceRes interface {
 	getCustomerInvoiceRes()
 }
 
+type GetCustomerSalesDataRes interface {
+	getCustomerSalesDataRes()
+}
+
 type GetDepreciationRunRes interface {
 	getDepreciationRunRes()
 }
@@ -991,6 +1023,22 @@ type GetMarginReportRes interface {
 
 type GetMatchResultRes interface {
 	getMatchResultRes()
+}
+
+type GetMaterialChangeRes interface {
+	getMaterialChangeRes()
+}
+
+type GetMaterialDocumentRes interface {
+	getMaterialDocumentRes()
+}
+
+type GetMaterialRes interface {
+	getMaterialRes()
+}
+
+type GetMaterialValuationRes interface {
+	getMaterialValuationRes()
 }
 
 type GetMemoRecordRes interface {
@@ -1191,6 +1239,10 @@ type GetSegmentRes interface {
 
 type GetSodRuleRes interface {
 	getSodRuleRes()
+}
+
+type GetStatisticalKeyFigureRes interface {
+	getStatisticalKeyFigureRes()
 }
 
 type GetSupplierInvoiceDocumentRes interface {
@@ -1461,6 +1513,10 @@ type ListCustomerInvoicesRes interface {
 	listCustomerInvoicesRes()
 }
 
+type ListCustomerSalesDataRes interface {
+	listCustomerSalesDataRes()
+}
+
 type ListDepreciationRunsRes interface {
 	listDepreciationRunsRes()
 }
@@ -1599,6 +1655,22 @@ type ListLiquidityForecastFlowsRes interface {
 
 type ListMatchResultsRes interface {
 	listMatchResultsRes()
+}
+
+type ListMaterialChangesRes interface {
+	listMaterialChangesRes()
+}
+
+type ListMaterialDocumentsRes interface {
+	listMaterialDocumentsRes()
+}
+
+type ListMaterialValuationsRes interface {
+	listMaterialValuationsRes()
+}
+
+type ListMaterialsRes interface {
+	listMaterialsRes()
 }
 
 type ListMemoRecordsRes interface {
@@ -1807,6 +1879,18 @@ type ListSegmentsRes interface {
 
 type ListSodRulesRes interface {
 	listSodRulesRes()
+}
+
+type ListStatisticalKeyFigureValuesRes interface {
+	listStatisticalKeyFigureValuesRes()
+}
+
+type ListStatisticalKeyFiguresRes interface {
+	listStatisticalKeyFiguresRes()
+}
+
+type ListStockRes interface {
+	listStockRes()
 }
 
 type ListSupplierInvoicesRes interface {
@@ -2153,6 +2237,10 @@ type RetireEntryTemplateRes interface {
 	retireEntryTemplateRes()
 }
 
+type ReverseAllocationRunRes interface {
+	reverseAllocationRunRes()
+}
+
 type ReverseAssetAcquisitionRes interface {
 	reverseAssetAcquisitionRes()
 }
@@ -2165,6 +2253,10 @@ type ReverseAssetTransferRes interface {
 	reverseAssetTransferRes()
 }
 
+type ReverseCustomerInvoiceRes interface {
+	reverseCustomerInvoiceRes()
+}
+
 type ReverseGoodsReceiptRes interface {
 	reverseGoodsReceiptRes()
 }
@@ -2175,6 +2267,10 @@ type ReverseInternalOrderSettlementRes interface {
 
 type ReverseJournalEntryRes interface {
 	reverseJournalEntryRes()
+}
+
+type ReverseMaterialDocumentRes interface {
+	reverseMaterialDocumentRes()
 }
 
 type ReverseSupplierInvoiceRes interface {
@@ -2329,6 +2425,10 @@ type UpdateCreditLimitRes interface {
 	updateCreditLimitRes()
 }
 
+type UpdateCustomerSalesDataRes interface {
+	updateCustomerSalesDataRes()
+}
+
 type UpdateDisputeCaseRes interface {
 	updateDisputeCaseRes()
 }
@@ -2347,6 +2447,14 @@ type UpdateInternalOrderSettlementRuleRes interface {
 
 type UpdateLegalEntityRes interface {
 	updateLegalEntityRes()
+}
+
+type UpdateMaterialRes interface {
+	updateMaterialRes()
+}
+
+type UpdateMaterialValuationRes interface {
+	updateMaterialValuationRes()
 }
 
 type UpdateMemoRecordRes interface {

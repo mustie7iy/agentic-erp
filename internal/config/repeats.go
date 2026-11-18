@@ -7,7 +7,9 @@ import (
 )
 
 // RangeRepeats refuses a number range that can issue a number another
-// fiscal year's range of its company and document type issues too. Only
+// fiscal year's range of its company and document type issues too, or,
+// for a document type numbered across the tenant (NumberedPerTenant),
+// another company's range of the type in any year. Only
 // journal entries are numbered per fiscal year (journal_entry_document,
 // 000134). Every other document's number is unique in its legal entity
 // across fiscal years: requisitions, orders, contracts and goods receipts
@@ -33,8 +35,7 @@ func RangeRepeats(base, proposed *Config) []Finding {
 	ranges := proposed.NumberRanges
 	for i, a := range ranges {
 		for _, b := range ranges[i+1:] {
-			if a.Company != b.Company || a.DocumentType != b.DocumentType || a.FiscalYear == b.FiscalYear ||
-				NumberedPerYear(a.DocumentType) || repeatedBefore(activated, a, b) {
+			if !compared(a, b) || repeatedBefore(activated, a, b) {
 				continue
 			}
 			number, ok := repeated(a, b)
@@ -47,13 +48,38 @@ func RangeRepeats(base, proposed *Config) []Finding {
 			if unchanged(activated, b) || !unchanged(activated, a) && a.FiscalYear > b.FiscalYear {
 				n, other = a, b
 			}
-			out = append(out, Finding{Severity: SevError, Path: "number_ranges[" + n.Key() + "].prefix", Message: fmt.Sprintf(
-				"%s numbers are unique across fiscal years, and this range would issue %s, which fiscal year %d's range issues too; "+
-					"give it a prefix that fiscal year %d's numbers cannot begin with, or numbers outside that range's",
-				strings.ReplaceAll(n.DocumentType, "_", " "), number, other.FiscalYear, other.FiscalYear)})
+			out = append(out, Finding{Severity: SevError, Path: "number_ranges[" + n.Key() + "].prefix", Message: repeatMessage(n, other, number)})
 		}
 	}
 	return out
+}
+
+// compared says whether two ranges must not issue the same number: ranges
+// of one document type, numbered across fiscal years, of the same company
+// in different years or, for a type numbered across the tenant, of any two
+// companies.
+func compared(a, b NumberRange) bool {
+	if a.DocumentType != b.DocumentType || NumberedPerYear(a.DocumentType) {
+		return false
+	}
+	if a.Company == b.Company {
+		return a.FiscalYear != b.FiscalYear
+	}
+	return NumberedPerTenant(a.DocumentType)
+}
+
+// repeatMessage says which number range n would repeat of other's, and
+// how to keep them apart.
+func repeatMessage(n, other NumberRange, number string) string {
+	what := strings.ReplaceAll(n.DocumentType, "_", " ")
+	if n.Company != other.Company {
+		return fmt.Sprintf("%s numbers are unique in the tenant, and this range would issue %s, which company %s's range of fiscal year %d issues too; "+
+			"give it a prefix that company %s's numbers cannot begin with, or numbers outside that range's", what, number, other.Company,
+			other.FiscalYear, other.Company)
+	}
+	return fmt.Sprintf("%s numbers are unique across fiscal years, and this range would issue %s, which fiscal year %d's range issues too; "+
+		"give it a prefix that fiscal year %d's numbers cannot begin with, or numbers outside that range's", what, number, other.FiscalYear,
+		other.FiscalYear)
 }
 
 // NumberedPerYear says whether a document type's numbers are unique only
@@ -61,6 +87,12 @@ func RangeRepeats(base, proposed *Config) []Finding {
 // range of its fiscal year (ledger) and unique per fiscal year
 // (journal_entry_document, 000134).
 func NumberedPerYear(documentType string) bool { return strings.HasPrefix(documentType, "journal_") }
+
+// NumberedPerTenant says whether a document type's numbers are unique in
+// the tenant, across its companies as well as its fiscal years: a
+// material's, drawn from the material range of the company that creates it
+// and unique in the tenant (material_number_once, 000373; ADR-0082 §6).
+func NumberedPerTenant(documentType string) bool { return documentType == "material" }
 
 // repeatedBefore says whether a and b were both activated and already
 // repeated each other's numbers then.

@@ -3368,8 +3368,9 @@ line or reservation. An agent's budget is identity's
 - financial effects only through `ledger` postings (`source_context`,
   `source_document_id` on the journal entry);
 - partners via `partner` roles (`customer` joins `supplier`);
-- a shared `material` master in a future `product` context, referenced by id
-  from procurement, inventory, sales and manufacturing;
+- a shared `material` master, referenced by id from procurement, inventory,
+  sales and manufacturing: the `materials` context (§3.34, ADR-0082, which
+  names it `materials` rather than `product`);
 - controlling dimensions (cost center, profit center, internal order, WBS
   element) added to `journal_line` as nullable `uuid` columns, so ledger and
   controlling stay one table, as in SAP's Universal Journal.
@@ -3710,6 +3711,14 @@ ledger the secondary cost element and its two rules (§3.7). Migration
 000308 adds the permission `controlling.margin.read` of the margin report
 (ADR-0075, T92b), which has no table. Migration 000309 adds the origin of
 a plan batch written by a copy of another category's plan (T93a).
+Migration 000385 (T60j) adds statistical key figures, their postings and
+values, a cycle's share basis and key figure, and the permissions
+`controlling.key_figure.read` and `.write`; 000386 validates the
+cycle's new constraints. Migration 000387 (T60k) adds the share basis
+`fixed_amounts` with each receiver's amount, a run's attempt and
+`controlling.allocation_run_reversal`; 000388 builds
+`allocation_run_attempt_once` concurrently; 000389 validates and drops
+`allocation_run_once`.
 Migration 000331 adds the permission `controlling.profitability.read` of
 net revenue by profitability segment (ADR-0075 §6, T92a), which has no
 table either.
@@ -3794,11 +3803,34 @@ erDiagram
     text name
     text kind "distribution, assessment"
     uuid sender_cost_center_id "ledger context"
-    uuid assessment_account_id "ledger context; an assessment's" }
+    uuid assessment_account_id "ledger context; an assessment's"
+    text share_basis "fixed_percentages, statistical_key_figure"
+    uuid statistical_key_figure_id FK "by key figure" }
   allocation_receiver { uuid cycle_id PK
     smallint position PK
     uuid cost_center_id "ledger context, once per cycle"
-    int share_bp "basis points; a cycle's add up to 10000" }
+    int share_bp "basis points; fixed percentages' add up to 10000"
+    bigint amount "fixed amounts: local currency, minor units" }
+  allocation_run ||--o| allocation_run_reversal : "reversed by"
+  allocation_run_reversal { uuid run_id PK
+    uuid journal_entry_id "ledger context, once"
+    text document_number }
+  statistical_key_figure ||--o{ statistical_key_figure_posting : "posted"
+  statistical_key_figure ||--o{ allocation_cycle : "shares of"
+  statistical_key_figure_posting ||--|{ statistical_key_figure_value : "holds"
+  statistical_key_figure { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    text code "unique per company"
+    text name
+    text unit FK "ref.unit_of_measure" }
+  statistical_key_figure_posting { uuid id PK
+    uuid key_figure_id FK
+    smallint fiscal_year
+    smallint fiscal_period }
+  statistical_key_figure_value { uuid posting_id PK
+    smallint position PK
+    uuid cost_center_id "ledger context, once per posting"
+    numeric value "not zero, six decimals" }
   allocation_run { uuid id PK
     uuid cycle_id FK
     smallint fiscal_year
@@ -3821,10 +3853,14 @@ erDiagram
 | `controlling.settlement_rule` | An order's settlement rule (ADR-0064 §3, T60d): at most one row per order (the primary key; `settlement_rule_order`, a foreign key to the order) naming its one receiver, a cost center (the ledger's; no foreign key crosses the schema: checked when the rule is set, through `ledger.AssignmentBalances.CostCenterRefs` and `CostCenterValidOn`, to be an active cost center of the order's company valid on the company's date), which takes the whole. An order without a row has no rule. Replaced with the order's version (`controlling.order.write`; the order read FOR UPDATE and its version moved with the rule), each change audited with the receivers before and after; the row's own `version` counts its replacements (`platform.touch`); never deleted |
 | `controlling.order_settlement` | A settlement of an order (ADR-0064 §3, T60e), insert-only (no `UPDATE` or `DELETE` granted): the order (`order_settlement_order`), its company, the fiscal year and regular period settled up to, the posting date (the period's last day), the receiving cost center and the journal entry (the ledger's; no foreign key crosses the schema; an entry is one settlement's, `order_settlement_entry_once`) with its document number, the amount moved in minor units of the company's local currency (the total of the accounts' balances, negative for a credit balance) and the number of accounts. The entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the settlement as its source document: per account the order credited and the receiver debited, so each account's balance is unchanged. The order is read FOR UPDATE from before its balance is read (`ledger.AssignmentBalances.OrderAccountBalances`) until the entry is posted; with nothing unsettled no row is written. A settled order, its balance zero on every account, is closed (`controlling.internal_order.status` `closed`, from `released` alone and for good, `internal_order_lifecycle`): a closed order takes no posting, and the entries that posted to it are no longer reversed |
 | `controlling.order_settlement_reversal` | A settlement reversed (ADR-0064 §3, T60i, 000358), insert-only (no `UPDATE` or `DELETE` granted): at most one row per settlement (the primary key; `order_settlement_reversal_settlement`, a foreign key to it), the reversal's journal entry (the ledger's, no foreign key; an entry reverses one settlement, `order_settlement_reversal_entry_once`) and its document number (`order_settlement_reversal_number`). Written with the reversal posted through `ledger.Postings.Reverse` on the settlement's own posting date, the settlement entry's lock taken first and then the order FOR UPDATE; only the order's latest settlement not reversed is reversed, and a reversed one no longer bounds the period of the next settlement |
-| `controlling.allocation_cycle` | An allocation cycle (ADR-0064 §5, T60f): a company's cycle with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `allocation_cycle_code_once`), a name, a `kind` (`distribution` or, since T60g, `assessment`), its sender cost center (the ledger's; no foreign key crosses the schema: sender and receivers are checked through `ledger.AssignmentBalances.CostCenterRefs` to be active cost centers of the company) and, exactly for an assessment, its `assessment_account_id` (`allocation_cycle_assessment_account`; the ledger's, checked through `ledger.AssignmentBalances.CostAccounts` to be an active secondary cost element of the company). It keeps its company, code, kind, sender and assessment account (`allocation_cycle_identity`, a trigger); never deleted. A run holds every cycle of its sender FOR UPDATE, in id order, before it reads the sender's costs, so the runs of one sender follow one another whichever of its cycles they are |
-| `controlling.allocation_receiver` | A receiver of a cycle, insert-only: its place in the cycle's list, the cost center, once per cycle (`allocation_receiver_once`), and its share in basis points, 1 to 10,000 (a percentage with two decimals). A cycle's shares add up to 10,000 and no receiver is its sender, held when the transaction that wrote the cycle or a receiver commits (`allocation_receiver_shares_whole`, `allocation_receiver_not_sender`, raised by deferred constraint triggers on both tables) |
-| `controlling.allocation_run` | A run of a cycle for a fiscal period, insert-only: the cycle with its company (foreign key), the fiscal year and regular period, the posting date (the period's last day), the journal entry (the ledger's; once, `allocation_run_entry_once`) with its document number, the amount moved off the sender in minor units of the company's local currency and the number of accounts. One run per cycle and period (`allocation_run_once`). A distribution's entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the run as its source document: per account the sender credited with its cost of the period (the ledger's actuals of the center on primary cost accounts) and each receiver debited with its share, split by `money.Allocate` so the shares add up to the cost to the minor unit. A sender without costs in the period posts nothing and no row is written |
-| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`, `InternalOrderSettled`, `AllocationCycleChanged`, `AllocationRunPosted`), relayed as every context's (`outbox.Contexts`) |
+| `controlling.allocation_cycle` | An allocation cycle (ADR-0064 §5, T60f): a company's cycle with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `allocation_cycle_code_once`), a name, a `kind` (`distribution` or, since T60g, `assessment`), its sender cost center (the ledger's; no foreign key crosses the schema: sender and receivers are checked through `ledger.AssignmentBalances.CostCenterRefs` to be active cost centers of the company) and, exactly for an assessment, its `assessment_account_id` (`allocation_cycle_assessment_account`; the ledger's, checked through `ledger.AssignmentBalances.CostAccounts` to be an active secondary cost element of the company). Since T60j (000385) its `share_basis` says what its receivers' shares are: `fixed_percentages` (every cycle before) or `statistical_key_figure` with its `statistical_key_figure_id` (`allocation_cycle_share_basis`, `allocation_cycle_key_figure`), a key figure of the cycle's company (`allocation_cycle_key_figure_company`, a foreign key). It keeps its company, code, kind, sender, assessment account, share basis and key figure (`allocation_cycle_identity`, a trigger); never deleted. A run holds every cycle of its sender FOR UPDATE, in id order, before it reads the sender's costs, so the runs of one sender follow one another whichever of its cycles they are |
+| `controlling.allocation_receiver` | A receiver of a cycle, insert-only: its place in the cycle's list, the cost center, once per cycle (`allocation_receiver_once`), and on a cycle by fixed percentages its share in basis points, 1 to 10,000 (a percentage with two decimals). A cycle by fixed percentages has every receiver's share and they add up to 10,000 (`allocation_receiver_shares_whole`); a cycle by key figure has receivers and none has a share (`allocation_receiver_shares_by_basis`, T60j); no receiver is its sender (`allocation_receiver_not_sender`); held when the transaction that wrote the cycle or a receiver commits, raised by deferred constraint triggers on both tables |
+| `controlling.allocation_run_reversal` | A run reversed (ADR-0064 As built T60k, 000387), insert-only: at most one row per run (the primary key; `allocation_run_reversal_run`, a foreign key), the reversal's journal entry (the ledger's, no foreign key; once, `allocation_run_reversal_entry_once`) and its number (`allocation_run_reversal_number`). Written with the reversal posted through `ledger.Postings.Reverse` on the run's own posting date, the sender's cycles held FOR UPDATE; a reversed run is no longer in force |
+| `controlling.statistical_key_figure` | A statistical key figure (ADR-0064 As built T60j, 000385): a company's quantity such as employees or floor space, with a code unique in the company (`^[0-9A-Z_-]{1,12}$`, `statistical_key_figure_code_once`), a name and a unit of measure of the reference data (`statistical_key_figure_unit`, a foreign key to `ref.unit_of_measure`). It keeps its company, code and unit (`statistical_key_figure_identity`, a trigger); not changed by the API in the first version; never deleted |
+| `controlling.statistical_key_figure_posting` | A posting of a key figure's values for a fiscal year and period 1-16 of its company (`statistical_key_figure_posting_key_figure`, a foreign key with the company), insert-only (no version, so no `UPDATE`; no `DELETE`): a correction is a further posting |
+| `controlling.statistical_key_figure_value` | A posting's value for a cost center (the ledger's, no foreign key; checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the key figure's company), once per posting (`statistical_key_figure_value_once`), not zero (`statistical_key_figure_value_not_zero`), numeric(20,6), a negative value correcting an earlier one; insert-only. A center's value of a period is the sum of its postings' values in it (`GET /v1/statistical-key-figures/{id}/values`), which a run of a cycle by the key figure reads for its receivers: their shares are their values over their total |
+| `controlling.allocation_run` | A run of a cycle for a fiscal period, insert-only: the cycle with its company (foreign key), the fiscal year and regular period, the posting date (the period's last day), the journal entry (the ledger's; once, `allocation_run_entry_once`) with its document number, the amount moved off the sender in minor units of the company's local currency and the number of accounts. One run per cycle and period (`allocation_run_once`); since T60k one run in force per cycle and period: each run is an `attempt`, unique per cycle and period (`allocation_run_attempt_once`), the next only after every earlier one is reversed (`allocation_run_in_force_once`, a trigger), and a run by fixed amounts names no account (`account_count` 0). A distribution's entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the run as its source document: per account the sender credited with its cost of the period (the ledger's actuals of the center on primary cost accounts) and each receiver debited with its share, split by `money.Allocate` so the shares add up to the cost to the minor unit. A sender without costs in the period posts nothing and no row is written |
+| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`, `InternalOrderSettled`, `AllocationCycleChanged` (.v1 for a cycle by fixed percentages, .v2 for every cycle since T60j), `AllocationRunPosted`, `AllocationRunReversed`, `StatisticalKeyFigureChanged`, `StatisticalKeyFigurePosted`), relayed as every context's (`outbox.Contexts`) |
 
 Plan against actual (`GET /v1/cost-center-plan-actual`, and `GET
 /v1/profit-center-plan-actual`, T56g3) stores nothing: the category's
@@ -4531,7 +4567,7 @@ erDiagram
     text document_number "customer_invoice range, unique per company"
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner, customer role"
-    text kind "invoice, credit_memo"
+    text kind "invoice, credit_memo, debit_memo"
     uuid reference_invoice_id "the invoice a credit memo credits, optional"
     date invoice_date "the tax date"
     date posting_date "optional; set when posted"
@@ -4539,13 +4575,17 @@ erDiagram
     bigint net_amount
     bigint tax_amount
     bigint gross_amount "net + tax"
-    text status "draft, posted"
+    text status "draft, posted, reversed"
     text payment_term_code "optional; the term posted with"
     date net_due_date "when posted"
     smallint journal_entry_year "when posted"
     uuid journal_entry_id "ledger, when posted"
     uuid source_document_id "optional: sales, the billing document"
     text source_document_number "with source_document_id"
+    date reversal_date "when reversed"
+    smallint reversal_entry_year "when reversed"
+    uuid reversal_entry_id "ledger, when reversed"
+    text reversal_reason "when reversed"
     int version }
   customer_invoice_item { int item_no PK
     text description
@@ -4600,20 +4640,31 @@ erDiagram
   their direction. `gross_amount = net_amount + tax_amount`
   (`customer_invoice_totals`). The number is unique per company
   (`customer_invoice_number_once`). The kind is `invoice` alone
-  (`customer_invoice_kind_check`), which T75d widens (`credit_memo`); the
-  status is `draft` or `posted` (`customer_invoice_status_check`). A
+  (`customer_invoice_kind_check`), which T75d widens (`credit_memo`) and
+  T75j (`debit_memo`, migration 000379, validated by 000380); the
+  status is `draft` or `posted` (`customer_invoice_status_check`), and
+  `reversed` since T75k (migration 000381, validated by 000382). A
   posted invoice names its journal entry with its year, its posting
   date, the payment term it posted with and its net due date, and a
   draft names no entry (`customer_invoice_posted`); an entry is one
-  invoice's (`customer_invoice_entry_once`). Posting is the only change:
-  the application may update the columns posting sets, and the trigger
-  `customer_invoice_posted_once` refuses a change of anything but a
-  draft being posted. Nothing deletes an invoice. An invoice another
+  invoice's (`customer_invoice_entry_once`). Posting, and reversing a
+  memo (T75k, below), are the only changes: the application may update
+  the columns they set, and the trigger `customer_invoice_posted_once`
+  refuses a change of anything but a draft being posted or a posted
+  document being reversed. Nothing deletes an invoice. An invoice another
   context entered names the document it came from by id and number, both
   or neither (`customer_invoice_source`; T79b, migration 000296: a
   billing document of sales), and a document is invoiced once
   (`customer_invoice_source_once`); the source is written with the
-  invoice and not among the columns the application may update.
+  invoice and not among the columns the application may update. A
+  reversed credit or debit memo (T75k, migration 000381) names the
+  reversal of its entry by year and id, the date it posted on and a
+  reason of 1 to 200 characters, all together exactly when reversed; only
+  a credit or debit memo without a source document is reversed, on or
+  after its posting date (`customer_invoice_reversed`); a reversal entry
+  is one document's (`customer_invoice_reversal_once`); the trigger
+  `customer_invoice_posted_once` admits posted → reversed, keeping what
+  the document posted with, and no change after it.
 - `receivables.customer_invoice_item`: a net amount above zero
   (`customer_invoice_item_net_positive`) on an account, with the tax its
   output tax code gave at the invoice date, never negative and 0 without a
@@ -4683,6 +4734,7 @@ erDiagram
   is refused while a clearing or a payment was reset.
 - `receivables.outbox`, `receivables.inbox`: the context's events
   (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
+  `CustomerInvoiceReversed`,
   `IncomingPaymentApplied`, `IncomingPaymentOnAccountApplied`,
   `IncomingPaymentReset`).
 - Permissions `receivables.invoice.read`, `.write` and `.post`, and
@@ -5534,6 +5586,39 @@ erDiagram
   discount has a condition type and a `percent` above 0 and below 100
   (`price_percent_range`) and none of a price's columns. The discounts
   of a key are read by their type (`price_by_condition`).
+  From T80e (migration 000383; ADR-0067 §12) a record may have a scale:
+  `scale_basis` `quantity` or `value` (`price_scale_basis_check`) with
+  the unit (`scale_uom_code`) or the currency (`scale_currency`) it is
+  read in, both of the reference data, the one its basis needs and not
+  the other, and a value scale a discount's only (`price_scale_stated`);
+  a price's quantity scale is in its own unit (`price_scale_unit`).
+- `sales.price_scale` (T80e, migration 000383; ADR-0067 §12): the scale
+  levels of a record (foreign key to `sales.price`), numbered 1 to 20
+  (`price_scale_level_check`), each starting at a quantity
+  (`from_quantity`) or a value in minor units of the scale's currency
+  (`from_amount`), one of them and above zero (`price_scale_from`,
+  `price_scale_from_quantity_check`, `price_scale_from_amount_check`),
+  with one rate (`price_scale_rate`): a price per the record's price
+  unit above zero (`price_scale_unit_price_check`) or a percent above 0
+  and below 100 (`price_scale_percent_check`). No two levels of a record
+  start at the same place (`price_scale_by_quantity`,
+  `price_scale_by_amount`). An item takes the rate of the level with the
+  highest start its quantity or its value before the condition reaches,
+  and the record's own below the first. Insert-only
+  (`platform.forbid_mutation`), as the record is.
+- `price_group` on `sales.price` (T80f, migration 000384; ADR-0067 §13):
+  the customer price group of the configuration a record is for
+  (`price_price_group_check`, a short code, no foreign key), never with a
+  customer (`price_customer_or_group`). An item takes the customer's
+  record, then its group's, then the general one.
+- `sales.customer_sales_data` (T80f, migration 000384; ADR-0067 §13): a
+  customer's sales data in a company, one per customer and company
+  (`customer_sales_data_once`), with the customer's number when it was set
+  up (`customer_sales_data_customer_number_check`), its price group or
+  none (`customer_sales_data_price_group_check`) and a version
+  (`customer_sales_data_version_check`). The application may change the
+  group, the version and `updated_by` alone and deletes nothing. The list
+  reads it by customer number (`customer_sales_data_by_customer_number`).
 - `conditions` on `sales.quotation_item` and `sales.sales_order_item`
   (T80b): a JSON array (`quotation_item_conditions_array`,
   `sales_order_item_conditions_array`), empty by default, of the
@@ -5544,9 +5629,15 @@ erDiagram
   amounts add up to the item's `net_amount`. An item whose price was
   entered (`price_source` `manual`) has its price alone: an entered
   price is the final net price (T80c, product owner 2026-11-12).
+  A condition found by a scaled record (T80e) has its `scale`: the
+  `basis`, the `level` reached (0 below the first) and where it starts,
+  `from_quantity` with its `unit` or `from_amount`. From T80f it says
+  which step of the access found its record (`access`, with
+  `price_group` for a group's).
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
   `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,
+  `CustomerSalesDataChanged`,
   `SalesOrderCreditBlocked`, `SalesOrderCreditReleased`,
   `ReturnsOrderChanged`, `ReturnReceived`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
@@ -6125,3 +6216,240 @@ erDiagram
   (`LeaseContractChanged`, `LeaseRunPosted`).
 - Permissions `leases.contract.read`, `.write` and `.activate`, and
   `leases.run.post`.
+
+## 3.34 Material master (`materials`)
+
+ADR-0082, S1a. The material master: it reads tenancy's companies and org
+units, the configuration's number ranges and company dates and the
+ledger's fiscal calendar through its ports and keeps no foreign key out of
+its schema but `ref`'s (02 §2.1). Plants and storage locations are
+tenancy's org units (§3.3). S1a (migration 000373) builds the schema with
+its outbox and inbox, the material, its plants, storage locations and
+alternative units. Nothing is deleted: a plant, storage location or unit
+taken off a material is marked removed and given back by clearing the
+mark.
+
+```mermaid
+erDiagram
+  material ||--o{ plant_data : "extended to"
+  plant_data ||--o{ storage_location_data : "kept in"
+  material ||--o{ unit_conversion : "alternative units"
+  material { uuid id PK
+    text number "material range of its company, once in the tenant"
+    uuid legal_entity_id "tenancy: the numbering company"
+    text description "1 to 200 characters"
+    text base_uom_code "ref, fixed"
+    text material_type "fixed"
+    text material_group "1 to 9 of A-Z 0-9 - _"
+    text status "pending, active, blocked"
+    int version }
+  material ||--o{ material_change : "changed by"
+  material_change { uuid id PK
+    text number "MC and 8 digits"
+    text kind "create, update, block, unblock"
+    jsonb payload
+    jsonb possible_duplicates
+    text status "pending, applied, rejected, cancelled"
+    uuid workflow_request_id "workflow" }
+  plant_data { uuid material_id PK
+    uuid plant_id PK "tenancy: a plant"
+    uuid legal_entity_id "tenancy: the plant's company"
+    timestamptz removed_at }
+  storage_location_data { uuid material_id PK
+    uuid storage_location_id PK "tenancy: under the plant"
+    uuid plant_id FK
+    timestamptz removed_at }
+  unit_conversion { uuid material_id PK
+    text uom_code PK "ref, not the base unit"
+    int numerator "1 to 1000000"
+    int denominator "1 to 1000000"
+    timestamptz removed_at }
+```
+
+- `materials.material`: a material (SAP MARA with MAKT's one
+  description). Its number is 1 to 40 characters
+  (`material_number_check`), once in the tenant (`material_number_once`,
+  409 `materials.number_taken`), drawn from the `material` range of
+  `legal_entity_id`; the description is 1 to 200 characters and not blank
+  (`material_description_check`); the base unit is a unit of measure
+  (`material_base_uom_code_fkey`); the type is `raw_material`,
+  `semi_finished`, `finished_good`, `trading_good`, `non_stock` or
+  `service` (`material_type_check`); the group is 1 to 9 capitals, digits,
+  `-` or `_` (`material_group_check`); the status is `pending` (until its create change is approved), `active` or
+  `blocked` (`material_status_check`) and the version at least 1
+  (`material_version_check`). The number, company, base unit and type do
+  not change (`material_fixed`, a trigger). The list reads by number
+  (`material_number_once`). The application creates materials and changes
+  their description, group, status and version; it deletes none.
+- `materials.plant_data`: the material at a plant (MARC) of a material
+  that exists (`plant_data_material_fkey`), once (`plant_data_pkey`), with
+  the plant's company; a plant's materials are read by
+  `plant_data_by_plant`. `removed_at` and `removed_by` are set together or
+  not at all (`plant_data_removed_check`); they are the only columns the
+  application updates.
+- `materials.storage_location_data`: the material at a storage location
+  (MARD's key; the stock is the inventory context's) of one of its plants
+  (`storage_location_data_plant_fkey`), once
+  (`storage_location_data_pkey`), removed as a plant is
+  (`storage_location_data_removed_check`).
+- `materials.unit_conversion`: an alternative unit (MARM) of a material
+  that exists (`unit_conversion_material_fkey`), a unit of measure
+  (`unit_conversion_uom_code_fkey`) other than its base unit
+  (`unit_conversion_not_base`, a trigger), once (`unit_conversion_pkey`):
+  one `uom_code` is `numerator` / `denominator` base units, each 1 to
+  1,000,000 (`unit_conversion_numerator_check`,
+  `unit_conversion_denominator_check`). The application updates the
+  factors and the removal mark (`unit_conversion_removed_check`) alone.
+- `materials.material_change` (S1b, migrations 000374 and 000375): a
+  governed change of a material (`material_change_material_fkey`),
+  numbered `MC` and eight digits (`material_change_number_check`) once in
+  the tenant (`material_change_number_once`), of kind `create`, `update`,
+  `block` or `unblock` (`material_change_kind_check`) and status
+  `pending`, `applied`, `rejected` or `cancelled`
+  (`material_change_status_check`), applied exactly when it has
+  `applied_at` (`material_change_applied_check`); its payload is an object
+  (`material_change_payload_object`), its possible duplicates an array
+  (`material_change_possible_duplicates_array`), its reason at most 500
+  characters (`material_change_reason_check`), its version at least 1
+  (`material_change_version_check`). One pending change per material
+  (`material_change_one_pending`). A material's changes are read by
+  `material_change_by_material`, the tenant's by `material_change_by_created`.
+  The application writes changes and their status; it deletes none.
+  `materials.material.status` gains `pending` (000374, validated by
+  000375), and `material_normalized_description` serves the duplicate
+  check by `platform.normalized_text(description)`.
+- `materials.outbox`, `materials.inbox`: the context's events
+  (`MaterialChanged`, `MaterialChangeChanged`).
+- Permissions `materials.material.read` and `.write`, and the approval
+  permission `materials.change.approve`.
+
+## 3.35 Inventory management (`inventory`)
+
+ADR-0082, S1c. Stock by location and goods movements: the context reads
+the materials context's published API, tenancy's companies and org units,
+the ledger's cost centers and fiscal calendar and the configuration's
+number ranges and company dates through its ports, and keeps no foreign
+key out of its schema but `ref`'s (02 §2.1). S1c (migration 000376) builds
+the schema with its outbox and inbox, material documents, their movements
+and the stock; S1d (000377, 000378) the valuations and price changes, and
+posts the value of movements and price changes through the ledger's
+posting port. Documents, movements and price changes are insert-only: a
+mistaken document is reversed by another.
+
+```mermaid
+erDiagram
+  material_document ||--|{ movement : "lines"
+  material_document ||--o| material_document : "reversed by"
+  stock ||--o{ movement : "the sum of"
+  material_document { uuid id PK
+    uuid legal_entity_id "tenancy: its plants' company"
+    smallint fiscal_year
+    text number "material_document range, once per company and year"
+    text movement_type "501 561 201 551 311 301 and their reversals"
+    date posting_date "the company's date"
+    text header_text "1 to 200"
+    uuid reversal_of_id FK "once" }
+  movement { uuid material_document_id PK
+    smallint line_no PK "1 to 200"
+    smallint item_no "1 to 100"
+    uuid material_id "materials"
+    uuid plant_id "tenancy"
+    uuid storage_location_id "tenancy"
+    numeric quantity "base unit, signed, not 0"
+    numeric entry_quantity "positive"
+    text entry_uom_code "ref"
+    uuid cost_center_id "ledger" }
+  valuation ||--o{ price_change : "revalued by"
+  valuation { uuid id PK
+    uuid material_id "once per material and plant"
+    uuid plant_id
+    text valuation_class
+    text price_control "standard, moving_average"
+    bigint price "per price_unit"
+    numeric quantity
+    bigint value }
+  price_change { uuid id PK
+    bigint old_price
+    bigint new_price
+    bigint amount "revaluation"
+    uuid journal_entry_id "ledger" }
+  stock { uuid id PK
+    uuid legal_entity_id "tenancy: the plant's company"
+    uuid material_id "once per material, plant and location"
+    uuid plant_id
+    uuid storage_location_id
+    numeric quantity "never below zero" }
+```
+
+- `inventory.material_document`: a goods movement (SAP MKPF) of one
+  movement type, `501`, `502`, `561`, `562`, `201`, `202`, `551`, `552`,
+  `311`, `312`, `301` or `302` (`material_document_movement_type_check`),
+  numbered 1 to 40 characters (`material_document_number_check`) once per
+  company and fiscal year (`material_document_number_once`), with a header
+  text of 1 to 200 characters that is not blank
+  (`material_document_header_text_check`). A reversal type names the
+  document it reverses and another type none
+  (`material_document_reversal_check`); a reversal is of its original's
+  company with its type's reversal, of a document that reverses none
+  (`material_document_reversal`, a trigger), once
+  (`material_document_reversed_once`). Insert-only
+  (`material_document_insert_only`); the list reads by
+  `material_document_by_created_at`.
+- `inventory.movement`: a line of a document (MSEG), one stock effect in
+  the material's base unit, signed and not zero (`movement_quantity_check`),
+  with the item's quantity as entered, positive
+  (`movement_entry_quantity_check`), in a unit of measure
+  (`movement_entry_uom_code_fkey`); lines 1 to 200
+  (`movement_line_no_check`) of items 1 to 100 (`movement_item_no_check`)
+  of a document that exists (`movement_document_fkey`), once
+  (`movement_pkey`). Insert-only (`movement_insert_only`); a stock's
+  movements are read by `movement_by_stock`. Each adds its quantity to its
+  stock row, which must exist (`movement_stock`, a security definer
+  trigger).
+- `inventory.stock`: the quantity of a material at a storage location of a
+  plant (MARD's unrestricted stock), once (`stock_once`), with the plant's
+  company. Written empty by the application (`stock_from_movements`, a
+  trigger) before the first movement of it, its quantity changed by
+  `movement_stock` alone (the application may update `updated_at`, which
+  its row lock needs, and nothing else) and never below zero
+  (`stock_not_negative`). The list reads by `stock_by_created_at`, a
+  plant's stock by `stock_by_plant`.
+- `inventory.valuation` (S1d, migration 000377): a material's valuation
+  in a plant (SAP MBEW), once (`valuation_once`), of a valuation class of
+  1 to 4 capitals or digits (`valuation_class_check`), price control
+  `standard` or `moving_average` (`valuation_price_control_check`), a
+  currency (`valuation_currency_fkey`), a price not below zero
+  (`valuation_price_check`) per a price unit of 1 to 10000
+  (`valuation_price_unit_check`), and the quantity and value of the
+  material's stock in the plant, neither below zero
+  (`valuation_quantity_check`, `valuation_value_check`), no value without
+  stock (`valuation_value_without_stock`), a standard-priced one worth its
+  quantity at its price rounded half away from zero
+  (`valuation_standard_value`). It starts empty and keeps its material,
+  plant, company, price control, currency and price unit
+  (`valuation_fixed`, a trigger); the application changes its class alone
+  (and its version), deletes none; its quantity, value and moving price
+  change with its movements (`movement_stock`, which needs it:
+  `movement_valuation`) and its price with its price changes. The list
+  reads by `valuation_by_created_at`.
+- `inventory.price_change` (S1d): a price change (SAP MR21) of a
+  valuation (`price_change_valuation_fkey`), to another price
+  (`price_change_changes`), neither below zero, of the stock it revalued
+  and by how much, naming its journal entry exactly when it revalued
+  (`price_change_entry`); of the valuation's price and stock as they are,
+  which it sets (`price_change_valuation`, a security definer trigger).
+  Insert-only (`price_change_insert_only`); read by
+  `price_change_by_valuation`.
+- `inventory.movement` gains `amount` and `difference` (S1d): the value a
+  line moves on its valuation and its price difference.
+  `inventory.material_document` gains `currency` and the journal entry it
+  posted, given together and with the currency
+  (`material_document_entry`).
+- `ledger.account_determination` takes the keys of valuation classes,
+  `inventory_<kind>:<class>` (`account_determination_key_check`, 000377,
+  validated by 000378), and `ledger.journal_entry` the source context
+  `inventory`.
+- `inventory.outbox`, `inventory.inbox`: the context's events
+  (`MaterialDocumentPosted`, `MaterialPriceChanged`).
+- Permissions `inventory.movement.post`, `inventory.stock.read`,
+  `inventory.valuation.read` and `.write`.

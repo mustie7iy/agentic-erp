@@ -59,7 +59,11 @@ Week 2 adds three things every slice here holds to:
 ## Boundaries with the areas outside the required scope
 
 Supply chain, Manufacturing, Assets/service/EHS, Projects, Human capital
-and the industry packs are outside the required scope. Where the sales
+and the industry packs are outside the required scope. (Supply chain
+joined the scope on 2026-11-17, product owner; the gaps below are planned
+in `plan-supply-chain.md`: the material master S1a, stock S1c, valuation
+S1d, the item keys mapped onto materials S1f, deliveries and goods issue
+with cost of goods sold S2a and S2b, availability S2j.) Where the sales
 chain touches them, the plan stops at the boundary or uses the thinnest
 stand-in inside the required scope, and no leaf of those areas is touched:
 
@@ -267,7 +271,8 @@ still open.
 **Later for Order-to-delivery flow (after 1 December):** the outbound
 delivery document, picking, packing and goods issue with their stock
 movement and cost of goods sold (Supply chain › Shipping and delivery,
-outside the required scope); availability check; delivery blocks; partial
+outside the required scope until 2026-11-17, now `plan-supply-chain.md`
+S2a and S2b); availability check; delivery blocks; partial
 delivery rules and tolerances; reversing a confirmation; proof of
 delivery; delivery notes (output management).
 
@@ -972,7 +977,8 @@ that makes the main path work, and the slice records it in its ADR.
    invoice date, which is the tax date (ADR-0049 §4, ADR-0063 §4).
 2. An item names what is sold by a free-text item key, a description and
    a revenue account, as a purchase order item names what is bought; there
-   is no material master (outside the required scope).
+   is no material master (outside the required scope until 2026-11-17;
+   now `plan-supply-chain.md` S1a, and S1f maps the item keys onto it).
 3. A quotation is open, accepted or rejected; it is not changed. One
    accepted quotation gives one order.
 4. A sales order is created and confirmed directly by permission, without

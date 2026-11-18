@@ -215,6 +215,8 @@ func TestSummaries(t *testing.T) {
 		"tax return": {&gen.GetTaxReturnOKHeaders{Response: gen.TaxReturn{ReturnName: "GST/HST return", RegistrationCode: "GST-1", Kind: "original",
 			PeriodStart: day, PeriodEnd: day, ItemCount: 3, Status: "prepared"}},
 			[]string{"Title GST/HST return", "Tax registration GST-1", "Kind of return original", "From 2026-10-22", "Items 3", "Status prepared"}, ""},
+		"material change": {&gen.MaterialChangeHeaders{Response: gen.MaterialChange{Number: "MC00000001", Kind: "create", MaterialNumber: "MA1",
+			MaterialDescription: "Bracket", Status: "pending", Reason: "New"}}, []string{"Number MC00000001", "Kind of change create", "Title MA1 Bracket", "Reason given New"}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			sum, ok := summaryOf(tc.res)

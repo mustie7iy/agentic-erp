@@ -1226,9 +1226,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "An AR accountant enters and posts a debit memo to a customer: posted as an invoice is, Dr the customer and Cr revenue and output tax at its own date, as journal document type DD with its own number range journal_dd; the customer's open item with its terms; it names no invoice",
+        "r": "T75j · docs/design/plan-depth-3.md §T75j · db/migrations/000379, 000380 · kind debit_memo on POST /v1/customer-invoices and GET /v1/customer-invoices?kind= · internal/receivables/kinds.go documentTypes · TestDebitMemo, TestDebitMemoWithoutRange, TestDebitMemoRevert · walkthrough step_debit_memo · ADR-0063 §7 and As built T75j",
+        "src": "split:T75d · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "An AR accountant reverses a posted credit memo or debit memo: a reversal document turns its entry's signs, its open item is cleared against the reversal, a reversed credit memo frees its invoice's credit limit; refused when its item is cleared, for an invoice, for a memo sales entered, and into a closed period with the period's problem (POST /v1/customer-invoices/{id}:reverse)",
+        "r": "T75k · docs/design/plan-depth-3.md §T75k · db/migrations/000381, 000382 · POST /v1/customer-invoices/{id}:reverse (reverseCustomerInvoice) · internal/receivables/reverse.go · CustomerInvoiceReversed · TestReverseDebitMemo, TestReverseCreditMemoFreesItsCredit, TestReverseRefusals, TestReverseConcurrently, TestReverseRacesAClearing, TestCustomerMemoReversal · walkthrough step_memo_reversal · ADR-0063 §7 and As built T75k",
+        "src": "split:T75d · adr:ADR-0063",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: customer credit memo variants: debit memos, credit memos from returns and credit memo requests, paying a credit out, reversal (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T75d, Later",
+        "t": "later: customer credit memo variants: credit memos from returns and credit memo requests, paying a credit out, a debit memo naming the invoice it adds to, reversal reason codes (debit memos and reversing a credit memo or debit memo are T75j and T75k; after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75d, Later · docs/design/plan-depth-3.md §cm, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        }
@@ -3648,9 +3662,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A controller posts a statistical key figure's values per cost center and period, and runs a cycle whose receivers' shares are the key figure's values of the period",
+        "r": "T60j · docs/design/plan-depth-3.md §T60j · migrations 000385-000386 · internal/controlling/keyfigures.go, allocation.go, allocationrun.go · AllocationCycleChanged .v2 · ADR-0064 As built T60j · scripts/walkthrough.sh step_distribution (key_figure_shares)",
+        "src": "split:T60g · adr:ADR-0064",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A controller charges receivers fixed amounts by an assessment cycle, and reverses an allocation run in its period so the cycle may run for it again",
+        "r": "T60k · docs/design/plan-depth-3.md §T60k · migrations 000387-000389 · internal/controlling/allocationreversal.go, allocation.go, allocationrun.go · POST /v1/allocation-runs/{id}:reverse · AllocationRunReversed · ADR-0064 As built T60k · scripts/walkthrough.sh step_assessment (run_reversed_and_fixed)",
+        "src": "split:T60g · adr:ADR-0064",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: allocation cycle variants: shares from statistical key figures or actual or plan values, fixed amounts, several senders and segments, iterative cycles, simulating and reversing a run, plan allocations, overhead rates and activity allocation, receivers other than cost centers (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T60g, Later",
+        "t": "later: allocation cycle variants: shares from actual or plan values, fixed portions, fixed key figure values carried forward, several senders and segments, iterative cycles, simulating a run, plan allocations, overhead rates and activity allocation, receivers other than cost centers, fixed amounts on a distribution, reversing into a later period (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T60g, Later · docs/design/plan-depth-3.md §alloc, Later",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        }
@@ -5004,8 +5032,22 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Scales on a condition record: a price or discount's rate by the level an item's quantity or value reaches (basis quantity or value, its unit or currency stated, a \"from\" scale exact in minor units), shown on the item's condition",
+        "r": "T80e · docs/design/plan-depth-3.md §T80e · db/migrations/000383 · sales.price_scale · scale_basis, scale[] on POST /v1/sales-prices and SalesPrice · SalesCondition.scale · SalesPriceChanged · walkthrough step_price_scales · ADR-0067 §12 and As built",
+        "src": "split:T80a · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Prices per customer price group: price groups in configuration, a customer's group on its sales data in a company, price records for a group, and the access sequence customer, price group, general",
+        "r": "T80f · docs/design/plan-depth-3.md §T80f · db/migrations/000384 · configuration pricing.price_groups · sales.customer_sales_data · price_group on sales.price · POST /v1/customer-sales-data · GET /v1/customer-sales-data · GET, PATCH /v1/customer-sales-data/{id} · CustomerSalesDataChanged · SalesCondition.access · walkthrough step_price_groups · ADR-0067 §13 and As built",
+        "src": "split:T80a · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: price determination variants: scales by quantity or value, prices per customer group, price list type or sales organization, surcharges and freight, minimum prices and manual price approval, currency conversion of a price, repricing a document, mass changes and price uploads, prices taken over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: price determination variants: prices per price list type or sales organization, surcharges and freight, minimum prices and manual price approval, currency conversion of a price, repricing a document, mass changes and price uploads, prices taken over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T80a, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
@@ -5277,23 +5319,51 @@
     "ph": 4,
     "c": [
      {
+      "s": "D",
+      "t": "A master data specialist creates a material (number from the company's material range, description, base unit, material type, material group, status), extends it to plants and storage locations, gives it alternative units with exact integer conversions, and reads, lists and changes it at its version (POST, GET, PATCH /v1/materials; MaterialChanged)",
+      "r": "S1a · docs/design/plan-supply-chain.md §S1a · ADR-0082 and As built · db/migrations/000373 · internal/materials · materials.material, .plant_data, .storage_location_data, .unit_conversion · POST /v1/materials · GET /v1/materials · GET /v1/materials/{id} · PATCH /v1/materials/{id} · MaterialChanged · materials.material.read, .write · config.NumberedPerTenant · tenancy.Directory.OrgUnits · walkthrough step_material",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Creating or changing a material is a material change approved through the existing approvals as a business partner's is: pending until approved, possible duplicates by description listed and refused unless confirmed, one pending change per material, blocking at once (/v1/material-changes; MaterialChangeChanged)",
+      "r": "S1b · docs/design/plan-supply-chain.md §S1b · ADR-0082 §9 and As built · db/migrations/000374, 000375 · materials.material_change · platform.normalized_text · POST /v1/materials (pending) · PATCH /v1/materials/{id} (pending_change_id) · GET /v1/material-changes · GET /v1/material-changes/{id} · approvals.MaterialChange (process_owner) · materials.change.approve · MaterialChangeChanged · walkthrough step_material, step_material_governance",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "Materials and plants",
-      "r": "",
+      "t": "Sales and procurement items (quotation, sales order, billing, requisition, RFQ, catalog) may name a material instead of a free-text key, taking its description and unit, and the tenant's existing item keys are mapped onto materials once",
+      "r": "S1f · docs/design/plan-supply-chain.md §S1f · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The SAP migration loads the material master (MARA, MAKT, MARM, MARC, MARD's assignments, T001W, T001L) into materials and tenancy with the quality gate and reconciliation; a material whose units are not exact is held back with its reason",
+      "r": "S2o · docs/design/plan-supply-chain.md §S2o · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: material master variants: descriptions by language, sales and purchasing views, dimensions, weights and GTINs, material types and groups from configuration, plant-specific status and MRP data, external numbers, classification, changing the base unit or type once used (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S1a, Later",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
-      "t": "Units of measure",
-      "r": "",
+      "t": "later: units of measure variants: units and dimensions of the tenant's own beyond ref.unit_of_measure, variable conversions per batch, units of issue and order units per plant (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S1a, Later",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
-      "t": "Governance for materials",
-      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Master data / Master data governance workflows: materials with the material master (phase 4); split from \"Governance for materials and customers\")",
+      "t": "later: material governance variants: approval by plant or material type, a configurable approver role and multi-step policies, a fuzzy duplicate check, change pointers for downstream systems, mass changes (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S1b, Later",
       "src": "baseline",
       "c": []
      }
@@ -5305,16 +5375,30 @@
     "ph": 4,
     "c": [
      {
+      "s": "D",
+      "t": "A warehouse clerk posts goods movements of a material at a plant's storage location (receipt without order, initial entry, issue to a cost center, scrapping, transfers between storage locations and plants) as material documents, reverses one, and reads stock by location now or as at a date; stock never below zero",
+      "r": "S1c · docs/design/plan-supply-chain.md §S1c · ADR-0082 As built S1c · db/migrations/000376 · internal/inventory · inventory.material_document, .movement, .stock · POST /v1/material-documents · GET /v1/material-documents · GET /v1/material-documents/{id} · POST /v1/material-documents/{id}:reverse · GET /v1/stock · MaterialDocumentPosted · inventory.movement.post, inventory.stock.read · materials.Materials · walkthrough step_goods_movements",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "Stock by location",
-      "r": "",
+      "t": "The SAP cutover loads stock by storage location (MARD) and valuation (MBEW) as initial entries valued at SAP's price against the migration clearing account, reconciled to SAP's quantities and values per material and plant",
+      "r": "S2p · docs/design/plan-supply-chain.md §S2p · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: stock variants: stock types (quality inspection, blocked, restricted), special stocks (consignment, customer, project), negative stock, reservations (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S1c, Later",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
-      "t": "Goods movements",
-      "r": "",
+      "t": "later: goods movement variants: movement reasons, production movements (with Manufacturing), material period closing, goods receipt slips (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S1c, Later",
       "src": "baseline",
       "c": []
      }
@@ -5326,16 +5410,30 @@
     "ph": 4,
     "c": [
      {
+      "s": "D",
+      "t": "An inventory accountant values a material in a plant at moving average or standard price with a valuation class; every goods movement then posts its value through the ledger's posting port by the account determination, and a price change revalues the stock",
+      "r": "S1d · docs/design/plan-supply-chain.md §S1d · ADR-0082 §8 and As built S1d · db/migrations/000377, 000378 · inventory.valuation, .price_change · movement.amount, .difference · companies[].account_determination.inventory · POST /v1/material-valuations · GET /v1/material-valuations · GET /v1/material-valuations/{id} · PATCH /v1/material-valuations/{id} · POST /v1/material-valuations/{id}:changePrice · MaterialPriceChanged · inventory.valuation.read, .write · walkthrough step_valuation, step_goods_movements",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "Moving average and standard price",
-      "r": "",
+      "t": "A purchase order item names a material, plant and storage location; its goods receipt is a movement into stock at the order price posting stock against GR/IR, and the supplier invoice clears GR/IR with its price difference on the stock or the price difference account",
+      "r": "S1e · docs/design/plan-supply-chain.md §S1e · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: valuation variants: the material ledger and actual costing, split valuation, future and previous period prices, lowest value principle, special stock valuation (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S1d, Later",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
-      "t": "Inventory postings",
-      "r": "",
+      "t": "later: inventory posting variants: receipts into quality inspection, delivery tolerances, evaluated receipt settlement, returns to the supplier, planned delivery costs on the stock value (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S1e, Later",
       "src": "baseline",
       "c": []
      }
@@ -5348,22 +5446,43 @@
     "c": [
      {
       "s": "T",
-      "t": "Count documents",
-      "r": "",
+      "t": "An inventory controller creates a count document for a storage location's materials, freezing the book quantity, and enters the counted quantities",
+      "r": "S2c · docs/design/plan-supply-chain.md §S2c · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The inventory controller posts a count's differences valued at the material's price; a difference above the company's tolerance needs approval",
+      "r": "S2d · docs/design/plan-supply-chain.md §S2d · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The count planning agent recommends the materials to count this period for an inventory controller to decide; it never creates a count document",
+      "r": "S2e · docs/design/plan-supply-chain.md §S2e · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: count variants: cycle counting indicators, sampling inventory, counts by bin or handling unit, book quantity frozen at a past date (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2c, Later",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
-      "t": "Difference postings",
-      "r": "",
+      "t": "later: difference posting variants: recounts with history, difference reasons, approval tiers by value (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2d, Later",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
-      "t": "Count planning agent",
-      "r": "",
+      "t": "later: count planning agent variants: scheduling counts on a calendar, counting by risk class learned from differences (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2e, Later",
       "src": "baseline",
       "c": []
      }
@@ -5376,15 +5495,29 @@
     "c": [
      {
       "s": "T",
-      "t": "Batches",
-      "r": "",
+      "t": "A batch-managed material carries a batch, with manufacture and expiry dates, on every movement and stock row",
+      "r": "S2f · docs/design/plan-supply-chain.md §S2f · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A material with a serial number profile records each unit's serial number on receipt and issue, each in stock at most once",
+      "r": "S2g · docs/design/plan-supply-chain.md §S2g · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: batch variants: classification, batch determination (FEFO), where-used lists and recall (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2f, Later",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
-      "t": "Serial numbers",
-      "r": "",
+      "t": "later: serial number variants: serial numbers in maintenance and service, serialization at delivery only (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2g, Later",
       "src": "baseline",
       "c": []
      }
@@ -5397,8 +5530,22 @@
     "c": [
      {
       "s": "T",
-      "t": "Stock transport orders",
-      "r": "",
+      "t": "A planner orders stock from one plant to another of the same company; the issue puts it in transit and the receipt takes it out",
+      "r": "S2h · docs/design/plan-supply-chain.md §S2h · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A stock transfer between plants of two companies with intercompany billing and the receiving company's supplier invoice",
+      "r": "S2i · docs/design/plan-supply-chain.md §S2i · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: stock transfer variants: one-step transfers between companies, transit stock valuation, cross-border customs (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2h, Later",
       "src": "baseline",
       "c": []
      }
@@ -5411,15 +5558,29 @@
     "c": [
      {
       "s": "T",
-      "t": "Deliveries",
-      "r": "",
+      "t": "A shipping clerk creates an outbound delivery for a confirmed sales order's items from a plant and storage location and records the picked quantities",
+      "r": "S2a · docs/design/plan-supply-chain.md §S2a",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Posting the delivery's goods issue reduces stock and posts the cost of goods sold at the valuation price; billing bills the delivered quantities and profitability shows cost of sales",
+      "r": "S2b · docs/design/plan-supply-chain.md §S2b",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: delivery variants: packing and handling units, shipping points and routes, delivery split and grouping, proof of delivery, delivery notes, returns deliveries (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2a, Later",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
-      "t": "Picking and goods issue",
-      "r": "",
+      "t": "later: goods issue variants: goods issue reversal with billing cancelled, partial goods issue, picking by wave or bin (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2b, Later",
       "src": "baseline",
       "c": []
      }
@@ -5432,8 +5593,15 @@
     "c": [
      {
       "s": "T",
-      "t": "ATP check",
-      "r": "",
+      "t": "Confirming a sales order item checks the material's available quantity at the plant and confirms what is available on the requested date; two orders racing for the last quantity confirm it once",
+      "r": "S2j · docs/design/plan-supply-chain.md §S2j",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: ATP variants: checking rules with replenishment lead time, back-order processing, product allocation, global ATP across plants (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2j, Later",
       "src": "baseline",
       "c": []
      }
@@ -5446,15 +5614,29 @@
     "c": [
      {
       "s": "T",
-      "t": "Net requirements",
-      "r": "",
+      "t": "A planning run per plant computes net requirements (open sales orders and a reorder point against stock and open receipts) and proposes purchase requisitions, replacing only its own open proposals",
+      "r": "S2k · docs/design/plan-supply-chain.md §S2k",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "The replenishment agent recommends what to order, from which supplier and when, from the run's proposals for a buyer to decide",
+      "r": "S2l · docs/design/plan-supply-chain.md §S2l",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: MRP variants: lot sizing procedures, safety stock calculation, MRP areas, planned orders for production, scheduling with calendars (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2k, Later",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
-      "t": "Replenishment agent",
-      "r": "",
+      "t": "later: replenishment agent variants: supplier choice by lead time and reliability, orders created on acceptance (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2l, Later",
       "src": "baseline",
       "c": []
      }
@@ -5467,15 +5649,29 @@
     "c": [
      {
       "s": "T",
-      "t": "Forecasting agent",
-      "r": "",
+      "t": "The demand forecasting agent forecasts a material's demand by plant from its goods issues and open orders and states its accuracy",
+      "r": "S2m · docs/design/plan-supply-chain.md §S2m",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "A planner reviews the forecast against supply by material group and month and fixes a consensus plan version",
+      "r": "S2n · docs/design/plan-supply-chain.md §S2n",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: forecasting variants: statistical models beyond the agent's, promotions, collaborative forecasts with customers (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2m, Later",
       "src": "baseline",
       "c": []
      },
      {
       "s": "T",
-      "t": "S&OP review",
-      "r": "",
+      "t": "later: S&OP variants: capacity and supply optimisation, scenario comparison, approval of the consensus plan (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2n, Later",
       "src": "baseline",
       "c": []
      }
@@ -5488,8 +5684,15 @@
     "c": [
      {
       "s": "T",
-      "t": "WMS connector",
-      "r": "",
+      "t": "An external warehouse system receives deliveries and receipts to pick and put away and reports the movements back through a connector",
+      "r": "S2q · docs/design/plan-supply-chain.md §S2q",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: warehouse variants: an embedded warehouse (SAP EWM), bins and handling units in the ERP (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2q, Later",
       "src": "baseline",
       "c": []
      }
@@ -5502,8 +5705,15 @@
     "c": [
      {
       "s": "T",
-      "t": "TMS connector",
-      "r": "",
+      "t": "An external transport system receives outbound deliveries to plan and returns the shipment and freight cost through a connector",
+      "r": "S2r · docs/design/plan-supply-chain.md §S2r",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: transport variants: freight settlement, carrier selection, shipment costs on the stock value (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2r, Later",
       "src": "baseline",
       "c": []
      }
@@ -5516,8 +5726,15 @@
     "c": [
      {
       "s": "T",
-      "t": "Trade compliance connector",
-      "r": "",
+      "t": "An external trade compliance service screens deliveries' parties and materials and blocks a delivery it refuses, through a connector",
+      "r": "S2s · docs/design/plan-supply-chain.md §S2s",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "later: trade variants: customs declarations, preference calculation, licences (after the plan's slices; product owner 2026-11-17)",
+      "r": "docs/design/plan-supply-chain.md §S2s, Later",
       "src": "baseline",
       "c": []
      }

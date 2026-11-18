@@ -16,8 +16,9 @@
 // ledger's reset of its clearing (T75i, reset.go). A credit memo is the
 // same document with the kind credit_memo, posted with the signs turned;
 // one naming an invoice may not, with the other posted memos naming it,
-// exceed that invoice's gross amount (T75d, ADR-0063 §7; kinds.go). The
-// AR aging is computed on read from the ledger's customer open items
+// exceed that invoice's gross amount (T75d, ADR-0063 §7; kinds.go). A
+// debit memo charges the customer more and posts as an invoice does, as
+// its own journal document type (T75j). The AR aging is computed on read from the ledger's customer open items
 // (T75e, ADR-0063 §10; aging.go). A document's amounts are never
 // negative: the kind gives their direction.
 //
@@ -49,10 +50,12 @@ import (
 )
 
 // The statuses of a customer invoice: entered as a draft, posted once
-// (ADR-0063 §2, §5).
+// (ADR-0063 §2, §5); a credit memo or debit memo is reversed once
+// (T75k).
 const (
-	Draft  = "draft"
-	Posted = "posted"
+	Draft    = "draft"
+	Posted   = "posted"
+	Reversed = "reversed"
 )
 
 // NumberRange is the document type customer invoices draw their numbers
@@ -88,12 +91,16 @@ type Terms interface {
 }
 
 // Postings is the ledger's posting port (03 §3.16): a customer invoice's
-// entry, the entry that applies a receipt to a customer's open items, and
-// the reset of that entry's clearing with its reversal (T75i).
+// entry, the entry that applies a receipt to a customer's open items, the
+// reset of that entry's clearing with its reversal (T75i), and the
+// reversal of a credit memo's or debit memo's entry, once its open item is
+// not cleared (T75k).
 type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
 	ApplyReceipt(ctx context.Context, in ledger.ReceiptApplication) (ledger.AppliedReceipt, error)
 	ResetClearing(ctx context.Context, in ledger.ClearingReset) (ledger.Entry, error)
+	Reverse(ctx context.Context, entryID uuid.UUID, postingDate *time.Time, headerText *string) (ledger.Entry, error)
+	IsCleared(ctx context.Context, fiscalYear int16, entryID uuid.UUID) (bool, error)
 }
 
 // Entries names journal entries by their document numbers and by their
@@ -238,12 +245,24 @@ type Invoice struct {
 	// sales, T79b); nil for an invoice a person entered.
 	SourceDocumentID     *uuid.UUID
 	SourceDocumentNumber *string
-	Items                []Item
-	Version              int32
-	CreatedAt            time.Time
-	CreatedBy            uuid.UUID
-	UpdatedAt            time.Time
-	UpdatedBy            uuid.UUID
+	// Reversal is the reversal of a credit memo's or debit memo's entry
+	// (T75k), nil until reversed.
+	Reversal  *InvoiceReversal
+	Items     []Item
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
+}
+
+// InvoiceReversal is how a document was reversed: the reversal entry by
+// fiscal year and id, the date it posted on and the reason given.
+type InvoiceReversal struct {
+	EntryYear   int16
+	EntryID     uuid.UUID
+	PostingDate time.Time
+	Reason      string
 }
 
 // invoiceSelect reads invoices with their items by item number, so every
@@ -251,7 +270,7 @@ type Invoice struct {
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.customer_id, i.kind, i.reference_invoice_id,
 		(SELECT r.document_number FROM receivables.customer_invoice r WHERE r.tenant_id = i.tenant_id AND r.id = i.reference_invoice_id), i.invoice_date, i.posting_date, i.currency, c.exponent,
 		i.net_amount, i.tax_amount, i.gross_amount, i.status, i.payment_term_code, i.net_due_date, i.journal_entry_year, i.journal_entry_id,
-		i.source_document_id, i.source_document_number,
+		i.source_document_id, i.source_document_number, i.reversal_entry_year, i.reversal_entry_id, i.reversal_date, i.reversal_reason,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'description', t.description, 'account_id', t.account_id,
 			'net_amount', t.net_amount, 'tax_code', t.tax_code, 'tax_jurisdiction', t.tax_jurisdiction, 'tax_amount', t.tax_amount,
 			'cost_center_id', t.cost_center_id, 'profit_center_id', t.profit_center_id) ORDER BY t.item_no)
@@ -261,9 +280,16 @@ const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.cust
 
 func scanInvoice(row pgx.Row) (Invoice, error) {
 	var v Invoice
+	var revYear *int16
+	var revID *uuid.UUID
+	var revDate *time.Time
+	var revReason *string
 	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.CustomerID, &v.Kind, &v.ReferenceInvoiceID, &v.ReferenceInvoiceNumber, &v.InvoiceDate, &v.PostingDate, &v.Currency, &v.Exponent,
 		&v.Net, &v.Tax, &v.Gross, &v.Status, &v.PaymentTermCode, &v.NetDueDate, &v.EntryYear, &v.EntryID,
-		&v.SourceDocumentID, &v.SourceDocumentNumber, &v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
+		&v.SourceDocumentID, &v.SourceDocumentNumber, &revYear, &revID, &revDate, &revReason, &v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
+	if err == nil && revID != nil { // all four or none (customer_invoice_reversed)
+		v.Reversal = &InvoiceReversal{EntryYear: *revYear, EntryID: *revID, PostingDate: *revDate, Reason: *revReason}
+	}
 	return v, errs.Wrapf(err, "scan customer invoice")
 }
 

@@ -154,7 +154,8 @@ adding up to 100, all active and of one company.
   amount to the minor unit (ADR-0005).
 - A run is one balanced entry through `ledger.Postings.Post`
   (`source_context` `controlling`), **one run per cycle and period**,
-  synchronous, not reversible in the first version (plan default 12). A
+  synchronous, not reversible in the first version (plan default 12;
+  reversible since T60k, one run in force per cycle and period). A
   sender without costs posts nothing.
 - An assessment leaves the sender's primary costs on their accounts, so
   **a sender assessed for a period is not run for it again**, by any of
@@ -954,7 +955,8 @@ run only once the later ones are reversed.
   reversed one's period or any period not before the last one in force.
 - **The ledger's `:reverse`** of a controlling entry names the path
   (409 `ledger.entry_owned_elsewhere`): a settlement is reversed here, so
-  that its reversal is kept; a cycle run's entry is not reversed.
+  that its reversal is kept; a cycle run's entry is not reversed (since
+  T60k it is, by `allocation-runs/{id}:reverse`).
 - **The lock order**: the settlement's entry lock first (a new port
   method, `ledger.Postings.LockEntries`, exclusive, as the ledger's
   reversal takes it), then the order `FOR UPDATE`, then the ledger's
@@ -982,3 +984,169 @@ run only once the later ones are reversed.
   back where it was), a second reversal is refused, she settles the
   order again (CC-1100 shows the CAD 1,500.00 once) and the listing
   shows both settlements, the first reversed; the order is then closed.
+
+### T60j: receiver shares from statistical key figures (migrations 000385-000386)
+The allocation variant of plan-depth-3 §T60j. SAP S/4HANA is the
+reference, stated from memory for the specialist to confirm: statistical
+key figures (KK01) of a controlling area with a unit, their values
+posted per cost center and period (KB31N), totals values adding up
+within a period, and a cycle segment's receiver rule "variable portions"
+taking the receivers' tracing factors from a key figure's actual values.
+- **Tables** (000385): `controlling.statistical_key_figure` (a company's,
+  code unique in it, a name, a unit of measure of `ref.unit_of_measure`;
+  it keeps its company, code and unit, `statistical_key_figure_identity`),
+  `controlling.statistical_key_figure_posting` (a key figure's posting
+  for a fiscal year and period of its company; insert-only) and
+  `controlling.statistical_key_figure_value` (a posting's value per cost
+  center, once, numeric(20,6), not zero; insert-only). A cycle gains
+  `share_basis` (`fixed_percentages`, the default every cycle before
+  has, or `statistical_key_figure`) and `statistical_key_figure_id`,
+  exactly by key figure and a key figure of the cycle's company (a
+  foreign key, the key figure being controlling's own); the receivers of
+  a cycle by key figure hold no `share_bp`, and the deferred rule of
+  000283 reads the basis (`allocation_receiver_shares_whole` on fixed
+  percentages, `allocation_receiver_shares_by_basis` by key figure). The
+  cycle's new constraints are added `NOT VALID` and validated by 000386.
+  Schema tests: `db/key_figure_test.go` (`TestStatisticalKeyFigureRules`,
+  `TestKeyFigureCycleRules`).
+- **API**: `POST /v1/statistical-key-figures`, `GET` (list by `code`,
+  filters `legal_entity_id`, `code`), `GET /v1/statistical-key-figures/{id}`,
+  `POST /v1/statistical-key-figures/{id}/postings` (201 with the posting
+  and its lines, each value as the column keeps it), `GET
+  /v1/statistical-key-figures/{id}/values` (a period's value per cost
+  center in the order of the center's id, cursor paged, with the `total`
+  of every page); permissions `controlling.key_figure.read` and `.write`.
+  `POST /v1/allocation-cycles` takes `share_basis` and
+  `statistical_key_figure_id`; a cycle shows both and the key figure's
+  code, and its receivers' `percentage` only on fixed percentages (the
+  property became optional, oasdiff's warning, recorded in
+  `api/breaking-accepted.txt` all the same). Events `StatisticalKeyFigureChanged`,
+  `StatisticalKeyFigurePosted`; `AllocationCycleChanged` .v2 for every
+  cycle, with `share_basis` and the key figure, beside .v1, published for
+  a cycle by fixed percentages alone (.v1 requires a percentage per
+  receiver; ADR-0041) until 2027-11-18. Audit actions
+  `controlling.statistical_key_figure.create` and `.post`.
+- **A run by key figure** reads, for its receivers, the sums of the key
+  figure's values in the period run, exact (numeric text read as
+  `big.Rat`, never a float), after the sender's costs and only when there
+  is something to charge (a sender without costs posts nothing, as
+  before). Each amount is split by each receiver's value over the
+  receivers' total with `money.Allocate`, so the shares add up to it to
+  the minor unit; a receiver without a value takes nothing. The values
+  used are in the run's audit record (`key_figure_values`). The values
+  are read without a lock: postings only add rows, and a value posted
+  after the run's read is not charged by that run, as a cost posted after
+  a run stays on the sender (T60f, default 8).
+- **Decided by default:**
+  1. Values are totals values per period (SAP's totals values): a
+     posting adds to what was posted before, a correction is a further
+     posting with a negative value; fixed values carried to later
+     periods are in the plan's "Later".
+  2. A posting names active cost centers of the key figure's company,
+     each once, in a regular period of its fiscal year; a period is not
+     locked for key figure postings in the first version ("Later").
+  3. A negative value of a receiver in the period refuses the run (409
+     `controlling.allocation_key_figure_negative`), and so do values that
+     add up to nothing (409 `controlling.allocation_key_figure_missing`):
+     no share can be taken from them, and posting nothing silently would
+     leave the costs on the sender unnoticed.
+  4. The sender's own value is not read: only the receivers' values
+     share the costs.
+  5. A key figure is not changed or deleted in the first version, as a
+     cycle; defining one and posting its values are a person's
+     (`x-agent: false`) under `controlling.key_figure.write`, reading
+     needs `controlling.key_figure.read`; the values are no ledger
+     amounts, so no `ledger.entry.read` is asked.
+  6. A cycle stays one segment: several segments or senders in a cycle
+     are in the placeholder.
+- **Rolling update**: the previous version scans a receiver's share as
+  not null, so a cycle by key figure defined while it still serves fails
+  its reads there until the update completes (minutes); nothing is
+  written wrongly.
+- **Walkthrough**: `step_distribution` extended (`key_figure_shares`):
+  Carla defines `EMPL` (unit EA), posts 4 for CC-1100 and 1 for CC-1300
+  and corrects CC-1100 by -1 (values 3 and 1, total 4), defines
+  `SHARED-EMP` from CC-1200 by the key figure (a receiver with a
+  percentage refused), Alex posts CAD 100.01 to CC-1200 and the run
+  splits it CAD 75.01 and 25.00.
+
+### T60k: fixed amounts per receiver, and an allocation run reversed (migrations 000387-000389)
+The allocation variants of plan-depth-3 §T60k. SAP S/4HANA is the
+reference, stated from memory for the specialist to confirm: a cycle
+segment's sender rule "fixed amounts" charges the receivers amounts
+entered in the segment whatever the sender's posted costs; a cycle run
+is reversed for its period (KSU5/KSV5, reversal), after which the cycle
+may be run for the period again.
+- **Fixed amounts** (000387): `share_basis` `fixed_amounts`, an
+  assessment's alone (`allocation_cycle_fixed_amounts`); each receiver
+  holds its `amount` in minor units of the company's local currency,
+  above zero (`allocation_receiver_amount`), and no share; the deferred
+  rule requires an amount on every receiver of such a cycle and none on
+  another (`allocation_receiver_shares_by_basis`,
+  `allocation_receiver_shares_whole`). `POST /v1/allocation-cycles` takes
+  `receivers[i].amount` (`required`, `not_allowed`, `.currency` and
+  `.amount` `invalid`; amounts whose total no amount holds, `receivers`
+  `too_large`; a distribution by fixed amounts, `share_basis`
+  `not_allowed`), and the cycle, its audit record and
+  `AllocationCycleChanged` .v2 show each receiver's amount with its
+  currency. A run reads no costs: one entry on the assessment account
+  credits the sender with the amounts' total and debits each receiver
+  with its amount, posted whatever the sender's costs, also when it has
+  none; its `account_count` is 0 (the response's minimum lowered from 1,
+  accepted in `api/breaking-accepted.txt`).
+- **A run reversed** (000387-000389): `controlling.allocation_run_reversal`
+  (one per run, its entry once, insert-only); the run's `attempt` within
+  its cycle and period, unique (`allocation_run_attempt_once`, built
+  concurrently by 000388) and, by a trigger, the next after runs all
+  reversed (`allocation_run_in_force_once`), so one run per cycle and
+  period is in force; 000389 drops `allocation_run_once`, which it
+  replaces, and validates 000387's checks. Schema tests:
+  `db/allocation_reversal_test.go`. `POST /v1/allocation-runs/{id}:reverse`
+  (`controlling.allocation.run` and `ledger.entry.read`, `x-agent:
+  false`, `If-Match` the cycle's version, which it does not move; 200
+  with the run) reverses the run's entry through `ledger.Postings.Reverse`
+  on its own posting date, in every ledger it was posted to, so the
+  run's period must be open (409 `ledger.period_not_open`); a second
+  reversal is 409 `controlling.allocation_run_reversed`. The run shows
+  `reversal_journal_entry_id`, `reversal_journal_entry_number`,
+  `reversed_at`, `reversed_by`; `GET /v1/allocation-runs` filters
+  `reversed`. A reversed run is no longer the cycle's run of the period
+  (`runOf`) nor the sender's assessment of it (`senderAssessed`).
+  Event `AllocationRunReversed`; audit action
+  `controlling.allocation_cycle.reverse_run`. The ledger's `:reverse` of a
+  run's entry names the path (409 `ledger.entry_owned_elsewhere`).
+- **Locks**: a reversal holds every cycle of the run's sender FOR UPDATE
+  (`heldCycle`), as a run does, reads the run again under it, then the
+  ledger's reversal takes the entry's lock, the period statuses and the
+  number range; a run takes the same cycles and then the ledger's posting
+  locks. So a reversal and a run of one sender follow one another
+  (`TestAllocationRunReversalThenRun`, `TestAllocationRunReversedOnce`),
+  and no path takes an entry's lock before a cycle's.
+- **Decided by default:**
+  1. Fixed amounts are an assessment's alone: a distribution moves the
+     costs posted account by account, and splitting fixed amounts across
+     accounts is in the plan's "Later".
+  2. Fixed amounts are charged whatever the sender's costs, also above
+     them or without any (SAP's fixed amounts, from memory); the sender
+     may then show a credit on the assessment account.
+  3. Any run in force may be reversed, not only the sender's latest:
+     each run's entry is its own, and a reversal gives back exactly what
+     the run charged, even when a receiver passed it on since.
+  4. The reversal is dated the run's own posting date; into a later
+     period when the run's is closed is in the plan's "Later".
+  5. Reversing is a person's under `controlling.allocation.run` (no new
+     permission), as running is.
+  6. An assessment by fixed amounts is an assessment of its sender for
+     the period: no other cycle of the sender runs for it while that run
+     is in force (409 `controlling.allocation_sender_assessed`), since
+     the receivers were charged for the period already; reversing it
+     releases the sender (review round 1, a nit).
+  7. A cycle's receivers' `percentage` became optional in the cycle
+     responses (present on fixed percentages alone), recorded in
+     `api/breaking-accepted.txt` with T60j's reason (review round 1).
+- **Walkthrough**: `step_assessment` extended (`run_reversed_and_fixed`):
+  Carla reverses the `FACILITIES` run (the receivers' charges and the
+  sender's credit on 6990 gone; a second reversal refused), a
+  distribution by fixed amounts is refused, and `FAC-FIXED` charges
+  CC-1100 CAD 250.00 and CC-1300 CAD 150.00 from the facilities for the
+  period (`account_count` 0).

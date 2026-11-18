@@ -506,6 +506,20 @@ func encodeCaptureSupplierInvoiceRequest(
 	return nil
 }
 
+func encodeChangeMaterialPriceRequest(
+	req *MaterialPriceChange,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeChangeSalesOrderRequest(
 	req *SalesOrderChangeRequest,
 	r *http.Request,
@@ -1008,6 +1022,20 @@ func encodeCreateCustomerInvoiceRequest(
 	return nil
 }
 
+func encodeCreateCustomerSalesDataRequest(
+	req *CustomerSalesDataCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateDisputeCaseRequest(
 	req *DisputeCaseCreate,
 	r *http.Request,
@@ -1220,6 +1248,48 @@ func encodeCreateLeaseRunRequest(
 
 func encodeCreateLegalEntityRequest(
 	req *LegalEntityCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateMaterialRequest(
+	req *MaterialCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateMaterialDocumentRequest(
+	req *MaterialDocumentCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateMaterialValuationRequest(
+	req *MaterialValuationCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1682,6 +1752,34 @@ func encodeCreateSegmentRequest(
 
 func encodeCreateSodRuleRequest(
 	req *SodRuleCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateStatisticalKeyFigureRequest(
+	req *StatisticalKeyFigureCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateStatisticalKeyFigurePostingRequest(
+	req *StatisticalKeyFigurePostingCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -2841,6 +2939,20 @@ func encodeReverseAssetTransferRequest(
 	return nil
 }
 
+func encodeReverseCustomerInvoiceRequest(
+	req *CustomerInvoiceReverse,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeReverseGoodsReceiptRequest(
 	req OptGoodsReceiptReverse,
 	r *http.Request,
@@ -3243,6 +3355,20 @@ func encodeUpdateCreditLimitRequest(
 	return nil
 }
 
+func encodeUpdateCustomerSalesDataRequest(
+	req *CustomerSalesDataUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeUpdateDisputeCaseRequest(
 	req *DisputeCaseUpdate,
 	r *http.Request,
@@ -3301,6 +3427,34 @@ func encodeUpdateInternalOrderSettlementRuleRequest(
 
 func encodeUpdateLegalEntityRequest(
 	req *LegalEntityUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateMaterialRequest(
+	req *MaterialUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateMaterialValuationRequest(
+	req *MaterialValuationUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

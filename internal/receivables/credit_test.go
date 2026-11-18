@@ -261,15 +261,19 @@ func TestCreditMemoRefusals(t *testing.T) {
 	posted := e.post(t, e.entered(t, e.invoice(e.customer, "2026-03-10", e.item("100.00", ""))), "2026-03-12")["id"].(string)
 	draft := e.entered(t, e.invoice(e.customer, "2026-03-10", e.item("100.00", "")))
 	memo := e.post(t, e.entered(t, e.memo(e.customer, "", "2026-03-10", e.item("10.00", ""))), "2026-03-12")["id"].(string)
+	debit := e.post(t, e.entered(t, e.debitMemo(e.customer, "2026-03-10", e.item("10.00", ""))), "2026-03-12")["id"].(string)
 	usd := strings.ReplaceAll(e.memo(e.customer, posted, "2026-03-20", e.item("10.00", "")), "EUR", "USD")
 	us := strings.Replace(e.memo(e.customer, posted, "2026-03-20", itemOn(e.Account(t, "1000", "400000"), "10.00", "EUR", "")), e.DE.String(), e.US.String(), 1)
 	cases := []struct {
 		name, body, code, field string
 	}{
-		{"an unknown kind", strings.Replace(e.memo(e.customer, "", "2026-03-20", e.item("10.00", "")), "credit_memo", "debit_memo", 1),
+		{"an unknown kind", strings.Replace(e.memo(e.customer, "", "2026-03-20", e.item("10.00", "")), "credit_memo", "write_off", 1),
 			"receivables.unknown_kind", "kind"},
 		{"an invoice naming an invoice", strings.Replace(e.memo(e.customer, posted, "2026-03-20", e.item("10.00", "")), "credit_memo", "invoice", 1),
 			"receivables.reference_not_allowed", "reference_invoice_id"},
+		{"a debit memo naming an invoice", strings.Replace(e.memo(e.customer, posted, "2026-03-20", e.item("10.00", "")), "credit_memo", "debit_memo", 1),
+			"receivables.reference_not_allowed", "reference_invoice_id"},
+		{"a debit memo named", e.memo(e.customer, debit, "2026-03-20", e.item("10.00", "")), "receivables.invalid_reference_invoice", "reference_invoice_id"},
 		{"a draft named", e.memo(e.customer, draft, "2026-03-20", e.item("10.00", "")), "receivables.invalid_reference_invoice", "reference_invoice_id"},
 		{"a credit memo named", e.memo(e.customer, memo, "2026-03-20", e.item("10.00", "")), "receivables.invalid_reference_invoice", "reference_invoice_id"},
 		{"another customer's invoice", e.memo(other, posted, "2026-03-20", e.item("10.00", "")), "receivables.invalid_reference_invoice", "reference_invoice_id"},

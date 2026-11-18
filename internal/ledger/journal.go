@@ -1554,18 +1554,22 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry, cancelling uu
 // entry a context posted for a document that has a reversal of its own:
 // only the owner knows what else the reversal must change (a supplier
 // invoice's status, its permission, the payment runs holding its item), so
-// it reverses the entry through Postings.Reverse. Today that is payables
-// (supplier-invoices/{id}:reverse; an expense report's entry is not
-// reversed, ADR-0074), and procurement, whose goods receipts
-// are reversed by a 102 movement posting its own WE entry
-// (goods-receipts/{id}:reverse, T33), and assets, whose documents are
-// reversed through their own paths (asset-acquisitions/{id}:reverse,
-// ADR-0057 §4), and controlling, whose settlements are reversed by
-// internal-orders/{id}/settlements/{settlement id}:reverse (T60i). Entries
-// of contexts without such a
-// reversal stay the ledger's to reverse: manual ones, those a migration run
-// loaded (their source document is the load run), and payments (whose
-// entries clear their items, so requireReversible refuses them anyway).
+// it reverses the entry through Postings.Reverse. Today these are:
+//   - payables: supplier-invoices/{id}:reverse (an expense report's entry
+//     is not reversed, ADR-0074);
+//   - procurement: goods-receipts/{id}:reverse, a 102 movement posting its
+//     own WE entry (T33);
+//   - assets: their documents' own paths, such as
+//     asset-acquisitions/{id}:reverse (ADR-0057 §4);
+//   - controlling: internal-orders/{id}/settlements/{settlement id}:reverse
+//     (T60i) and allocation-runs/{id}:reverse (T60k);
+//   - receivables: customer-invoices/{id}:reverse for credit and debit
+//     memos (T75k), incoming-payments/{id}:reset for applications (T75i).
+//
+// Entries of contexts without such a reversal stay the ledger's to
+// reverse: manual ones, those a migration run loaded (their source
+// document is the load run), and payments (whose entries clear their
+// items, so requireReversible refuses them anyway).
 //
 // The contexts reversible here are listed, so a context that starts
 // posting is refused until it is decided whether it owns its reversals.
@@ -1584,10 +1588,16 @@ func requireOwnEntry(orig Entry) error {
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for goods movement "+orig.SourceDocumentID.String()+
 			"; goods receipts are reversed with POST /v1/goods-receipts/{receipt id}:reverse, which posts its own entry.")
 	case orig.SourceContext == "controlling" && orig.SourceDocumentID != nil:
-		// A settlement's or a cycle run's (ADR-0064 §3, §5; T60i).
+		// A settlement's or a cycle run's (ADR-0064 §3, §5; T60i, T60k).
 		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for controlling document "+orig.SourceDocumentID.String()+
 			"; an internal order's settlement is reversed with POST /v1/internal-orders/{order id}/settlements/"+orig.SourceDocumentID.String()+
-			":reverse, and an allocation cycle's run is not reversed.")
+			":reverse, and an allocation cycle's run with POST /v1/allocation-runs/"+orig.SourceDocumentID.String()+":reverse.")
+	case orig.SourceContext == "receivables" && orig.SourceDocumentID != nil:
+		// A customer invoice's, credit memo's or debit memo's, or an
+		// incoming payment's application (ADR-0063 §5, As built T75i, T75k).
+		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for receivables document "+orig.SourceDocumentID.String()+
+			"; a customer credit memo or debit memo is reversed with POST /v1/customer-invoices/"+orig.SourceDocumentID.String()+
+			":reverse, a customer invoice is corrected by a credit memo, and an incoming payment's application is undone with POST /v1/incoming-payments/{id}:reset.")
 	case orig.SourceContext == "assets" && orig.SourceDocumentID != nil:
 		// The entry does not say which kind of assets document posted it,
 		// so the document's paths are named (ADR-0057 §4).

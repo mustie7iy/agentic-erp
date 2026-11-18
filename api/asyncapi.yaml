@@ -97,6 +97,7 @@ info:
     - name: revenue
     - name: credit
     - name: grc
+    - name: materials
     - name: analytics
     - name: payments
     - name: workflow
@@ -383,6 +384,10 @@ channels:
       InternalOrderSettlementReversed: {$ref: '#/components/messages/InternalOrderSettlementReversed'}
       AllocationCycleChanged: {$ref: '#/components/messages/AllocationCycleChanged'}
       AllocationRunPosted: {$ref: '#/components/messages/AllocationRunPosted'}
+      AllocationCycleChangedV2: {$ref: '#/components/messages/AllocationCycleChangedV2'}
+      AllocationRunReversed: {$ref: '#/components/messages/AllocationRunReversed'}
+      StatisticalKeyFigureChanged: {$ref: '#/components/messages/StatisticalKeyFigureChanged'}
+      StatisticalKeyFigurePosted: {$ref: '#/components/messages/StatisticalKeyFigurePosted'}
   assets:
     address: 'erp.{cell}.assets.{tenant}.{event}'
     title: Asset accounting events
@@ -438,6 +443,7 @@ channels:
     messages:
       CustomerInvoiceChanged: {$ref: '#/components/messages/CustomerInvoiceChanged'}
       CustomerInvoicePosted: {$ref: '#/components/messages/CustomerInvoicePosted'}
+      CustomerInvoiceReversed: {$ref: '#/components/messages/CustomerInvoiceReversed'}
       IncomingPaymentApplied: {$ref: '#/components/messages/IncomingPaymentApplied'}
       IncomingPaymentOnAccountApplied: {$ref: '#/components/messages/IncomingPaymentOnAccountApplied'}
       IncomingPaymentReset: {$ref: '#/components/messages/IncomingPaymentReset'}
@@ -454,13 +460,14 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders, their receipts, credit memo requests and sales prices and discounts (ADR-0067 §6, §10, §11 and As built T85a, T85b, T85c, T85d; ADR-0066, T77b).
+    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents, returns orders, their receipts, credit memo requests, sales prices and discounts and customers' sales data (ADR-0067 §6, §10, §11, §13 and As built T85a, T85b, T85c, T85d; ADR-0066, T77b).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       QuotationChanged: {$ref: '#/components/messages/QuotationChanged'}
       SalesOrderChanged: {$ref: '#/components/messages/SalesOrderChanged'}
       SalesPriceChanged: {$ref: '#/components/messages/SalesPriceChanged'}
+      CustomerSalesDataChanged: {$ref: '#/components/messages/CustomerSalesDataChanged'}
       SalesOrderDelivered: {$ref: '#/components/messages/SalesOrderDelivered'}
       BillingDocumentChanged: {$ref: '#/components/messages/BillingDocumentChanged'}
       SalesOrderCreditBlocked: {$ref: '#/components/messages/SalesOrderCreditBlocked'}
@@ -524,6 +531,24 @@ channels:
     messages:
       LeaseContractChanged: {$ref: '#/components/messages/LeaseContractChanged'}
       LeaseRunPosted: {$ref: '#/components/messages/LeaseRunPosted'}
+  materials:
+    address: 'erp.{cell}.materials.{tenant}.{event}'
+    title: Material master events
+    description: Materials created and changed, and their governed changes (ADR-0082 §4, §9).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      MaterialChanged: {$ref: '#/components/messages/MaterialChanged'}
+      MaterialChangeChanged: {$ref: '#/components/messages/MaterialChangeChanged'}
+  inventory:
+    address: 'erp.{cell}.inventory.{tenant}.{event}'
+    title: Inventory management events
+    description: Goods movements posted as material documents and their reversals, and price changes of materials (ADR-0082 §7, §8).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      MaterialDocumentPosted: {$ref: '#/components/messages/MaterialDocumentPosted'}
+      MaterialPriceChanged: {$ref: '#/components/messages/MaterialPriceChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -757,6 +782,10 @@ operations:
       - $ref: '#/channels/controlling/messages/InternalOrderSettlementReversed'
       - $ref: '#/channels/controlling/messages/AllocationCycleChanged'
       - $ref: '#/channels/controlling/messages/AllocationRunPosted'
+      - $ref: '#/channels/controlling/messages/AllocationCycleChangedV2'
+      - $ref: '#/channels/controlling/messages/AllocationRunReversed'
+      - $ref: '#/channels/controlling/messages/StatisticalKeyFigureChanged'
+      - $ref: '#/channels/controlling/messages/StatisticalKeyFigurePosted'
   publishAssetsEvents:
     action: send
     title: Asset accounting publishes
@@ -802,6 +831,7 @@ operations:
     messages:
       - $ref: '#/channels/receivables/messages/CustomerInvoiceChanged'
       - $ref: '#/channels/receivables/messages/CustomerInvoicePosted'
+      - $ref: '#/channels/receivables/messages/CustomerInvoiceReversed'
       - $ref: '#/channels/receivables/messages/IncomingPaymentApplied'
       - $ref: '#/channels/receivables/messages/IncomingPaymentOnAccountApplied'
       - $ref: '#/channels/receivables/messages/IncomingPaymentReset'
@@ -821,6 +851,7 @@ operations:
       - $ref: '#/channels/sales/messages/QuotationChanged'
       - $ref: '#/channels/sales/messages/SalesOrderChanged'
       - $ref: '#/channels/sales/messages/SalesPriceChanged'
+      - $ref: '#/channels/sales/messages/CustomerSalesDataChanged'
       - $ref: '#/channels/sales/messages/SalesOrderDelivered'
       - $ref: '#/channels/sales/messages/BillingDocumentChanged'
       - $ref: '#/channels/sales/messages/SalesOrderCreditBlocked'
@@ -872,6 +903,20 @@ operations:
     messages:
       - $ref: '#/channels/leases/messages/LeaseContractChanged'
       - $ref: '#/channels/leases/messages/LeaseRunPosted'
+  publishMaterialsEvents:
+    action: send
+    title: Material master publishes
+    channel: {$ref: '#/channels/materials'}
+    messages:
+      - $ref: '#/channels/materials/messages/MaterialChanged'
+      - $ref: '#/channels/materials/messages/MaterialChangeChanged'
+  publishInventoryEvents:
+    action: send
+    title: Inventory management publishes
+    channel: {$ref: '#/channels/inventory'}
+    messages:
+      - $ref: '#/channels/inventory/messages/MaterialDocumentPosted'
+      - $ref: '#/channels/inventory/messages/MaterialPriceChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3842,7 +3887,12 @@ components:
         cycle's sender and its receivers with their percentages, which its
         runs charge the sender's costs of a period to, and for an
         assessment cycle the account they post on. Subject is the
-        allocation cycle id.
+        allocation cycle id. Since T60j published for a cycle whose shares
+        are fixed percentages alone, beside AllocationCycleChangedV2,
+        which every cycle publishes, until 2027-11-18 (12 months,
+        ADR-0041): a cycle whose shares come from a statistical key
+        figure has receivers without percentages, which this version
+        requires.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -3875,6 +3925,89 @@ components:
         - name: posted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000607, source: /erp/eu-1/controlling, type: com.example.erp.controlling.allocation_run_posted.v1, subject: 0192a000-0000-7000-8000-000000000d01, time: '2026-11-30T17:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {allocation_run_id: 0192a000-0000-7000-8000-000000000d11, allocation_cycle_id: 0192a000-0000-7000-8000-000000000d01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: SHARED-IT, name: IT services to the offices, kind: distribution, fiscal_year: 2026, fiscal_period: 11, posting_date: '2026-11-30', sender_cost_center_id: 0192a000-0000-7000-8000-000000000203, sender_cost_center_code: CC-1200, amount: {amount: '999.99', currency: EUR}, account_count: 1, journal_entry_id: 0192a000-0000-7000-8000-000000000e42, journal_entry_number: '100000043'}
+    AllocationCycleChangedV2:
+      name: AllocationCycleChangedV2
+      title: Allocation cycle changed (v2)
+      summary: An allocation cycle was created.
+      description: |
+        Emitted by `allocation-cycles` (POST, `created`), ADR-0064 §5 and
+        As built T60j, for every cycle, in the same transaction as
+        AllocationCycleChanged (.v1) when that one is published: a cycle's
+        sender, its receivers, what their shares are (`share_basis`) and,
+        by fixed percentages, each receiver's percentage; by a statistical
+        key figure, the key figure; for an assessment cycle the account
+        its runs post on. Subject is the allocation cycle id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.allocation_cycle_changed.v2}
+      payload: {$ref: '#/components/schemas/AllocationCycleChangedV2'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000060a, source: /erp/eu-1/controlling, type: com.example.erp.controlling.allocation_cycle_changed.v2, subject: 0192a000-0000-7000-8000-000000000d02, time: '2026-11-18T09:10:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {allocation_cycle_id: 0192a000-0000-7000-8000-000000000d02, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: SHARED-EMP, name: Shared services by employees, kind: distribution, share_basis: statistical_key_figure, statistical_key_figure_id: 0192a000-0000-7000-8000-000000000d21, statistical_key_figure_code: EMPL, sender_cost_center_id: 0192a000-0000-7000-8000-000000000203, sender_cost_center_code: CC-1200, receivers: [{cost_center_id: 0192a000-0000-7000-8000-000000000201, cost_center_code: CC-1100}, {cost_center_id: 0192a000-0000-7000-8000-000000000202, cost_center_code: CC-1300}], change: created}
+    AllocationRunReversed:
+      name: AllocationRunReversed
+      title: Allocation run reversed
+      summary: A run of an allocation cycle was reversed.
+      description: |
+        Emitted by `allocation-runs/{id}:reverse`, ADR-0064 As built T60k:
+        the run's entry reversed on its own posting date (the reversal also
+        published by the ledger as JournalEntryReversed), so the receivers
+        gave their shares back and the cycle may be run for the period
+        again. Subject is the allocation cycle id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.allocation_run_reversed.v1}
+      payload: {$ref: '#/components/schemas/AllocationRunReversedV1'}
+      examples:
+        - name: reversed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e0000000060b, source: /erp/eu-1/controlling, type: com.example.erp.controlling.allocation_run_reversed.v1, subject: 0192a000-0000-7000-8000-000000000d01, time: '2026-11-30T18:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {allocation_run_id: 0192a000-0000-7000-8000-000000000d11, allocation_cycle_id: 0192a000-0000-7000-8000-000000000d01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: SHARED-IT, name: IT services to the offices, kind: distribution, fiscal_year: 2026, fiscal_period: 11, posting_date: '2026-11-30', sender_cost_center_id: 0192a000-0000-7000-8000-000000000203, sender_cost_center_code: CC-1200, amount: {amount: '999.99', currency: EUR}, journal_entry_id: 0192a000-0000-7000-8000-000000000e42, reversal_journal_entry_id: 0192a000-0000-7000-8000-000000000e43, reversal_journal_entry_number: '100000044'}
+    StatisticalKeyFigureChanged:
+      name: StatisticalKeyFigureChanged
+      title: Statistical key figure changed
+      summary: A statistical key figure was created.
+      description: |
+        Emitted by `statistical-key-figures` (POST, `created`), ADR-0064
+        As built T60j: a key figure of a legal entity whose values are
+        posted per cost center and period and which allocation cycles may
+        take their receivers' shares from. Subject is the key figure id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.statistical_key_figure_changed.v1}
+      payload: {$ref: '#/components/schemas/StatisticalKeyFigureChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000608, source: /erp/eu-1/controlling, type: com.example.erp.controlling.statistical_key_figure_changed.v1, subject: 0192a000-0000-7000-8000-000000000d21, time: '2026-11-18T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {statistical_key_figure_id: 0192a000-0000-7000-8000-000000000d21, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: EMPL, name: Employees, unit: EA, change: created}
+    StatisticalKeyFigurePosted:
+      name: StatisticalKeyFigurePosted
+      title: Statistical key figure values posted
+      summary: Values of a statistical key figure were posted for a period.
+      description: |
+        Emitted by `statistical-key-figures/{id}/postings` (POST), ADR-0064
+        As built T60j: the values posted, each added to its cost center's
+        value of the period. Subject is the key figure id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.statistical_key_figure_posted.v1}
+      payload: {$ref: '#/components/schemas/StatisticalKeyFigurePostedV1'}
+      examples:
+        - name: posted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000609, source: /erp/eu-1/controlling, type: com.example.erp.controlling.statistical_key_figure_posted.v1, subject: 0192a000-0000-7000-8000-000000000d21, time: '2026-11-18T09:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {posting_id: 0192a000-0000-7000-8000-000000000d22, statistical_key_figure_id: 0192a000-0000-7000-8000-000000000d21, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: EMPL, unit: EA, fiscal_year: 2026, fiscal_period: 11, lines: [{cost_center_id: 0192a000-0000-7000-8000-000000000201, cost_center_code: CC-1100, value: '3'}]}
     TaxReturnPrepared:
       name: TaxReturnPrepared
       x-webhook: true
@@ -4223,8 +4356,8 @@ components:
       title: Customer invoice changed
       summary: A customer invoice was entered.
       description: |
-        Emitted when a customer invoice or credit memo is entered (ADR-0063
-        §9, T75a, T75d): `draft`, status_before null. Its posting is
+        Emitted when a customer invoice, credit memo or debit memo is entered
+        (ADR-0063 §9, T75a, T75d, T75j): `draft`, status_before null. Its posting is
         CustomerInvoicePosted, which is emitted alone. It carries the
         document's totals, not its items, and names the customer by id and
         number, never by name. A credit memo's amounts are negative.
@@ -4252,7 +4385,9 @@ components:
         account, and that line is the customer's open item with the payment
         term and net due date given here. A credit memo (kind `credit_memo`,
         §7, T75d) credits that account, its amounts here are negative, and
-        its line is the customer's open credit item. It carries the
+        its line is the customer's open credit item; a debit memo (kind
+        `debit_memo`, T75j) posts as an invoice does, its amounts positive.
+        It carries the
         document's totals, not its items, and names the customer by id and
         number, never by name. `GET /v1/customer-invoices/{id}` returns the document at
         `version` or later. Subject is the customer invoice id.
@@ -4267,6 +4402,32 @@ components:
         - name: posted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f02, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_posted.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-11T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f11, document_number: CI100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: invoice, invoice_date: '2026-11-11', posting_date: '2026-11-11', net_amount: {amount: '1000.00', currency: CAD}, tax_amount: {amount: '50.00', currency: CAD}, gross_amount: {amount: '1050.00', currency: CAD}, payment_term_code: NT30, net_due_date: '2026-12-11', journal_entry_id: 0192a000-0000-7000-8000-000000000f31, journal_entry_year: 2026, journal_entry_number: '1800000001', status: posted, status_before: draft, version: 2}
+    CustomerInvoiceReversed:
+      name: CustomerInvoiceReversed
+      x-webhook: true
+      title: Customer credit memo or debit memo reversed
+      summary: A posted customer credit memo or debit memo was reversed.
+      description: |
+        Emitted when a posted credit memo or debit memo is reversed (ADR-0063
+        As built T75k): the ledger posted the reversal of its journal entry
+        and cleared the memo's open item against the reversal's, so neither
+        is open; a reversed credit memo no longer counts against the invoice
+        it names. It carries the document's totals as CustomerInvoicePosted
+        did (a credit memo's negative), names the customer by id and number,
+        never by name, and carries no reason, which is free text.
+        `GET /v1/customer-invoices/{id}` returns the document at `version`
+        or later, with the reason. Subject is the customer invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.receivables.customer_invoice_reversed.v1}
+      payload: {$ref: '#/components/schemas/CustomerInvoiceReversedV1'}
+      examples:
+        - name: reversed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_reversed.v1, subject: 0192a000-0000-7000-8000-000000000f12, time: '2026-11-18T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f12, document_number: CI100007, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: debit_memo, reference_invoice_id: null, reference_invoice_number: null, net_amount: {amount: '150.00', currency: CAD}, tax_amount: {amount: '7.50', currency: CAD}, gross_amount: {amount: '157.50', currency: CAD}, journal_entry_id: 0192a000-0000-7000-8000-000000000f32, journal_entry_year: 2026, journal_entry_number: '1900000001', reversal_entry_id: 0192a000-0000-7000-8000-000000000f33, reversal_entry_year: 2026, reversal_entry_number: '1900000002', reversal_posting_date: '2026-11-18', status: reversed, status_before: posted, version: 3}
     DunningRunChanged:
       name: DunningRunChanged
       x-webhook: true
@@ -4519,7 +4680,8 @@ components:
         customer_number null) or for one, valid from a day. `kind` says
         which: a `price` carries unit, unit_price and price_unit, and a
         null percent; a `discount_percent` carries percent, and the three
-        null. A record is never changed: a new price is a new record
+        null. A record with a scale (T80e) carries its scale_basis and
+        its levels, each with its rate of the record's kind. A record is never changed: a new price is a new record
         with a later valid_from, and this event again. It names the
         customer by id and number, never by name.
         `GET /v1/sales-prices/{id}` returns the record. Subject is the
@@ -4534,13 +4696,43 @@ components:
       examples:
         - name: general
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001021, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001031, time: '2026-11-19T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {price_id: 0192a000-0000-7000-8000-000000001031, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: null, customer_number: null, kind: price, condition_type: null, unit: EA, unit_price: {amount: '12.50', currency: CAD}, price_unit: 1, percent: null, valid_from: '2026-11-01', valid_to: null}
+          payload: {price_id: 0192a000-0000-7000-8000-000000001031, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: null, customer_number: null, price_group: null, kind: price, condition_type: null, unit: EA, unit_price: {amount: '12.50', currency: CAD}, price_unit: 1, percent: null, valid_from: '2026-11-01', valid_to: null, scale_basis: null, scale: []}
         - name: for_a_customer
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001022, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001032, time: '2026-11-19T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {price_id: 0192a000-0000-7000-8000-000000001032, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: price, condition_type: PR00, unit: EA, unit_price: {amount: '1175.00', currency: CAD}, price_unit: 100, percent: null, valid_from: '2026-11-01', valid_to: '2027-10-31'}
+          payload: {price_id: 0192a000-0000-7000-8000-000000001032, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, price_group: null, kind: price, condition_type: PR00, unit: EA, unit_price: {amount: '1175.00', currency: CAD}, price_unit: 100, percent: null, valid_from: '2026-11-01', valid_to: '2027-10-31', scale_basis: null, scale: []}
         - name: discount
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001023, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001033, time: '2026-11-19T10:10:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {price_id: 0192a000-0000-7000-8000-000000001033, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: discount_percent, condition_type: K007, unit: null, unit_price: null, price_unit: null, percent: '5', valid_from: '2026-11-01', valid_to: null}
+          payload: {price_id: 0192a000-0000-7000-8000-000000001033, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, price_group: null, kind: discount_percent, condition_type: K007, unit: null, unit_price: null, price_unit: null, percent: '5', valid_from: '2026-11-01', valid_to: null, scale_basis: null, scale: []}
+        - name: quantity_scale
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001024, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001034, time: '2026-11-19T10:15:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {price_id: 0192a000-0000-7000-8000-000000001034, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BOLT-M10, customer_id: null, customer_number: null, price_group: null, kind: price, condition_type: null, unit: EA, unit_price: {amount: '0.80', currency: CAD}, price_unit: 1, percent: null, valid_from: '2026-11-01', valid_to: null, scale_basis: quantity, scale: [{level: 1, from_quantity: {value: '1000', unit: EA}, from_amount: null, unit_price: {amount: '0.70', currency: CAD}, percent: null}, {level: 2, from_quantity: {value: '5000', unit: EA}, from_amount: null, unit_price: {amount: '0.60', currency: CAD}, percent: null}]}
+    CustomerSalesDataChanged:
+      name: CustomerSalesDataChanged
+      x-webhook: true
+      title: Customer sales data changed
+      summary: A customer's sales data in a company was set up or its price group changed.
+      description: |
+        Emitted when a customer's sales data in a company is set up
+        (`price_group_before` null and `version` 1) and at each change of
+        its price group (ADR-0067 §13, T80f), with the group after the
+        change and the one before; null is no group. It names the
+        customer by id and number, never by name.
+        `GET /v1/customer-sales-data/{id}` returns the sales data at
+        `version` or later. Subject is the sales data's id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.customer_sales_data_changed.v1}
+      payload: {$ref: '#/components/schemas/CustomerSalesDataChangedV1'}
+      examples:
+        - name: set_up
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001025, source: /erp/eu-1/sales, type: com.example.erp.sales.customer_sales_data_changed.v1, subject: 0192a000-0000-7000-8000-000000001035, time: '2026-11-19T10:20:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {customer_sales_data_id: 0192a000-0000-7000-8000-000000001035, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, price_group: '01', price_group_before: null, version: 1}
+        - name: group_changed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001026, source: /erp/eu-1/sales, type: com.example.erp.sales.customer_sales_data_changed.v1, subject: 0192a000-0000-7000-8000-000000001035, time: '2026-11-19T10:25:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {customer_sales_data_id: 0192a000-0000-7000-8000-000000001035, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, price_group: '02', price_group_before: '01', version: 2}
     SalesOrderDelivered:
       name: SalesOrderDelivered
       x-webhook: true
@@ -4829,6 +5021,107 @@ components:
         - name: activated
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001202, source: /erp/eu-1/leases, type: com.example.erp.leases.lease_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001211, time: '2026-12-01T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {lease_contract_id: 0192a000-0000-7000-8000-000000001211, document_number: LC000001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', lessor_id: 0192a000-0000-7000-8000-000000000f55, lessor_number: BP100055, commencement_date: '2026-12-01', term_months: 36, payment_amount: {amount: '5000.00', currency: CAD}, payment_frequency: monthly, payment_timing: advance, payment_count: 36, status: active, status_before: draft, lease_liability: {amount: '159117.80', currency: CAD}, right_of_use_amount: {amount: '164117.80', currency: CAD}, journal_entry_id: 0192a000-0000-7000-8000-000000001221, journal_entry_year: 2026, journal_entry_number: '100000123', version: 2}
+    MaterialChanged:
+      name: MaterialChanged
+      title: Material changed
+      summary: A material was created or changed.
+      description: |
+        Emitted at each change of a material (ADR-0082 §4, §9, S1a, S1b):
+        when a person creates it (`change` `created`, status `pending`,
+        status_before null), when its create change is approved
+        (`activated`), when an update or unblock change is applied
+        (`changed`, `unblocked`) and when it is blocked (`blocked`, at once). It carries the material's number,
+        description, base unit, type, group and status, its plants with
+        their companies by id and code and their storage locations by id, and its
+        alternative units with their conversions, whatever companies the
+        person who changed it may act in.
+        `GET /v1/materials/{id}` returns the material at `version` or
+        later. Not offered to webhooks until a consumer asks. Subject is
+        the material id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.materials.material_changed.v1}
+      payload: {$ref: '#/components/schemas/MaterialChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001301, source: /erp/eu-1/materials, type: com.example.erp.materials.material_changed.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {material_id: 0192a000-0000-7000-8000-000000001311, number: MA1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', description: Machined bracket M10, base_unit: EA, material_type: trading_good, material_group: BRACKETS, status: pending, status_before: null, plants: [{plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', storage_location_ids: [0192a000-0000-7000-8000-000000001322]}], alternative_units: [{unit: BOX, numerator: 20, denominator: 1}], change: created, version: 1}
+    MaterialChangeChanged:
+      name: MaterialChangeChanged
+      title: Material change changed
+      summary: A material change was requested or decided.
+      description: |
+        Emitted at each step of a material change (ADR-0082 §9, S1b): when
+        it is requested (`pending`, status_before null; a block `applied`
+        at once) and when it is applied, rejected or withdrawn
+        (`applied`, `rejected`, `cancelled`, status_before `pending`).
+        `GET /v1/material-changes/{id}` returns the change at `version` or
+        later. Not offered to webhooks until a consumer asks. Subject is
+        the change id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.materials.material_change_changed.v1}
+      payload: {$ref: '#/components/schemas/MaterialChangeChangedV1'}
+      examples:
+        - name: requested
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001302, source: /erp/eu-1/materials, type: com.example.erp.materials.material_change_changed.v1, subject: 0192a000-0000-7000-8000-000000001331, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {material_change_id: 0192a000-0000-7000-8000-000000001331, number: MC00000001, kind: create, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, status: pending, status_before: null, workflow_request_id: null, version: 1}
+    MaterialDocumentPosted:
+      name: MaterialDocumentPosted
+      title: Material document posted
+      summary: A goods movement was posted, or reversed.
+      description: |
+        Emitted when a material document is posted (ADR-0082 §7, S1c): a
+        goods movement, or the reversal of one (`reversal_of_id` names the
+        document reversed). It carries the document's number, company,
+        movement type and posting date and its lines, each with its
+        material, plant and storage location by id and number or code,
+        its quantity in the material's base unit, signed, and its cost
+        center by id and code, and from S1d the value each line moves and
+        the journal entry that posted it. The header text is left out.
+        `GET /v1/material-documents/{id}` returns the document. Not
+        offered to webhooks until a consumer asks. Subject is the
+        document id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.inventory.material_document_posted.v1}
+      payload: {$ref: '#/components/schemas/MaterialDocumentPostedV1'}
+      examples:
+        - name: issued
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001401, source: /erp/eu-1/inventory, type: com.example.erp.inventory.material_document_posted.v1, subject: 0192a000-0000-7000-8000-000000001411, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {material_document_id: 0192a000-0000-7000-8000-000000001411, number: MD1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', fiscal_year: 2026, movement_type: '201', posting_date: '2026-11-20', reversal_of_id: null, reversal_of_number: null, lines: [{line_no: 1, item_no: 1, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, storage_location_id: 0192a000-0000-7000-8000-000000001322, storage_location_code: SL01, quantity: '-10', unit: EA, cost_center_id: 0192a000-0000-7000-8000-000000001431, cost_center_code: CC-1100}]}
+    MaterialPriceChanged:
+      name: MaterialPriceChanged
+      title: Material price changed
+      summary: A material's price in a plant was changed and its stock revalued.
+      description: |
+        Emitted when a valuation's price is changed (ADR-0082 §8, S1d; SAP
+        MR21): the price before and after, the stock revalued and by how
+        much, and the journal entry that posted it (null when nothing was
+        revalued), the material, plant and company by id and number or
+        code. `GET /v1/material-valuations/{id}` returns the valuation at
+        `version` or later. Not offered to webhooks until a consumer asks.
+        Subject is the valuation id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.inventory.material_price_changed.v1}
+      payload: {$ref: '#/components/schemas/MaterialPriceChangedV1'}
+      examples:
+        - name: revalued
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001402, source: /erp/eu-1/inventory, type: com.example.erp.inventory.material_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001441, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {price_change_id: 0192a000-0000-7000-8000-000000001442, valuation_id: 0192a000-0000-7000-8000-000000001441, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', price_control: standard, old_price: {amount: '0.50', currency: CAD}, new_price: {amount: '0.55', currency: CAD}, price_unit: 1, quantity: '1000', revaluation: {amount: '50.00', currency: CAD}, posting_date: '2026-11-20', journal_entry_id: 0192a000-0000-7000-8000-000000001443, journal_entry_year: 2026, journal_entry_number: PR1, version: 3}
     RevenueContractChanged:
       name: RevenueContractChanged
       x-webhook: true
@@ -5744,7 +6037,7 @@ components:
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
-        kind: {type: string, description: 'Open enum: invoice, credit_memo.'}
+        kind: {type: string, description: 'Open enum: invoice, credit_memo, debit_memo.'}
         reference_invoice_id: {type: [string, 'null'], format: uuid, description: "The invoice a credit memo credits: `receivables.customer_invoice.id`; null on an invoice and on a credit memo naming none. Added within v1, so not required (ADR-0041); every event carries it."}
         reference_invoice_number: {type: [string, 'null'], description: "That invoice's document number; null with `reference_invoice_id`. Added within v1, so not required (ADR-0041); every event carries it."}
         invoice_date: {$ref: '#/components/schemas/Date'}
@@ -5764,7 +6057,7 @@ components:
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
-        kind: {type: string, description: 'Open enum: invoice, credit_memo.'}
+        kind: {type: string, description: 'Open enum: invoice, credit_memo, debit_memo.'}
         reference_invoice_id: {type: [string, 'null'], format: uuid, description: "The invoice a credit memo credits: `receivables.customer_invoice.id`; null on an invoice and on a credit memo naming none. Added within v1, so not required (ADR-0041); every event carries it."}
         reference_invoice_number: {type: [string, 'null'], description: "That invoice's document number; null with `reference_invoice_id`. Added within v1, so not required (ADR-0041); every event carries it."}
         invoice_date: {$ref: '#/components/schemas/Date'}
@@ -5779,6 +6072,32 @@ components:
         journal_entry_number: {type: string, description: "The entry's document number."}
         status: {type: string, description: "The document's status after the change: posted."}
         status_before: {type: string, description: 'Its status before: draft.'}
+        version: {type: integer, description: "The document's version after the change."}
+    CustomerInvoiceReversedV1:
+      type: object
+      required: [customer_invoice_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, kind, reference_invoice_id, reference_invoice_number, net_amount, tax_amount, gross_amount, journal_entry_id, journal_entry_year, journal_entry_number, reversal_entry_id, reversal_entry_year, reversal_entry_number, reversal_posting_date, status, status_before, version]
+      properties:
+        customer_invoice_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.customer_invoice.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that issued it.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        kind: {type: string, description: 'Open enum: credit_memo, debit_memo.'}
+        reference_invoice_id: {type: [string, 'null'], format: uuid, description: "The invoice a credit memo credits, whose limit the reversal frees: `receivables.customer_invoice.id`; null on a debit memo and on a credit memo naming none."}
+        reference_invoice_number: {type: [string, 'null'], description: "That invoice's document number; null with `reference_invoice_id`."}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net amounts, as CustomerInvoicePosted gave it; negative for a credit memo."}
+        tax_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' tax; negative for a credit memo."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: "The open item the reversal took back: net and tax; negative for a credit memo."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the entry the document posted.'}
+        journal_entry_year: {type: integer, description: "That entry's fiscal year."}
+        journal_entry_number: {type: string, description: "That entry's document number."}
+        reversal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the reversal.'}
+        reversal_entry_year: {type: integer, description: "The reversal's fiscal year."}
+        reversal_entry_number: {type: string, description: "The reversal's document number."}
+        reversal_posting_date: {$ref: '#/components/schemas/Date', description: The date the reversal posted on.}
+        status: {type: string, description: "The document's status after the change: reversed."}
+        status_before: {type: string, description: 'Its status before: posted.'}
         version: {type: integer, description: "The document's version after the change."}
     DunningRunChangedV1:
       type: object
@@ -5996,6 +6315,7 @@ components:
         item_key: {type: string, description: 'The key naming what is sold, as sales items give it.'}
         customer_id: {type: [string, 'null'], format: uuid, description: 'The customer the price is for (`partner.business_partner.id`); null for a general price.'}
         customer_number: {type: [string, 'null'], description: "The customer's business partner number; null for a general price."}
+        price_group: {type: [string, 'null'], description: "The customer price group the record is for (`pricing.price_groups`, T80f); null for a general record and a customer's. Always sent from T80f; optional, as a field added to a published event is (ADR-0041)."}
         kind: {type: string, description: 'What the record is. Open enum: price, discount_percent.'}
         condition_type: {type: [string, 'null'], description: "The record's condition type of the configuration (`pricing.condition_types`); null for a price recorded without one."}
         unit: {type: [string, 'null'], description: "A price's unit of measure; null for a discount."}
@@ -6004,6 +6324,31 @@ components:
         percent: {type: [string, 'null'], description: "A discount: the percentage of an item's value before it, a decimal string; null for a price."}
         valid_from: {$ref: '#/components/schemas/Date', description: 'The first day the price is valid.'}
         valid_to: {type: [string, 'null'], format: date, description: 'The last day the price is valid; null: no last day.'}
+        scale_basis: {type: [string, 'null'], description: "What the record's scale is read by (ADR-0067 §12, T80e); null: no scale. Open enum: quantity, value. Always sent from T80e, with scale; optional, as a field added to a published event is (ADR-0041)."}
+        scale:
+          type: array
+          description: "The scale levels by `from`, the lowest first; empty for a record without a scale."
+          items:
+            type: object
+            required: [level, from_quantity, from_amount, unit_price, percent]
+            properties:
+              level: {type: integer, description: "The level's number, from 1."}
+              from_quantity: {"oneOf": [{"$ref": "#/components/schemas/Quantity"}, {"type": "null"}], "description": "A quantity scale: the quantity the level starts at; null for a value scale."}
+              from_amount: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "A value scale: the item value the level starts at; null for a quantity scale."}
+              unit_price: {"oneOf": [{"$ref": "#/components/schemas/Money"}, {"type": "null"}], "description": "A price: the net price per the record's price_unit at this level; null for a discount."}
+              percent: {type: [string, 'null'], description: "A discount: the percentage at this level; null for a price."}
+    CustomerSalesDataChangedV1:
+      type: object
+      required: [customer_sales_data_id, legal_entity_id, legal_entity_code, customer_id, customer_number, price_group, price_group_before, version]
+      properties:
+        customer_sales_data_id: {$ref: '#/components/schemas/Uuid', description: '`sales.customer_sales_data.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        price_group: {type: [string, 'null'], description: "The customer's price group after the change (`pricing.price_groups`); null: none."}
+        price_group_before: {type: [string, 'null'], description: 'The price group before the change; null when there was none or the sales data was just set up.'}
+        version: {type: integer, description: "The sales data's version after the change."}
     SalesOrderDeliveredV1:
       type: object
       required: [delivery_id, delivery_no, sales_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, delivery_date, items, version]
@@ -6206,6 +6551,137 @@ components:
         journal_entry_year: {type: [integer, 'null'], description: "The entry's fiscal year; null while the contract is a draft."}
         journal_entry_number: {type: [string, 'null'], description: "The entry's document number; null while the contract is a draft."}
         version: {type: integer, description: "The contract's version after the change."}
+    MaterialChangedV1:
+      type: object
+      required: [material_id, number, legal_entity_id, legal_entity_code, description, base_unit, material_type, material_group, status, status_before, plants, alternative_units, change, version]
+      properties:
+        material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
+        number: {type: string, description: "The material's number, unique in the tenant."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose material range numbered it.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        description: {type: string, description: What the material is.}
+        base_unit: {type: string, description: The base unit of measure.}
+        material_type: {type: string, description: 'The material type. Open enum: raw_material, semi_finished, finished_good, trading_good, non_stock, service.'}
+        material_group: {type: string, description: The material group.}
+        status: {type: string, description: "The material's status after the change. Open enum: pending, active, blocked."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        plants:
+          type: array
+          description: Its plants, by plant id.
+          items:
+            type: object
+            required: [plant_id, plant_code, legal_entity_id, legal_entity_code, storage_location_ids]
+            properties:
+              plant_id: {$ref: '#/components/schemas/Uuid', description: 'The plant: `tenancy.org_unit.id`.'}
+              plant_code: {type: string, description: "The plant's code."}
+              legal_entity_id: {$ref: '#/components/schemas/Uuid', description: "The plant's company."}
+              legal_entity_code: {type: string, description: "That company's code."}
+              storage_location_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: "Its storage locations there: `tenancy.org_unit.id`s."}
+        alternative_units:
+          type: array
+          description: Its alternative units, by unit code.
+          items:
+            type: object
+            required: [unit, numerator, denominator]
+            properties:
+              unit: {type: string, description: The alternative unit's code.}
+              numerator: {type: integer, description: Base units per `denominator` of the alternative unit.}
+              denominator: {type: integer, description: Alternative units the `numerator` base units are.}
+        change: {type: string, description: 'What happened. Open enum: created, activated, changed, blocked, unblocked.'}
+        version: {type: integer, description: "The material's version after the change."}
+    MaterialChangeChangedV1:
+      type: object
+      required: [material_change_id, number, kind, material_id, material_number, status, status_before, workflow_request_id, version]
+      properties:
+        material_change_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material_change.id`.'}
+        number: {type: string, description: "The change's number."}
+        kind: {type: string, description: 'Open enum: create, update, block, unblock.'}
+        material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
+        material_number: {type: string, description: "The material's number."}
+        status: {type: string, description: "The change's status after the step. Open enum: pending, applied, rejected, cancelled."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was requested.'}
+        workflow_request_id:
+          description: "Its approval request, `workflow.approval_request.id`; null on a block and until the request is opened."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        version: {type: integer, description: "The change's version after the step."}
+    MaterialDocumentPostedV1:
+      type: object
+      required: [material_document_id, number, legal_entity_id, legal_entity_code, fiscal_year, movement_type, posting_date, reversal_of_id, reversal_of_number, lines]
+      properties:
+        material_document_id: {$ref: '#/components/schemas/Uuid', description: '`inventory.material_document.id`.'}
+        number: {type: string, description: "The document's number in its company's range of its fiscal year."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company of its plants.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        fiscal_year: {type: integer, description: The fiscal year of its posting date.}
+        movement_type: {type: string, description: 'Open enum: 501, 502, 561, 562, 201, 202, 551, 552, 311, 312, 301, 302.'}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The company's date it was posted on."}
+        reversal_of_id:
+          description: "The document it reverses, `inventory.material_document.id`; null when it reverses none."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        reversal_of_number: {type: [string, 'null'], description: "That document's number; null with it."}
+        journal_entry_id:
+          description: "The journal entry that posted its value, `ledger.journal_entry.id`; null when it moved none (S1d). Not among the required fields, since a field added to a published event is not required of it (ADR-0041)."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        journal_entry_year: {type: [integer, 'null'], description: "That entry's fiscal year; null with it."}
+        journal_entry_number: {type: [string, 'null'], description: "That entry's document number; null with it."}
+        lines:
+          type: array
+          description: Its lines, in line order.
+          items:
+            type: object
+            required: [line_no, item_no, material_id, material_number, plant_id, plant_code, storage_location_id, storage_location_code, quantity, unit, cost_center_id, cost_center_code]
+            properties:
+              line_no: {type: integer, description: "The line's number, from 1."}
+              item_no: {type: integer, description: 'The item it stands for, from 1: a transfer''s item has two lines.'}
+              material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
+              material_number: {type: string, description: "The material's number."}
+              plant_id: {$ref: '#/components/schemas/Uuid', description: 'The plant: `tenancy.org_unit.id`.'}
+              plant_code: {type: string, description: "The plant's code."}
+              storage_location_id: {$ref: '#/components/schemas/Uuid', description: 'The storage location: `tenancy.org_unit.id`.'}
+              storage_location_code: {type: string, description: "The storage location's code."}
+              quantity: {type: string, description: "What the line moves in the material's base unit, a decimal: positive into the location's stock, negative out of it."}
+              unit: {type: string, description: The material's base unit.}
+              cost_center_id:
+                description: "The cost center of an issue or a scrapping, `ledger.cost_center.id`; null on other lines."
+                oneOf:
+                  - $ref: '#/components/schemas/Uuid'
+                  - type: 'null'
+              cost_center_code: {type: [string, 'null'], description: "The cost center's code; null with it."}
+              amount: {$ref: '#/components/schemas/Money', description: "What the line moves in value, signed as its quantity is (S1d); not required (ADR-0041)."}
+              price_difference: {$ref: '#/components/schemas/Money', description: "What it is valued at beyond that (S1d); not required (ADR-0041)."}
+    MaterialPriceChangedV1:
+      type: object
+      required: [price_change_id, valuation_id, material_id, material_number, plant_id, plant_code, legal_entity_id, legal_entity_code, price_control, old_price, new_price, price_unit, quantity, revaluation, posting_date, journal_entry_id, journal_entry_year, journal_entry_number, version]
+      properties:
+        price_change_id: {$ref: '#/components/schemas/Uuid', description: '`inventory.price_change.id`.'}
+        valuation_id: {$ref: '#/components/schemas/Uuid', description: '`inventory.valuation.id`.'}
+        material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
+        material_number: {type: string, description: "The material's number."}
+        plant_id: {$ref: '#/components/schemas/Uuid', description: 'The plant: `tenancy.org_unit.id`.'}
+        plant_code: {type: string, description: "The plant's code."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: "The plant's company."}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        price_control: {type: string, description: 'Open enum: standard, moving_average.'}
+        old_price: {$ref: '#/components/schemas/Money', description: The price before, per price unit.}
+        new_price: {$ref: '#/components/schemas/Money', description: The price after, per price unit.}
+        price_unit: {type: integer, description: The base units the price is for.}
+        quantity: {type: string, description: "The stock revalued, in the material's base unit, a decimal."}
+        revaluation: {$ref: '#/components/schemas/Money', description: What the stock was revalued by, signed.}
+        posting_date: {$ref: '#/components/schemas/Date', description: "The company's date it was posted on."}
+        journal_entry_id:
+          description: "The journal entry that posted the revaluation, `ledger.journal_entry.id`; null when nothing was revalued."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        journal_entry_year: {type: [integer, 'null'], description: "That entry's fiscal year; null with it."}
+        journal_entry_number: {type: [string, 'null'], description: "That entry's document number; null with it."}
+        version: {type: integer, description: "The valuation's version after the change."}
     RevenueContractChangedV1:
       type: object
       required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]
@@ -6868,9 +7344,87 @@ components:
         sender_cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The sender, `ledger.cost_center.id`.'}
         sender_cost_center_code: {type: string}
         amount: {$ref: '#/components/schemas/Money', description: 'What the run charged the receivers, in the legal entity''s local currency: the total of the sender''s primary costs of the period.'}
-        account_count: {type: integer, description: How many of the sender's accounts the run charged the costs of.}
+        account_count: {type: integer, description: 'How many of the sender''s accounts the run charged the costs of; 0 by fixed amounts, which read no costs.'}
         journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The run''s entry in the leading ledger, `ledger.journal_entry.id`.'}
         journal_entry_number: {type: string, description: The entry's document number.}
+    AllocationCycleChangedV2:
+      type: object
+      required: [allocation_cycle_id, legal_entity_id, code, name, kind, share_basis, sender_cost_center_id, sender_cost_center_code, receivers, change]
+      properties:
+        allocation_cycle_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.allocation_cycle.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The cycle's code, unique in its legal entity.}
+        name: {type: string}
+        kind: {type: string, description: 'Open enum: distribution, assessment.'}
+        share_basis: {type: string, description: 'Open enum: fixed_percentages, statistical_key_figure, fixed_amounts. What the receivers'' shares are.'}
+        statistical_key_figure_id: {$ref: '#/components/schemas/Uuid', description: 'The statistical key figure the shares come from, `controlling.statistical_key_figure.id`; present exactly with share_basis statistical_key_figure.'}
+        statistical_key_figure_code: {type: string, description: 'The key figure''s code; present with `statistical_key_figure_id`.'}
+        sender_cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The sender, `ledger.cost_center.id`.'}
+        sender_cost_center_code: {type: string}
+        assessment_account_id: {$ref: '#/components/schemas/Uuid', description: 'The account an assessment''s runs post on, `ledger.gl_account.id`; present exactly on a cycle of kind assessment.'}
+        assessment_account_number: {type: string, description: 'The assessment account''s number; present with `assessment_account_id`.'}
+        receivers:
+          type: array
+          description: The receivers, in the cycle's order; by fixed percentages their percentages add up to 100.
+          items:
+            type: object
+            required: [cost_center_id, cost_center_code]
+            properties:
+              cost_center_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.cost_center.id`.'}
+              cost_center_code: {type: string}
+              percentage: {type: string, description: 'The receiver''s share in percent, with two decimals; present exactly by fixed percentages.'}
+              amount: {$ref: '#/components/schemas/Money', description: 'What a run charges the receiver, in the legal entity''s local currency; present exactly by fixed amounts.'}
+        change: {type: string, description: 'Open enum: created.'}
+    AllocationRunReversedV1:
+      type: object
+      required: [allocation_run_id, allocation_cycle_id, legal_entity_id, code, name, kind, fiscal_year, fiscal_period, posting_date, sender_cost_center_id, sender_cost_center_code, amount, journal_entry_id, reversal_journal_entry_id, reversal_journal_entry_number]
+      properties:
+        allocation_run_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.allocation_run.id`.'}
+        allocation_cycle_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.allocation_cycle.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The cycle's code.}
+        name: {type: string, description: The cycle's name.}
+        kind: {type: string, description: 'Open enum: distribution, assessment.'}
+        fiscal_year: {type: integer, description: The fiscal year of the period run.}
+        fiscal_period: {type: integer, description: 'The period run, and the reversal''s.'}
+        posting_date: {type: string, format: date, description: 'The run''s posting date, and the reversal''s.'}
+        sender_cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The sender, `ledger.cost_center.id`.'}
+        sender_cost_center_code: {type: string}
+        amount: {$ref: '#/components/schemas/Money', description: 'What the run had charged the receivers and the reversal gives back, in the legal entity''s local currency.'}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The run''s entry, `ledger.journal_entry.id`.'}
+        reversal_journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The reversal''s entry in the leading ledger, `ledger.journal_entry.id`.'}
+        reversal_journal_entry_number: {type: string, description: The reversal entry's document number.}
+    StatisticalKeyFigureChangedV1:
+      type: object
+      required: [statistical_key_figure_id, legal_entity_id, code, name, unit, change]
+      properties:
+        statistical_key_figure_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.statistical_key_figure.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The key figure's code, unique in its legal entity.}
+        name: {type: string}
+        unit: {type: string, description: The unit of measure of its values.}
+        change: {type: string, description: 'Open enum: created.'}
+    StatisticalKeyFigurePostedV1:
+      type: object
+      required: [posting_id, statistical_key_figure_id, legal_entity_id, code, unit, fiscal_year, fiscal_period, lines]
+      properties:
+        posting_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.statistical_key_figure_posting.id`.'}
+        statistical_key_figure_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.statistical_key_figure.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The key figure's code.}
+        unit: {type: string, description: The unit of measure of the values.}
+        fiscal_year: {type: integer, description: The fiscal year of the period posted.}
+        fiscal_period: {type: integer, description: The period posted.}
+        lines:
+          type: array
+          description: The values posted, in the order given; each adds to its cost center's value of the period.
+          items:
+            type: object
+            required: [cost_center_id, cost_center_code, value]
+            properties:
+              cost_center_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.cost_center.id`.'}
+              cost_center_code: {type: string}
+              value: {type: string, description: 'The value posted, exact, without trailing zeros; negative for a correction.'}
     SegmentChangedV1:
       type: object
       required: [segment_id, code, name, change]

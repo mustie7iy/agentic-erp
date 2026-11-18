@@ -297,7 +297,7 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 	for _, c := range []struct{ source, endpoint string }{
 		{"payables", "/v1/supplier-invoices/"},
 		{"procurement", "/v1/goods-receipts/"},
-		{"receivables", "no reversal path exists yet"},
+		{"receivables", "/v1/customer-invoices/"},
 		{"assets", "/v1/asset-acquisitions/"},
 		{"controlling", "/v1/internal-orders/"},
 	} {

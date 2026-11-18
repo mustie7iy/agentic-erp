@@ -53,6 +53,7 @@ var regexMap = map[string]ogenregex.Regexp{
 	"^[A-Z0-9]{1,4}$":                                                     ogenregex.MustCompile("^[A-Z0-9]{1,4}$"),
 	"^[A-Z0-9]{1,6}$":                                                     ogenregex.MustCompile("^[A-Z0-9]{1,6}$"),
 	"^[A-Z0-9]{2}$":                                                       ogenregex.MustCompile("^[A-Z0-9]{2}$"),
+	"^[A-Z0-9_-]{1,9}$":                                                   ogenregex.MustCompile("^[A-Z0-9_-]{1,9}$"),
 	"^[A-Z0-9_/]{1,10}$":                                                  ogenregex.MustCompile("^[A-Z0-9_/]{1,10}$"),
 	"^[A-Z0-9_]{1,10}$":                                                   ogenregex.MustCompile("^[A-Z0-9_]{1,10}$"),
 	"^[A-Z0-9_]{1,20}$":                                                   ogenregex.MustCompile("^[A-Z0-9_]{1,20}$"),
@@ -74,6 +75,7 @@ var regexMap = map[string]ogenregex.Regexp{
 	"^[a-z_]+( (asc|desc))?(, ?[a-z_]+( (asc|desc))?)*$":                  ogenregex.MustCompile("^[a-z_]+( (asc|desc))?(, ?[a-z_]+( (asc|desc))?)*$"),
 	"^[a-z_]+(\\.[a-z_]+)+$":                                              ogenregex.MustCompile("^[a-z_]+(\\.[a-z_]+)+$"),
 	"^[a-z_]+\\.[a-z_]+$":                                                 ogenregex.MustCompile("^[a-z_]+\\.[a-z_]+$"),
+	"^[a-z_]{1,20}$":                                                      ogenregex.MustCompile("^[a-z_]{1,20}$"),
 	"^[a-z_]{1,32}$":                                                      ogenregex.MustCompile("^[a-z_]{1,32}$"),
 	"^\\S(.*\\S)?$":                                                       ogenregex.MustCompile("^\\S(.*\\S)?$"),
 }

@@ -626,6 +626,21 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices:capture
 	CaptureSupplierInvoice(ctx context.Context, req *SupplierInvoiceCaptureMultipart, params CaptureSupplierInvoiceParams) (CaptureSupplierInvoiceRes, error)
+	// ChangeMaterialPrice implements changeMaterialPrice operation.
+	//
+	// Changes a valuation's price at the caller's version (`If-Match`; ADR-0082 §8, S1d; SAP MR21) to
+	// another price in its currency (422 `inventory.currency_mismatch`, `inventory.invalid_price`,
+	// `inventory.nothing_to_change`; a standard price above zero): the material's stock in the plant is
+	// revalued at the new price, its quantity × the price / the price unit rounded half away from zero,
+	// and the difference posted on the company's date today between the valuation class's stock and
+	// revaluation accounts (document type PR; 422 `inventory.no_inventory_account` when the class lacks
+	// one), refused while that day's period is closed (409 `ledger.period_not_open`). A moving price
+	// changes the same way; without stock the price is set and nothing is posted. Answers the valuation
+	// with the change as its `last_price_change`, naming the journal entry. Audited, and published as
+	// MaterialPriceChanged. Human-only (`x-agent: false`).
+	//
+	// POST /v1/material-valuations/{id}:changePrice
+	ChangeMaterialPrice(ctx context.Context, req *MaterialPriceChange, params ChangeMaterialPriceParams) (ChangeMaterialPriceRes, error)
 	// ChangeSalesOrder implements changeSalesOrder operation.
 	//
 	// Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the
@@ -991,7 +1006,19 @@ type Handler interface {
 	// or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
 	// sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
 	// with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
-	// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
+	// 100 (`receivers`, `not_100`). The receivers' shares are fixed percentages (`share_basis`
+	// `fixed_percentages`, the default) or a statistical key figure's values in the period run
+	// (`statistical_key_figure`, ADR-0064 As built T60j); refused besides: a basis that is neither
+	// (`share_basis`, `unsupported`); a key figure missing with `statistical_key_figure`
+	// (`statistical_key_figure_id`, `required`), one that is no key figure of the legal entity
+	// (`unknown`), or one named with fixed percentages (`not_allowed`); a receiver without its percentage
+	// on fixed percentages (`receivers[i].percentage`, `required`) or with one on a key figure
+	// (`not_allowed`). An assessment may charge its receivers fixed amounts (`share_basis`
+	// `fixed_amounts`, T60k): each receiver names its `amount` in the legal entity's local currency, above
+	// zero (`receivers[i].amount`, `required`; `receivers[i].amount.currency` or `.amount`, `invalid`) and
+	// no percentage, another basis names no amount (`not_allowed`), amounts whose total no amount can hold
+	// are refused (`receivers`, `too_large`), and a distribution by fixed amounts is refused
+	// (`share_basis`, `not_allowed`). A legal entity the caller cannot act in is answered as missing (422
 	// `request.reference_not_found`). A cycle is not changed in this version. Created directly by
 	// permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
 	// not create one.
@@ -1542,12 +1569,35 @@ type Handler interface {
 	// than zero, its tax at its own date's rates, and posted with the signs turned. A credit memo may name
 	// the invoice it credits (`reference_invoice_id`): a posted invoice of the same company and customer
 	// in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field otherwise); an
-	// invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither is refused (422
+	// invoice names none (422 `receivables.reference_not_allowed`). With `kind` `debit_memo` the document
+	// is a customer debit memo (ADR-0063 §7 As built, T75j), charging the customer what an invoice did
+	// not: entered as an invoice is and posted as one, as its own journal document type; it names no
+	// invoice (422 `receivables.reference_not_allowed`). A kind that is none of these is refused (422
 	// `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the invoice entered.
 	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices
 	CreateCustomerInvoice(ctx context.Context, req *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
+	// CreateCustomerSalesData implements createCustomerSalesData operation.
+	//
+	// Sets up a customer's sales data in a company (ADR-0067 §13, T80f; SAP's sales area data of a
+	// customer, from memory): what selling to the customer there needs beyond its company data, now its
+	// customer price group. A quotation or sales order item of the customer in the company that is priced
+	// from the price records takes the customer's own record first, then the one for its price group, then
+	// the general one (`createSalesPrice`), prices and discounts alike. The customer is an active business
+	// partner with the customer role that is not blocked for posting in the company (422
+	// `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable`
+	// otherwise). A price group is one of the active configuration's (`pricing.price_groups`; 422
+	// `sales.unknown_price_group` naming `price_group`); without one the customer takes the general
+	// records. A customer has one sales data per company: a second is refused (409
+	// `sales.customer_sales_data_exists`), and the first is found with
+	// `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with
+	// `updateCustomerSalesData`. The items priced before keep their prices. Audited, and published as
+	// CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/customer-sales-data
+	CreateCustomerSalesData(ctx context.Context, req *CustomerSalesDataCreate, params CreateCustomerSalesDataParams) (CreateCustomerSalesDataRes, error)
 	// CreateDisputeCase implements createDisputeCase operation.
 	//
 	// Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
@@ -1906,6 +1956,107 @@ type Handler interface {
 	//
 	// POST /v1/legal-entities
 	CreateLegalEntity(ctx context.Context, req *LegalEntityCreate, params CreateLegalEntityParams) (CreateLegalEntityRes, error)
+	// CreateMaterial implements createMaterial operation.
+	//
+	// Creates a material (ADR-0082 §4-§6, S1a): tenant-wide master data with its description, base unit
+	// of measure, material type and material group, extended to plants and their storage locations and
+	// given alternative units of measure. The company (`legal_entity_id`) is one the caller may act in
+	// (422 `request.reference_not_found`); the material is numbered from its `material` number range of
+	// the fiscal year of its date today (422 `config.no_number_range` when there is none) and the number
+	// is unique in the tenant (409 `materials.number_taken` when another company's range issued it). The
+	// base unit and every alternative unit are known units of measure (422 `materials.unknown_unit`); the
+	// type is one of the material types (422 `materials.unknown_material_type`). Each plant is an active
+	// org unit of kind `plant` in a company the caller may act in, given once (422
+	// `materials.plant_invalid`, `materials.duplicate_plant`); each of its storage locations an active org
+	// unit of kind `storage_location` under that plant, given once (422
+	// `materials.storage_location_invalid`, `materials.duplicate_storage_location`). An alternative unit
+	// is not the base unit (422 `materials.base_unit_conversion`) and is given once (422
+	// `materials.duplicate_unit`); its conversion says how many base units `numerator` divided by
+	// `denominator` one of it is, both whole numbers from 1 to 1000000, never a decimal. The base unit and
+	// the material type do not change afterwards. Created `pending` with a material change of kind
+	// `create` (`pending_change_id`; ADR-0082 §9, S1b), whose approval request the role `process_owner`
+	// decides (`approveApprovalRequest`); approved, the material becomes `active`, rejected or withdrawn
+	// it stays `pending` and is used nowhere. The change lists the existing materials with the same
+	// description, white space and case aside, whatever their status, a pending one whose create change
+	// was rejected or withdrawn aside (`possible_duplicates`); a material with such a description is
+	// refused (409 `materials.duplicate_description`, naming them) unless the request sets
+	// `confirm_duplicate`. Two requests with one description wait for one another, so the second finds the
+	// first. Audited, and published as MaterialChanged and MaterialChangeChanged. A retry with the same
+	// `Idempotency-Key` answers the material created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/materials
+	CreateMaterial(ctx context.Context, req *MaterialCreate, params CreateMaterialParams) (CreateMaterialRes, error)
+	// CreateMaterialDocument implements createMaterialDocument operation.
+	//
+	// Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a
+	// receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center,
+	// `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between
+	// plants of one company; each item moves a quantity of a material at a plant's storage location. Each
+	// material is an `active` material (422 `inventory.material_invalid` when there is none with the id,
+	// `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type
+	// `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a
+	// company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422
+	// `inventory.plant_not_extended`), each storage location an active one under it (422
+	// `inventory.storage_location_invalid`) the material is kept at (422
+	// `inventory.storage_location_not_extended`), and every plant of the document one company's (422
+	// `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the
+	// material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted
+	// exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a
+	// cost center (422 `inventory.cost_center_required`), an active one of the company in force on the
+	// posting date (422 `inventory.cost_center_invalid`); another movement type names none (422
+	// `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same
+	// plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`,
+	// `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422
+	// `inventory.transfer_target_required`, `inventory.same_location`); another movement type names
+	// neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
+	// `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`).
+	// The document is posted on the company's date today in its time zone and numbered from its
+	// `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is
+	// in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue
+	// of more than a storage location holds is refused naming the material, the location and both
+	// quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post
+	// one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`).
+	// Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
+	// item is two, the issue and the receipt. The lines are applied in order, and each leaves its
+	// location's stock at zero or more, so items that move stock round a circle out of an empty location
+	// are refused though they change nothing in all. Every line is valued (S1d): its material is valued in
+	// its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the
+	// stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the
+	// value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is
+	// worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's
+	// currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422
+	// `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the
+	// receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted
+	// through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or
+	// initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock
+	// account against the account its movement type posts to (receipt, initial entry, consumption with the
+	// item's cost center, scrapping), and price differences on its price difference account (422
+	// `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
+	// 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
+	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/material-documents
+	CreateMaterialDocument(ctx context.Context, req *MaterialDocumentCreate, params CreateMaterialDocumentParams) (CreateMaterialDocumentRes, error)
+	// CreateMaterialValuation implements createMaterialValuation operation.
+	//
+	// Values a material in a plant, the valuation area (ADR-0082 §8, S1d; SAP MBEW): a material kept in
+	// stock (422 `inventory.material_invalid`, `inventory.material_not_stocked`) extended to an active
+	// plant of a company the caller may act in (422 `inventory.plant_invalid`,
+	// `inventory.plant_not_extended`), once (409 `inventory.valuation_exists`). Its price control is
+	// `standard` (the stock is always worth its quantity at the standard price, rounded half away from
+	// zero) or `moving_average` (the moving price is the stock's value per price unit, following its
+	// receipts); its price is in the company's local currency per `price_unit` base units (422
+	// `inventory.currency_mismatch`, `inventory.invalid_price`; a standard price is above zero); its
+	// valuation class one of the company's account determination
+	// (`companies[].account_determination.inventory`, 422 `inventory.unknown_valuation_class`), whose
+	// accounts its movements post to. Stock moved in the plant before the material was valued is refused
+	// (409 `inventory.stock_without_valuation`). From then on every goods movement of the material in the
+	// plant is valued and posted (`createMaterialDocument`). The price control, currency and price unit do
+	// not change afterwards. Audited. Human-only (`x-agent: false`).
+	//
+	// POST /v1/material-valuations
+	CreateMaterialValuation(ctx context.Context, req *MaterialValuationCreate, params CreateMaterialValuationParams) (CreateMaterialValuationRes, error)
 	// CreateMemoRecord implements createMemoRecord operation.
 	//
 	// Creates an `active` memo record (ADR-0051 §7, T53d): an expected receipt (positive amount) or
@@ -2099,25 +2250,28 @@ type Handler interface {
 	// `price_unit` (1 when absent; sent without a unit price it is refused, 422
 	// `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its
 	// `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency,
-	// the customer's before the general one and then the latest `valid_from` (`createSalesPrice`;
-	// `price_source` says which; an item with neither a price nor such a record is refused, 422
-	// `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that
-	// can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
-	// optionally an output tax code of the company with a rate in force on the quotation's date (422
-	// `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
-	// name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no
-	// jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷
-	// price unit, rounded half away from zero to the currency's minor unit and more than zero (422
-	// `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a
-	// price the request did not give); the quotation's `net_amount` is their sum, exactly. When the
-	// tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure
-	// recorded for the item's key and valid on the quotation's date, the customer's before the general
-	// one, is taken off an item priced from the price records, in the procedure's order, as a percentage
-	// of the value before it rounded half away from zero; `conditions` lists the price and the discounts
-	// applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A
-	// `unit_price` entered with the item is its final net price: no discount is taken off it, and its
-	// price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the
-	// invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
+	// the customer's before its price group's (by its sales data in the company,
+	// `createCustomerSalesData`) before the general one and then the latest `valid_from`
+	// (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is
+	// refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing
+	// credits, one that can be posted in the company (422 `sales.account_not_postable` naming
+	// `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the
+	// quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the
+	// subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales
+	// document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is
+	// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
+	// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or
+	// `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
+	// their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`),
+	// each discount of the procedure recorded for the item's key and valid on the quotation's date, the
+	// customer's before the general one, is taken off an item priced from the price records, in the
+	// procedure's order, as a percentage of the value before it rounded half away from zero; a price or
+	// discount record with a scale gives the rate of the level the item's quantity, or its value before
+	// the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the
+	// discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067
+	// §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
+	// its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
+	// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
 	// (`x-agent: false`).
 	//
 	// POST /v1/quotations
@@ -2406,10 +2560,24 @@ type Handler interface {
 	// `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
 	// item key that is priced from the price records when the pricing procedure names its type, the
 	// customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price`
-	// was entered has none. A record is never changed or deleted: a new price is recorded with a later
-	// `valid_from`, and the items priced before keep their price. Audited, and published as
-	// SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
-	// (`x-agent: false`).
+	// was entered has none. With `price_group` the record is for the customers in that price group of the
+	// active configuration (ADR-0067 §13, T80f; 422 `sales.unknown_price_group`), by their sales data in
+	// the company (`createCustomerSalesData`), not with `customer_id` (422 `sales.customer_or_group`
+	// naming `price_group`): an item takes the customer's own record first, then its group's, then the
+	// general one. With `scale_basis` and `scale` the record has scale levels (ADR-0067 §12, T80e): an
+	// item takes the rate of the highest level whose `from` its quantity (`quantity`) or its value before
+	// the condition (`value`) reaches, and the record's own rate below the first level. A price's scale is
+	// by quantity in its own unit; a discount's by quantity in the one unit its levels state, which an
+	// item in another unit does not take, or by value in the one currency they state, which a document in
+	// another currency does not take. Each level gives its `from` of the basis, more than zero and above
+	// the one before, and the rate of the record's kind, a price's `unit_price` in the record's currency
+	// or a discount's `percent`; anything else is refused naming the level's field (422
+	// `sales.invalid_scale`; a level's price not more than zero `sales.amount_not_positive`, in another
+	// currency `sales.currency_mismatch`, a percent out of range `sales.invalid_percent`, a discount's
+	// unknown scale unit or currency `sales.unknown_unit`, `sales.unknown_currency`). A record is never
+	// changed or deleted: a new price is recorded with a later `valid_from`, and the items priced before
+	// keep their price. Audited, and published as SalesPriceChanged. A retry with the same
+	// `Idempotency-Key` answers the record created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-prices
 	CreateSalesPrice(ctx context.Context, req *SalesPriceCreate, params CreateSalesPriceParams) (CreateSalesPriceRes, error)
@@ -2447,6 +2615,37 @@ type Handler interface {
 	//
 	// POST /v1/sod-rules
 	CreateSodRule(ctx context.Context, req *SodRuleCreate, params CreateSodRuleParams) (CreateSodRuleRes, error)
+	// CreateStatisticalKeyFigure implements createStatisticalKeyFigure operation.
+	//
+	// Defines a statistical key figure of a legal entity (ADR-0064 As built T60j): a quantity such as
+	// employees or floor space whose values are posted per cost center and period
+	// (`POST /v1/statistical-key-figures/{id}/postings`) and which an allocation cycle may take its
+	// receivers' shares from (`share_basis` `statistical_key_figure`). The code is unique in the legal
+	// entity (409 `controlling.statistical_key_figure_exists`); the unit is a unit of measure of the
+	// reference data (422 `controlling.statistical_key_figure_invalid`, field `unit`, code `unknown`). A
+	// legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A
+	// key figure is not changed in this version. Created directly by permission, with no approval request.
+	// Audited, and published as StatisticalKeyFigureChanged. Agents may not create one.
+	//
+	// POST /v1/statistical-key-figures
+	CreateStatisticalKeyFigure(ctx context.Context, req *StatisticalKeyFigureCreate, params CreateStatisticalKeyFigureParams) (CreateStatisticalKeyFigureRes, error)
+	// CreateStatisticalKeyFigurePosting implements createStatisticalKeyFigurePosting operation.
+	//
+	// Posts values of a statistical key figure for cost centers in a regular fiscal period of its legal
+	// entity (ADR-0064 As built T60j; SAP's KB31N, from memory). A posting adds to what was posted before:
+	// a cost center's value of a period is the sum of its postings' values, and a negative value corrects
+	// an earlier one. Each line names an active cost center of the key figure's legal entity, once (422
+	// `controlling.statistical_key_figure_posting_invalid`, whose field errors name each line:
+	// `lines[i].cost_center_id` `unknown`, `not_in_company`, `not_active`, `duplicate`; `lines[i].value`
+	// `zero`). Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that
+	// is no regular posting period of it (422 `controlling.period_not_regular`). A posting is not changed
+	// or deleted: a correction is a further posting. A key figure of a legal entity the caller cannot act
+	// in is answered as missing (404). The posting is kept, audited and published as
+	// StatisticalKeyFigurePosted; the values of a period are read with
+	// `GET /v1/statistical-key-figures/{id}/values`. Agents may not post values.
+	//
+	// POST /v1/statistical-key-figures/{id}/postings
+	CreateStatisticalKeyFigurePosting(ctx context.Context, req *StatisticalKeyFigurePostingCreate, params CreateStatisticalKeyFigurePostingParams) (CreateStatisticalKeyFigurePostingRes, error)
 	// CreateSupplierInvoice implements createSupplierInvoice operation.
 	//
 	// Creates a parked supplier invoice. The same supplier reference for the same supplier is refused with
@@ -3561,6 +3760,14 @@ type Handler interface {
 	//
 	// GET /v1/customer-invoices/{id}
 	GetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (GetCustomerInvoiceRes, error)
+	// GetCustomerSalesData implements getCustomerSalesData operation.
+	//
+	// A customer's sales data in a company (ADR-0067 §13, T80f) with its company's code and name, its
+	// customer's number and name and its price group with the group's name. One of a company the caller
+	// may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/customer-sales-data/{id}
+	GetCustomerSalesData(ctx context.Context, params GetCustomerSalesDataParams) (GetCustomerSalesDataRes, error)
 	// GetDepreciationRun implements getDepreciationRun operation.
 	//
 	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
@@ -3998,6 +4205,40 @@ type Handler interface {
 	//
 	// GET /v1/match-results/{id}
 	GetMatchResult(ctx context.Context, params GetMatchResultParams) (GetMatchResultRes, error)
+	// GetMaterial implements getMaterial operation.
+	//
+	// One material (ADR-0082 §4, S1a) with its number, the company that numbered it, its description,
+	// base unit, type, group and status, its plants and their storage locations in the companies the
+	// caller may act in, each with its code and name, and its alternative units with their conversions.
+	//
+	// GET /v1/materials/{id}
+	GetMaterial(ctx context.Context, params GetMaterialParams) (GetMaterialRes, error)
+	// GetMaterialChange implements getMaterialChange operation.
+	//
+	// One material change (ADR-0082 §9, S1b) with its material's number and description, what it asks
+	// for, its possible duplicates and its approval request.
+	//
+	// GET /v1/material-changes/{id}
+	GetMaterialChange(ctx context.Context, params GetMaterialChangeParams) (GetMaterialChangeRes, error)
+	// GetMaterialDocument implements getMaterialDocument operation.
+	//
+	// One material document (ADR-0082 §7, S1c) with its company, movement type, posting date and lines,
+	// each naming its material by number and description, its plant and storage location by code and name
+	// and its cost center by code, and the documents it reverses and that reverse it. A document of a
+	// company the caller may not act in is not found (404).
+	//
+	// GET /v1/material-documents/{id}
+	GetMaterialDocument(ctx context.Context, params GetMaterialDocumentParams) (GetMaterialDocumentRes, error)
+	// GetMaterialValuation implements getMaterialValuation operation.
+	//
+	// One valuation of a material in a plant (ADR-0082 §8, S1d): its price control, price per price unit,
+	// valuation class, and the quantity and value of the material's stock in the plant, which its
+	// movements and price changes move; the material by number and description, the plant by code and
+	// name. Its `version` moves with each of them. One of a company the caller may not act in is not found
+	// (404).
+	//
+	// GET /v1/material-valuations/{id}
+	GetMaterialValuation(ctx context.Context, params GetMaterialValuationParams) (GetMaterialValuationRes, error)
 	// GetMemoRecord implements getMemoRecord operation.
 	//
 	// One memo record, with its status as of the read date: its legal entity's date at the read in its
@@ -4548,6 +4789,13 @@ type Handler interface {
 	//
 	// GET /v1/sod-rules/{id}
 	GetSodRule(ctx context.Context, params GetSodRuleParams) (GetSodRuleRes, error)
+	// GetStatisticalKeyFigure implements getStatisticalKeyFigure operation.
+	//
+	// Returns one statistical key figure. A key figure of a legal entity the caller cannot act in is
+	// answered as missing (404).
+	//
+	// GET /v1/statistical-key-figures/{id}
+	GetStatisticalKeyFigure(ctx context.Context, params GetStatisticalKeyFigureParams) (GetStatisticalKeyFigureRes, error)
 	// GetSupplierInvoice implements getSupplierInvoice operation.
 	//
 	// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
@@ -5233,14 +5481,23 @@ type Handler interface {
 	ListCustomerContacts(ctx context.Context, params ListCustomerContactsParams) (ListCustomerContactsRes, error)
 	// ListCustomerInvoices implements listCustomerInvoices operation.
 	//
-	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
-	// memos (§7, T75d), each as `getCustomerInvoice` gives it: with its company's code and name, its
-	// customer's number and name, its totals and its items. Filtered by company, customer, kind, the
-	// invoice a credit memo names, status, document number and invoice date. Sortable by: `invoice_date`,
-	// `document_number`.
+	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), the credit memos
+	// (§7, T75d) and the debit memos (§7 As built, T75j), each as `getCustomerInvoice` gives it: with
+	// its company's code and name, its customer's number and name, its totals and its items. Filtered by
+	// company, customer, kind, the invoice a credit memo names, status, document number and invoice date.
+	// Sortable by: `invoice_date`, `document_number`.
 	//
 	// GET /v1/customer-invoices
 	ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error)
+	// ListCustomerSalesData implements listCustomerSalesData operation.
+	//
+	// The sales data of customers in the companies the caller may act in (ADR-0067 §13, T80f), each as
+	// `getCustomerSalesData` gives it: with its company's code and name, its customer's number and name
+	// and its price group with the group's name. Filtered by company, customer and price group. Sortable
+	// by: `customer_number` (default).
+	//
+	// GET /v1/customer-sales-data
+	ListCustomerSalesData(ctx context.Context, params ListCustomerSalesDataParams) (ListCustomerSalesDataRes, error)
 	// ListDepreciationRuns implements listDepreciationRuns operation.
 	//
 	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -5621,6 +5878,39 @@ type Handler interface {
 	//
 	// GET /v1/supplier-invoices/{id}/match-results
 	ListMatchResults(ctx context.Context, params ListMatchResultsParams) (ListMatchResultsRes, error)
+	// ListMaterialChanges implements listMaterialChanges operation.
+	//
+	// Governed changes of materials (ADR-0082 §9, S1b), newest first: each with its kind, status, what it
+	// asks for, its possible duplicates (a create's) and its approval request. Filtered by material, kind
+	// and status. Sortable by: `created_at`.
+	//
+	// GET /v1/material-changes
+	ListMaterialChanges(ctx context.Context, params ListMaterialChangesParams) (ListMaterialChangesRes, error)
+	// ListMaterialDocuments implements listMaterialDocuments operation.
+	//
+	// The material documents of the companies the caller may act in (ADR-0082 §7, S1c), each as
+	// `getMaterialDocument` gives it, the latest first. Filtered by material, plant and movement type: a
+	// document matches a material or a plant when one of its lines names it. Sortable by: `created_at`.
+	//
+	// GET /v1/material-documents
+	ListMaterialDocuments(ctx context.Context, params ListMaterialDocumentsParams) (ListMaterialDocumentsRes, error)
+	// ListMaterialValuations implements listMaterialValuations operation.
+	//
+	// The valuations of materials in the plants of the companies the caller may act in (ADR-0082 §8,
+	// S1d), each as `getMaterialValuation` gives it, in the order they were created. Filtered by material
+	// and plant. Sortable by: `created_at`.
+	//
+	// GET /v1/material-valuations
+	ListMaterialValuations(ctx context.Context, params ListMaterialValuationsParams) (ListMaterialValuationsRes, error)
+	// ListMaterials implements listMaterials operation.
+	//
+	// The tenant's materials (ADR-0082 §4, S1a), each as `getMaterial` gives it: its number, description,
+	// base unit, type, group and status, its plants and storage locations in the companies the caller may
+	// act in, and its alternative units. Filtered by number, plant, status, material type and material
+	// group. Sortable by: `number`.
+	//
+	// GET /v1/materials
+	ListMaterials(ctx context.Context, params ListMaterialsParams) (ListMaterialsRes, error)
 	// ListMemoRecords implements listMemoRecords operation.
 	//
 	// The memo records of the legal entities the caller may act in (ADR-0051 §7, T53d): expected receipts
@@ -6068,9 +6358,9 @@ type Handler interface {
 	// The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices
 	// and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a
 	// customer's record, the customer's number and name. Filtered by company, item key, customer (the
-	// records for that customer; general ones have none), condition type and `valid_on`, a day the record
-	// is valid on. Records are never changed: a new price is a new record with a later `valid_from`.
-	// Sortable by: `item_key`, `valid_from`.
+	// records for that customer; general ones have none), price group (T80f), condition type and
+	// `valid_on`, a day the record is valid on. Records are never changed: a new price is a new record
+	// with a later `valid_from`. Sortable by: `item_key`, `valid_from`.
 	//
 	// GET /v1/sales-prices
 	ListSalesPrices(ctx context.Context, params ListSalesPricesParams) (ListSalesPricesRes, error)
@@ -6098,6 +6388,33 @@ type Handler interface {
 	//
 	// GET /v1/sod-rules
 	ListSodRules(ctx context.Context, params ListSodRulesParams) (ListSodRulesRes, error)
+	// ListStatisticalKeyFigureValues implements listStatisticalKeyFigureValues operation.
+	//
+	// The values of a statistical key figure in a fiscal period (ADR-0064 As built T60j): per cost center
+	// that has a posting in the period, the sum of its postings' values, exact, in the order of the cost
+	// center's id; `total` is the sum over every cost center of the selection on every page, whatever the
+	// page. What a run of a cycle by this key figure for the period takes its receivers' shares from. A
+	// key figure of a legal entity the caller cannot act in is answered as missing (404).
+	//
+	// GET /v1/statistical-key-figures/{id}/values
+	ListStatisticalKeyFigureValues(ctx context.Context, params ListStatisticalKeyFigureValuesParams) (ListStatisticalKeyFigureValuesRes, error)
+	// ListStatisticalKeyFigures implements listStatisticalKeyFigures operation.
+	//
+	// Statistical key figures (ADR-0064 As built T60j) of the legal entities the caller may act in: each
+	// with its code, name and unit of measure. Sortable by: `code`.
+	//
+	// GET /v1/statistical-key-figures
+	ListStatisticalKeyFigures(ctx context.Context, params ListStatisticalKeyFiguresParams) (ListStatisticalKeyFiguresRes, error)
+	// ListStock implements listStock operation.
+	//
+	// The stock of materials by plant and storage location in the companies the caller may act in
+	// (ADR-0082 §7, S1c; SAP MMBE), in the material's base unit: as it is now, or as at the end of a day
+	// (`as_of`), the sum of the movements of material documents posted up to and including it. A location
+	// with no stock is left out. Filtered by material, plant and storage location; in the order each
+	// location's stock was first moved. Sortable by: `created_at`.
+	//
+	// GET /v1/stock
+	ListStock(ctx context.Context, params ListStockParams) (ListStockRes, error)
 	// ListSupplierInvoices implements listSupplierInvoices operation.
 	//
 	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
@@ -6568,22 +6885,28 @@ type Handler interface {
 	// `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a
 	// draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers
 	// the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry`
-	// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo. A
-	// credit memo (`kind` `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it
-	// credits the customer's reconciliation account with its gross amount and debits each item's account
-	// and output tax, at its own date's rates; the entry has the document type `DG`, and its credit line
-	// is the customer's open credit item, which clears against the invoice (`createClearing`) or nets when
-	// a payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo,
-	// counted from the memo's date; without one, a memo naming an invoice keeps that invoice's term from
-	// that invoice's date, so it is due when its invoice is, and a memo naming none the customer's term
-	// from its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the
-	// gross amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not
-	// exceed that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the
-	// problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the
-	// amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid
-	// invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a
-	// lock on the named invoice, so of two credit memos posted at once that together exceed it one is
-	// refused. Human-only (`x-agent: false`).
+	// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo; a
+	// credit memo or debit memo is reversed by `reverseCustomerInvoice` (T75k). A credit memo (`kind`
+	// `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it credits the
+	// customer's reconciliation account with its gross amount and debits each item's account and output
+	// tax, at its own date's rates; the entry has the document type `DG`, and its credit line is the
+	// customer's open credit item, which clears against the invoice (`createClearing`) or nets when a
+	// payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo, counted
+	// from the memo's date; without one, a memo naming an invoice keeps that invoice's term from that
+	// invoice's date, so it is due when its invoice is, and a memo naming none the customer's term from
+	// its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the gross
+	// amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not exceed
+	// that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the problem's
+	// `credit_limit` giving the invoice, its gross amount, the amount already credited and the amount
+	// refused. The limit is the invoice's gross amount, not what is still open of it, so a paid invoice is
+	// credited too; a reversed credit memo (`reverseCustomerInvoice`, T75k) frees its amount; a credit
+	// memo naming no invoice has no such limit. It is checked under a lock on the named invoice, so of two
+	// credit memos posted at once that together exceed it one is refused. A debit memo (`kind`
+	// `debit_memo`, T75j) posts as an invoice does, debiting the customer and crediting its items'
+	// accounts and output tax at its own date's rates, with the entry's document type `DD` (number range
+	// `journal_dd`; 422 `config.no_number_range` in a company without it): its debit line is the
+	// customer's open item, with the term entered with it, else the customer's in the company, counted
+	// from its own date. Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices/{id}:post
 	PostCustomerInvoice(ctx context.Context, req OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error)
@@ -7424,6 +7747,24 @@ type Handler interface {
 	//
 	// POST /v1/entry-templates/{id}:retire
 	RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error)
+	// ReverseAllocationRun implements reverseAllocationRun operation.
+	//
+	// Reverses a run of an allocation cycle (ADR-0064 As built T60k; SAP's cycle reversal, from memory):
+	// the run's journal entry is reversed through the ledger in every ledger it was posted to, on the
+	// run's own posting date, so the run's period must still be open (409 `ledger.period_not_open`); each
+	// receiver gives its share back and the sender holds what the run charged again. The run is then no
+	// longer in force: the cycle may be run for the period again, and a sender assessed by it is no longer
+	// assessed for the period. A run is reversed once (409 `controlling.allocation_run_reversed`).
+	// `If-Match` is the cycle's version, which a reversal does not move. Every cycle of the run's sender
+	// is held under a row lock while the run is reversed, as while one of them runs, so a reversal and a
+	// run of one sender follow one another. A run of a legal entity the caller cannot act in is answered
+	// as missing (404). The reversal is kept on the run (`GET /v1/allocation-runs/{id}`), audited and
+	// published as AllocationRunReversed. The amounts are ledger amounts, so besides
+	// `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Agents may not reverse a run.
+	//
+	// POST /v1/allocation-runs/{id}:reverse
+	ReverseAllocationRun(ctx context.Context, params ReverseAllocationRunParams) (ReverseAllocationRunRes, error)
 	// ReverseAssetAcquisition implements reverseAssetAcquisition operation.
 	//
 	// Reverses a posted acquisition (ADR-0057 §6, T57d): its entry in every ledger through the ledger's
@@ -7487,6 +7828,32 @@ type Handler interface {
 	//
 	// POST /v1/asset-transfers/{id}:reverse
 	ReverseAssetTransfer(ctx context.Context, req *AssetTransferReverse, params ReverseAssetTransferParams) (ReverseAssetTransferRes, error)
+	// ReverseCustomerInvoice implements reverseCustomerInvoice operation.
+	//
+	// Reverses a posted customer credit memo or debit memo, once (ADR-0063 As built T75k): the ledger
+	// posts the reversal of its journal entry, the original's lines with the signs turned, its document
+	// type, reference and `source_context` kept, its tax items taken back on the original's tax date, and
+	// clears the memo's open item against the reversal's, so neither is open. The reversal posts on
+	// `posting_date`, else on the memo's own posting date; that date must be in an open period (409
+	// `ledger.period_not_open`, the period's problem: give a date in an open period) and not before the
+	// memo posted (422 `receivables.reversal_before_posting` naming `posting_date`). The document becomes
+	// `reversed` and shows its reversal (`reversal_entry_id`, `reversal_entry_year`,
+	// `reversal_entry_number`, `reversal_posting_date`) and the `reason`; an audit record and
+	// CustomerInvoiceReversed, without the reason, are written with it. A reversed credit memo no longer
+	// counts against the gross amount of the invoice it names (`postCustomerInvoice`, 422
+	// `receivables.credit_exceeds_invoice`): the credit it took is free for another memo. Refused: a
+	// document that is not posted, a draft or one reversed already (409 `receivables.invalid_status`); an
+	// invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit
+	// memo another context entered from its own document, a billing document's cancellation or a credit
+	// memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is
+	// corrected there; a memo whose open item is cleared, netted when a payment was applied or cleared
+	// against its invoice (409 `receivables.document_cleared`: undo that clearing first;
+	// `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under
+	// its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry
+	// with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`).
+	//
+	// POST /v1/customer-invoices/{id}:reverse
+	ReverseCustomerInvoice(ctx context.Context, req *CustomerInvoiceReverse, params ReverseCustomerInvoiceParams) (ReverseCustomerInvoiceRes, error)
 	// ReverseGoodsReceipt implements reverseGoodsReceipt operation.
 	//
 	// Posts the movement that reverses a receipt (102) or a return (123). Refused (409) if it would make
@@ -7537,12 +7904,34 @@ type Handler interface {
 	// (`assets`) is 409 `ledger.entry_owned_elsewhere` naming the document's path: an acquisition is
 	// reversed with `POST /v1/asset-acquisitions/{id}:reverse`, a retirement with
 	// `POST /v1/asset-retirements/{id}:reverse`, a transfer with `POST /v1/asset-transfers/{id}:reverse`
-	// (a depreciation run's entries never one by one). Entries of any other context are 409
-	// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
-	// entry. Human-only.
+	// (a depreciation run's entries never one by one); an accounts receivable entry (`receivables`) is 409
+	// `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed
+	// with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit
+	// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`.
+	// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
+	// them yet. Returns the new reversal entry. Human-only.
 	//
 	// POST /v1/journal-entries/{id}:reverse
 	ReverseJournalEntry(ctx context.Context, req OptJournalEntryReverse, params ReverseJournalEntryParams) (ReverseJournalEntryRes, error)
+	// ReverseMaterialDocument implements reverseMaterialDocument operation.
+	//
+	// Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal
+	// movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a
+	// `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first
+	// (each keeping its original item's `item_no`), posted on the company's date today and numbered from
+	// its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
+	// it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
+	// nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The
+	// reversal moves the stock back, so it is refused when the stock the original received has gone (409
+	// `inventory.insufficient_stock`, naming the material, the location and both quantities). The material
+	// may have been blocked since; the reversal is still posted. Each line is valued at what its original
+	// line was, given back: what the stock does not take of it at its price now is a price difference, and
+	// the value is posted through the ledger as the original's was, reversed. A document of a company the
+	// caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/material-documents/{id}:reverse
+	ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (ReverseMaterialDocumentRes, error)
 	// ReverseSupplierInvoice implements reverseSupplierInvoice operation.
 	//
 	// Posts a reversal of the invoice's journal entry; the status becomes `reversed` and
@@ -7578,27 +7967,37 @@ type Handler interface {
 	// the cycle's assessment account alone: the sender credited with the total of its primary costs and
 	// each receiver debited with its share of that total, split and rounded the same way, so the entry
 	// balances on the account; the sender's primary costs stay on their accounts, and the cost center
-	// report shows the sender relieved, and the receivers charged, on the assessment account. A sender
-	// without costs in the period, or for an assessment with costs that add up to nothing, posts nothing:
-	// `posted` is false and no run is kept, so the cycle may be run for the period later. One run per
-	// cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
-	// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
-	// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
-	// both post, and two cycles of one sender run at once follow one another: the second moves what the
-	// first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that
-	// sender is run for the period again (409 `controlling.allocation_sender_assessed`, naming the
-	// assessment's cycle and entry): the sender's primary costs are still on their accounts, and another
-	// run would charge them a second time. Refused besides: a fiscal year not set up (422
-	// `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422
-	// `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day
-	// (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any
-	// entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for
-	// actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its
-	// run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as
-	// AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing
-	// (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs
-	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
-	// not run a cycle.
+	// report shows the sender relieved, and the receivers charged, on the assessment account. With
+	// `share_basis` `statistical_key_figure` the shares are the receivers' values of the cycle's key
+	// figure in the period run (the sum of their postings, `GET /v1/statistical-key-figures/{id}/values`)
+	// over their total, split and rounded the same way; a receiver without a value takes nothing, a
+	// receiver whose value is negative refuses the run (409 `controlling.allocation_key_figure_negative`,
+	// naming it) and receivers whose values add up to nothing refuse it (409
+	// `controlling.allocation_key_figure_missing`), each before anything is posted; the values used are in
+	// the run's audit record. With `share_basis` `fixed_amounts` (an assessment) the run reads no costs:
+	// its entry credits the sender with the receivers' amounts' total and debits each receiver with its
+	// amount on the assessment account, whatever the sender's costs, even when it has none
+	// (`account_count` 0). A sender without costs in the period, or for an assessment with costs that add
+	// up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for the
+	// period later. One run in force per cycle and period: a second is refused (409
+	// `controlling.allocation_run_exists`, naming the run's entry) until that run is reversed
+	// (`POST /v1/allocation-runs/{id}:reverse`, T60k). `If-Match` is the cycle's version. Every cycle of
+	// the sender is held under a row lock while one of them runs, so two runs of a cycle for one period
+	// never both post, and two cycles of one sender run at once follow one another: the second moves what
+	// the first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that
+	// sender is run for the period again while that run is in force (409
+	// `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's
+	// primary costs are still on their accounts, and another run would charge them a second time. Refused
+	// besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular
+	// posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid
+	// on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the
+	// ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and
+	// a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in
+	// the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`),
+	// audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is
+	// answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run`
+	// the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing`
+	// otherwise). Agents may not run a cycle.
 	//
 	// POST /v1/allocation-cycles/{id}:run
 	RunAllocationCycle(ctx context.Context, req *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error)
@@ -8176,6 +8575,19 @@ type Handler interface {
 	//
 	// PATCH /v1/credit-limits/{id}
 	UpdateCreditLimit(ctx context.Context, req *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (UpdateCreditLimitRes, error)
+	// UpdateCustomerSalesData implements updateCustomerSalesData operation.
+	//
+	// Changes a customer's price group in its sales data, with the caller's version of it (`If-Match`; 412
+	// when another change came first): the new group, one of the active configuration's (422
+	// `sales.unknown_price_group` naming `price_group`), or null for none, holds for the items priced from
+	// now on; the items priced before keep their prices. A change to the group the sales data already has
+	// is refused (422 `sales.nothing_to_change`). The customer and the company do not change. The audit
+	// record and CustomerSalesDataChanged carry the group before and after. JSON Merge Patch (RFC 7396) of
+	// the one field that changes. Sales data of a company the caller may not act in is not found (404).
+	// Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/customer-sales-data/{id}
+	UpdateCustomerSalesData(ctx context.Context, req *CustomerSalesDataUpdate, params UpdateCustomerSalesDataParams) (UpdateCustomerSalesDataRes, error)
 	// UpdateDisputeCase implements updateDisputeCase operation.
 	//
 	// Changes an open dispute case's assignee or note, with the caller's version of it (`If-Match`; 412
@@ -8246,6 +8658,40 @@ type Handler interface {
 	//
 	// PATCH /v1/legal-entities/{id}
 	UpdateLegalEntity(ctx context.Context, req *LegalEntityUpdate, params UpdateLegalEntityParams) (UpdateLegalEntityRes, error)
+	// UpdateMaterial implements updateMaterial operation.
+	//
+	// Requests a change of a material's description, material group, status, plants or alternative units
+	// with the caller's version of it (`If-Match`; 412 when another change came first; ADR-0082 §9, S1b).
+	// JSON Merge Patch (RFC 7396): absent fields are unchanged; `reason` is kept on the change. The
+	// number, the base unit and the material type do not change. `status` moves between `active` and
+	// `blocked` (422 `materials.unknown_status` for another value). `plants` replaces the material's
+	// plants in the companies the caller may act in, each with its storage locations, and leaves those of
+	// other companies as they are; `alternative_units` replaces its alternative units, an empty list
+	// removing them; each is checked as `createMaterial` checks it. A change that would leave the material
+	// as it is is refused (422 `materials.nothing_to_change`), as is a change of a `pending` material (409
+	// `materials.invalid_status`) or of one with a pending change (409 `materials.change_pending`), but a
+	// block. A change that only blocks the material is applied at once, a pending change or not (the
+	// material answered blocked, with a material change of kind `block`, applied, read with
+	// `listMaterialChanges?material_id=&kind=block`); a change keeps only the fields it changes, so a
+	// pending update approved later leaves the block in place. Any other opens a pending material change
+	// (kind `unblock` when it only sets the status `active`, `update` otherwise; the material answered as
+	// it is, naming it in `pending_change_id`, `GET /v1/material-changes/{id}`), applied to the material
+	// as it is then when its approval request is approved by the role `process_owner`, and leaving it as
+	// it is when it is rejected or withdrawn. Audited with the values before and after, and published as
+	// MaterialChangeChanged, and MaterialChanged when the material changes. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/materials/{id}
+	UpdateMaterial(ctx context.Context, req *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error)
+	// UpdateMaterialValuation implements updateMaterialValuation operation.
+	//
+	// Changes a valuation's class at the caller's version (`If-Match`, 412 otherwise; ADR-0082 §8, S1d)
+	// to another class of the company (422 `inventory.unknown_valuation_class`,
+	// `inventory.nothing_to_change`), while the material has no stock in the plant (409
+	// `inventory.valuation_class_with_stock`): its stock stands on its class's stock account. JSON Merge
+	// Patch. Audited with the class before. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/material-valuations/{id}
+	UpdateMaterialValuation(ctx context.Context, req *MaterialValuationUpdate, params UpdateMaterialValuationParams) (UpdateMaterialValuationRes, error)
 	// UpdateMemoRecord implements updateMemoRecord operation.
 	//
 	// Changes a memo record that is `proposed`, `active` or `expired` (409 `cash.memo_record_closed`
