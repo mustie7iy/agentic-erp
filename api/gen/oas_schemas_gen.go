@@ -64709,7 +64709,9 @@ type MaterialChangeRequested struct {
 	MaterialGroup OptString `json:"material_group"`
 	// The status, `active` or `blocked`.
 	Status OptString `json:"status"`
-	// The plants with their storage locations, in the companies the caller may act in.
+	// The plants with their storage locations, in the companies the caller may act in; those of other
+	// companies are left out, so an empty list may stand for plants the caller cannot see, as on
+	// `Material`.
 	Plants []MaterialChangePlant `json:"plants"`
 	// The alternative units with their conversions.
 	AlternativeUnits []MaterialUnitInput `json:"alternative_units"`

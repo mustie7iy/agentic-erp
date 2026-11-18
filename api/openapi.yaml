@@ -59080,7 +59080,7 @@ components:
         plants:
           type: array
           items: {$ref: "#/components/schemas/MaterialChangePlant"}
-          description: "The plants with their storage locations, in the companies the caller may act in."
+          description: "The plants with their storage locations, in the companies the caller may act in; those of other companies are left out, so an empty list may stand for plants the caller cannot see, as on `Material`."
           readOnly: true
         alternative_units:
           type: array

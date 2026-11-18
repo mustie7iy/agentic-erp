@@ -284,15 +284,8 @@ func New(cfg Config) (http.Handler, error) {
 		workflowAPI:    &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: approvalHandlers(cfg)}},
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
-		receivablesAPI: Receivables(cfg),
 		salesAPI:       selling,
-		revenueAPI:     Revenue(cfg),
-		collectionsAPI: Collections(cfg),
 		creditAPI:      crediting,
-		grcAPI:         GRC(cfg),
-		recordsAPI:     Records(cfg),
-		miningAPI:      ProcessMining(cfg),
-		leasesAPI:      Leases(cfg), materialsAPI: Materials(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       Audit(cfg),
 		integrationAPI: Integration(cfg),
@@ -308,6 +301,7 @@ func New(cfg Config) (http.Handler, error) {
 		controllingAPI: controllingEndpoints(cfg),
 		taxfilingAPI:   taxFiling(cfg, library),
 	}
+	h.laterContexts(cfg)
 	return httpapi.New(h, httpapi.Pipeline{
 		Pool: cfg.Pool, Begin: cfg.Begin, AppRole: cfg.AppRole, Verifier: cfg.Verifier, Limits: cfg.Limits, RequestTimeout: cfg.RequestTimeout,
 		// The API-hosted upload is the one route outside the generated
@@ -431,6 +425,21 @@ func Payments(cfg Config) *payments.Endpoints {
 		Settings: configuration.Settings{}, Actors: identity.Actors{}, Roles: identity.Directory{}, Keys: cfg.FieldKeys, Connector: cfg.Connector, Objects: cfg.Objects,
 		Retention: cfg.Retention, Channels: integration.BankChannels{Secrets: resolver(cfg.Secrets), Control: cfg.SFTPControl},
 		Accounts: ledger.Accounts{}, DownPayments: downPayments{}, Approvals: opener(), Sessions: agents.Sessions{}, Now: cfg.Now}
+}
+
+// laterContexts sets the handler's contexts of the later phases, each wired
+// from the configuration alone (receivables, revenue, collections, GRC,
+// records, process mining, leases, materials), so New lists only those it
+// builds from what it has set up.
+func (h *handler) laterContexts(cfg Config) {
+	h.receivablesAPI = Receivables(cfg)
+	h.revenueAPI = Revenue(cfg)
+	h.collectionsAPI = Collections(cfg)
+	h.grcAPI = GRC(cfg)
+	h.recordsAPI = Records(cfg)
+	h.miningAPI = ProcessMining(cfg)
+	h.leasesAPI = Leases(cfg)
+	h.materialsAPI = Materials(cfg)
 }
 
 // approvalHandlers are the contexts that own each approval object type:
