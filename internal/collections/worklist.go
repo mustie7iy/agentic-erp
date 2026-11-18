@@ -54,6 +54,9 @@ type WorklistCustomer struct {
 	NextPromised  *time.Time
 	// BrokenPromises is read for a page's customers (describe).
 	BrokenPromises int32
+	// LastContact is the customer's last contact (T76g), read for a
+	// page's customers (describe); nil when it was never contacted.
+	LastContact *lastContact
 
 	items []ledger.ReceivableItem // its open items
 }
@@ -73,9 +76,15 @@ type Worklist struct {
 	Disputed      money.Minor
 	DisputedCases int32
 	Promised      money.Minor
-	Customers     []WorklistCustomer
+	// Resubmitted counts the customers with overdue items left off the
+	// worklist because their last contact's resubmission date is after
+	// the key date (T76g), ResubmittedOverdue what is overdue of them.
+	Resubmitted        int32
+	ResubmittedOverdue money.Minor
+	Customers          []WorklistCustomer
 
-	open map[ledger.ItemRef]bool // the company's open customer items
+	open map[ledger.ItemRef]bool   // the company's open customer items
+	held map[uuid.UUID]lastContact // the last contacts that may hold their customers off
 }
 
 // isOpen is whether the company's customer item is open now.
@@ -135,7 +144,11 @@ func (e *Endpoints) WorklistOf(ctx context.Context, legalEntity uuid.UUID, keyDa
 	if err != nil {
 		return Worklist{}, err
 	}
-	w := Worklist{Company: le, KeyDate: keyDate, Exponent: exp, open: make(map[ledger.ItemRef]bool, len(open))}
+	held, err := lastContacts(ctx, tx, le.ID, nil, keyDate)
+	if err != nil {
+		return Worklist{}, err
+	}
+	w := Worklist{Company: le, KeyDate: keyDate, Exponent: exp, open: make(map[ledger.ItemRef]bool, len(open)), held: held}
 	for _, it := range open {
 		w.open[it.ItemRef] = true
 	}
@@ -179,6 +192,10 @@ func (w *Worklist) add(open []ledger.ReceivableItem, disputes map[ledger.ItemRef
 		open = open[n:]
 		if len(due) == 0 {
 			continue // nothing overdue: not on the worklist
+		}
+		if w.held[c.CustomerID].heldUntil(w.KeyDate) {
+			w.Resubmitted, w.ResubmittedOverdue = w.Resubmitted+1, sum(w.ResubmittedOverdue, sum(due...))
+			continue // resubmitted after the key date: off the worklist until then
 		}
 		c.Open, c.Overdue, c.Disputed, c.DisputedCases = sum(all...), sum(due...), sum(disputed...), int32(len(disputed))
 		w.Open, w.Overdue, w.Disputed = sum(w.Open, c.Open), sum(w.Overdue, c.Overdue), sum(w.Disputed, c.Disputed)
@@ -251,8 +268,8 @@ func (e *Endpoints) page(w Worklist, scope string, size int, token string, hasTo
 
 // describe completes the customers of a page with what they are shown
 // with: each one's number and name, the highest dunning level and latest
-// dunning date recorded for its open items, and how many of its promises
-// to pay are broken on the worklist's key date.
+// dunning date recorded for its open items, how many of its promises to
+// pay are broken on the worklist's key date, and its last contact.
 func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, w Worklist, page []WorklistCustomer) error {
 	ids := make([]uuid.UUID, len(page))
 	var refs []ledger.ItemRef
@@ -274,6 +291,10 @@ func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, w Worklist, page []
 	if err != nil {
 		return err
 	}
+	contacts, err := lastContacts(ctx, tx, w.Company.ID, ids, w.KeyDate)
+	if err != nil {
+		return err
+	}
 	for i := range page {
 		c := &page[i]
 		named, ok := names[c.CustomerID]
@@ -281,18 +302,27 @@ func (e *Endpoints) describe(ctx context.Context, tx pgx.Tx, w Worklist, page []
 			return fmt.Errorf("collections: customer %s of an open item is no business partner", c.CustomerID)
 		}
 		c.Number, c.Name, c.BrokenPromises = named.Number, named.Name, broken[c.CustomerID]
-		for _, it := range c.items {
-			d, ok := levels[it.ItemRef]
-			if !ok {
-				continue
-			}
-			c.Level = max(c.Level, d.Level)
-			if c.LastDunned == nil || d.Date.After(*c.LastDunned) {
-				c.LastDunned = &d.Date
-			}
+		if last, ok := contacts[c.CustomerID]; ok {
+			c.LastContact = &last
 		}
+		c.dunnedFrom(levels)
 	}
 	return nil
+}
+
+// dunnedFrom gives the customer the highest level and the latest dunning
+// date recorded for its open items.
+func (c *WorklistCustomer) dunnedFrom(levels map[ledger.ItemRef]dunned) {
+	for _, it := range c.items {
+		d, ok := levels[it.ItemRef]
+		if !ok {
+			continue
+		}
+		c.Level = max(c.Level, d.Level)
+		if c.LastDunned == nil || d.Date.After(*c.LastDunned) {
+			c.LastDunned = &d.Date
+		}
+	}
 }
 
 // broken counts the customers' promises to pay broken on the worklist's

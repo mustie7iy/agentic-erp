@@ -4875,6 +4875,23 @@ erDiagram
   `dunning_run.promised_items` lists the items a run left out for a
   promise, a JSON list (`dunning_run_promised_items_check`), empty by
   default, written with the run and not changed.
+- `collections.customer_contact` (T76g, migration 000364): a
+  collector's contact with a customer, by its number
+  (`customer_contact_customer_number_check`), at `contacted_at`, with an
+  outcome of `reached`, `not_reached` or `left_message`
+  (`customer_contact_outcome_check`), whom at the customer and a note,
+  each more than white space and at most 200 and 2,000 characters or
+  absent (`customer_contact_contact_name_check`,
+  `customer_contact_note_check`), and a resubmission date up to
+  2100-12-31 or none (`customer_contact_resubmission_date_check`);
+  version from 1 (`customer_contact_version_check`); insert-only
+  (`customer_contact_insert_only`, for every role). The worklist reads a
+  customer's last contact, its latest by `contacted_at`
+  (`customer_contact_latest`), and the customers with a contact
+  resubmitted after its key date (`customer_contact_resubmission`); the
+  list reads the tenant's contacts by `contacted_at`
+  (`customer_contact_by_contacted_at`). `contact_name` and `note` are in
+  the personal data inventory.
 - `collections.dispute_case` (T86a, migration 000324): an open item of
   the ledger, named by its journal line (`dispute_case_line_no_check`),
   with its customer's number and its document number

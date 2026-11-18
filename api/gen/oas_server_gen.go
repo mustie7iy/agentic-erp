@@ -1455,6 +1455,26 @@ type Handler interface {
 	//
 	// POST /v1/credit-memo-requests
 	CreateCreditMemoRequest(ctx context.Context, req *CreditMemoRequestCreate, params CreateCreditMemoRequestParams) (CreateCreditMemoRequestRes, error)
+	// CreateCustomerContact implements createCustomerContact operation.
+	//
+	// Records a collector's contact with a customer of a company (ADR-0065 As built, T76g): when it was
+	// (`contacted_at`, not after now: 422 `collections.invalid_contact_time`), whom at the customer the
+	// collector spoke to (`contact_name`, optional), its `outcome` (an open enumeration: 422
+	// `collections.unknown_outcome` for a value the server does not know) and a `note`, and optionally a
+	// `resubmission_date`, after the company's today in its time zone and at most 2100-12-31 (422
+	// `collections.invalid_resubmission_date`). The company is one the caller may act in (422
+	// `request.reference_not_found` naming `legal_entity_id`), the customer a business partner of the
+	// tenant (422 `request.reference_not_found` naming `customer_id`). Texts of white space alone are
+	// refused (422 `request.validation_failed`). A customer's last contact is its latest by
+	// `contacted_at`: while that contact's resubmission date is after a worklist's key date, the customer
+	// is not on that worklist (`getCollectionWorklist`), so it reappears on its resubmission date; a later
+	// contact without a resubmission date brings it back at once. A contact is a record of what happened:
+	// it is not changed; a correction is a later contact. Recording one posts nothing and sends nothing.
+	// Audited. A retry with the same `Idempotency-Key` answers the contact recorded. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/customer-contacts
+	CreateCustomerContact(ctx context.Context, req *CustomerContactCreate, params CreateCustomerContactParams) (CreateCustomerContactRes, error)
 	// CreateCustomerInvoice implements createCustomerInvoice operation.
 	//
 	// Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -3260,26 +3280,29 @@ type Handler interface {
 	// T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
 	// Each customer also shows its promises to pay as they stand on the key date (T76f): what its open
 	// promises promise (`promised_amount`), how many they are, the earliest promised date among them, and
-	// how many of its promises are broken; a promise is open on the key date when its `promised_date` is
-	// on or after it and it is not kept (its items no longer open add up to less than the promised
-	// amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run
-	// counts it: the customer owes it (a debit) and the key date is past its net due date, which is that
-	// of the payment terms it was posted with or, for an item posted without payment terms (a manual or
-	// migrated entry's), its document date; an item due on the key date is not overdue, so an item without
-	// terms is overdue from the day after its document date, and credit items reduce no overdue amount. A
-	// customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read
-	// from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open
-	// now on the company's customer reconciliation accounts in the leading ledger, whoever posted them,
-	// and the key date only counts what is overdue. Amounts are in the company's currency, as the items
-	// were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`,
-	// `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not
-	// of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key
-	// date. Each page is computed anew and continues after the last customer's overdue amount and id: a
-	// customer whose overdue amount fell between two pages can be listed again with its new amount, and
-	// one whose amount rose is not read again, so a consumer that pages while items are posted or cleared
-	// keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one
-	// too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`).
-	// A legal entity the caller cannot act in is 404.
+	// how many of its promises are broken, and its last contact (when, its outcome and its resubmission
+	// date; T76g); a customer whose last contact's resubmission date is after the key date is not listed
+	// until then, and is counted in `resubmission_count` and `resubmission_overdue_amount` instead. A
+	// promise is open on the key date when its `promised_date` is on or after it and it is not kept (its
+	// items no longer open add up to less than the promised amount), broken when its date is before it and
+	// it is not kept. An item is overdue as a dunning run counts it: the customer owes it (a debit) and
+	// the key date is past its net due date, which is that of the payment terms it was posted with or, for
+	// an item posted without payment terms (a manual or migrated entry's), its document date; an item due
+	// on the key date is not overdue, so an item without terms is overdue from the day after its document
+	// date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed,
+	// whatever it owes. The worklist is computed at the read from one database state (a repeatable-read
+	// snapshot) and stores nothing: the items are the ones open now on the company's customer
+	// reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts
+	// what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`,
+	// `open_amount`, `overdue_amount`, `disputed_amount`, `open_dispute_cases` and `promised_amount` at
+	// the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's
+	// order; a page token is bound to the company and key date. Each page is computed anew and continues
+	// after the last customer's overdue amount and id: a customer whose overdue amount fell between two
+	// pages can be listed again with its new amount, and one whose amount rose is not read again, so a
+	// consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist
+	// needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused
+	// (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is
+	// 404.
 	//
 	// GET /v1/collection-worklist
 	GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error)
@@ -3479,6 +3502,15 @@ type Handler interface {
 	//
 	// GET /v1/me
 	GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error)
+	// GetCustomerContact implements getCustomerContact operation.
+	//
+	// One contact with a customer (ADR-0065 As built, T76g) with its company's code and name, its
+	// customer's number and name, when it was, whom the collector spoke to, its outcome, its note, its
+	// resubmission date and who recorded it. One of a company the caller may not act in is not found
+	// (404), as one that does not exist.
+	//
+	// GET /v1/customer-contacts/{id}
+	GetCustomerContact(ctx context.Context, params GetCustomerContactParams) (GetCustomerContactRes, error)
 	// GetCustomerInvoice implements getCustomerInvoice operation.
 	//
 	// One customer invoice (ADR-0063 §2, T75a) with its company's code and name, its customer's number
@@ -5149,6 +5181,16 @@ type Handler interface {
 	//
 	// GET /v1/credit-memo-requests
 	ListCreditMemoRequests(ctx context.Context, params ListCreditMemoRequestsParams) (ListCreditMemoRequestsRes, error)
+	// ListCustomerContacts implements listCustomerContacts operation.
+	//
+	// The contacts with customers of the companies the caller may act in (ADR-0065 As built, T76g), each
+	// as `getCustomerContact` gives it: with its company's code and name, its customer's number and name,
+	// when it was, whom the collector spoke to, its outcome, its note, its resubmission date and who
+	// recorded it. Filtered by company and customer. Sortable by: `contacted_at` (default, the latest
+	// first).
+	//
+	// GET /v1/customer-contacts
+	ListCustomerContacts(ctx context.Context, params ListCustomerContactsParams) (ListCustomerContactsRes, error)
 	// ListCustomerInvoices implements listCustomerInvoices operation.
 	//
 	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit

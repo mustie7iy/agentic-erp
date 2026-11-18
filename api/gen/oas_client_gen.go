@@ -1476,6 +1476,26 @@ type Invoker interface {
 	//
 	// POST /v1/credit-memo-requests
 	CreateCreditMemoRequest(ctx context.Context, request *CreditMemoRequestCreate, params CreateCreditMemoRequestParams) (CreateCreditMemoRequestRes, error)
+	// CreateCustomerContact invokes createCustomerContact operation.
+	//
+	// Records a collector's contact with a customer of a company (ADR-0065 As built, T76g): when it was
+	// (`contacted_at`, not after now: 422 `collections.invalid_contact_time`), whom at the customer the
+	// collector spoke to (`contact_name`, optional), its `outcome` (an open enumeration: 422
+	// `collections.unknown_outcome` for a value the server does not know) and a `note`, and optionally a
+	// `resubmission_date`, after the company's today in its time zone and at most 2100-12-31 (422
+	// `collections.invalid_resubmission_date`). The company is one the caller may act in (422
+	// `request.reference_not_found` naming `legal_entity_id`), the customer a business partner of the
+	// tenant (422 `request.reference_not_found` naming `customer_id`). Texts of white space alone are
+	// refused (422 `request.validation_failed`). A customer's last contact is its latest by
+	// `contacted_at`: while that contact's resubmission date is after a worklist's key date, the customer
+	// is not on that worklist (`getCollectionWorklist`), so it reappears on its resubmission date; a later
+	// contact without a resubmission date brings it back at once. A contact is a record of what happened:
+	// it is not changed; a correction is a later contact. Recording one posts nothing and sends nothing.
+	// Audited. A retry with the same `Idempotency-Key` answers the contact recorded. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/customer-contacts
+	CreateCustomerContact(ctx context.Context, request *CustomerContactCreate, params CreateCustomerContactParams) (CreateCustomerContactRes, error)
 	// CreateCustomerInvoice invokes createCustomerInvoice operation.
 	//
 	// Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -3281,26 +3301,29 @@ type Invoker interface {
 	// T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
 	// Each customer also shows its promises to pay as they stand on the key date (T76f): what its open
 	// promises promise (`promised_amount`), how many they are, the earliest promised date among them, and
-	// how many of its promises are broken; a promise is open on the key date when its `promised_date` is
-	// on or after it and it is not kept (its items no longer open add up to less than the promised
-	// amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run
-	// counts it: the customer owes it (a debit) and the key date is past its net due date, which is that
-	// of the payment terms it was posted with or, for an item posted without payment terms (a manual or
-	// migrated entry's), its document date; an item due on the key date is not overdue, so an item without
-	// terms is overdue from the day after its document date, and credit items reduce no overdue amount. A
-	// customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read
-	// from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open
-	// now on the company's customer reconciliation accounts in the leading ledger, whoever posted them,
-	// and the key date only counts what is overdue. Amounts are in the company's currency, as the items
-	// were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`,
-	// `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not
-	// of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key
-	// date. Each page is computed anew and continues after the last customer's overdue amount and id: a
-	// customer whose overdue amount fell between two pages can be listed again with its new amount, and
-	// one whose amount rose is not read again, so a consumer that pages while items are posted or cleared
-	// keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one
-	// too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`).
-	// A legal entity the caller cannot act in is 404.
+	// how many of its promises are broken, and its last contact (when, its outcome and its resubmission
+	// date; T76g); a customer whose last contact's resubmission date is after the key date is not listed
+	// until then, and is counted in `resubmission_count` and `resubmission_overdue_amount` instead. A
+	// promise is open on the key date when its `promised_date` is on or after it and it is not kept (its
+	// items no longer open add up to less than the promised amount), broken when its date is before it and
+	// it is not kept. An item is overdue as a dunning run counts it: the customer owes it (a debit) and
+	// the key date is past its net due date, which is that of the payment terms it was posted with or, for
+	// an item posted without payment terms (a manual or migrated entry's), its document date; an item due
+	// on the key date is not overdue, so an item without terms is overdue from the day after its document
+	// date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed,
+	// whatever it owes. The worklist is computed at the read from one database state (a repeatable-read
+	// snapshot) and stores nothing: the items are the ones open now on the company's customer
+	// reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts
+	// what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`,
+	// `open_amount`, `overdue_amount`, `disputed_amount`, `open_dispute_cases` and `promised_amount` at
+	// the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's
+	// order; a page token is bound to the company and key date. Each page is computed anew and continues
+	// after the last customer's overdue amount and id: a customer whose overdue amount fell between two
+	// pages can be listed again with its new amount, and one whose amount rose is not read again, so a
+	// consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist
+	// needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused
+	// (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is
+	// 404.
 	//
 	// GET /v1/collection-worklist
 	GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error)
@@ -3500,6 +3523,15 @@ type Invoker interface {
 	//
 	// GET /v1/me
 	GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error)
+	// GetCustomerContact invokes getCustomerContact operation.
+	//
+	// One contact with a customer (ADR-0065 As built, T76g) with its company's code and name, its
+	// customer's number and name, when it was, whom the collector spoke to, its outcome, its note, its
+	// resubmission date and who recorded it. One of a company the caller may not act in is not found
+	// (404), as one that does not exist.
+	//
+	// GET /v1/customer-contacts/{id}
+	GetCustomerContact(ctx context.Context, params GetCustomerContactParams) (GetCustomerContactRes, error)
 	// GetCustomerInvoice invokes getCustomerInvoice operation.
 	//
 	// One customer invoice (ADR-0063 §2, T75a) with its company's code and name, its customer's number
@@ -5170,6 +5202,16 @@ type Invoker interface {
 	//
 	// GET /v1/credit-memo-requests
 	ListCreditMemoRequests(ctx context.Context, params ListCreditMemoRequestsParams) (ListCreditMemoRequestsRes, error)
+	// ListCustomerContacts invokes listCustomerContacts operation.
+	//
+	// The contacts with customers of the companies the caller may act in (ADR-0065 As built, T76g), each
+	// as `getCustomerContact` gives it: with its company's code and name, its customer's number and name,
+	// when it was, whom the collector spoke to, its outcome, its note, its resubmission date and who
+	// recorded it. Filtered by company and customer. Sortable by: `contacted_at` (default, the latest
+	// first).
+	//
+	// GET /v1/customer-contacts
+	ListCustomerContacts(ctx context.Context, params ListCustomerContactsParams) (ListCustomerContactsRes, error)
 	// ListCustomerInvoices invokes listCustomerInvoices operation.
 	//
 	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
@@ -21783,6 +21825,150 @@ func (c *Client) sendCreateCreditMemoRequest(ctx context.Context, request *Credi
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateCreditMemoRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateCustomerContact invokes createCustomerContact operation.
+//
+// Records a collector's contact with a customer of a company (ADR-0065 As built, T76g): when it was
+// (`contacted_at`, not after now: 422 `collections.invalid_contact_time`), whom at the customer the
+// collector spoke to (`contact_name`, optional), its `outcome` (an open enumeration: 422
+// `collections.unknown_outcome` for a value the server does not know) and a `note`, and optionally a
+// `resubmission_date`, after the company's today in its time zone and at most 2100-12-31 (422
+// `collections.invalid_resubmission_date`). The company is one the caller may act in (422
+// `request.reference_not_found` naming `legal_entity_id`), the customer a business partner of the
+// tenant (422 `request.reference_not_found` naming `customer_id`). Texts of white space alone are
+// refused (422 `request.validation_failed`). A customer's last contact is its latest by
+// `contacted_at`: while that contact's resubmission date is after a worklist's key date, the customer
+// is not on that worklist (`getCollectionWorklist`), so it reappears on its resubmission date; a later
+// contact without a resubmission date brings it back at once. A contact is a record of what happened:
+// it is not changed; a correction is a later contact. Recording one posts nothing and sends nothing.
+// Audited. A retry with the same `Idempotency-Key` answers the contact recorded. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/customer-contacts
+func (c *Client) CreateCustomerContact(ctx context.Context, request *CustomerContactCreate, params CreateCustomerContactParams) (CreateCustomerContactRes, error) {
+	res, err := c.sendCreateCustomerContact(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCustomerContact(ctx context.Context, request *CustomerContactCreate, params CreateCustomerContactParams) (res CreateCustomerContactRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCustomerContact"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/customer-contacts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCustomerContactOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/customer-contacts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCustomerContactRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCustomerContactOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCustomerContactResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -39070,26 +39256,29 @@ func (c *Client) sendGetCloseCalendar(ctx context.Context, params GetCloseCalend
 // T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
 // Each customer also shows its promises to pay as they stand on the key date (T76f): what its open
 // promises promise (`promised_amount`), how many they are, the earliest promised date among them, and
-// how many of its promises are broken; a promise is open on the key date when its `promised_date` is
-// on or after it and it is not kept (its items no longer open add up to less than the promised
-// amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run
-// counts it: the customer owes it (a debit) and the key date is past its net due date, which is that
-// of the payment terms it was posted with or, for an item posted without payment terms (a manual or
-// migrated entry's), its document date; an item due on the key date is not overdue, so an item without
-// terms is overdue from the day after its document date, and credit items reduce no overdue amount. A
-// customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read
-// from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open
-// now on the company's customer reconciliation accounts in the leading ledger, whoever posted them,
-// and the key date only counts what is overdue. Amounts are in the company's currency, as the items
-// were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`,
-// `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not
-// of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key
-// date. Each page is computed anew and continues after the last customer's overdue amount and id: a
-// customer whose overdue amount fell between two pages can be listed again with its new amount, and
-// one whose amount rose is not read again, so a consumer that pages while items are posted or cleared
-// keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one
-// too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`).
-// A legal entity the caller cannot act in is 404.
+// how many of its promises are broken, and its last contact (when, its outcome and its resubmission
+// date; T76g); a customer whose last contact's resubmission date is after the key date is not listed
+// until then, and is counted in `resubmission_count` and `resubmission_overdue_amount` instead. A
+// promise is open on the key date when its `promised_date` is on or after it and it is not kept (its
+// items no longer open add up to less than the promised amount), broken when its date is before it and
+// it is not kept. An item is overdue as a dunning run counts it: the customer owes it (a debit) and
+// the key date is past its net due date, which is that of the payment terms it was posted with or, for
+// an item posted without payment terms (a manual or migrated entry's), its document date; an item due
+// on the key date is not overdue, so an item without terms is overdue from the day after its document
+// date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed,
+// whatever it owes. The worklist is computed at the read from one database state (a repeatable-read
+// snapshot) and stores nothing: the items are the ones open now on the company's customer
+// reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts
+// what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`,
+// `open_amount`, `overdue_amount`, `disputed_amount`, `open_dispute_cases` and `promised_amount` at
+// the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's
+// order; a page token is bound to the company and key date. Each page is computed anew and continues
+// after the last customer's overdue amount and id: a customer whose overdue amount fell between two
+// pages can be listed again with its new amount, and one whose amount rose is not read again, so a
+// consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist
+// needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused
+// (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is
+// 404.
 //
 // GET /v1/collection-worklist
 func (c *Client) GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error) {
@@ -41363,6 +41552,140 @@ func (c *Client) sendGetCurrentPrincipal(ctx context.Context) (res GetCurrentPri
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCurrentPrincipalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCustomerContact invokes getCustomerContact operation.
+//
+// One contact with a customer (ADR-0065 As built, T76g) with its company's code and name, its
+// customer's number and name, when it was, whom the collector spoke to, its outcome, its note, its
+// resubmission date and who recorded it. One of a company the caller may not act in is not found
+// (404), as one that does not exist.
+//
+// GET /v1/customer-contacts/{id}
+func (c *Client) GetCustomerContact(ctx context.Context, params GetCustomerContactParams) (GetCustomerContactRes, error) {
+	res, err := c.sendGetCustomerContact(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCustomerContact(ctx context.Context, params GetCustomerContactParams) (res GetCustomerContactRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCustomerContact"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/customer-contacts/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCustomerContactOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/customer-contacts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCustomerContactOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCustomerContactResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -67787,6 +68110,212 @@ func (c *Client) sendListCreditMemoRequests(ctx context.Context, params ListCred
 
 	stage = "DecodeResponse"
 	result, err := decodeListCreditMemoRequestsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCustomerContacts invokes listCustomerContacts operation.
+//
+// The contacts with customers of the companies the caller may act in (ADR-0065 As built, T76g), each
+// as `getCustomerContact` gives it: with its company's code and name, its customer's number and name,
+// when it was, whom the collector spoke to, its outcome, its note, its resubmission date and who
+// recorded it. Filtered by company and customer. Sortable by: `contacted_at` (default, the latest
+// first).
+//
+// GET /v1/customer-contacts
+func (c *Client) ListCustomerContacts(ctx context.Context, params ListCustomerContactsParams) (ListCustomerContactsRes, error) {
+	res, err := c.sendListCustomerContacts(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCustomerContacts(ctx context.Context, params ListCustomerContactsParams) (res ListCustomerContactsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCustomerContacts"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/customer-contacts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCustomerContactsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/customer-contacts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCustomerContactsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCustomerContactsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

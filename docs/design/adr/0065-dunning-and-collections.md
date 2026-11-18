@@ -872,3 +872,62 @@ digest.
   neither; the worklist shows CAD 630.00 in two promises; Lakeshore pays
   the gasket and its promise reads kept; at the day after the pump's
   date the worklist counts its promise broken and a run duns the pump.
+
+### T76g Contacts with customers and resubmission dates (migration 000364)
+
+Decided by default under this ADR (`plan-depth-2.md` §T76g; SAP S/4HANA
+Collections Management's customer contact and resubmission as the
+reference), each listed for the product owner's digest.
+
+- **Schema.** `collections.customer_contact`: the company, the customer
+  by id and number, `contacted_at`, whom at the customer
+  (`contact_name`, optional), the outcome, a note and an optional
+  resubmission date; insert-only for every role (a contact is a record
+  of what happened; a correction is a later contact). The checks are in
+  03 §3.27 and `db/collections_test.go` (`TestCustomerContactRules`,
+  `TestCustomerContactFixedForTheOwner`). Recorded with
+  `collections.worklist.write` (T76f), read with
+  `collections.worklist.read`. `contact_name` and `note` are in the
+  personal data inventory (`records.Inventory`; `collections` left
+  `records.SchemasWithout`).
+- **Who, when, outcome.** The collector is who recorded it (`created_by`,
+  shown by name as `contacted_by_name`). `contacted_at` is not after now
+  by the endpoints' clock (422 `collections.invalid_contact_time`); a
+  contact may be recorded afterwards, so an earlier time is accepted.
+  The outcome is `reached`, `not_reached` or `left_message`, an open
+  enumeration (422 `collections.unknown_outcome`, the code dispute
+  closes use; SAP's contact results are configuration: later). Texts of
+  white space are 422 `request.validation_failed`.
+- **Resubmission.** Optional, after the company's today in its time zone
+  (a date of today or earlier would hold the customer off no worklist
+  from now on) and at most 2100-12-31 (422
+  `collections.invalid_resubmission_date`). A customer's last contact is
+  its latest by `contacted_at` (then by id); while that contact's
+  resubmission date is after a worklist's key date the customer is not
+  listed, so it reappears on that date, and a later contact without one
+  brings it back at once. The worklist judges at its key date, as it
+  judges promises (T76f).
+- **Worklist.** Customers left out count in `resubmission_count` and
+  `resubmission_overdue_amount` and in none of the other totals; each
+  listed customer shows its `last_contacted_at`, `last_contact_outcome`
+  and `resubmission_date`. The customers held are read once per request
+  (those with a contact resubmitted after the key date,
+  `customer_contact_resubmission`, whose last contact is then read over
+  `customer_contact_latest`); the last contacts of a page's customers
+  only. Dunning is unchanged: a resubmission date holds no item from a
+  run (a dunning block or a promise does).
+- **Budget.** `TestCollectionWorklistBudget` now also seeds a promise on
+  one item in ten (T76f) and three contacts per customer, the last of one in twenty resubmitted after the
+  key date: p95 1.38-1.63 s at scale 1 and 2 at a load average of 19-39,
+  2026-11-17 (budget 3 s and 6 s; one scale 1 run at a load of 43 had a
+  6.0 s outlier, its median 1.47 s).
+- **Audit, no event.** Audit action `collections.customer_contact.record`
+  with the texts. No event, as a block's. The collections agent never
+  records a contact (`collectionsagent.Never`).
+- **Walkthrough.** `step_collection_contacts` (step 117): Ruth records a
+  call with Lakeshore's clerk with a resubmission date 135 days out; a
+  contact dated tomorrow is refused; at step 116's last key date
+  Lakeshore is off the worklist and counted aside; at the resubmission
+  date it is back with its last contact; a later message without a
+  resubmission date brings it back at once; its contacts read the latest
+  first.

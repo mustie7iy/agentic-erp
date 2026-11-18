@@ -329,6 +329,10 @@ type CreateCreditMemoRequestRes interface {
 	createCreditMemoRequestRes()
 }
 
+type CreateCustomerContactRes interface {
+	createCustomerContactRes()
+}
+
 type CreateCustomerInvoiceRes interface {
 	createCustomerInvoiceRes()
 }
@@ -847,6 +851,10 @@ type GetCreditMemoRequestRes interface {
 
 type GetCurrentPrincipalRes interface {
 	getCurrentPrincipalRes()
+}
+
+type GetCustomerContactRes interface {
+	getCustomerContactRes()
 }
 
 type GetCustomerInvoiceRes interface {
@@ -1435,6 +1443,10 @@ type ListCreditLimitsRes interface {
 
 type ListCreditMemoRequestsRes interface {
 	listCreditMemoRequestsRes()
+}
+
+type ListCustomerContactsRes interface {
+	listCustomerContactsRes()
 }
 
 type ListCustomerInvoicesRes interface {

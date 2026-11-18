@@ -17698,6 +17698,222 @@ func (s *Server) handleCreateCreditMemoRequestRequest(args [0]string, argsEscape
 	}
 }
 
+// handleCreateCustomerContactRequest handles createCustomerContact operation.
+//
+// Records a collector's contact with a customer of a company (ADR-0065 As built, T76g): when it was
+// (`contacted_at`, not after now: 422 `collections.invalid_contact_time`), whom at the customer the
+// collector spoke to (`contact_name`, optional), its `outcome` (an open enumeration: 422
+// `collections.unknown_outcome` for a value the server does not know) and a `note`, and optionally a
+// `resubmission_date`, after the company's today in its time zone and at most 2100-12-31 (422
+// `collections.invalid_resubmission_date`). The company is one the caller may act in (422
+// `request.reference_not_found` naming `legal_entity_id`), the customer a business partner of the
+// tenant (422 `request.reference_not_found` naming `customer_id`). Texts of white space alone are
+// refused (422 `request.validation_failed`). A customer's last contact is its latest by
+// `contacted_at`: while that contact's resubmission date is after a worklist's key date, the customer
+// is not on that worklist (`getCollectionWorklist`), so it reappears on its resubmission date; a later
+// contact without a resubmission date brings it back at once. A contact is a record of what happened:
+// it is not changed; a correction is a later contact. Recording one posts nothing and sends nothing.
+// Audited. A retry with the same `Idempotency-Key` answers the contact recorded. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/customer-contacts
+func (s *Server) handleCreateCustomerContactRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCustomerContact"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/customer-contacts"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateCustomerContactOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateCustomerContactOperation,
+			ID:   "createCustomerContact",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateCustomerContactOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateCustomerContactParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateCustomerContactRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateCustomerContactRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateCustomerContactOperation,
+			OperationSummary: "Record a contact with a customer",
+			OperationID:      "createCustomerContact",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *CustomerContactCreate
+			Params   = CreateCustomerContactParams
+			Response = CreateCustomerContactRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateCustomerContactParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateCustomerContact(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateCustomerContact(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateCustomerContactResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateCustomerInvoiceRequest handles createCustomerInvoice operation.
 //
 // Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -41619,26 +41835,29 @@ func (s *Server) handleGetCloseCalendarRequest(args [0]string, argsEscaped bool,
 // T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases.
 // Each customer also shows its promises to pay as they stand on the key date (T76f): what its open
 // promises promise (`promised_amount`), how many they are, the earliest promised date among them, and
-// how many of its promises are broken; a promise is open on the key date when its `promised_date` is
-// on or after it and it is not kept (its items no longer open add up to less than the promised
-// amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run
-// counts it: the customer owes it (a debit) and the key date is past its net due date, which is that
-// of the payment terms it was posted with or, for an item posted without payment terms (a manual or
-// migrated entry's), its document date; an item due on the key date is not overdue, so an item without
-// terms is overdue from the day after its document date, and credit items reduce no overdue amount. A
-// customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read
-// from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open
-// now on the company's customer reconciliation accounts in the leading ledger, whoever posted them,
-// and the key date only counts what is overdue. Amounts are in the company's currency, as the items
-// were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`,
-// `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not
-// of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key
-// date. Each page is computed anew and continues after the last customer's overdue amount and id: a
-// customer whose overdue amount fell between two pages can be listed again with its new amount, and
-// one whose amount rose is not read again, so a consumer that pages while items are posted or cleared
-// keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one
-// too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`).
-// A legal entity the caller cannot act in is 404.
+// how many of its promises are broken, and its last contact (when, its outcome and its resubmission
+// date; T76g); a customer whose last contact's resubmission date is after the key date is not listed
+// until then, and is counted in `resubmission_count` and `resubmission_overdue_amount` instead. A
+// promise is open on the key date when its `promised_date` is on or after it and it is not kept (its
+// items no longer open add up to less than the promised amount), broken when its date is before it and
+// it is not kept. An item is overdue as a dunning run counts it: the customer owes it (a debit) and
+// the key date is past its net due date, which is that of the payment terms it was posted with or, for
+// an item posted without payment terms (a manual or migrated entry's), its document date; an item due
+// on the key date is not overdue, so an item without terms is overdue from the day after its document
+// date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed,
+// whatever it owes. The worklist is computed at the read from one database state (a repeatable-read
+// snapshot) and stores nothing: the items are the ones open now on the company's customer
+// reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts
+// what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`,
+// `open_amount`, `overdue_amount`, `disputed_amount`, `open_dispute_cases` and `promised_amount` at
+// the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's
+// order; a page token is bound to the company and key date. Each page is computed anew and continues
+// after the last customer's overdue amount and id: a customer whose overdue amount fell between two
+// pages can be listed again with its new amount, and one whose amount rose is not read again, so a
+// consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist
+// needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused
+// (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is
+// 404.
 //
 // GET /v1/collection-worklist
 func (s *Server) handleGetCollectionWorklistRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -44582,6 +44801,196 @@ func (s *Server) handleGetCurrentPrincipalRequest(args [0]string, argsEscaped bo
 	}
 
 	if err := encodeGetCurrentPrincipalResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetCustomerContactRequest handles getCustomerContact operation.
+//
+// One contact with a customer (ADR-0065 As built, T76g) with its company's code and name, its
+// customer's number and name, when it was, whom the collector spoke to, its outcome, its note, its
+// resubmission date and who recorded it. One of a company the caller may not act in is not found
+// (404), as one that does not exist.
+//
+// GET /v1/customer-contacts/{id}
+func (s *Server) handleGetCustomerContactRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCustomerContact"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/customer-contacts/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetCustomerContactOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetCustomerContactOperation,
+			ID:   "getCustomerContact",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetCustomerContactOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetCustomerContactParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetCustomerContactRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetCustomerContactOperation,
+			OperationSummary: "Get a contact with a customer",
+			OperationID:      "getCustomerContact",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetCustomerContactParams
+			Response = GetCustomerContactRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetCustomerContactParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetCustomerContact(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetCustomerContact(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetCustomerContactResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -74345,6 +74754,213 @@ func (s *Server) handleListCreditMemoRequestsRequest(args [0]string, argsEscaped
 	}
 
 	if err := encodeListCreditMemoRequestsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListCustomerContactsRequest handles listCustomerContacts operation.
+//
+// The contacts with customers of the companies the caller may act in (ADR-0065 As built, T76g), each
+// as `getCustomerContact` gives it: with its company's code and name, its customer's number and name,
+// when it was, whom the collector spoke to, its outcome, its note, its resubmission date and who
+// recorded it. Filtered by company and customer. Sortable by: `contacted_at` (default, the latest
+// first).
+//
+// GET /v1/customer-contacts
+func (s *Server) handleListCustomerContactsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCustomerContacts"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/customer-contacts"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListCustomerContactsOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListCustomerContactsOperation,
+			ID:   "listCustomerContacts",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListCustomerContactsOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListCustomerContactsParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListCustomerContactsRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListCustomerContactsOperation,
+			OperationSummary: "List contacts with customers",
+			OperationID:      "listCustomerContacts",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "customer_id",
+					In:   "query",
+				}: params.CustomerID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListCustomerContactsParams
+			Response = ListCustomerContactsRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListCustomerContactsParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListCustomerContacts(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListCustomerContacts(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListCustomerContactsResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

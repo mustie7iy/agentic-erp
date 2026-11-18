@@ -14,7 +14,9 @@
 // procedure says (T76d), and leaves out the items a dunning block of the
 // item or its customer holds back (T76e) and those a customer promised to
 // pay by a date on or after its key date (T76f); a promise's status is
-// judged on read and shown in the worklist.
+// judged on read and shown in the worklist. A collector's contacts with
+// a customer are recorded with a resubmission date, which keeps the
+// customer off the worklist until then (T76g).
 //
 // The context is a leaf (ADR-0065 §1): it reads the ledger's customer
 // open items, the partner context's names, the identity context's people,

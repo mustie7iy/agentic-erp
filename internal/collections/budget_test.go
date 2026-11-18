@@ -17,11 +17,13 @@ import (
 // account, all posted with payment terms, about three in four overdue on
 // the key date, every item dunned once, one in ten under an open dispute
 // case (T86b), one in ten promised to be paid, half of those by a date
-// before the key date and half after (T76f). A page of 100 customers
+// before the key date and half after (T76f), every customer contacted
+// three times, the last of one in twenty with a resubmission date after
+// the key date, which leaves 1,900 customers listed (T76g). A page of 100 customers
 // reads every open item of the company, its open dispute cases and its
 // promises dated on or after the key date, then the names, the recorded
-// dunning of the page's customers' 5,000 items and their earlier
-// promises.
+// dunning of the page's customers' 5,000 items, their earlier promises
+// and their last contacts.
 func TestCollectionWorklistBudget(t *testing.T) {
 	nfr.Measure(t)
 	e := setup(t)
@@ -79,19 +81,25 @@ func TestCollectionWorklistBudget(t *testing.T) {
 			l.amount_lc
 		FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2 AND abs(hashtext(l.journal_entry_id::text)) % 10 = 1
 			AND EXISTS (SELECT FROM p)`, e.Tenant.ID, e.receivable, e.Tenant.Human.ID)
+	exec(`INSERT INTO collections.customer_contact (tenant_id, id, legal_entity_id, customer_id, customer_number, contacted_at, outcome, resubmission_date,
+			created_by, updated_by)
+		SELECT $1, gen_random_uuid(), $2, md5('c' || n)::uuid, 'BP', TIMESTAMPTZ '2026-09-01 09:00Z' + k * INTERVAL '1 day', 'reached',
+			CASE WHEN n % 20 = 0 AND k = 3 THEN DATE '2026-10-01' ELSE DATE '2026-09-10' END, $3, $3
+		FROM generate_series(0, 1999) n, generate_series(1, 3) k`, e.Tenant.ID, e.DE, e.Tenant.Human.ID)
 	exec(`RESET session_replication_role`)
 	exec(`ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms, collections.dunned_item, collections.dispute_case,
-		collections.promise_to_pay, collections.promise_to_pay_item, partner.business_partner`)
+		collections.promise_to_pay, collections.promise_to_pay_item, collections.customer_contact, partner.business_partner`)
 	var times []time.Duration
 	for range 10 {
 		start := time.Now()
 		page := e.worklist(t, "2026-09-15", "&page_size=100")
 		times = append(times, time.Since(start))
 		first := objects(t, page, "items")[0]
-		if n := len(objects(t, page, "items")); n != 100 || page["customer_count"] != float64(2000) || first["dunning_level"] != float64(1) ||
-			first["last_dunning_date"] != "2026-08-31" {
-			t.Fatalf("the page: got %d of %v customers, the first at level %v dunned %v; want 100 of 2000, level 1 on 2026-08-31", n,
-				page["customer_count"], first["dunning_level"], first["last_dunning_date"])
+		if n := len(objects(t, page, "items")); n != 100 || page["customer_count"] != float64(1900) || page["resubmission_count"] != float64(100) ||
+			first["dunning_level"] != float64(1) || first["last_dunning_date"] != "2026-08-31" || first["last_contact_outcome"] != "reached" {
+			t.Fatalf("the page: got %d of %v customers (%v resubmitted), the first at level %v dunned %v, last contact %v; want 100 of 1900 (100), "+
+				"level 1 on 2026-08-31, reached", n, page["customer_count"], page["resubmission_count"], first["dunning_level"], first["last_dunning_date"],
+				first["last_contact_outcome"])
 		}
 		cases, open, broken := 0.0, 0.0, 0.0
 		for _, c := range objects(t, page, "items") {

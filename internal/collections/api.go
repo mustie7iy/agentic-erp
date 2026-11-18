@@ -258,6 +258,7 @@ func (e *Endpoints) GetCollectionWorklist(ctx context.Context, params gen.GetCol
 	out := &gen.CollectionWorklist{LegalEntityID: w.Company.ID, CompanyCode: w.Company.Code, CompanyName: w.Company.Name, KeyDate: w.KeyDate,
 		Currency: w.Company.LocalCurrency, CustomerCount: int32(len(w.Customers)), OpenAmount: amount(w.Open), OverdueAmount: amount(w.Overdue),
 		DisputedAmount: amount(w.Disputed), OpenDisputeCases: w.DisputedCases, PromisedAmount: amount(w.Promised),
+		ResubmissionCount: w.Resubmitted, ResubmissionOverdueAmount: amount(w.ResubmittedOverdue),
 		Items: make([]gen.CollectionWorklistCustomer, len(page))}
 	for i, c := range page {
 		out.Items[i] = gen.CollectionWorklistCustomer{CustomerID: c.CustomerID, CustomerNumber: c.Number, CustomerName: c.Name,
@@ -265,6 +266,11 @@ func (e *Endpoints) GetCollectionWorklist(ctx context.Context, params gen.GetCol
 			LastDunningDate: apitypes.OptDate(c.LastDunned), DisputedAmount: amount(c.Disputed), OpenDisputeCases: c.DisputedCases,
 			PromisedAmount: amount(c.Promised), OpenPromises: c.OpenPromises, NextPromisedDate: apitypes.OptDate(c.NextPromised),
 			BrokenPromises: c.BrokenPromises}
+		if c.LastContact != nil {
+			out.Items[i].LastContactedAt.SetTo(c.LastContact.At)
+			out.Items[i].LastContactOutcome.SetTo(c.LastContact.Outcome)
+			out.Items[i].ResubmissionDate = apitypes.OptDate(c.LastContact.Resubmission)
+		}
 	}
 	if next != "" {
 		out.NextPageToken.SetTo(next)

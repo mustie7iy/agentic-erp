@@ -2981,9 +2981,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A collections specialist records a contact with a customer (when, whom, the outcome, a note) with an optional resubmission date; the worklist shows each customer's last contact and leaves a customer out until its resubmission date",
-        "r": "T76g · docs/design/plan-depth-2.md §T76g · ADR-0065",
+        "r": "T76g · docs/design/plan-depth-2.md §T76g · db/migrations/000364 · collections.customer_contact · POST /v1/customer-contacts · GET /v1/customer-contacts · GET /v1/customer-contacts/{id} · resubmission_count · personal data inventory · walkthrough step_collection_contacts · TestCollectionWorklistBudget · ADR-0065 As built",
         "src": "split:T76c · po:2026-11-17",
         "c": []
        },

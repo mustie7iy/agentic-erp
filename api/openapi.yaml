@@ -17664,7 +17664,7 @@ paths:
       tags:
         - collections
       summary: Get a company's collection worklist
-      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned), and beside its overdue amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`; T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases. Each customer also shows its promises to pay as they stand on the key date (T76f): what its open promises promise (`promised_amount`), how many they are, the earliest promised date among them, and how many of its promises are broken; a promise is open on the key date when its `promised_date` is on or after it and it is not kept (its items no longer open add up to less than the promised amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`, `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
+      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned), and beside its overdue amount what the open dispute cases of its open items dispute (`disputed_amount`, in the company's currency as each case's share of its item was booked) and how many they are (`open_dispute_cases`; T86b): a disputed item stays open and overdue, so the order and the totals are as without the cases. Each customer also shows its promises to pay as they stand on the key date (T76f): what its open promises promise (`promised_amount`), how many they are, the earliest promised date among them, and how many of its promises are broken, and its last contact (when, its outcome and its resubmission date; T76g); a customer whose last contact's resubmission date is after the key date is not listed until then, and is counted in `resubmission_count` and `resubmission_overdue_amount` instead. A promise is open on the key date when its `promised_date` is on or after it and it is not kept (its items no longer open add up to less than the promised amount), broken when its date is before it and it is not kept. An item is overdue as a dunning run counts it: the customer owes it (a debit) and the key date is past its net due date, which is that of the payment terms it was posted with or, for an item posted without payment terms (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an item without terms is overdue from the day after its document date, and credit items reduce no overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount`, `overdue_amount`, `disputed_amount`, `open_dispute_cases` and `promised_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
       x-permission: collections.worklist.read
       x-slo-class: report
       x-snapshot: true
@@ -18316,6 +18316,138 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/customer-contacts:
+    get:
+      operationId: listCustomerContacts
+      tags:
+        - collections
+      summary: List contacts with customers
+      description: "The contacts with customers of the companies the caller may act in (ADR-0065 As built, T76g), each as `getCustomerContact` gives it: with its company's code and name, its customer's number and name, when it was, whom the collector spoke to, its outcome, its note, its resubmission date and who recorded it. Filtered by company and customer. Sortable by: `contacted_at` (default, the latest first)."
+      x-permission: collections.worklist.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the contacts with this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of contacts with customers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerContactPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCustomerContact
+      tags:
+        - collections
+      summary: Record a contact with a customer
+      description: "Records a collector's contact with a customer of a company (ADR-0065 As built, T76g): when it was (`contacted_at`, not after now: 422 `collections.invalid_contact_time`), whom at the customer the collector spoke to (`contact_name`, optional), its `outcome` (an open enumeration: 422 `collections.unknown_outcome` for a value the server does not know) and a `note`, and optionally a `resubmission_date`, after the company's today in its time zone and at most 2100-12-31 (422 `collections.invalid_resubmission_date`). The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`), the customer a business partner of the tenant (422 `request.reference_not_found` naming `customer_id`). Texts of white space alone are refused (422 `request.validation_failed`). A customer's last contact is its latest by `contacted_at`: while that contact's resubmission date is after a worklist's key date, the customer is not on that worklist (`getCollectionWorklist`), so it reappears on its resubmission date; a later contact without a resubmission date brings it back at once. A contact is a record of what happened: it is not changed; a correction is a later contact. Recording one posts nothing and sends nothing. Audited. A retry with the same `Idempotency-Key` answers the contact recorded. Human-only (`x-agent: false`)."
+      x-permission: collections.worklist.write
+      x-agent: false
+      x-problem-codes:
+        - collections.invalid_contact_time
+        - collections.invalid_resubmission_date
+        - collections.unknown_outcome
+        - config.not_bootstrapped
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The contact to record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerContactCreate"
+            examples:
+              call:
+                summary: A call with the customer's accounts payable clerk, to be followed up in a week
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  contacted_at: "2026-12-01T09:05:00Z"
+                  contact_name: Dana Ortiz, accounts payable
+                  outcome: reached
+                  note: The invoice is approved for payment in the next run.
+                  resubmission_date: "2026-12-08"
+      responses:
+        "201":
+          description: "Created; the new contact."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerContact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/customer-contacts/{id}":
+    get:
+      operationId: getCustomerContact
+      tags:
+        - collections
+      summary: Get a contact with a customer
+      description: "One contact with a customer (ADR-0065 As built, T76g) with its company's code and name, its customer's number and name, when it was, whom the collector spoke to, its outcome, its note, its resubmission date and who recorded it. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: collections.worklist.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The contact.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerContact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/dunning-runs:
@@ -56198,10 +56330,13 @@ components:
         open_promises: {type: integer, format: int32, minimum: 0, description: "The customer's promises to pay open on the key date (`listPromisesToPay?customer_id=`).", readOnly: true}
         next_promised_date: {type: string, format: date, description: "The earliest `promised_date` among those promises; absent without any.", readOnly: true}
         broken_promises: {type: integer, format: int32, minimum: 0, description: "The customer's promises to pay broken on the key date: `promised_date` before it and not kept (its items no longer open add up to less than the promised amount).", readOnly: true}
+        last_contacted_at: {type: string, format: date-time, description: "When the customer's last contact was (`createCustomerContact`, T76g): its latest by `contacted_at`; absent when it was never contacted.", readOnly: true}
+        last_contact_outcome: {type: string, x-extensible-enum: [reached, not_reached, left_message], description: "The outcome of that contact; absent when the customer was never contacted. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1.", readOnly: true}
+        resubmission_date: {type: string, format: date, description: "That contact's resubmission date, on or before the key date (a customer whose last contact's resubmission date is after the key date is not listed); absent when it set none.", readOnly: true}
     CollectionWorklist:
       type: object
       description: "A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers with overdue items, the largest overdue amount first, with the totals of every customer listed."
-      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, disputed_amount, open_dispute_cases, promised_amount, items]
+      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, disputed_amount, open_dispute_cases, promised_amount, resubmission_count, resubmission_overdue_amount, items]
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
         company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -56214,6 +56349,8 @@ components:
         disputed_amount: {$ref: "#/components/schemas/Money", description: "The sum of `disputed_amount` of every customer on the worklist (T86b)."}
         open_dispute_cases: {type: integer, format: int32, minimum: 0, description: "The sum of `open_dispute_cases` of every customer on the worklist (T86b).", readOnly: true}
         promised_amount: {$ref: "#/components/schemas/Money", description: "The sum of `promised_amount` of every customer on the worklist (T76f)."}
+        resubmission_count: {type: integer, format: int32, minimum: 0, description: "The customers with items overdue on the key date left off the worklist because their last contact's resubmission date is after it (T76g); they count in none of the other totals.", readOnly: true}
+        resubmission_overdue_amount: {$ref: "#/components/schemas/Money", description: "What those customers' overdue items add up to, as `overdue_amount` adds them (T76g)."}
         items:
           type: array
           items: {$ref: "#/components/schemas/CollectionWorklistCustomer"}
@@ -56232,6 +56369,8 @@ components:
           disputed_amount: {amount: "150.00", currency: CAD}
           open_dispute_cases: 1
           promised_amount: {amount: "600.00", currency: CAD}
+          resubmission_count: 0
+          resubmission_overdue_amount: {amount: "0.00", currency: CAD}
           items:
             - customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
               customer_number: BP100042
@@ -56247,6 +56386,8 @@ components:
               open_promises: 1
               next_promised_date: "2027-01-15"
               broken_promises: 0
+              last_contacted_at: "2026-12-30T15:20:00Z"
+              last_contact_outcome: left_message
     DisputeCaseCreate:
       type: object
       description: "Open a dispute case on a customer's open item. It is created `open`."
@@ -56550,6 +56691,74 @@ components:
         days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency."}
         local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
+    CustomerContactCreate:
+      type: object
+      description: "Record a collector's contact with a customer of a company."
+      required: [legal_entity_id, customer_id, contacted_at, outcome]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose collector contacted the customer: a legal entity the caller may act in."}
+        customer_id: {type: string, format: uuid, description: "The customer (a business partner) contacted."}
+        contacted_at: {type: string, format: date-time, description: "When the contact was: not after now."}
+        contact_name: {type: string, minLength: 1, maxLength: 200, description: "Whom at the customer the collector spoke to or wrote to; absent when nobody was reached by name."}
+        outcome:
+          type: string
+          x-extensible-enum: [reached, not_reached, left_message]
+          description: "`reached`: the collector spoke to the customer; `not_reached`: nobody answered; `left_message`: a message was left. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        note: {type: string, minLength: 1, maxLength: 2000, description: "What was said or agreed."}
+        resubmission_date: {type: string, format: date, description: "The date the customer is to be worked again: after the company's today, at most 2100-12-31. Until then the customer is not on the collection worklist, while this is its last contact."}
+    CustomerContact:
+      description: "A collector's contact with a customer (collections, ADR-0065 As built, T76g): when it was, whom they spoke to, the outcome and when the customer is to be worked again."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, contacted_at, outcome, contacted_by_name]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company whose collector contacted the customer.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number when the contact was recorded.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            contacted_at: {type: string, format: date-time, description: "When the contact was.", readOnly: true}
+            contact_name: {type: string, description: "Whom at the customer the collector spoke to; absent when not given.", readOnly: true}
+            outcome:
+              type: string
+              x-extensible-enum: [reached, not_reached, left_message]
+              description: "`reached`, `not_reached` or `left_message`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            note: {type: string, description: "What was said or agreed; absent when not given.", readOnly: true}
+            resubmission_date: {type: string, format: date, description: "The date the customer is to be worked again; absent when none was set.", readOnly: true}
+            contacted_by_name: {type: string, description: "The name of the collector who recorded the contact (`created_by`), as it is now.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d97"
+          version: 1
+          created_at: "2026-12-01T09:12:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-12-01T09:12:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          contacted_at: "2026-12-01T09:05:00Z"
+          contact_name: Dana Ortiz, accounts payable
+          outcome: reached
+          note: The invoice is approved for payment in the next run.
+          resubmission_date: "2026-12-08"
+          contacted_by_name: Ruth Receivables
+    CustomerContactPage:
+      type: object
+      description: One page of contacts with customers.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CustomerContact"}
+          description: The contacts on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     DunningRunBlockedItem:
       type: object
       description: "An item a dunning run left out for a dunning block (T76e): a customer's open item overdue on the run's key date that would have reached a dunning level, as the run read it."

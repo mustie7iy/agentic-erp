@@ -12439,6 +12439,53 @@ step_promise_to_pay() {
   passed
 }
 
+# step_collection_contacts is T76g (ADR-0065 As built): after the broken
+# promise of step_promise_to_pay, Ruth calls Lakeshore, reaches its
+# accounts payable clerk and records the call with a resubmission date:
+# until then Lakeshore is off the worklist, counted aside, and on that
+# date it is back with its last contact. A contact dated in the future is
+# refused. A later message left without a resubmission date brings
+# Lakeshore back at once; its contacts read the latest first.
+step_collection_contacts() {
+  heading "Step 117 — Contacts with customers: a call recorded with whom, the outcome, a note and a resubmission date; the customer off the worklist until that date and back on it then; a later contact without one brings it back"
+  local customer=$LAKESHORE key=$LAKESHORE_PUMP_KEY resubmit row called later
+  [ -n "$key" ] || fail "step 116's key date is not there"
+  resubmit=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 135 * 86400 | strftime("%Y-%m-%d")')
+  called=$(jq -rn 'now - 600 | todate') later=$(jq -rn 'now - 60 | todate')
+  as ruth
+  say "Ruth calls Lakeshore about the pump. Its accounts payable clerk says the payment is approved for the run in"
+  say "two weeks, so she records the call (T76g) and resubmits Lakeshore on $resubmit:"
+  api 201 '"contact with \(.customer_number) \(.customer_name) at \(.contacted_at): \(.outcome), spoke to \(.contact_name), \"\(.note)\", resubmission \(.resubmission_date), by \(.contacted_by_name)"' \
+    createCustomerContact -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"contacted_at\": \"$called\", \"contact_name\": \"Dana Ortiz, accounts payable\",
+      \"outcome\": \"reached\", \"note\": \"The pump invoice is approved for the payment run in two weeks.\", \"resubmission_date\": \"$resubmit\"}"
+  expect "the contact" "$(field '"\(.outcome) \(.resubmission_date) \(.version)"')" "reached $resubmit 1"
+  say "A contact is recorded once it has happened; one dated tomorrow is refused:"
+  refused 422 collections.invalid_contact_time createCustomerContact \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"contacted_at\": \"$(jq -rn 'now + 86400 | todate')\", \"outcome\": \"reached\"}"
+  say "Until $resubmit Lakeshore is not on the worklist: at $key it is counted aside with what is overdue:"
+  api 200 '"worklist at \(.key_date): \(.customer_count) customer(s), \(.resubmission_count) resubmitted (\(.resubmission_overdue_amount.amount) \(.resubmission_overdue_amount.currency) overdue)"' \
+    getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$key" -p page_size=100
+  expect "Lakeshore off the worklist" "$(field "[.items[] | select(.customer_id == \"$customer\")] | length")" 0
+  expect "the resubmitted customers" "$(field '.resubmission_count >= 1 and (.resubmission_overdue_amount.amount | tonumber) >= 600')" true
+  say "On $resubmit it is back, with its last contact:"
+  QUIET=1 api 200 '' getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$resubmit" -p page_size=100
+  row=$(field ".items[] | select(.customer_id == \"$customer\")")
+  [ -n "$row" ] || fail "Lakeshore is not on the worklist at $resubmit"
+  jq -r '"  \(.customer_number) \(.customer_name): overdue \(.overdue_amount.amount), last contact \(.last_contacted_at) \(.last_contact_outcome), resubmission \(.resubmission_date)"' <<<"$row"
+  expect "Lakeshore's last contact" "$(jq -r '"\(.last_contact_outcome) \(.resubmission_date)"' <<<"$row")" "reached $resubmit"
+  say "The clerk then leaves Ruth a message that the run was brought forward; she records it without a resubmission"
+  say "date, and Lakeshore is back on the worklist at $key at once:"
+  QUIET=1 api 201 '' createCustomerContact -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"contacted_at\": \"$later\",
+    \"outcome\": \"left_message\", \"note\": \"The payment run was brought forward.\"}"
+  QUIET=1 api 200 '' getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$key" -p page_size=100
+  row=$(field ".items[] | select(.customer_id == \"$customer\")")
+  expect "Lakeshore after the message" "$(jq -r '"\(.last_contact_outcome) \(.resubmission_date)"' <<<"$row")" "left_message null"
+  api 200 '.items[] | "  \(.contacted_at) \(.outcome) by \(.contacted_by_name)\(if .resubmission_date then ", resubmission \(.resubmission_date)" else "" end)"' \
+    listCustomerContacts -p "customer_id=$customer"
+  expect "Lakeshore's contacts, the latest first" "$(field '[.items[].outcome] | join(" ")')" "left_message reached"
+  passed
+}
+
 # step_sales_order_change is T78d (ADR-0067, As built T78d): Ruth sets
 # Northwind's credit limit 1,000.00 CAD above its exposure, so the step's
 # figures do not depend on what earlier steps left open. Sally creates an
@@ -14706,7 +14753,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_sales_order_change step_billing_cancellation step_rfq_requisition step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_close'
 
 main() {
   stop_unseen

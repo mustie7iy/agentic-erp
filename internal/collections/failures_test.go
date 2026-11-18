@@ -45,6 +45,9 @@ func TestDatabaseFailures(t *testing.T) {
 	// A promise of CI-A, read back, listed and judged by the worklist and the runs.
 	promised, _ := e.Must(201, "POST", "/v1/promises-to-pay", promiseOf(e.DE, e.north, "1.00", lastHeld, entries[0]), "")
 	promiseID := uuid.MustParse(apitest.String(t, promised, "id"))
+	// A contact with Southwind resubmitted, which the worklist leaves out, read back and listed.
+	contacted, _ := e.Must(201, "POST", "/v1/customer-contacts", contactOf(e.DE, e.south, "2026-06-29T09:00:00Z", "reached", lastHeld), "")
+	contactID := uuid.MustParse(apitest.String(t, contacted, "id"))
 	started, _ := e.Must(201, "POST", "/v1/dunning-runs", run(e.DE, keyDate), "")
 	id := uuid.MustParse(apitest.String(t, started, "id"))
 	// A case open on CI-B, assigned, so that reading it names a person.
@@ -141,6 +144,19 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.GetCollectionWorklist(ctx, gen.GetCollectionWorklistParams{LegalEntityID: e.DE, KeyDate: date(t, "2100-12-31")})
 			return err
 		},
+		"record contact": func(ctx context.Context) error {
+			_, err := h.CreateCustomerContact(ctx, &gen.CustomerContactCreate{LegalEntityID: e.DE, CustomerID: e.north, ContactedAt: date(t, keyDate),
+				Outcome: "reached", ResubmissionDate: gen.NewOptDate(date(t, lastHeld))}, gen.CreateCustomerContactParams{})
+			return err
+		},
+		"get contact": func(ctx context.Context) error {
+			_, err := h.GetCustomerContact(ctx, gen.GetCustomerContactParams{ID: contactID})
+			return err
+		},
+		"list contacts": func(ctx context.Context) error {
+			_, err := h.ListCustomerContacts(ctx, gen.ListCustomerContactsParams{})
+			return err
+		},
 		"close dispute": func(ctx context.Context) error {
 			_, err := h.CloseDisputeCase(ctx, &gen.DisputeCaseClose{Outcome: "rejected", Reason: "x"},
 				gen.CloseDisputeCaseParams{ID: caseID, IfMatch: `"1"`})
@@ -170,6 +186,10 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"promises page size": func(ctx context.Context) error {
 			_, err := h.ListPromisesToPay(ctx, gen.ListPromisesToPayParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"contacts page size": func(ctx context.Context) error {
+			_, err := h.ListCustomerContacts(ctx, gen.ListCustomerContactsParams{PageSize: gen.NewOptInt32(0)})
 			return err
 		},
 		"disputes page size": func(ctx context.Context) error {

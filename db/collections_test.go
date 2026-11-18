@@ -837,3 +837,97 @@ func TestPromiseToPayFixedForTheOwner(t *testing.T) {
 		})
 	}
 }
+
+// customerContact records a contact of tenant $1, id $2.
+const customerContact = `INSERT INTO collections.customer_contact (tenant_id, id, legal_entity_id, customer_id, customer_number, contacted_at,
+	contact_name, outcome, note, resubmission_date, created_by, updated_by)
+	VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), 'BP1', now(), 'Dana', 'reached', 'Pays Friday', '2027-01-31', $1, $1)`
+
+// TestCustomerContactRules (T76g, migration 000364): a contact names its
+// customer by number; its outcome is reached, not_reached or
+// left_message; its contact name and note are more than white space, at
+// most 200 and 2,000 characters, or absent; its resubmission date is up
+// to 2100-12-31 or absent; version from 1; the application changes and
+// deletes none.
+func TestCustomerContactRules(t *testing.T) {
+	need(t)
+	with := func(tenant, c uuid.UUID, from, to string) stmt {
+		return step(strings.Replace(customerContact, from, to, 1), tenant, c)
+	}
+	cases := []struct {
+		name     string
+		from, to string
+		then     string
+		want     string // empty: allowed
+	}{
+		{"a contact", "", "", "", ""},
+		{"no customer number", "'BP1'", "''", "", "customer_contact_customer_number_check"},
+		{"an unknown outcome", "'reached'", "'emailed'", "", "customer_contact_outcome_check"},
+		{"not reached", "'reached'", "'not_reached'", "", ""},
+		{"a message left", "'reached'", "'left_message'", "", ""},
+		{"a contact name of white space", "'Dana'", "' '", "", "customer_contact_contact_name_check"},
+		{"a contact name of 201 characters", "'Dana'", "repeat('x', 201)", "", "customer_contact_contact_name_check"},
+		{"a contact name of 200 characters", "'Dana'", "repeat('x', 200)", "", ""},
+		{"no contact name, note or resubmission", "'Dana', 'reached', 'Pays Friday', '2027-01-31'", "NULL, 'reached', NULL, NULL", "", ""},
+		{"a note of white space", "'Pays Friday'", "' '", "", "customer_contact_note_check"},
+		{"a note of 2001 characters", "'Pays Friday'", "repeat('x', 2001)", "", "customer_contact_note_check"},
+		{"a resubmission after 2100", "'2027-01-31'", "'2101-01-01'", "", "customer_contact_resubmission_date_check"},
+		{"changed", "", "", `UPDATE collections.customer_contact SET outcome = 'not_reached'`, "permission denied"},
+		{"deleted", "", "", `DELETE FROM collections.customer_contact`, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, id := id(), id()
+			stmts := []stmt{step(customerContact, tenant, id)}
+			if c.from != "" {
+				stmts = []stmt{with(tenant, id, c.from, c.to)}
+			}
+			if c.then != "" {
+				stmts = append(stmts, step(c.then))
+			}
+			err := asApp(t, tenant, func(tx pgx.Tx) error { return all(tx, stmts...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("version 0", func(t *testing.T) {
+		tenant := id()
+		sql := strings.Replace(strings.Replace(customerContact, "resubmission_date, created_by", "resubmission_date, version, created_by", 1),
+			"'2027-01-31', $1", "'2027-01-31', 0, $1", 1)
+		failsWith(t, asApp(t, tenant, func(tx pgx.Tx) error { return all(tx, step(sql, tenant, id())) }), "customer_contact_version_check")
+	})
+}
+
+// TestCustomerContactFixedForTheOwner (T76g, migration 000364): a contact
+// is insert-only for every role, the table's owner included.
+func TestCustomerContactFixedForTheOwner(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()), step(customerContact, tenant, id())); err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []string{"UPDATE collections.customer_contact SET note = 'x' WHERE tenant_id = $1",
+		"DELETE FROM collections.customer_contact WHERE tenant_id = $1"} {
+		t.Run(change, func(t *testing.T) {
+			if _, err := tx.Exec(ctx, "SAVEPOINT s"); err != nil {
+				t.Fatal(err)
+			}
+			_, err := tx.Exec(ctx, change, tenant)
+			failsWith(t, err, "insert-only")
+			if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT s"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
