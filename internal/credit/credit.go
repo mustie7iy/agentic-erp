@@ -92,7 +92,8 @@ type OpenOrders interface {
 // Endpoints implements the credit part of the generated API. Settings is
 // the active configuration, read for a company's time zone alone: a
 // limit's validity is judged on the company's day (config.DocumentDay,
-// T77c). Now is the clock; nil is the system's.
+// T77c). Requests opens the approval requests of limit changes (T77d).
+// Now is the clock; nil is the system's.
 type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
@@ -101,7 +102,7 @@ type Endpoints struct {
 	Partners      Partners
 	Orders        OpenOrders
 	Settings      config.Documents
-	Approvals     Opener
+	Requests      Opener
 	Now           func() time.Time
 }
 
@@ -165,17 +166,37 @@ func (l Limit) InEffectOn(day time.Time) bool {
 	return l.Status == LimitActive && l.ValidOn(day)
 }
 
-// day is the legal entity's day now, in its company's time zone
-// (config.EntityDay): the day a limit's validity is judged on.
-func (e *Endpoints) day(ctx context.Context, legalEntity uuid.UUID) (time.Time, error) {
-	d, err := config.EntityDay(ctx, e.Settings, func(ctx context.Context, id uuid.UUID) (string, bool, error) {
-		le, ok, err := e.LegalEntities.Entity(ctx, id)
-		return le.Code, ok, err
-	}, legalEntity, clock.Now(e.Now))
+// day is the company's day now, in its time zone (config.DocumentDay):
+// the day a limit's validity is judged on, by the check and the exposure
+// alike.
+func (e *Endpoints) day(ctx context.Context, le tenancy.Entity) (time.Time, error) {
+	d, err := config.DocumentDay(ctx, e.Settings, le.Code, clock.Now(e.Now))
 	if err != nil {
-		return time.Time{}, fmt.Errorf("credit: the day of legal entity %s: %w", legalEntity, err)
+		return time.Time{}, fmt.Errorf("credit: the day of company %s: %w", le.Code, err)
 	}
 	return d.Date, nil
+}
+
+// companyOf is the company a stored limit, or a company the caller was
+// checked for, names: it exists, so whether it was found is not asked.
+func (e *Endpoints) companyOf(ctx context.Context, legalEntity uuid.UUID) (tenancy.Entity, error) {
+	le, _, err := e.LegalEntities.Entity(ctx, legalEntity)
+	if err != nil {
+		return tenancy.Entity{}, fmt.Errorf("credit: company %s: %w", legalEntity, err)
+	}
+	return le, nil
+}
+
+// writeTerms writes the terms on the limit held under its row lock, an
+// approved create making it active too (T77d), and reads it back: the one
+// place a limit's amount and dates are written after it is set.
+func writeTerms(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, t Terms, activate bool) (Limit, error) {
+	if _, err := tx.Exec(ctx, `UPDATE credit.credit_limit SET amount = $2, valid_from = $3, valid_to = $4, next_review_on = $5,
+			status = CASE WHEN $6 THEN 'active' ELSE status END, version = version + 1, updated_by = $7 WHERE id = $1`,
+		id, t.Amount, t.ValidFrom, t.ValidTo, t.NextReview, activate, p.ID); err != nil {
+		return Limit{}, fmt.Errorf("credit: write the terms of credit limit %s: %w", id, err)
+	}
+	return limit(ctx, tx, id, false)
 }
 
 // limit reads a credit limit of a legal entity the caller may act in,

@@ -37,9 +37,9 @@ func (e *Endpoints) shown(ctx context.Context, limits []Limit) (shown, error) {
 		if _, ok := s.companies[l.LegalEntityID]; ok {
 			continue
 		}
-		le, _, err := e.LegalEntities.Entity(ctx, l.LegalEntityID) // a stored limit's legal entity exists
+		le, err := e.companyOf(ctx, l.LegalEntityID)
 		if err != nil {
-			return shown{}, fmt.Errorf("credit: company of credit limit %s: %w", l.ID, err)
+			return shown{}, fmt.Errorf("credit: credit limit %s: %w", l.ID, err)
 		}
 		s.companies[l.LegalEntityID] = le
 	}

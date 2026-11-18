@@ -201,18 +201,14 @@ func (e *Endpoints) ChangeLimit(ctx context.Context, id uuid.UUID, ifMatch func(
 	if l.Status == LimitActive && unchanged(l, to) {
 		return Limit{}, problem.Unprocessable("credit.nothing_to_change", "The change would leave the credit limit as it is.")
 	}
-	le, _, err := e.LegalEntities.Entity(ctx, l.LegalEntityID) // a stored limit's legal entity exists
+	le, err := e.companyOf(ctx, l.LegalEntityID)
 	if err != nil {
-		return Limit{}, fmt.Errorf("credit: company of credit limit %s: %w", id, err)
+		return Limit{}, err
 	}
 	if l.Status != LimitActive || !raisesNothing(l, to) {
 		return e.request(ctx, tx, p, l, to.terms(), le)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE credit.credit_limit SET amount = $2, valid_from = $3, valid_to = $4, next_review_on = $5,
-			version = version + 1, updated_by = $6 WHERE id = $1`, id, to.Amount, to.ValidFrom, to.ValidTo, to.NextReview, p.ID); err != nil {
-		return Limit{}, fmt.Errorf("credit: change credit limit %s: %w", id, err)
-	}
-	after, err := limit(ctx, tx, id, false)
+	after, err := writeTerms(ctx, tx, p, id, to.terms(), false)
 	if err != nil {
 		return Limit{}, err
 	}

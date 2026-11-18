@@ -8,11 +8,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -29,11 +27,10 @@ import (
 // is judged on (T77c). Limit is the customer's limit in effect on Day
 // (active and valid, Limit.InEffectOn), nil when none is; LimitID names
 // the customer's limit whether it is in effect or not, nil when none is
-// set. Available is the limit less
-// Total, set with Limit. Checked is the amount asked about, nil when none
-// was given. Within says whether Total and Checked together are no more
-// than the limit: always true without a valid limit, which restricts
-// nothing.
+// set. Available is the limit less Total, set with Limit. Checked is the
+// amount asked about, nil when none was given. Within says whether Total
+// and Checked together are no more than the limit: always true without a
+// limit in effect, which restricts nothing.
 type Exposure struct {
 	Company   tenancy.Entity
 	Exponent  int
@@ -84,7 +81,7 @@ func (e *Endpoints) ExposureOf(ctx context.Context, legalEntity, customer uuid.U
 	if !ok {
 		return Exposure{}, problem.NotFoundOf("business partner")
 	}
-	x, err := e.started(ctx, tx, le, named)
+	x, err := e.newExposure(ctx, tx, le, named)
 	if err != nil {
 		return Exposure{}, err
 	}
@@ -113,16 +110,15 @@ func (e *Endpoints) ExposureOf(ctx context.Context, legalEntity, customer uuid.U
 	return x, x.check()
 }
 
-// started is an exposure of the customer in the company before anything
+// newExposure is an exposure of the customer in the company before anything
 // is measured: the company's day its limit is judged on (T77c) and its
 // currency's minor-unit digits.
-func (e *Endpoints) started(ctx context.Context, tx pgx.Tx, le tenancy.Entity, named partner.Named) (Exposure, error) {
+func (e *Endpoints) newExposure(ctx context.Context, tx pgx.Tx, le tenancy.Entity, named partner.Named) (Exposure, error) {
 	x := Exposure{Company: le, Customer: named}
-	day, err := config.DocumentDay(ctx, e.Settings, le.Code, clock.Now(e.Now))
-	if err != nil {
-		return Exposure{}, fmt.Errorf("credit: the day of company %s: %w", le.Code, err)
+	var err error
+	if x.Day, err = e.day(ctx, le); err != nil {
+		return Exposure{}, err
 	}
-	x.Day = day.Date
 	if x.Exponent, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil { // a legal entity's currency exists
 		return Exposure{}, fmt.Errorf("credit: currency of company %s: %w", le.Code, err)
 	}
@@ -143,9 +139,10 @@ func (e *Endpoints) started(ctx context.Context, tx pgx.Tx, le tenancy.Entity, n
 // too. A customer without a limit is within it, and its exposure is not
 // read: no limit restricts nothing; so is one whose limit is not in
 // effect on the company's day: pending its approval (T77d) or outside its
-// validity (T77c), the day read only when the customer has a limit. The caller has checked the caller's access to the order's
-// company; Company, Customer, Exponent and LimitID are not set, nor Day
-// without a limit.
+// validity (T77c), the day read only when the customer has a limit. The
+// caller has checked the caller's access to the order's company;
+// Company, Customer, Exponent and LimitID are not set, nor Day without a
+// limit.
 func (e *Endpoints) Check(ctx context.Context, legalEntity, customer uuid.UUID, amount money.Minor) (Exposure, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -163,7 +160,11 @@ func (e *Endpoints) Check(ctx context.Context, legalEntity, customer uuid.UUID, 
 		x.Within = true
 		return x, nil
 	}
-	if x.Day, err = e.day(ctx, legalEntity); err != nil {
+	le, err := e.companyOf(ctx, legalEntity)
+	if err != nil {
+		return Exposure{}, err
+	}
+	if x.Day, err = e.day(ctx, le); err != nil {
 		return Exposure{}, err
 	}
 	if !l.InEffectOn(x.Day) {

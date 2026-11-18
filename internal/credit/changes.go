@@ -116,15 +116,12 @@ func getChange(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Change,
 // approval request by the fixed role, and the limit's version moved, since
 // it now names the change. l is held under its row lock.
 func (e *Endpoints) request(ctx context.Context, tx pgx.Tx, p reqctx.Principal, l Limit, asked Terms, le tenancy.Entity) (Limit, error) {
-	kind, before := KindCreate, (*Terms)(nil)
+	// A create has no values before: its limit was never in effect, so
+	// the before columns stay NULL.
+	kind, was, wasAmount := KindCreate, Terms{}, (*money.Minor)(nil)
 	if l.Status == LimitActive {
-		t := l.terms()
-		kind, before = KindChange, &t
-	}
-	var was Terms
-	var wasAmount *money.Minor
-	if before != nil {
-		was, wasAmount = *before, &before.Amount
+		kind, was = KindChange, l.terms()
+		wasAmount = &was.Amount
 	}
 	c, err := scanChange(tx.QueryRow(ctx, `INSERT INTO credit.credit_limit_change AS c (tenant_id, id, credit_limit_id, kind, amount, valid_from, valid_to,
 			next_review_on, amount_before, valid_from_before, valid_to_before, next_review_on_before, status, requested_by, created_by, updated_by)
@@ -135,12 +132,15 @@ func (e *Endpoints) request(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		return Limit{}, fmt.Errorf("credit: ask for a %s of credit limit %s: %w", kind, l.ID, err)
 	}
 	currency := l.Currency
-	wf, needed, err := e.Approvals.Open(ctx, approvals.NewRequest{ObjectType: approvals.CreditLimitChange, ObjectID: c.ID,
+	wf, needed, err := e.Requests.Open(ctx, approvals.NewRequest{ObjectType: approvals.CreditLimitChange, ObjectID: c.ID,
 		Title: fmt.Sprintf("Credit limit of customer %s in company %s: %s %s (%s)", l.CustomerNumber, le.Code,
 			asked.Amount.Plain(l.Exponent), l.Currency, kind), Amount: &asked.Amount, Currency: &currency, LegalEntityID: l.LegalEntityID})
 	if err != nil {
 		return Limit{}, fmt.Errorf("credit: open the approval of credit limit change %s: %w", c.ID, err)
 	}
+	// The fixed role always asks one approval; a policy that asked none
+	// would be a fault of the server's wiring, not of the request, so it
+	// fails as one (500) rather than applying a limit unapproved.
 	if !needed {
 		return Limit{}, fmt.Errorf("credit: credit limit change %s: the approval policy asks no approval of it", c.ID)
 	}
@@ -151,29 +151,32 @@ func (e *Endpoints) request(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if c, err = getChange(ctx, tx, c.ID, false); err != nil {
 		return Limit{}, err
 	}
-	touched, err := e.touched(ctx, tx, p, l.ID)
+	bumped, err := bumpVersion(ctx, tx, p, l.ID)
 	if err != nil {
 		return Limit{}, err
 	}
-	return touched, recordChange(ctx, c, l, "credit.credit_limit_change.request")
+	return bumped, recordChange(ctx, c, l, "credit.credit_limit_change.request")
 }
 
-// touched moves the limit's version, since what it shows changed (the
+// bumpVersion moves the limit's version, since what it shows changed (the
 // change it names), and reads it back.
-func (e *Endpoints) touched(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID) (Limit, error) {
+func bumpVersion(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID) (Limit, error) {
 	if _, err := tx.Exec(ctx, `UPDATE credit.credit_limit SET version = version + 1, updated_by = $2 WHERE id = $1`, id, p.ID); err != nil {
 		return Limit{}, fmt.Errorf("credit: move the version of credit limit %s: %w", id, err)
 	}
 	return limit(ctx, tx, id, false)
 }
 
-// decided locks a pending change's limit and the change, in the order a
+// lockPending locks a pending change's limit and the change, in the order a
 // check of the customer's orders and a change of the limit take them
 // (ADR-0008): the customer's key in the company (hold), the limit's row,
 // then the change's; and requires the change pending (409
 // credit.invalid_status). The limit is read as the caller may: one of a
-// company the caller may not act in is not found.
-func decided(ctx context.Context, tx pgx.Tx, id uuid.UUID, action string) (Change, Limit, error) {
+// company the caller may not act in is not found. The change and its
+// limit are read twice, first unlocked: the customer's key needs the
+// limit's company and customer before any row lock is taken, and the
+// locked reads then see what a decision that came first left.
+func lockPending(ctx context.Context, tx pgx.Tx, id uuid.UUID, action string) (Change, Limit, error) {
 	c, err := getChange(ctx, tx, id, false)
 	if err != nil {
 		return Change{}, Limit{}, err
@@ -208,21 +211,17 @@ func (e *Endpoints) Apply(ctx context.Context, id uuid.UUID) (Change, error) {
 	if err != nil {
 		return Change{}, err
 	}
-	c, l, err := decided(ctx, tx, id, "applying")
+	c, l, err := lockPending(ctx, tx, id, "applying")
 	if err != nil {
 		return Change{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE credit.credit_limit SET amount = $2, valid_from = $3, valid_to = $4, next_review_on = $5, status = 'active',
-			version = version + 1, updated_by = $6 WHERE id = $1`, l.ID, c.Asked.Amount, c.Asked.ValidFrom, c.Asked.ValidTo, c.Asked.NextReview, p.ID); err != nil {
-		return Change{}, fmt.Errorf("credit: apply credit limit change %s: %w", id, err)
-	}
-	after, err := limit(ctx, tx, l.ID, false)
+	after, err := writeTerms(ctx, tx, p, l.ID, c.Asked, true)
 	if err != nil {
 		return Change{}, err
 	}
-	le, _, err := e.LegalEntities.Entity(ctx, l.LegalEntityID) // a stored limit's legal entity exists
+	le, err := e.companyOf(ctx, l.LegalEntityID)
 	if err != nil {
-		return Change{}, fmt.Errorf("credit: company of credit limit %s: %w", l.ID, err)
+		return Change{}, err
 	}
 	var before *Limit
 	if c.Kind == KindChange {
@@ -251,12 +250,12 @@ func (e *Endpoints) decide(ctx context.Context, id uuid.UUID, status, action str
 	if err != nil {
 		return Change{}, err
 	}
-	c, l, err := decided(ctx, tx, id, action)
+	c, l, err := lockPending(ctx, tx, id, action)
 	if err != nil {
 		return Change{}, err
 	}
 	// The limit no longer names the change: its version moves.
-	if l, err = e.touched(ctx, tx, p, l.ID); err != nil {
+	if l, err = bumpVersion(ctx, tx, p, l.ID); err != nil {
 		return Change{}, err
 	}
 	return closeChange(ctx, tx, p, c, l, status, action)

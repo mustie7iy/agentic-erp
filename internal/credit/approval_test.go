@@ -266,7 +266,7 @@ func (noApproval) Open(context.Context, approvals.NewRequest) (uuid.UUID, bool, 
 func TestNoApprovalAsked(t *testing.T) {
 	e := setup(t)
 	h := endpoints(t)
-	h.Approvals = noApproval{}
+	h.Requests = noApproval{}
 	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 		_, err := h.SetLimit(ctx, credit.LimitInput{LegalEntityID: e.DE, CustomerID: e.north, Amount: "100.00", Currency: "EUR"})
 		return err
