@@ -1262,8 +1262,22 @@
        },
        {
         "s": "T",
-        "t": "later: AR aging variants: aging as at a past date, by document date, by profit center or segment and in group currency, export, analytics metrics, an allowance for expected credit losses (IFRS 9, needs the accounting specialist) (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T75e, Later",
+        "t": "A credit controller reads the AR aging as at a past key date (the items open on it: posted on or before it, not cleared or reversed by then, by the clearing date) and ages the items by their document date instead of their net due date (GET /v1/receivables-aging open_on, aging_basis)",
+        "r": "T75l · docs/design/plan-depth-3.md §T75l · ADR-0063 §10 and As built T75l",
+        "src": "split:T75e · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A credit controller reads the AR aging of one profit center or segment, or a row per profit center or segment (the item's own assignment), and exports the report as CSV (GET /v1/receivables-aging profit_center_id, segment_id, group_by, format=csv)",
+        "r": "T75m · docs/design/plan-depth-3.md §T75m · ADR-0063 §10 and As built T75m",
+        "src": "split:T75e · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: AR aging variants: in group currency, analytics metrics, an allowance for expected credit losses (IFRS 9, needs the accounting specialist) (aging as at a past date, by document date, by profit center or segment and its export are T75l and T75m; after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75e, Later · docs/design/plan-depth-3.md §aging, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        }

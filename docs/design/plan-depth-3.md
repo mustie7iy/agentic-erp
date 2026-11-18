@@ -341,3 +341,103 @@ other than cost centers; fixed amounts on a distribution (per account);
 reversing into a later open period when the run's period is closed; a
 lock of a period for statistical key figure postings; a listing of a key figure's postings; changing or
 deleting a key figure.
+
+## aging
+
+Placeholder: "later: AR aging variants" (`plan-breadth-week1.md` §T75e,
+Later; ADR-0063 §10). Two variants are split here: the aging as at a past
+key date and by document date, and the aging by profit center or segment
+with its export as CSV. Group currency (it needs exchange rates of the key
+date), analytics metrics and the allowance for expected credit losses
+(IFRS 9, the accounting specialist's question in `plan-breadth-week1.md`)
+stay in the placeholder. SAP S/4HANA is the reference, stated from memory
+and not checked against a source in the lane: the due date analysis and
+the open items list at a key date (S_ALR_87012168, S_ALR_87012178, FBL5N
+with "open at key date") select the items posted on or before the key
+date and not cleared then (cleared after it, by their clearing date); a
+reset clearing (FBRA) leaves no clearing date on its items. The amounts
+are in the company's currency, as T75e's: nothing is converted and no two
+currencies are added up.
+
+### T75l AR aging as at a past key date, and by document date
+
+**Capability.** A credit controller reads the aging as it stood on a past
+key date (the month end just closed, a year end audited): the customer
+items open on that date, though paid or cleared since; and ages the items
+by their document date instead of their net due date.
+
+- **Reuses:** T75e's report (`GET /v1/receivables-aging`, its buckets,
+  pages and totals, `ledger.AgingBucket`, `ledger.AgingRange`), T75b's
+  reader of customer items (`receivableSelect`, `scanReceivable`), the
+  clearings and their resets (T75i), the reversals.
+- **Adds:** `open_on` on `GET /v1/receivables-aging`: `now` (the default,
+  T75e's items open today) or `key_date`: the items open on the key date,
+  posted on or before it and neither cleared by then (a clearing dated
+  on or before it; a reset clearing only until the reversal of its
+  clearing entry) nor reversed by then (a reversal posted on or before
+  it); `aging_basis`: `net_due_date` (the default) or `document_date`, an
+  item then aged by its days past its document date, as if due that day;
+  both said in the response. A ledger reader of the customer items open
+  on a date (`ledger.OpenItems.ReceivableOn`); no table, no migration.
+- **Walkthrough:** `step_aging_as_at`: Ruth posts a manual entry charging
+  Northwind CAD 300.00 and Carla reverses it later in the period; the
+  aging as at the day it was posted shows it, the aging as at the
+  reversal's day and today's do not; an invoice dated 40 days back on
+  NT30 is 10 days overdue by its net due date and 40 days old by its
+  document date.
+- **Acceptance:** with `open_on=key_date` an item posted after the key
+  date is left out, one cleared after it is aged as open, one cleared on
+  or before it is not, one whose clearing was reset after the key date is
+  not open until the reset's reversal and open from it, one of an entry
+  reversed after the key date is open; with `open_on=now` T75e's report is
+  unchanged; with `aging_basis=document_date` each item falls in the
+  bucket of its days past its document date, an item dated on the key
+  date or later not due; the totals still equal the selected items, the
+  customers' rows add up to them; a token given for one basis or `open_on`
+  is refused for another (400); a value the contract does not list is
+  refused (400); a budget test of the read as at a key date over 100,000
+  items, half of them cleared.
+- **Depends on:** T75e, T75i (in `main`).
+
+### T75m AR aging by profit center or segment, and its CSV export
+
+**Capability.** A credit controller or a profit center manager reads the
+aging of the customer items of one profit center or segment, or a row
+per profit center or segment instead of per customer, and exports the
+report as CSV for a spreadsheet.
+
+- **Reuses:** T75l's report; the profit center and segment a customer
+  item carries on its journal line (ADR-0050 §5: the item's own
+  assignment, as posted; no derivation is added); the ledger's names of
+  centers (`AssetReads.CenterNames`, widened to segments); the CSV form of
+  a report the API already gives (`format=csv` of
+  `GET /v1/process-event-logs`, the next page in `Next-Page-Token`) and
+  the spreadsheet-safe cells of the workspace's CSV downloads (ADR-0052,
+  T73j4), moved to `internal/platform` rather than copied.
+- **Adds:** on `GET /v1/receivables-aging` the filters `profit_center_id`
+  and `segment_id` (the items whose line carries it); `group_by`
+  `customer` (the default), `profit_center` or `segment`: `groups[]` a
+  row per profit center or segment with its code and name, one row
+  without (the items carrying none), each with its customers, items,
+  amount and buckets, in cursor pages, `items` then empty; `format` `json`
+  (the default) or `csv`: a header row, a row per row of the page, and on
+  the last page the totals' row, each bucket a column, the amounts exact
+  decimals with the currency in a column of its own, UTF-8 with a byte
+  order mark, cells safe for a spreadsheet.
+- **Walkthrough:** `step_aging_by_center`: Ruth charges Northwind a
+  service on profit center PC-1000 through a manual entry; the aging by
+  profit center shows PC-1000's row with that item and the row without a
+  profit center with the invoices of earlier steps; filtered by PC-1000
+  the totals are that item's; by segment, the segment's row; the CSV of
+  the report by profit center has the header, the rows and the totals.
+- **Acceptance:** each item is in exactly one group, the groups add up to
+  the totals; a filter and a group together select and group; an
+  unknown center selects nothing (an empty report, not an error); a
+  group's customers are counted once each; the CSV holds the JSON's
+  figures, a text cell beginning as a formula kept as text, the totals'
+  row only on the last page; a page token is bound to the grouping and
+  filters; amounts in the company's currency only.
+- **Depends on:** T75l.
+
+**Later (still in the placeholder):** group currency; analytics metrics;
+an allowance for expected credit losses (IFRS 9, the specialist's).
