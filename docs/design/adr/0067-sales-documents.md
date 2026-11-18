@@ -1953,7 +1953,7 @@ change documents) is the reference.
   obligation names it); (5) an order keeps at most 999 items, removed ones
   included, as a new order takes.
 
-### T80e Scales on a price record (migration 000373)
+### T80e Scales on a price record (migration 000383)
 - `internal/sales/scales.go`: a record's scale checked (`scale`,
   `scaleCheck`), written (`insertScale`), read with the records
   (`withScales`) and the level an item reaches (`reached`), §12.
@@ -1962,7 +1962,7 @@ change documents) is the reference.
   `discount` (split out of `conditioned`) a scaled discount's, passing
   over one whose scale is in another unit or currency; `Condition`
   keeps its `scale`. No new port, no new wiring.
-- Migration 000373: `scale_basis`, `scale_uom_code`, `scale_currency` on
+- Migration 000383: `scale_basis`, `scale_uom_code`, `scale_currency` on
   `sales.price` (`price_scale_basis_check`, `price_scale_stated`,
   `price_scale_unit`); `sales.price_scale` (`price_scale_level_check`,
   `price_scale_from`, `price_scale_rate` and their range checks,
@@ -1998,7 +1998,7 @@ change documents) is the reference.
   rates, 400.00 less 4.00.
 - **Decided by default:** defaults 21-25 above.
 
-### T80f Prices per customer price group (migration 000374)
+### T80f Prices per customer price group (migration 000384)
 - `internal/config/pricing.go`: `pricing.price_groups` (`PriceGroup`,
   `Pricing.PriceGroup`), validated (a code as a condition type's, unique,
   a name, at most 100) and never removed (`PricingTransitions`);
@@ -2011,7 +2011,7 @@ change documents) is the reference.
   `validRecord` reads the access sequence and says which step found the
   record; `Condition` keeps `access` and `price_group`. `prices.go`
   records a group's record. No new port, no new wiring.
-- Migration 000374: `sales.customer_sales_data`
+- Migration 000384: `sales.customer_sales_data`
   (`customer_sales_data_once`, `customer_sales_data_price_group_check`,
   `customer_sales_data_customer_number_check`,
   `customer_sales_data_version_check`; the application may update the

@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestSalesPriceGroupRules (T80f, migration 000374; ADR-0067 §13): a
+// TestSalesPriceGroupRules (T80f, migration 000384; ADR-0067 §13): a
 // customer has one sales data per company, with its number and a price
 // group that is a short code or none; a change sets the group, the
 // version and who changed it, and nothing else, and no sales data is

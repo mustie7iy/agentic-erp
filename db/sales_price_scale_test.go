@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestSalesPriceScaleRules (T80e, migration 000373; ADR-0067 §12): a
+// TestSalesPriceScaleRules (T80e, migration 000383; ADR-0067 §12): a
 // record's scale is read by quantity, in a stated unit (a price's own),
 // or, a discount's only, by value in a stated currency; a level is
 // numbered 1 to 20, starts at a quantity or a value above zero and gives

@@ -5551,13 +5551,13 @@ erDiagram
   discount has a condition type and a `percent` above 0 and below 100
   (`price_percent_range`) and none of a price's columns. The discounts
   of a key are read by their type (`price_by_condition`).
-  From T80e (migration 000373; ADR-0067 §12) a record may have a scale:
+  From T80e (migration 000383; ADR-0067 §12) a record may have a scale:
   `scale_basis` `quantity` or `value` (`price_scale_basis_check`) with
   the unit (`scale_uom_code`) or the currency (`scale_currency`) it is
   read in, both of the reference data, the one its basis needs and not
   the other, and a value scale a discount's only (`price_scale_stated`);
   a price's quantity scale is in its own unit (`price_scale_unit`).
-- `sales.price_scale` (T80e, migration 000373; ADR-0067 §12): the scale
+- `sales.price_scale` (T80e, migration 000383; ADR-0067 §12): the scale
   levels of a record (foreign key to `sales.price`), numbered 1 to 20
   (`price_scale_level_check`), each starting at a quantity
   (`from_quantity`) or a value in minor units of the scale's currency
@@ -5571,12 +5571,12 @@ erDiagram
   highest start its quantity or its value before the condition reaches,
   and the record's own below the first. Insert-only
   (`platform.forbid_mutation`), as the record is.
-- `price_group` on `sales.price` (T80f, migration 000374; ADR-0067 §13):
+- `price_group` on `sales.price` (T80f, migration 000384; ADR-0067 §13):
   the customer price group of the configuration a record is for
   (`price_price_group_check`, a short code, no foreign key), never with a
   customer (`price_customer_or_group`). An item takes the customer's
   record, then its group's, then the general one.
-- `sales.customer_sales_data` (T80f, migration 000374; ADR-0067 §13): a
+- `sales.customer_sales_data` (T80f, migration 000384; ADR-0067 §13): a
   customer's sales data in a company, one per customer and company
   (`customer_sales_data_once`), with the customer's number when it was set
   up (`customer_sales_data_customer_number_check`), its price group or
