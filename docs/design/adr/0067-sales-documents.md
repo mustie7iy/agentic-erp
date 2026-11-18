@@ -334,6 +334,29 @@ keeps its `scale` (basis, level reached, its start), and an order from a
 quotation copies it. A tenant without a procedure has no conditions
 (§11): its items take a scaled price's level all the same.
 
+### 13. Prices per customer price group (T80f)
+A configuration administrator defines **customer price groups**
+(`pricing.price_groups`, a code and a name; `docs/design/plan-depth-3.md`
+§T80f; SAP's customer price group of the sales area data, from memory).
+None is shipped; a group is never removed once activated, since records
+and customers name it, and its name may change; tier 2, a name tier 1,
+as condition types (§11). A customer's **sales data** in a company
+(`sales.customer_sales_data`, one per customer and company, versioned)
+holds its group, or none. A price record (§10, §11) may be for a group
+instead of for one customer, never both.
+
+The records of an item key are found by a fixed **access sequence**: the
+customer's own record, then the record for the customer's group in the
+document's company, then the general one, for prices and discounts
+alike; within a step the latest `valid_from`, then the one recorded last
+(§10). A customer without sales data in the company, or without a group,
+goes from its own records to the general ones. The group is read when
+the item is priced: a change of group holds for the items priced after
+it, and the items priced before keep their prices (§10). Each condition
+says which step found its record (`access`: `customer`, `price_group`
+with the group, `general`). Configurable access sequences stay in
+"later: pricing configuration variants".
+
 ## Alternatives
 - **Discounts in a table of their own, with their own endpoint**: the
   plan puts `condition_type` and `percent` on `sales.price` and adds no
@@ -452,6 +475,23 @@ Taken in T80e (§12):
     need not fall as the levels rise.
 25. Without a pricing procedure the level reached is not shown on the
     item (it has no conditions); the unit price is the level's.
+
+Taken in T80f (§13):
+
+26. The customer's sales data lives in the sales context, keyed by
+    customer and company, not on the partner context's customer data:
+    only pricing reads it, and the partner context is another lane's.
+27. The sales data is read and written with `sales.price.read` and
+    `.write`: it holds the price group alone, which decides nothing but
+    prices; a later field with another owner gets its own permission.
+28. The access sequence is fixed (customer, price group, general); a
+    customer's own record beats its group's even when the group's is
+    later.
+29. A customer is checked as a price record's customer is (active, the
+    customer role, not blocked for posting in the company); its company
+    data is not required.
+30. Changing a group changes no item; there is no repricing (it stays in
+    the placeholder).
 
 ## Questions
 - Plan questions 2 and 3 (accounting specialist, product owner): when
@@ -1957,3 +1997,54 @@ change documents) is the reference.
   two percent (level 1), 72.00 off, 3528.00; 500 take the record's own
   rates, 400.00 less 4.00.
 - **Decided by default:** defaults 21-25 above.
+
+### T80f Prices per customer price group (migration 000374)
+- `internal/config/pricing.go`: `pricing.price_groups` (`PriceGroup`,
+  `Pricing.PriceGroup`), validated (a code as a condition type's, unique,
+  a name, at most 100) and never removed (`PricingTransitions`);
+  `diff.go` lists them by code, a name tier 1.
+- `internal/sales/sales_data.go`, `sales_data_api.go`: a customer's sales
+  data set up (`SetUpSalesData`), changed with its version under its row
+  lock (`ChangeSalesData`), read and listed; `customerGroup` gives the
+  document its customer's group where it is made (`quotations.go`'s
+  `document`, also for an order's added items). `pricing.go`'s
+  `validRecord` reads the access sequence and says which step found the
+  record; `Condition` keeps `access` and `price_group`. `prices.go`
+  records a group's record. No new port, no new wiring.
+- Migration 000374: `sales.customer_sales_data`
+  (`customer_sales_data_once`, `customer_sales_data_price_group_check`,
+  `customer_sales_data_customer_number_check`,
+  `customer_sales_data_version_check`; the application may update the
+  group, version and `updated_by` alone and delete nothing); `price_group`
+  on `sales.price` (`price_price_group_check`, `price_customer_or_group`).
+  Down deletes the group records, which the previous version would read
+  as general ones. Schema tests in `db/sales_price_group_test.go`.
+- Contract: `POST /v1/customer-sales-data` (201, `Location`, `ETag`,
+  idempotent), `GET /v1/customer-sales-data` (filters `legal_entity_id`,
+  `customer_id`, `price_group`; by `customer_number`; cursor paging),
+  `GET /v1/customer-sales-data/{id}`, `PATCH /v1/customer-sales-data/{id}`
+  (`If-Match`, merge patch of `price_group`, null for none), all
+  human-only; `CustomerSalesData` names its company by code and name, its
+  customer by number and name and its group by code and name.
+  `SalesPriceCreate` and `SalesPrice` gain `price_group`,
+  `GET /v1/sales-prices` filters by it; `SalesCondition` gains `access`
+  and `price_group`. Event `CustomerSalesDataChanged` (`x-webhook`; the
+  customer by id and number, the group before and after) with the audit
+  records `sales.customer_sales_data.create` and `.change`;
+  `SalesPriceChanged` gains `price_group`.
+- Refusals: an unknown customer `request.reference_not_found`, one that
+  cannot be sold to `sales.customer_not_usable` (`customer_id`); a group
+  the configuration does not have 422 `sales.unknown_price_group`
+  (`price_group`); a second sales data 409
+  `sales.customer_sales_data_exists` (the unique key, so two set-ups
+  racing end with one); a change to the group it has 422
+  `sales.nothing_to_change`; a stale `If-Match` 412; a record for a
+  customer and a group 422 `sales.customer_or_group` (`price_group`).
+- Walkthrough `step_price_groups` (step 123): Ada's price groups 01 and 02
+  through a tier 2 change; Paula puts Contoso and Northwind in 01 and
+  records 01's bracket price, 11.75; Contoso's item takes it (`access`
+  `price_group` 01), Northwind's its own price and discount (`customer`);
+  Contoso moved to 02, which has no record, takes the general 13.25; a
+  second sales data, a record for a customer and a group, an unknown
+  group and a stale version are refused.
+- **Decided by default:** defaults 26-30 above.

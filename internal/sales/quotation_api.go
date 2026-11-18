@@ -95,7 +95,9 @@ func itemInputs(items []gen.SalesItemCreate) []ItemInput {
 // amounts in the document's currency.
 func conditionAPI(c Condition, currency string, exp int) gen.SalesCondition {
 	out := gen.SalesCondition{ConditionType: c.Type, Name: c.Name, Kind: c.Kind, PriceUnit: apitypes.OptInt32(c.PriceUnit),
-		Percent: apitypes.OptString(c.Percent), Amount: apitypes.Money(c.Amount, currency, exp)}
+		Percent: apitypes.OptString(c.Percent), Amount: apitypes.Money(c.Amount, currency, exp), Access: apitypes.OptText(c.Access),
+		PriceGroup: apitypes.OptString(c.PriceGroup)}
+
 	if c.UnitPrice != nil {
 		out.UnitPrice = gen.NewOptMoney(apitypes.Money(*c.UnitPrice, currency, exp))
 	}

@@ -18591,6 +18591,222 @@ func (s *Server) handleCreateCustomerInvoiceRequest(args [0]string, argsEscaped 
 	}
 }
 
+// handleCreateCustomerSalesDataRequest handles createCustomerSalesData operation.
+//
+// Sets up a customer's sales data in a company (ADR-0067 §13, T80f; SAP's sales area data of a
+// customer, from memory): what selling to the customer there needs beyond its company data, now its
+// customer price group. A quotation or sales order item of the customer in the company that is priced
+// from the price records takes the customer's own record first, then the one for its price group, then
+// the general one (`createSalesPrice`), prices and discounts alike. The customer is an active business
+// partner with the customer role that is not blocked for posting in the company (422
+// `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable`
+// otherwise). A price group is one of the active configuration's (`pricing.price_groups`; 422
+// `sales.unknown_price_group` naming `price_group`); without one the customer takes the general
+// records. A customer has one sales data per company: a second is refused (409
+// `sales.customer_sales_data_exists`), and the first is found with
+// `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with
+// `updateCustomerSalesData`. The items priced before keep their prices. Audited, and published as
+// CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/customer-sales-data
+func (s *Server) handleCreateCustomerSalesDataRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCustomerSalesData"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/customer-sales-data"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateCustomerSalesDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateCustomerSalesDataOperation,
+			ID:   "createCustomerSalesData",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateCustomerSalesDataOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateCustomerSalesDataParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateCustomerSalesDataRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateCustomerSalesDataRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateCustomerSalesDataOperation,
+			OperationSummary: "Set up a customer's sales data in a company",
+			OperationID:      "createCustomerSalesData",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *CustomerSalesDataCreate
+			Params   = CreateCustomerSalesDataParams
+			Response = CreateCustomerSalesDataRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateCustomerSalesDataParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateCustomerSalesData(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateCustomerSalesData(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateCustomerSalesDataResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateDisputeCaseRequest handles createDisputeCase operation.
 //
 // Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
@@ -24842,27 +25058,29 @@ func (s *Server) handleCreatePurchaseOrderChangeRequest(args [1]string, argsEsca
 // `price_unit` (1 when absent; sent without a unit price it is refused, 422
 // `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its
 // `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency,
-// the customer's before the general one and then the latest `valid_from` (`createSalesPrice`;
-// `price_source` says which; an item with neither a price nor such a record is refused, 422
-// `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that
-// can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
-// optionally an output tax code of the company with a rate in force on the quotation's date (422
-// `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
-// name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no
-// jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷
-// price unit, rounded half away from zero to the currency's minor unit and more than zero (422
-// `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a
-// price the request did not give); the quotation's `net_amount` is their sum, exactly. When the
-// tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure
-// recorded for the item's key and valid on the quotation's date, the customer's before the general
-// one, is taken off an item priced from the price records, in the procedure's order, as a percentage
-// of the value before it rounded half away from zero; a price or discount record with a scale gives
-// the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12,
-// the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount`
-// is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with
-// the item is its final net price: no discount is taken off it, and its price is its only condition.
-// Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with
-// the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`).
+// the customer's before its price group's (by its sales data in the company,
+// `createCustomerSalesData`) before the general one and then the latest `valid_from`
+// (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is
+// refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing
+// credits, one that can be posted in the company (422 `sales.account_not_postable` naming
+// `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the
+// quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the
+// subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales
+// document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is
+// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
+// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or
+// `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
+// their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`),
+// each discount of the procedure recorded for the item's key and valid on the quotation's date, the
+// customer's before the general one, is taken off an item priced from the price records, in the
+// procedure's order, as a percentage of the value before it rounded half away from zero; a price or
+// discount record with a scale gives the rate of the level the item's quantity, or its value before
+// the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the
+// discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067
+// §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
+// its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
+// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
+// (`x-agent: false`).
 //
 // POST /v1/quotations
 func (s *Server) handleCreateQuotationRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -28294,14 +28512,18 @@ func (s *Server) handleCreateSalesOrderUploadRequest(args [0]string, argsEscaped
 // `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
 // item key that is priced from the price records when the pricing procedure names its type, the
 // customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price`
-// was entered has none. With `scale_basis` and `scale` the record has scale levels (ADR-0067 §12,
-// T80e): an item takes the rate of the highest level whose `from` its quantity (`quantity`) or its
-// value before the condition (`value`) reaches, and the record's own rate below the first level. A
-// price's scale is by quantity in its own unit; a discount's by quantity in the one unit its levels
-// state, which an item in another unit does not take, or by value in the one currency they state,
-// which a document in another currency does not take. Each level gives its `from` of the basis, more
-// than zero and above the one before, and the rate of the record's kind, a price's `unit_price` in the
-// record's currency or a discount's `percent`; anything else is refused naming the level's field (422
+// was entered has none. With `price_group` the record is for the customers in that price group of the
+// active configuration (ADR-0067 §13, T80f; 422 `sales.unknown_price_group`), by their sales data in
+// the company (`createCustomerSalesData`), not with `customer_id` (422 `sales.customer_or_group`
+// naming `price_group`): an item takes the customer's own record first, then its group's, then the
+// general one. With `scale_basis` and `scale` the record has scale levels (ADR-0067 §12, T80e): an
+// item takes the rate of the highest level whose `from` its quantity (`quantity`) or its value before
+// the condition (`value`) reaches, and the record's own rate below the first level. A price's scale is
+// by quantity in its own unit; a discount's by quantity in the one unit its levels state, which an
+// item in another unit does not take, or by value in the one currency they state, which a document in
+// another currency does not take. Each level gives its `from` of the basis, more than zero and above
+// the one before, and the rate of the record's kind, a price's `unit_price` in the record's currency
+// or a discount's `percent`; anything else is refused naming the level's field (422
 // `sales.invalid_scale`; a level's price not more than zero `sales.amount_not_positive`, in another
 // currency `sales.currency_mismatch`, a percent out of range `sales.invalid_percent`, a discount's
 // unknown scale unit or currency `sales.unknown_unit`, `sales.unknown_currency`). A record is never
@@ -45641,6 +45863,195 @@ func (s *Server) handleGetCustomerInvoiceRequest(args [1]string, argsEscaped boo
 	}
 
 	if err := encodeGetCustomerInvoiceResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetCustomerSalesDataRequest handles getCustomerSalesData operation.
+//
+// A customer's sales data in a company (ADR-0067 §13, T80f) with its company's code and name, its
+// customer's number and name and its price group with the group's name. One of a company the caller
+// may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/customer-sales-data/{id}
+func (s *Server) handleGetCustomerSalesDataRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCustomerSalesData"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/customer-sales-data/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetCustomerSalesDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetCustomerSalesDataOperation,
+			ID:   "getCustomerSalesData",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetCustomerSalesDataOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetCustomerSalesDataParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetCustomerSalesDataRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetCustomerSalesDataOperation,
+			OperationSummary: "Get a customer's sales data",
+			OperationID:      "getCustomerSalesData",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetCustomerSalesDataParams
+			Response = GetCustomerSalesDataRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetCustomerSalesDataParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetCustomerSalesData(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetCustomerSalesData(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetCustomerSalesDataResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -75659,6 +76070,216 @@ func (s *Server) handleListCustomerInvoicesRequest(args [0]string, argsEscaped b
 	}
 }
 
+// handleListCustomerSalesDataRequest handles listCustomerSalesData operation.
+//
+// The sales data of customers in the companies the caller may act in (ADR-0067 §13, T80f), each as
+// `getCustomerSalesData` gives it: with its company's code and name, its customer's number and name
+// and its price group with the group's name. Filtered by company, customer and price group. Sortable
+// by: `customer_number` (default).
+//
+// GET /v1/customer-sales-data
+func (s *Server) handleListCustomerSalesDataRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCustomerSalesData"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/customer-sales-data"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListCustomerSalesDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListCustomerSalesDataOperation,
+			ID:   "listCustomerSalesData",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListCustomerSalesDataOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListCustomerSalesDataParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListCustomerSalesDataRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListCustomerSalesDataOperation,
+			OperationSummary: "List customers' sales data",
+			OperationID:      "listCustomerSalesData",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "customer_id",
+					In:   "query",
+				}: params.CustomerID,
+				{
+					Name: "price_group",
+					In:   "query",
+				}: params.PriceGroup,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListCustomerSalesDataParams
+			Response = ListCustomerSalesDataRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListCustomerSalesDataParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListCustomerSalesData(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListCustomerSalesData(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListCustomerSalesDataResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListDepreciationRunsRequest handles listDepreciationRuns operation.
 //
 // The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -93405,9 +94026,9 @@ func (s *Server) handleListSalesOrdersRequest(args [0]string, argsEscaped bool, 
 // The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices
 // and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a
 // customer's record, the customer's number and name. Filtered by company, item key, customer (the
-// records for that customer; general ones have none), condition type and `valid_on`, a day the record
-// is valid on. Records are never changed: a new price is a new record with a later `valid_from`.
-// Sortable by: `item_key`, `valid_from`.
+// records for that customer; general ones have none), price group (T80f), condition type and
+// `valid_on`, a day the record is valid on. Records are never changed: a new price is a new record
+// with a later `valid_from`. Sortable by: `item_key`, `valid_from`.
 //
 // GET /v1/sales-prices
 func (s *Server) handleListSalesPricesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -93560,6 +94181,10 @@ func (s *Server) handleListSalesPricesRequest(args [0]string, argsEscaped bool, 
 					Name: "customer_id",
 					In:   "query",
 				}: params.CustomerID,
+				{
+					Name: "price_group",
+					In:   "query",
+				}: params.PriceGroup,
 				{
 					Name: "condition_type",
 					In:   "query",
@@ -122186,6 +122811,223 @@ func (s *Server) handleUpdateCreditLimitRequest(args [1]string, argsEscaped bool
 	}
 
 	if err := encodeUpdateCreditLimitResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleUpdateCustomerSalesDataRequest handles updateCustomerSalesData operation.
+//
+// Changes a customer's price group in its sales data, with the caller's version of it (`If-Match`; 412
+// when another change came first): the new group, one of the active configuration's (422
+// `sales.unknown_price_group` naming `price_group`), or null for none, holds for the items priced from
+// now on; the items priced before keep their prices. A change to the group the sales data already has
+// is refused (422 `sales.nothing_to_change`). The customer and the company do not change. The audit
+// record and CustomerSalesDataChanged carry the group before and after. JSON Merge Patch (RFC 7396) of
+// the one field that changes. Sales data of a company the caller may not act in is not found (404).
+// Human-only (`x-agent: false`).
+//
+// PATCH /v1/customer-sales-data/{id}
+func (s *Server) handleUpdateCustomerSalesDataRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateCustomerSalesData"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.HTTPRouteKey.String("/v1/customer-sales-data/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), UpdateCustomerSalesDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: UpdateCustomerSalesDataOperation,
+			ID:   "updateCustomerSalesData",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, UpdateCustomerSalesDataOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeUpdateCustomerSalesDataParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeUpdateCustomerSalesDataRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response UpdateCustomerSalesDataRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    UpdateCustomerSalesDataOperation,
+			OperationSummary: "Change a customer's sales data",
+			OperationID:      "updateCustomerSalesData",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *CustomerSalesDataUpdate
+			Params   = UpdateCustomerSalesDataParams
+			Response = UpdateCustomerSalesDataRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackUpdateCustomerSalesDataParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.UpdateCustomerSalesData(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.UpdateCustomerSalesData(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeUpdateCustomerSalesDataResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

@@ -39,7 +39,7 @@ func priceAPI(p Price, refs references) gen.SalesPrice {
 	le := refs.companies[p.LegalEntityID]
 	out := gen.SalesPrice{ID: p.ID, Version: priceVersion, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, UpdatedAt: p.CreatedAt,
 		UpdatedBy: gen.NewOptUUID(p.CreatedBy), LegalEntityID: p.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name, ItemKey: p.ItemKey,
-		CustomerID: apitypes.OptUUID(p.CustomerID), Kind: p.Kind(), ConditionType: apitypes.OptString(p.ConditionType),
+		CustomerID: apitypes.OptUUID(p.CustomerID), PriceGroup: apitypes.OptString(p.PriceGroup), Kind: p.Kind(), ConditionType: apitypes.OptString(p.ConditionType),
 		Unit: apitypes.OptString(p.Unit), PriceUnit: apitypes.OptInt32(p.PriceUnit), Percent: apitypes.OptString(p.Percent),
 		ValidFrom: p.ValidFrom, ValidTo: apitypes.OptDate(p.ValidTo)}
 	if p.UnitPrice != nil { // a price: its currency came with it
@@ -65,6 +65,7 @@ func (e *Endpoints) priceAnswer(ctx context.Context, p Price) (gen.SalesPrice, e
 // CreateSalesPrice implements POST /v1/sales-prices.
 func (e *Endpoints) CreateSalesPrice(ctx context.Context, req *gen.SalesPriceCreate, _ gen.CreateSalesPriceParams) (gen.CreateSalesPriceRes, error) {
 	in := PriceInput{LegalEntityID: req.LegalEntityID, ItemKey: req.ItemKey, CustomerID: apitypes.Ptr[uuid.UUID](req.CustomerID),
+		PriceGroup:    apitypes.Ptr[string](req.PriceGroup),
 		ConditionType: apitypes.Ptr[string](req.ConditionType), Unit: apitypes.Ptr[string](req.Unit), PriceUnit: apitypes.Ptr[int32](req.PriceUnit),
 		Percent: apitypes.Ptr[string](req.Percent), ValidFrom: req.ValidFrom, ValidTo: apitypes.Ptr[time.Time](req.ValidTo)}
 	if price, ok := req.UnitPrice.Get(); ok {
@@ -112,7 +113,7 @@ func (e *Endpoints) ListSalesPrices(ctx context.Context, params gen.ListSalesPri
 	if validOn != nil {
 		on = validOn.Format(time.DateOnly)
 	}
-	scope := fmt.Sprintf("listSalesPrices|%s|%q|%s|%s|%s", le, params.ItemKey.Value, customer, on, params.ConditionType.Value)
+	scope := fmt.Sprintf("listSalesPrices|%s|%q|%s|%s|%s|%s", le, params.ItemKey.Value, customer, on, params.ConditionType.Value, params.PriceGroup.Value)
 	ks, err := e.Pages.Keyset(priceSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("sales: page of prices: %w", err)
@@ -124,8 +125,8 @@ func (e *Endpoints) ListSalesPrices(ctx context.Context, params gen.ListSalesPri
 	query, args := ks.SQL(priceSelect+` WHERE ($1 OR p.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR p.legal_entity_id = $3)
 		AND ($4 = '' OR p.item_key = $4) AND ($5::uuid IS NULL OR p.customer_id = $5)
 		AND ($6::date IS NULL OR (p.valid_from <= $6 AND (p.valid_to IS NULL OR p.valid_to >= $6)))
-		AND ($7 = '' OR p.condition_type = $7)`,
-		[]any{access.All, access.IDs, le, params.ItemKey.Value, customer, validOn, params.ConditionType.Value})
+		AND ($7 = '' OR p.condition_type = $7) AND ($8 = '' OR p.price_group = $8)`,
+		[]any{access.All, access.IDs, le, params.ItemKey.Value, customer, validOn, params.ConditionType.Value, params.PriceGroup.Value})
 	rows, _ := tx.Query(ctx, query, args...)
 	prices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Price, error) { return scanPrice(r) })
 	if err != nil {

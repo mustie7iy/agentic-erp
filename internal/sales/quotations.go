@@ -220,7 +220,8 @@ func (e *Endpoints) customer(ctx context.Context, le tenancy.Entity, customer uu
 // document is what a new document of the company to the customer in the
 // currency is checked and priced against: the currency's minor-unit
 // digits (422 sales.unknown_currency naming currency), the company's
-// date today and the tenant's pricing procedure.
+// date today, the customer's price group there and the tenant's pricing
+// procedure.
 func (e *Endpoints) document(ctx context.Context, tx pgx.Tx, le tenancy.Entity, customer uuid.UUID, code string) (document, error) {
 	exp, err := currency.Exponent(ctx, tx, code, problem.Invalid("sales.unknown_currency", "currency", "The currency is not known."))
 	if err != nil {
@@ -234,7 +235,11 @@ func (e *Endpoints) document(ctx context.Context, tx pgx.Tx, le tenancy.Entity, 
 	if err != nil {
 		return document{}, err
 	}
-	return document{le: le, customer: customer, procedure: steps, currency: code, exp: exp, date: day.Date, zone: day.Zone}, nil
+	group, err := customerGroup(ctx, tx, le.ID, customer)
+	if err != nil {
+		return document{}, err
+	}
+	return document{le: le, customer: customer, priceGroup: group, procedure: steps, currency: code, exp: exp, date: day.Date, zone: day.Zone}, nil
 }
 
 // MarkAccepted records that the customer accepted an open quotation,

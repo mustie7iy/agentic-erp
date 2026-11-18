@@ -20,8 +20,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// Price is a row of sales.price (ADR-0067 §10, §11): a record of an item
-// key in a company, for every customer (CustomerID nil) or for one, valid
+// Price is a row of sales.price (ADR-0067 §10, §11, §13): a record of an
+// item key in a company, for every customer (CustomerID and PriceGroup
+// nil), for one or for the customers of a price group, valid
 // from a day and, when ValidTo is set, until it. It is a price, the net
 // price per PriceUnit of Unit in minor units of Currency, whose
 // minor-unit digits are Exponent, or a discount of a condition type, a
@@ -37,6 +38,7 @@ type Price struct {
 	LegalEntityID uuid.UUID
 	ItemKey       string
 	CustomerID    *uuid.UUID
+	PriceGroup    *string
 	ConditionType *string
 	Unit          *string
 	Currency      *string
@@ -72,6 +74,7 @@ type PriceInput struct {
 	LegalEntityID uuid.UUID
 	ItemKey       string
 	CustomerID    *uuid.UUID
+	PriceGroup    *string
 	ConditionType *string
 	Unit          *string
 	UnitPrice     *Amount
@@ -83,14 +86,14 @@ type PriceInput struct {
 	Scale         []ScaleLevelInput
 }
 
-const priceSelect = `SELECT p.id, p.legal_entity_id, p.item_key, p.customer_id, p.condition_type, p.uom_code, p.currency, c.exponent, p.unit_price,
+const priceSelect = `SELECT p.id, p.legal_entity_id, p.item_key, p.customer_id, p.price_group, p.condition_type, p.uom_code, p.currency, c.exponent, p.unit_price,
 		p.price_unit, trim_scale(p.percent)::text, p.valid_from, p.valid_to, p.scale_basis, p.scale_uom_code, p.scale_currency, sc.exponent,
 		p.created_at, p.created_by
 	FROM sales.price p LEFT JOIN ref.currency c ON c.code = p.currency LEFT JOIN ref.currency sc ON sc.code = p.scale_currency`
 
 func scanPrice(row pgx.Row) (Price, error) {
 	var p Price
-	err := row.Scan(&p.ID, &p.LegalEntityID, &p.ItemKey, &p.CustomerID, &p.ConditionType, &p.Unit, &p.Currency, &p.Exponent, &p.UnitPrice,
+	err := row.Scan(&p.ID, &p.LegalEntityID, &p.ItemKey, &p.CustomerID, &p.PriceGroup, &p.ConditionType, &p.Unit, &p.Currency, &p.Exponent, &p.UnitPrice,
 		&p.PriceUnit, &p.Percent, &p.ValidFrom, &p.ValidTo, &p.ScaleBasis, &p.ScaleUnit, &p.ScaleCurrency, &p.ScaleExponent, &p.CreatedAt, &p.CreatedBy)
 	return p, errs.Wrapf(err, "scan sales price")
 }
@@ -166,6 +169,12 @@ func (e *Endpoints) RecordPrice(ctx context.Context, in PriceInput) (Price, erro
 	if err != nil {
 		return Price{}, err
 	}
+	if in.PriceGroup != nil && in.CustomerID != nil {
+		return Price{}, problem.Invalid("sales.customer_or_group", "price_group", "A record is for one customer or for a price group, not both.")
+	}
+	if err := e.priceGroup(ctx, in.PriceGroup); err != nil {
+		return Price{}, err
+	}
 	r, err := e.rate(ctx, tx, in)
 	if err != nil {
 		return Price{}, err
@@ -179,10 +188,10 @@ func (e *Endpoints) RecordPrice(ctx context.Context, in PriceInput) (Price, erro
 			"A price is valid until a day not before the day it is valid from, "+in.ValidFrom.Format(time.DateOnly)+".")
 	}
 	id := uuid.Must(uuid.NewV7())
-	if _, err := tx.Exec(ctx, `INSERT INTO sales.price (tenant_id, id, legal_entity_id, item_key, customer_id, condition_type, uom_code, currency,
-			unit_price, price_unit, percent, valid_from, valid_to, scale_basis, scale_uom_code, scale_currency, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12, $13, $14, $15, $16, $17)`,
-		p.TenantID, id, le.ID, in.ItemKey, in.CustomerID, in.ConditionType, r.unit, r.currency, r.amount, r.priceUnit, r.percent,
+	if _, err := tx.Exec(ctx, `INSERT INTO sales.price (tenant_id, id, legal_entity_id, item_key, customer_id, price_group, condition_type, uom_code,
+			currency, unit_price, price_unit, percent, valid_from, valid_to, scale_basis, scale_uom_code, scale_currency, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::numeric, $13, $14, $15, $16, $17, $18)`,
+		p.TenantID, id, le.ID, in.ItemKey, in.CustomerID, in.PriceGroup, in.ConditionType, r.unit, r.currency, r.amount, r.priceUnit, r.percent,
 		in.ValidFrom, in.ValidTo, s.basis, s.unit, s.currency, p.ID); err != nil {
 		return Price{}, fmt.Errorf("sales: insert price %s: %w", id, err)
 	}
@@ -332,10 +341,10 @@ func recordPrice(ctx context.Context, p Price, le tenancy.Entity, customerNumber
 	}
 	levels := scaleEvent(p)
 	payload := map[string]any{"price_id": p.ID, "legal_entity_id": p.LegalEntityID, "legal_entity_code": le.Code, "item_key": p.ItemKey,
-		"customer_id": p.CustomerID, "customer_number": customerNumber, "kind": p.Kind(), "condition_type": p.ConditionType, "unit": p.Unit,
+		"customer_id": p.CustomerID, "customer_number": customerNumber, "price_group": p.PriceGroup, "kind": p.Kind(), "condition_type": p.ConditionType, "unit": p.Unit,
 		"unit_price": amount, "price_unit": p.PriceUnit, "percent": p.Percent, "valid_from": p.ValidFrom.Format(time.DateOnly), "valid_to": validTo,
 		"scale_basis": p.ScaleBasis, "scale": levels}
-	detail := map[string]any{"legal_entity_id": p.LegalEntityID, "item_key": p.ItemKey, "customer_id": p.CustomerID, "kind": p.Kind(),
+	detail := map[string]any{"legal_entity_id": p.LegalEntityID, "item_key": p.ItemKey, "customer_id": p.CustomerID, "price_group": p.PriceGroup, "kind": p.Kind(),
 		"condition_type": p.ConditionType, "unit": p.Unit, "unit_price": amount, "price_unit": p.PriceUnit, "percent": p.Percent,
 		"valid_from": p.ValidFrom.Format(time.DateOnly), "valid_to": validTo, "scale_basis": p.ScaleBasis, "scale": levels}
 	return record(ctx, "sales.price.create", "price", "sales_price_changed", p.ID, detail, payload)

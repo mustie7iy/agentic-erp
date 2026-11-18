@@ -107,7 +107,7 @@ func TestDiscountRecordedAndReadBack(t *testing.T) {
 	}
 	want := map[string]any{"price_id": id, "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "item_key": "BRACKET-M8",
 		"customer_id": e.customer.String(), "customer_number": "BP70000001", "kind": "discount_percent", "condition_type": "K007", "unit": nil,
-		"unit_price": nil, "price_unit": nil, "percent": "5.5", "valid_from": "2020-01-01", "valid_to": "2030-12-31", "scale_basis": nil, "scale": []any{}}
+		"unit_price": nil, "price_unit": nil, "percent": "5.5", "valid_from": "2020-01-01", "valid_to": "2030-12-31", "scale_basis": nil, "scale": []any{}, "price_group": nil}
 	if a, b := mustJSON(t, e.events(t, "sales_price_changed", "price_id", id)), mustJSON(t, []map[string]any{want}); a != b {
 		t.Errorf("SalesPriceChanged of the discount: got %s, want %s", a, b)
 	}

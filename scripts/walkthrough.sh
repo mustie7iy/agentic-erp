@@ -13123,6 +13123,88 @@ step_price_scales() {
   passed
 }
 
+# step_price_groups is T80f (ADR-0067 §13): Ada adds the customer price
+# groups 01 Wholesale and 02 Retail through a governed change; Paula puts
+# Contoso and Northwind in 01 in their sales data for Maple and records
+# 01's price of BRACKET-M8; a second sales data and a record for a
+# customer and a group are refused. Sally's quotation to Contoso takes
+# the group's price, Northwind's its own price and discount: each
+# condition says which step of the access found it. Paula moves Contoso to
+# 02, which has no record, and its next item takes the general price; an
+# unknown group and a stale version are refused.
+step_price_groups() {
+  heading "Step 123 — Prices per customer price group: price groups through a governed change, a customer's group in its sales data, a group's price before the general one and after the customer's own, each condition naming its access; a changed group holding for items priced after it"
+  local customer=$CUSTOMER contoso sales until base cr bracket conditions data tag
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ada
+  say "Maple sells to wholesalers below its list price. Customer price groups are the tenant's configuration"
+  say "(ADR-0067 §13), none shipped; Ada proposes 01 Wholesale and 02 Retail. They post nothing: tier 2."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Customer price groups\", rationale: \"Maple's price groups (T80f)\", base_version: $base,
+    proposed: (.items[0].document | .pricing.price_groups = [{code: \"01\", name: \"Wholesale\"}, {code: \"02\", name: \"Retail\"}])}" \
+    "$WORK/last.json" >"$WORK/price_groups.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @price_groups.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  approve priya "$(field .workflow_request_id)" "Price groups, as agreed with sales"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as ruth
+  QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Contoso
+  contoso=$(field '.items[0].id')
+  as paula
+  say "Paula puts Contoso and Northwind in the wholesale group, in their sales data for Maple:"
+  api 201 '"sales data of \(.customer_number) \(.customer_name) in \(.company_code): price group \(.price_group) \(.price_group_name), version \(.version)"' \
+    createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"01\"}"
+  data=$(field .id)
+  tag=$ETAG
+  expect "Contoso's sales data" "$(field '"\(.customer_name) \(.price_group) \(.price_group_name) \(.version)"')" "Contoso Ltd 01 Wholesale 1"
+  api 201 '"sales data of \(.customer_number) \(.customer_name): price group \(.price_group) \(.price_group_name)"' \
+    createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"price_group\": \"01\"}"
+  say "A customer has one sales data per company: a second is refused, and the one there is changed instead:"
+  refused 409 sales.customer_sales_data_exists createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"02\"}"
+  say "Paula records the wholesale price of the bracket, 11.75 CAD. A record is for one customer or for a group, not both:"
+  api 201 '"price of \(.item_key) for price group \(.price_group): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), valid from \(.valid_from)"' \
+    createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"price_group\": \"01\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"11.75\", \"currency\": \"CAD\"}, \"valid_from\": \"$YEAR-01-01\"}"
+  refused 422 sales.customer_or_group createSalesPrice \
+    -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"customer_id\": \"$contoso\", \"price_group\": \"01\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"11.75\", \"currency\": \"CAD\"}, \"valid_from\": \"$YEAR-01-01\"}"
+  expect "the field refused" "$(field '.errors[0].field')" "price_group"
+  as sally
+  sales=$(account 4000)
+  until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  bracket="{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  conditions='"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[].conditions[] | "  \(.condition_type) \(.name): \(if .kind == "price" then "\(.unit_price.amount) per \(.price_unit)" else "\(.percent) percent" end), found by \(.access)\(if .price_group then " \(.price_group)" else "" end) = \(.amount.amount)")'
+  say "Sally quotes Contoso 100 brackets: the access finds no record of Contoso's own, then its group's, 11.75:"
+  api 201 "$conditions" createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$bracket]}"
+  expect "Contoso's conditions" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.access) \(.price_group) \(.amount.amount)"] | join(", ")')" \
+    "PR00 price_group 01 1175.00"
+  say "Northwind is in the group too, but its own price comes first, 1174.99 per 100, and its own five percent:"
+  api 201 "$conditions" createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$bracket]}"
+  expect "Northwind's conditions" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.access) \(.amount.amount)"] | join(", ")')" \
+    "PR00 customer 1174.99, K007 customer -58.75"
+  as paula
+  say "Contoso becomes a retail customer. Paula moves it to 02 with her version of its sales data; a group the"
+  say "configuration does not have is refused, and so is her version once it is stale:"
+  refused 422 sales.unknown_price_group updateCustomerSalesData -p "id=$data" -if-match "$tag" -body '{"price_group": "09"}'
+  api 200 '"sales data of \(.customer_number): price group \(.price_group) \(.price_group_name), version \(.version)"' \
+    updateCustomerSalesData -p "id=$data" -if-match "$tag" -body '{"price_group": "02"}'
+  expect "the changed group" "$(field '"\(.price_group) \(.version)"')" "02 2"
+  refused 412 request.version_mismatch updateCustomerSalesData -p "id=$data" -if-match "$tag" -body '{"price_group": "01"}'
+  as sally
+  say "Group 02 has no record of the bracket: Contoso's next item takes the general price, 13.25:"
+  api 201 "$conditions" createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$bracket]}"
+  expect "Contoso's conditions in 02" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.access) \(.amount.amount)"] | join(", ")')" \
+    "PR00 general 1325.00"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -15153,7 +15235,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_price_scales step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_price_scales step_price_groups step_close'
 
 main() {
   stop_unseen

@@ -5554,6 +5554,19 @@ erDiagram
   highest start its quantity or its value before the condition reaches,
   and the record's own below the first. Insert-only
   (`platform.forbid_mutation`), as the record is.
+- `price_group` on `sales.price` (T80f, migration 000374; ADR-0067 §13):
+  the customer price group of the configuration a record is for
+  (`price_price_group_check`, a short code, no foreign key), never with a
+  customer (`price_customer_or_group`). An item takes the customer's
+  record, then its group's, then the general one.
+- `sales.customer_sales_data` (T80f, migration 000374; ADR-0067 §13): a
+  customer's sales data in a company, one per customer and company
+  (`customer_sales_data_once`), with the customer's number when it was set
+  up (`customer_sales_data_customer_number_check`), its price group or
+  none (`customer_sales_data_price_group_check`) and a version
+  (`customer_sales_data_version_check`). The application may change the
+  group, the version and `updated_by` alone and deletes nothing. The list
+  reads it by customer number (`customer_sales_data_by_customer_number`).
 - `conditions` on `sales.quotation_item` and `sales.sales_order_item`
   (T80b): a JSON array (`quotation_item_conditions_array`,
   `sales_order_item_conditions_array`), empty by default, of the
@@ -5566,10 +5579,13 @@ erDiagram
   price is the final net price (T80c, product owner 2026-11-12).
   A condition found by a scaled record (T80e) has its `scale`: the
   `basis`, the `level` reached (0 below the first) and where it starts,
-  `from_quantity` with its `unit` or `from_amount`.
+  `from_quantity` with its `unit` or `from_amount`. From T80f it says
+  which step of the access found its record (`access`, with
+  `price_group` for a group's).
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
   `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,
+  `CustomerSalesDataChanged`,
   `SalesOrderCreditBlocked`, `SalesOrderCreditReleased`,
   `ReturnsOrderChanged`, `ReturnReceived`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,

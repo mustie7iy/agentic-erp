@@ -59,18 +59,20 @@ type Item struct {
 }
 
 // document is what a sales document's items are checked and priced
-// against: its company, its customer, whose prices its items take, its
-// currency with its minor-unit digits, its date, the company's today in
-// the time zone it is told in, and the tenant's pricing procedure, its
+// against: its company, its customer, whose prices its items take, and
+// the customer's price group in the company, nil for none (ADR-0067 §13),
+// its currency with its minor-unit digits, its date, the company's today
+// in the time zone it is told in, and the tenant's pricing procedure, its
 // condition types in the order they apply, none for a tenant without one.
 type document struct {
-	le        tenancy.Entity
-	customer  uuid.UUID
-	procedure []config.ConditionType
-	currency  string
-	exp       int
-	date      time.Time
-	zone      *time.Location
+	le         tenancy.Entity
+	customer   uuid.UUID
+	priceGroup *string
+	procedure  []config.ConditionType
+	currency   string
+	exp        int
+	date       time.Time
+	zone       *time.Location
 }
 
 // errTooLarge refuses a document whose amounts are out of range.

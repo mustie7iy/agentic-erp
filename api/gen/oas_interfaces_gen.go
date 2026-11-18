@@ -345,6 +345,10 @@ type CreateCustomerInvoiceRes interface {
 	createCustomerInvoiceRes()
 }
 
+type CreateCustomerSalesDataRes interface {
+	createCustomerSalesDataRes()
+}
+
 type CreateDisputeCaseRes interface {
 	createDisputeCaseRes()
 }
@@ -867,6 +871,10 @@ type GetCustomerContactRes interface {
 
 type GetCustomerInvoiceRes interface {
 	getCustomerInvoiceRes()
+}
+
+type GetCustomerSalesDataRes interface {
+	getCustomerSalesDataRes()
 }
 
 type GetDepreciationRunRes interface {
@@ -1459,6 +1467,10 @@ type ListCustomerContactsRes interface {
 
 type ListCustomerInvoicesRes interface {
 	listCustomerInvoicesRes()
+}
+
+type ListCustomerSalesDataRes interface {
+	listCustomerSalesDataRes()
 }
 
 type ListDepreciationRunsRes interface {
@@ -2327,6 +2339,10 @@ type UpdateCostCenterRes interface {
 
 type UpdateCreditLimitRes interface {
 	updateCreditLimitRes()
+}
+
+type UpdateCustomerSalesDataRes interface {
+	updateCustomerSalesDataRes()
 }
 
 type UpdateDisputeCaseRes interface {

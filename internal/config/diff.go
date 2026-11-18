@@ -201,8 +201,10 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.expense_types(\[|$)`), TierPostingRelated},
 	// Condition types and the pricing procedure post nothing: they decide
 	// the net value new sales items take (ADR-0067 §11), as payment terms
-	// decide what is due. A type's name is a text.
+	// decide what is due; so do price groups (§13). A type's and a group's
+	// name is a text.
 	{rx(`^pricing\.condition_types\[\*\]\.name$`), TierCosmetic},
+	{rx(`^pricing\.price_groups\[\*\]\.name$`), TierCosmetic},
 	{rx(`^pricing(\.|$)`), TierOperational},
 }
 
@@ -266,9 +268,11 @@ var listKeys = map[string]string{
 	"retention": "kind",
 	// A company's expense types by code (ADR-0074 §2).
 	"expense_types": "code",
-	// Condition types by code (ADR-0067 §11); the procedure's steps are
-	// listed by position, since their order is the setting.
+	// Condition types and customer price groups by code (ADR-0067 §11,
+	// §13); the procedure's steps are listed by position, since their
+	// order is the setting.
 	"condition_types": "code",
+	"price_groups":    "code",
 }
 
 // pathKeys override listKeys for a list at one path, where its name is

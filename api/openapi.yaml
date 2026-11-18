@@ -21050,7 +21050,7 @@ paths:
       tags:
         - sales
       summary: Create a quotation
-      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
+      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
       x-permission: sales.quotation.write
       x-agent: false
       x-problem-codes:
@@ -21704,7 +21704,7 @@ paths:
       tags:
         - sales
       summary: List sales prices
-      description: "The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a customer's record, the customer's number and name. Filtered by company, item key, customer (the records for that customer; general ones have none), condition type and `valid_on`, a day the record is valid on. Records are never changed: a new price is a new record with a later `valid_from`. Sortable by: `item_key`, `valid_from`."
+      description: "The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a customer's record, the customer's number and name. Filtered by company, item key, customer (the records for that customer; general ones have none), price group (T80f), condition type and `valid_on`, a day the record is valid on. Records are never changed: a new price is a new record with a later `valid_from`. Sortable by: `item_key`, `valid_from`."
       x-permission: sales.price.read
       x-problem-codes:
         - request.invalid_order_by
@@ -21727,6 +21727,14 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: price_group
+          in: query
+          required: false
+          description: Only the records for this customer price group.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 10
         - name: condition_type
           in: query
           required: false
@@ -21765,7 +21773,7 @@ paths:
       tags:
         - sales
       summary: Record a sales price
-      description: "Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with `customer_id` for one, per `price_unit` of a unit of measure, in the currency of `unit_price`, valid from a day and, with `valid_to`, until a day. A quotation or sales order item that names the item key without a `unit_price` takes the price valid on the document's date in the item's unit and the document's currency: the customer's before the general one and, among several, the one with the latest `valid_from` (of two with the same `valid_from`, the one recorded last). The company is one the caller may act in. The item key is not white space alone (422 `request.validation_failed`). A customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise). The unit is one of the reference data (422 `sales.unknown_unit` naming `unit`), the currency a known one (422 `sales.unknown_currency` naming `unit_price.currency`) and the price more than zero (422 `sales.amount_not_positive` naming `unit_price.amount`). `valid_to` is not before `valid_from` (422 `sales.invalid_validity`). With `condition_type` the record is of that type of the active configuration (422 `sales.unknown_condition_type` for one it does not have): one of kind `price` is a price as above, one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422 `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422 `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the item key that is priced from the price records when the pricing procedure names its type, the customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price` was entered has none. With `scale_basis` and `scale` the record has scale levels (ADR-0067 §12, T80e): an item takes the rate of the highest level whose `from` its quantity (`quantity`) or its value before the condition (`value`) reaches, and the record's own rate below the first level. A price's scale is by quantity in its own unit; a discount's by quantity in the one unit its levels state, which an item in another unit does not take, or by value in the one currency they state, which a document in another currency does not take. Each level gives its `from` of the basis, more than zero and above the one before, and the rate of the record's kind, a price's `unit_price` in the record's currency or a discount's `percent`; anything else is refused naming the level's field (422 `sales.invalid_scale`; a level's price not more than zero `sales.amount_not_positive`, in another currency `sales.currency_mismatch`, a percent out of range `sales.invalid_percent`, a discount's unknown scale unit or currency `sales.unknown_unit`, `sales.unknown_currency`). A record is never changed or deleted: a new price is recorded with a later `valid_from`, and the items priced before keep their price. Audited, and published as SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only (`x-agent: false`)."
+      description: "Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with `customer_id` for one, per `price_unit` of a unit of measure, in the currency of `unit_price`, valid from a day and, with `valid_to`, until a day. A quotation or sales order item that names the item key without a `unit_price` takes the price valid on the document's date in the item's unit and the document's currency: the customer's before the general one and, among several, the one with the latest `valid_from` (of two with the same `valid_from`, the one recorded last). The company is one the caller may act in. The item key is not white space alone (422 `request.validation_failed`). A customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise). The unit is one of the reference data (422 `sales.unknown_unit` naming `unit`), the currency a known one (422 `sales.unknown_currency` naming `unit_price.currency`) and the price more than zero (422 `sales.amount_not_positive` naming `unit_price.amount`). `valid_to` is not before `valid_from` (422 `sales.invalid_validity`). With `condition_type` the record is of that type of the active configuration (422 `sales.unknown_condition_type` for one it does not have): one of kind `price` is a price as above, one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422 `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422 `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the item key that is priced from the price records when the pricing procedure names its type, the customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price` was entered has none. With `price_group` the record is for the customers in that price group of the active configuration (ADR-0067 §13, T80f; 422 `sales.unknown_price_group`), by their sales data in the company (`createCustomerSalesData`), not with `customer_id` (422 `sales.customer_or_group` naming `price_group`): an item takes the customer's own record first, then its group's, then the general one. With `scale_basis` and `scale` the record has scale levels (ADR-0067 §12, T80e): an item takes the rate of the highest level whose `from` its quantity (`quantity`) or its value before the condition (`value`) reaches, and the record's own rate below the first level. A price's scale is by quantity in its own unit; a discount's by quantity in the one unit its levels state, which an item in another unit does not take, or by value in the one currency they state, which a document in another currency does not take. Each level gives its `from` of the basis, more than zero and above the one before, and the rate of the record's kind, a price's `unit_price` in the record's currency or a discount's `percent`; anything else is refused naming the level's field (422 `sales.invalid_scale`; a level's price not more than zero `sales.amount_not_positive`, in another currency `sales.currency_mismatch`, a percent out of range `sales.invalid_percent`, a discount's unknown scale unit or currency `sales.unknown_unit`, `sales.unknown_currency`). A record is never changed or deleted: a new price is recorded with a later `valid_from`, and the items priced before keep their price. Audited, and published as SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only (`x-agent: false`)."
       x-permission: sales.price.write
       x-agent: false
       x-problem-codes:
@@ -21775,12 +21783,14 @@ paths:
         - sales.amount_not_positive
         - sales.currency_mismatch
         - sales.customer_not_usable
+        - sales.customer_or_group
         - sales.invalid_percent
         - sales.invalid_scale
         - sales.invalid_validity
         - sales.price_or_percent
         - sales.unknown_condition_type
         - sales.unknown_currency
+        - sales.unknown_price_group
         - sales.unknown_unit
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -21906,6 +21916,198 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/customer-sales-data:
+    get:
+      operationId: listCustomerSalesData
+      tags:
+        - sales
+      summary: List customers' sales data
+      description: "The sales data of customers in the companies the caller may act in (ADR-0067 §13, T80f), each as `getCustomerSalesData` gives it: with its company's code and name, its customer's number and name and its price group with the group's name. Filtered by company, customer and price group. Sortable by: `customer_number` (default)."
+      x-permission: sales.price.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the sales data of this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: price_group
+          in: query
+          required: false
+          description: Only the customers in this price group (`pricing.price_groups` of the configuration).
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 10
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of customers' sales data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerSalesDataPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCustomerSalesData
+      tags:
+        - sales
+      summary: Set up a customer's sales data in a company
+      description: "Sets up a customer's sales data in a company (ADR-0067 §13, T80f; SAP's sales area data of a customer, from memory): what selling to the customer there needs beyond its company data, now its customer price group. A quotation or sales order item of the customer in the company that is priced from the price records takes the customer's own record first, then the one for its price group, then the general one (`createSalesPrice`), prices and discounts alike. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise). A price group is one of the active configuration's (`pricing.price_groups`; 422 `sales.unknown_price_group` naming `price_group`); without one the customer takes the general records. A customer has one sales data per company: a second is refused (409 `sales.customer_sales_data_exists`), and the first is found with `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with `updateCustomerSalesData`. The items priced before keep their prices. Audited, and published as CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created. Human-only (`x-agent: false`)."
+      x-permission: sales.price.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - sales.customer_not_usable
+        - sales.customer_sales_data_exists
+        - sales.unknown_price_group
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The customer's sales data.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerSalesDataCreate"
+            examples:
+              wholesale:
+                summary: A customer in the wholesale price group
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  price_group: "01"
+      responses:
+        "201":
+          description: "Created; the customer's sales data."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerSalesData"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/customer-sales-data/{id}":
+    get:
+      operationId: getCustomerSalesData
+      tags:
+        - sales
+      summary: Get a customer's sales data
+      description: "A customer's sales data in a company (ADR-0067 §13, T80f) with its company's code and name, its customer's number and name and its price group with the group's name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: sales.price.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The customer's sales data.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerSalesData"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateCustomerSalesData
+      tags:
+        - sales
+      summary: Change a customer's sales data
+      description: "Changes a customer's price group in its sales data, with the caller's version of it (`If-Match`; 412 when another change came first): the new group, one of the active configuration's (422 `sales.unknown_price_group` naming `price_group`), or null for none, holds for the items priced from now on; the items priced before keep their prices. A change to the group the sales data already has is refused (422 `sales.nothing_to_change`). The customer and the company do not change. The audit record and CustomerSalesDataChanged carry the group before and after. JSON Merge Patch (RFC 7396) of the one field that changes. Sales data of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: sales.price.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.version_mismatch
+        - sales.customer_sales_data_exists
+        - sales.nothing_to_change
+        - sales.unknown_price_group
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the customer's sales data.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CustomerSalesDataUpdate"
+      responses:
+        "200":
+          description: "Updated; the customer's sales data after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerSalesData"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/sales-orders/{id}:change":
@@ -57837,6 +58039,12 @@ components:
         percent: {type: string, description: "A discount's rate: the percentage of the value before it, a decimal string; absent for a price.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "What the condition adds to the item's net value: for a price, quantity × unit price ÷ price unit; for a discount, the percentage of the value before it, rounded half away from zero to the currency's minor unit, negative."}
         scale: {$ref: "#/components/schemas/SalesConditionScale", description: "The scale of the record the condition was found by (T80e), with the level the item reached; absent: the record has no scale."}
+        access:
+          type: string
+          x-extensible-enum: [customer, price_group, general]
+          description: "Which step of the access found the record (ADR-0067 §13, T80f): `customer`, the customer's own; `price_group`, its price group's; `general`, the record for every customer. Absent for an entered price and for items priced before T80f. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        price_group: {type: string, description: "The price group whose record was found, when `access` is `price_group`.", readOnly: true}
     SalesConditionScale:
       type: object
       description: "The scale level a sales item reached on the record its condition was found by (ADR-0067 §12): the highest level whose `from` the item's quantity or value reaches; level 0, below the first, is the record's own rate."
@@ -58261,6 +58469,7 @@ components:
         legal_entity_id: {type: string, format: uuid, description: "The company whose price it is: a legal entity the caller may act in."}
         item_key: {type: string, minLength: 1, maxLength: 40, description: "The free-text key naming what is sold, as sales items give it (`item_key`); compared exactly."}
         customer_id: {type: string, format: uuid, description: "The customer the price is for: an active business partner with the customer role; absent: a general price, for every customer."}
+        price_group: {type: string, minLength: 1, maxLength: 10, description: "The customer price group the price is for (ADR-0067 §13, T80f), one of the active configuration's (`pricing.price_groups`): the customers whose sales data in the company name it take it before the general one. Not given with `customer_id`; absent with it too: a general price."}
         condition_type: {type: string, minLength: 1, maxLength: 10, description: "A condition type of the active configuration (`pricing.condition_types`): of kind `price` for a price, of kind `discount_percent` for a discount. Absent: a price, which the pricing procedure's price step takes as it takes one of its own type."}
         unit: {type: string, minLength: 1, maxLength: 6, description: "A price's unit of measure (reference data); an item in another unit does not take it. Required for a price, not given for a discount."}
         unit_price: {$ref: "#/components/schemas/Money", description: "A price: the net price per `price_unit`, more than zero, in its currency; a document in another currency does not take it. Required for a price, not given for a discount."}
@@ -58312,6 +58521,7 @@ components:
             customer_id: {type: string, format: uuid, description: "The customer the price is for (`GET /v1/business-partners/{id}`); absent: a general price.", readOnly: true}
             customer_number: {type: string, description: "The customer's business partner number; absent for a general price.", readOnly: true}
             customer_name: {type: string, description: "The customer's name, as it is now; absent for a general price.", readOnly: true}
+            price_group: {type: string, description: "The customer price group the record is for (`pricing.price_groups` of the configuration); absent for a general record and a customer's.", readOnly: true}
             kind:
               type: string
               x-extensible-enum: [price, discount_percent]
@@ -58353,6 +58563,64 @@ components:
           price_unit: 100
           valid_from: "2026-11-01"
           valid_to: "2027-10-31"
+    CustomerSalesDataCreate:
+      type: object
+      description: "Set up a customer's sales data in a company."
+      required: [legal_entity_id, customer_id]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company: a legal entity the caller may act in."}
+        customer_id: {type: string, format: uuid, description: "The customer: an active business partner with the customer role, not blocked for posting in the company."}
+        price_group: {type: string, minLength: 1, maxLength: 10, description: "The customer's price group, one of the active configuration's (`pricing.price_groups`); absent: none, and the customer takes the general price records."}
+    CustomerSalesDataUpdate:
+      type: object
+      description: "Merge patch of a customer's sales data: its price group."
+      required: [price_group]
+      additionalProperties: false
+      properties:
+        price_group: {type: [string, "null"], minLength: 1, maxLength: 10, description: "The new price group, one of the active configuration's (`pricing.price_groups`). Send null for none."}
+      examples:
+        - price_group: "02"
+    CustomerSalesData:
+      description: "A customer's sales data in a company (sales, ADR-0067 §13): its customer price group, which the price records of the group are found by."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            price_group: {type: string, description: "The customer's price group (`pricing.price_groups` of the configuration); absent: none.", readOnly: true}
+            price_group_name: {type: string, description: "The price group's name in the active configuration; absent without a group.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          version: 1
+          created_at: "2026-11-19T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-19T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          price_group: "01"
+          price_group_name: Wholesale
+    CustomerSalesDataPage:
+      type: object
+      description: One page of customers' sales data.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CustomerSalesData"}
+          description: The sales data on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     SalesPricePage:
       type: object
       description: One page of price records.

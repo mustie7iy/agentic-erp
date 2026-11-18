@@ -1008,6 +1008,20 @@ func encodeCreateCustomerInvoiceRequest(
 	return nil
 }
 
+func encodeCreateCustomerSalesDataRequest(
+	req *CustomerSalesDataCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateDisputeCaseRequest(
 	req *DisputeCaseCreate,
 	r *http.Request,
@@ -3231,6 +3245,20 @@ func encodeUpdateCostCenterRequest(
 
 func encodeUpdateCreditLimitRequest(
 	req *CustomerCreditLimitUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateCustomerSalesDataRequest(
+	req *CustomerSalesDataUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"
