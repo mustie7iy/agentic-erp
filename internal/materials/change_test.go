@@ -229,3 +229,19 @@ func TestChangeSeenByCompany(t *testing.T) {
 		t.Errorf("by company 1000's plant: got %d materials, want none", n)
 	}
 }
+
+// TestApprovalAfterPlantBlocked: a change's plants are checked when it is
+// requested, not again when it is approved, so an approval is never refused
+// for good by a plant blocked in between (ADR-0082 As built S1b).
+func TestApprovalAfterPlantBlocked(t *testing.T) {
+	e := setup(t)
+	id := e.active(t, nil)["id"].(string)
+	c := e.change(t, id, mustJSON(t, map[string]any{"plants": []any{map[string]any{"plant_id": e.p1, "storage_location_ids": []any{e.s1}},
+		map[string]any{"plant_id": e.p2, "storage_location_ids": []any{}}}}))
+	e.Must(200, "POST", "/v1/org-units/"+e.p2.String()+":block", `{"reason": "Closed for refit"}`, `"2"`)
+	e.Approve(t, c["id"].(string))
+	got, _ := e.Must(200, "GET", path+"/"+id, "", "")
+	if p := plants(t, got); p != "P1:S1 P2:" {
+		t.Errorf("plants: got %q, want P1:S1 and P2, blocked since the request", p)
+	}
+}

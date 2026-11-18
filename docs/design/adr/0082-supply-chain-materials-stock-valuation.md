@@ -1,8 +1,9 @@
 # ADR-0082: Supply chain: material master, stock and valuation
 
-**Status:** proposed (scm lane, 2026-11-17; decided by default under
-ADR-0053 d after the product owner's decision of 2026-11-17 that supply
-chain joins the current plan). It decides the contexts of the supply chain
+**Status:** accepted (scm lane, S1a and S1b, 2026-11-17; decided by
+default under ADR-0053 d after the product owner's decision of 2026-11-17
+that supply chain joins the current plan; `go-reviewer` had no blocking
+finding in round 3). It decides the contexts of the supply chain
 foundation and the slices S1a-S1f of `docs/design/plan-supply-chain.md`.
 Each slice records what it built under "As built". **The SAP behaviour
 named here is stated from memory** (no primary source in the repository);
@@ -293,7 +294,7 @@ create with such a match is refused (409) unless the request confirms it.
   its plants replace those of the companies its requester could act in
   when it was requested (`plant_scope`, kept in the payload with each
   plant's company), whatever the approver's access, and are not checked
-  again: they were when requested. Approving, rejecting or withdrawing a
+  again: they were when requested (`TestApprovalAfterPlantBlocked`). Approving, rejecting or withdrawing a
   decided change is 409 `materials.invalid_status`.
 - **Locks.** A request locks the material, then writes the change; a
   decision reads the change, locks the material, then the change (the
