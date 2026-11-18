@@ -445,3 +445,85 @@ takes effect at once.
 classes; approval tiers by amount or a configurable approver role;
 lowering a limit while a raise waits (it is refused until the raise is
 decided); a limit request raised from an agent's recommendation.
+
+## packperm
+
+No placeholder: three small items the product owner and the batch 80
+review asked for (product owner, 18 November 2026: the sign-off carries
+to numbering-only pack versions, and customer sales data gets its own
+permission; review of batch 80: the ledger's refusal for an inventory
+entry). Each is one commit; none adds an operation.
+
+### Numbering-only packs Canada 2026.10 and UAE 2026.7 (journal_dd)
+
+**Capability.** A configuration administrator applies the latest Canada
+or UAE pack to a company and posts customer debit memos (T75j) without
+setting up their journal range by hand: the pack brings `journal_dd`.
+
+- **Reuses:** the numbering-only versions of 2026-11-12 (Canada 2026.9,
+  UAE 2026.6) and their tests (`numberingOnly`, `adoptsAddedRanges`),
+  the sign-off carried as the product owner approved on 2026-11-13.
+- **Adds:** `packs/ca/2026.10` and `packs/ae/2026.7`, 2026.9's and
+  2026.6's files with `journal_dd` (prefix DD, 1 to 9999999, not
+  gapless) after the ranges they have, and `sign_off` the tax
+  specialist's of 2026-11-09, carried (product owner, 2026-11-18); their
+  lines in `packs/released.sha256`. tax.yaml, returns.yaml and every
+  other file are the previous version's byte for byte.
+- **Walkthrough:** step 2 applies Canada 2026.10 and lists it signed off
+  with 23 ranges; the pilot's settings no longer add `journal_dd`;
+  step 41 applies UAE 2026.7. Step 126's debit memo draws its DD number
+  from the pack's range.
+- **Acceptance:** each new version is the previous one plus the one
+  range; its tax codes, settings and returns equal; both carry the
+  sign-off of 2026-11-09 and are the latest of their country; an upgrade
+  from the previous version adds `journal_dd` and nothing else, and a
+  company's own `journal_dd` is kept with a conflict note.
+
+### Customer sales data under its own permission
+
+**Capability.** A tenant administrator separates price maintenance from
+assigning customers to price groups (segregation of duties, product
+owner 2026-11-18): the sales administration or master data team sets up
+and changes customers' sales data, the pricing analysts record prices
+and read the sales data, and neither needs the other's write.
+
+- **Reuses:** `/v1/customer-sales-data` (T80f), `x-permission`, the role
+  grants of `internal/identity`, `GrantEveryPermission` for a new
+  tenant's administrator.
+- **Adds:** permissions `sales.customer_sales_data.read` (GET of the
+  list and of one) and `sales.customer_sales_data.write` (POST and
+  PATCH) in place of `sales.price.read` and `.write` on those four
+  operations; migration (expand): the two permissions, and every role
+  holding `sales.price.read` or `.write` today, from today or later,
+  granted the new one for the same days, so no one loses access the day
+  it ships; a tenant then takes the write from its pricing roles. Pricing
+  a quotation or order item reads the customer's group itself and needs
+  neither permission, so sales order entry is unchanged.
+- **Walkthrough:** step 129: Ada creates the role `sales_master_data`
+  holding `sales.customer_sales_data.write`, which finance_staff no
+  longer holds, and gives it to Sally; Paula, the pricing analyst, is
+  refused setting up Contoso's sales data (403) and still reads it;
+  Sally sets it up and changes it.
+- **Acceptance:** the four operations answer 403 without their own
+  permission and ignore `sales.price.*`; after the migration a role
+  that held `sales.price.read` or `.write` holds the new one for the
+  same validity, a role that held neither holds nothing new, an ended
+  grant is not copied; the down migration removes the grants and the
+  permissions.
+
+### The ledger's refusal names the material document's reversal
+
+**Capability.** An accountant who tries to reverse an inventory entry
+through `POST /v1/journal-entries/{id}:reverse` is told where it is
+reversed: a material document's entry (WE, WA) with
+`POST /v1/material-documents/{id}:reverse`; a price change's entry (PR)
+is corrected by another price change
+(`POST /v1/material-valuations/{id}:changePrice`), as SAP corrects one
+by MR21 (from memory).
+
+- **Adds:** an `inventory` case in the ledger's `requireOwnEntry`, as
+  the other owners have (409 `ledger.entry_owned_elsewhere`); nothing
+  else changes. No walkthrough step (a fix).
+- **Acceptance:** an inventory material document's entry is refused
+  naming its path with the document's id, a price change's naming the
+  price change path; the other owners' messages unchanged.

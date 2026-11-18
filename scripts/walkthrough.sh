@@ -478,7 +478,7 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the FPZ-500 for a Quebec registrant (the GST34's lines are signed off in Canada $CA_PACK, the UAE VAT 201"
-  say "    in UAE pack 2026.6, which step 41 files): step 11 prepares,"
+  say "    in UAE pack 2026.7, which step 41 files): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -673,7 +673,7 @@ latest_pack() {
 # The permissions of everyone's day-to-day work: all but administering
 # access and the organisation, activating configuration, the AI policy,
 # releasing payments and deciding approvals, which the approver roles hold.
-STAFF_DENIED=' partner.privacy.block partner.privacy.read_blocked records.privacy.delete identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release '
+STAFF_DENIED=' partner.privacy.block partner.privacy.read_blocked records.privacy.delete identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release sales.customer_sales_data.write '
 
 # grant ROLE_ID PERMISSION... grants a role the permissions.
 grant() {
@@ -1660,7 +1660,8 @@ migrated_down_payment() {
 # contracts of step 96 (T88a) and the expense reports of step 97 (T87a), which
 # no pack ships (the ranges of
 # customer invoices, incoming payments, quotations, sales orders, billing
-# documents and RFQs come from the pack since Canada 2026.9), the
+# documents and RFQs come from the pack since Canada 2026.9, the debit
+# memos' journal range journal_dd since Canada 2026.10), the
 # right-of-use asset (1660) and lease liability (2650) accounts a lease's
 # activation posts to (T88b, ADR-0073 §7; no pack ships them), the
 # customer payment tolerance and its accounts 6850 and 4850 (T75f, SAP
@@ -1752,8 +1753,7 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
     {"company": "@CC@", "document_type": "material_document", "fiscal_year": @YEAR@, "prefix": "MD", "first": 1, "last": 9999999},
     {"company": "@CC@", "document_type": "journal_wa", "fiscal_year": @YEAR@, "prefix": "WA", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "journal_pr", "fiscal_year": @YEAR@, "prefix": "PR", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "journal_dd", "fiscal_year": @YEAR@, "first": 1, "last": 999999}]'
+    {"company": "@CC@", "document_type": "journal_pr", "fiscal_year": @YEAR@, "prefix": "PR", "first": 1, "last": 9999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -1767,9 +1767,12 @@ step_pack() {
   say "2026.8 is 2026.7 with the lines' labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
   say "2026.9 is 2026.8 plus the number ranges of customer invoices, incoming payments, sales documents and RFQs"
   say "(product owner, 2026-11-12), its tax content unchanged; the sign-off of 2026-11-09 covers it (product owner,"
-  say "2026-11-13), so it is the latest signed-off version and the pilot takes those ranges from the pack."
+  say "2026-11-13), so the pilot takes those ranges from the pack. 2026.10 is 2026.9 plus the journal range of customer"
+  say "debit memos, journal_dd (step 126), under the same sign-off (product owner, 2026-11-18): the latest signed-off version."
   expect "Canada 2026.9" "$(field '.items[] | select(.country == "CA" and .version == "2026.9") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
     "22 number ranges, signed off: true"
+  expect "Canada 2026.10" "$(field '.items[] | select(.country == "CA" and .version == "2026.10") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
+    "23 number ranges, signed off: true"
   expect "the latest signed-off Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-09"
   say "Ada applies the latest signed-off Canada pack, $version, to company $CC. The merge keeps what the company"
@@ -4882,8 +4885,9 @@ governed() {
 
 # step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
 # Ada creates the UAE pilot company, proposes it in the configuration and
-# applies the UAE pack to it, 2026.6 (2026.4, signed off by the tax
-# specialist, with the box labels' markers dropped in 2026.5 and the number ranges added in 2026.6), so without a note
+# applies the UAE pack to it, 2026.7 (2026.4, signed off by the tax
+# specialist, with the box labels' markers dropped in 2026.5, the number ranges added in 2026.6 and journal_dd in
+# 2026.7), so without a note
 # (2026.3 brought the emirate guard: S5 accepts the seven
 # emirates alone); Alex posts a UAE supplier's invoice above AED 10,000
 # and one below: the supplier has no TRN on file, so the first carries the
@@ -4904,10 +4908,11 @@ step_uae() {
   say "packs/ae/TAX-PENDING-T62f.md and TAX-PENDING-T61k.md), so production applies it; the earlier versions stay unsigned."
   say "2026.5 is 2026.4 with the VAT 201's box labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
   say "2026.6 is 2026.5 plus the number ranges of customer invoices, incoming payments, sales documents and RFQs (product"
-  say "owner, 2026-11-12), its tax content unchanged, under the same sign-off (product owner, 2026-11-13)."
+  say "owner, 2026-11-12), its tax content unchanged, under the same sign-off (product owner, 2026-11-13); 2026.7 adds the"
+  say "journal range of customer debit memos, journal_dd, under it too (product owner, 2026-11-18)."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true"
-  expect "UAE 2026.6's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.6") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true"
+  expect "UAE 2026.7's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.7") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "Musto Ibrahim 2026-11-09"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
   QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
@@ -4927,10 +4932,10 @@ step_uae() {
     proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the latest signed-off UAE pack, 2026.6, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "Ada applies the latest signed-off UAE pack, 2026.7, to $AE for $YEAR. The merge keeps the company's accounts, which are"
   say "the pack's, and adds the rest; signed off, the pack brings no note saying otherwise:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"AE\", \"version\": \"2026.6\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"AE\", \"version\": \"2026.7\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   cr=$(field .id)
   excerpt '.notes[] | "note \(.path): \(.message)"'
   expect "notes that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 0
@@ -5073,7 +5078,7 @@ uae_return() {
   vat=$(field '.items[] | select(.number == "2300") | .id')
   input=$(field '.items[] | select(.number == "1300") | .id')
   say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
-  say "that UAE pack 2026.6 defines; its first period is the latest quarter ended, the one it files now:"
+  say "that UAE pack 2026.7 defines; its first period is the latest quarter ended, the one it files now:"
   api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
     listTaxRegistrations -p "legal_entity_id=$ae"
   expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
@@ -5125,10 +5130,10 @@ uae_return() {
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
   say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
-  say "(packs/ae/TAX-PENDING-T61k.md); 2026.6's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
+  say "(packs/ae/TAX-PENDING-T61k.md); 2026.7's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
-  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.6"
+  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.7"
   expect "boxes 1b and 8's VAT labels, without a marker" "$(field '[.boxes[] | select(.code == "1b_vat" or .code == "8_vat") | .label] | join(" / ")')" \
     "1b Standard-rated supplies in Dubai (AE-DU): VAT / 8 Totals: VAT, boxes 1a-1g, 2, 3, 6 and 7"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
@@ -13609,7 +13614,7 @@ step_stock_receipt() {
 # freight its invoice of step 55 left out. Ruth enters a debit memo, the
 # customer invoice document with the kind debit_memo, and posts it as an
 # invoice is posted, as its own journal document type DD (range
-# journal_dd, which the pilot's settings of step 2 add): Dr Northwind on
+# journal_dd, which Canada 2026.10 brings in step 2): Dr Northwind on
 # 1200, Cr 4000 and 2300. The memo is Northwind's open item, due by
 # Northwind's term from its own date; a debit memo naming an invoice is
 # refused. step_memo_reversal reverses it.
@@ -13787,17 +13792,21 @@ step_price_scales() {
 }
 
 # step_price_groups is T80f (ADR-0067 §13): Ada adds the customer price
-# groups 01 Wholesale and 02 Retail through a governed change; Paula puts
-# Contoso and Northwind in 01 in their sales data for Maple and records
-# 01's price of BRACKET-M8; a second sales data and a record for a
-# customer and a group are refused. Sally's quotation to Contoso takes
-# the group's price, Northwind's its own price and discount: each
-# condition says which step of the access found it. Paula moves Contoso to
-# 02, which has no record, and its next item takes the general price; an
-# unknown group and a stale version are refused.
+# groups 01 Wholesale and 02 Retail through a governed change. Customers'
+# sales data have their own permission (product owner, 2026-11-18):
+# finance_staff does not hold sales.customer_sales_data.write, so Paula,
+# the pricing analyst, is refused setting one up and reads them; Ada gives
+# Sally the role sales_master_data, and Sally puts Contoso and Northwind
+# in 01 in their sales data for Maple; Paula records 01's price of
+# BRACKET-M8; a second sales data and a record for a customer and a group
+# are refused. Sally's quotation to Contoso takes the group's price,
+# Northwind's its own price and discount: each condition says which step
+# of the access found it. Sally moves Contoso to 02, which has no record,
+# and its next item takes the general price; an unknown group and a stale
+# version are refused.
 step_price_groups() {
-  heading "Step 129 — Prices per customer price group: price groups through a governed change, a customer's group in its sales data, a group's price before the general one and after the customer's own, each condition naming its access; a changed group holding for items priced after it"
-  local customer=$CUSTOMER contoso sales until base cr bracket conditions data tag
+  heading "Step 129 — Prices per customer price group: price groups through a governed change; a customer's group in its sales data, under its own permission; the access customer, group, general"
+  local customer=$CUSTOMER contoso sales until base cr bracket conditions data tag role sally
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as ada
   say "Maple sells to wholesalers below its list price. Customer price groups are the tenant's configuration"
@@ -13819,8 +13828,23 @@ step_price_groups() {
   as ruth
   QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Contoso
   contoso=$(field '.items[0].id')
+  as ada
+  say "A customer's price group decides its prices, so who assigns it is kept apart from who maintains prices"
+  say "(product owner, 2026-11-18): the sales data take sales.customer_sales_data.write, which finance_staff does not"
+  say "hold. Ada creates the role of the sales master data team and gives it to Sally:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "sales_master_data", "name": "Sales master data"}'
+  role=$(field .id)
+  grant "$role" sales.customer_sales_data.write
+  sally=$(awk -F'\t' '$2 == "Sally Sales" { print $1 }' "$WORK/names")
+  [ -n "$sally" ] || fail "step 62's Sally is not there"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$sally\", \"role_id\": \"$role\"}"
   as paula
-  say "Paula puts Contoso and Northwind in the wholesale group, in their sales data for Maple:"
+  say "Paula maintains prices; she may read customers' sales data but not set them up:"
+  refused 403 identity.permission_missing createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"01\"}"
+  api 200 '"Contoso'"'"'s sales data: \(.items | length), none set up yet"' listCustomerSalesData -p "customer_id=$contoso"
+  expect "Contoso's sales data, read by Paula" "$(field '.items | length')" 0
+  as sally
+  say "Sally puts Contoso and Northwind in the wholesale group, in their sales data for Maple:"
   api 201 '"sales data of \(.customer_number) \(.customer_name) in \(.company_code): price group \(.price_group) \(.price_group_name), version \(.version)"' \
     createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"01\"}"
   data=$(field .id)
@@ -13830,6 +13854,7 @@ step_price_groups() {
     createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"price_group\": \"01\"}"
   say "A customer has one sales data per company: a second is refused, and the one there is changed instead:"
   refused 409 sales.customer_sales_data_exists createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"02\"}"
+  as paula
   say "Paula records the wholesale price of the bracket, 11.75 CAD. A record is for one customer or for a group, not both:"
   api 201 '"price of \(.item_key) for price group \(.price_group): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), valid from \(.valid_from)"' \
     createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"price_group\": \"01\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"11.75\", \"currency\": \"CAD\"}, \"valid_from\": \"$YEAR-01-01\"}"
@@ -13851,8 +13876,8 @@ step_price_groups() {
     -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$bracket]}"
   expect "Northwind's conditions" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.access) \(.amount.amount)"] | join(", ")')" \
     "PR00 customer 1174.99, K007 customer -58.75"
-  as paula
-  say "Contoso becomes a retail customer. Paula moves it to 02 with her version of its sales data; a group the"
+  as sally
+  say "Contoso becomes a retail customer. Sally moves it to 02 with her version of its sales data; a group the"
   say "configuration does not have is refused, and so is her version once it is stale:"
   refused 422 sales.unknown_price_group updateCustomerSalesData -p "id=$data" -if-match "$tag" -body '{"price_group": "09"}'
   api 200 '"sales data of \(.customer_number): price group \(.price_group) \(.price_group_name), version \(.version)"' \

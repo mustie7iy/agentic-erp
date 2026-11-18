@@ -1,0 +1,26 @@
+# The general holidays of the Canada Labour Code (s. 166), federally
+# regulated workplaces' statutory holidays, on their own dates. Provincial
+# holidays (Family Day, Saint-Jean-Baptiste Day, Civic Holiday and others)
+# depend on the company's province and are added by the tenant; the day
+# observed when a holiday falls on a weekend is left to the tax specialist.
+holidays:
+  - {date: 2026-01-01, name: New Year's Day}
+  - {date: 2026-04-03, name: Good Friday}
+  - {date: 2026-05-18, name: Victoria Day}
+  - {date: 2026-07-01, name: Canada Day}
+  - {date: 2026-09-07, name: Labour Day}
+  - {date: 2026-09-30, name: National Day for Truth and Reconciliation}
+  - {date: 2026-10-12, name: Thanksgiving Day}
+  - {date: 2026-11-11, name: Remembrance Day}
+  - {date: 2026-12-25, name: Christmas Day}
+  - {date: 2026-12-26, name: Boxing Day}
+  - {date: 2027-01-01, name: New Year's Day}
+  - {date: 2027-03-26, name: Good Friday}
+  - {date: 2027-05-24, name: Victoria Day}
+  - {date: 2027-07-01, name: Canada Day}
+  - {date: 2027-09-06, name: Labour Day}
+  - {date: 2027-09-30, name: National Day for Truth and Reconciliation}
+  - {date: 2027-10-11, name: Thanksgiving Day}
+  - {date: 2027-11-11, name: Remembrance Day}
+  - {date: 2027-12-25, name: Christmas Day}
+  - {date: 2027-12-26, name: Boxing Day}

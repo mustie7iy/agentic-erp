@@ -5060,6 +5060,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Customer sales data under its own permission: sales.customer_sales_data.read and .write on /v1/customer-sales-data in place of sales.price.read and .write, so price maintenance and price group assignment are separable (product owner 2026-11-18); existing roles granted the new permission where the old one gave access",
+        "r": "docs/design/plan-depth-3.md §packperm · T80f · x-permission of listCustomerSalesData, getCustomerSalesData (.read), createCustomerSalesData, updateCustomerSalesData (.write) · db/migrations/000394 (expand: grants copied) · TestCustomerSalesDataPermissionExpand · TestSalesDataPermissions · ADR-0067 §7, default 27 and As built · 03-data-model §3.29 · walkthrough step_price_groups (role sales_master_data)",
+        "src": "po:2026-11-18",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "later: price determination variants: prices per price list type or sales organization, surcharges and freight, minimum prices and manual price approval, currency conversion of a price, repricing a document, mass changes and price uploads, prices taken over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T80a, Later",
@@ -5393,6 +5400,13 @@
       "t": "A warehouse clerk posts goods movements of a material at a plant's storage location (receipt without order, initial entry, issue to a cost center, scrapping, transfers between storage locations and plants) as material documents, reverses one, and reads stock by location now or as at a date; stock never below zero",
       "r": "S1c · docs/design/plan-supply-chain.md §S1c · ADR-0082 As built S1c · db/migrations/000376 · internal/inventory · inventory.material_document, .movement, .stock · POST /v1/material-documents · GET /v1/material-documents · GET /v1/material-documents/{id} · POST /v1/material-documents/{id}:reverse · GET /v1/stock · MaterialDocumentPosted · inventory.movement.post, inventory.stock.read · materials.Materials · walkthrough step_goods_movements",
       "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The ledger's :reverse refusal for an inventory entry names where it is reversed: a material document's with POST /v1/material-documents/{id}:reverse, a price change's by another price change, as it names the other owners' paths",
+      "r": "docs/design/plan-depth-3.md §packperm · internal/ledger requireOwnEntry, inventoryOwned · TestReversalBelongsToTheOwner (inventory WE, PR) · reverseJournalEntry description · 04 §4.9 · S1c · ADR-0082 As built S1c (the ledger's refusal)",
+      "src": "review:batch80",
       "c": []
      },
      {
@@ -7819,6 +7833,13 @@
         "t": "Number ranges of the newer documents in the packs (product owner 2026-11-12, row 15): Canada 2026.9 and UAE 2026.6 are 2026.8 and 2026.5 plus the ranges rfq, quotation, sales_order, billing_document, customer_invoice, incoming_payment, journal_dr, journal_dg and journal_dz, which a company activated from the earlier version lacked (422 config.no_number_range; the walkthrough's pilot set them up itself until batch 71); tax codes, rates, tax settings and returns unchanged byte for byte; an upgrade adds the ranges and nothing else. Signed off: the product owner answered on 2026-11-13 that the tax specialist's sign-off of 2026-11-09 covers these numbering-only versions, so both carry it and production applies them",
         "r": "packs/ca/2026.9 · packs/ae/2026.6 · packs/released.sha256 · TestCanadaPack2026_9 · TestUAEPack2026_6 (numberingOnly, adoptsAddedRanges) · ADR-0048 As built (number ranges of the newer documents) · walkthrough steps 2 and 41 apply them, the latest signed-off versions",
         "src": "po:2026-11-12 · po:2026-11-13",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Numbering-only packs Canada 2026.10 and UAE 2026.7 bring the debit memos' journal range journal_dd (T75j), which a company activated from Canada 2026.9 or UAE 2026.6 lacks (422 config.no_number_range); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried (product owner 2026-11-18)",
+        "r": "docs/design/plan-depth-3.md §packperm · packs/ca/2026.10 · packs/ae/2026.7 · packs/released.sha256 · TestCanadaPack2026_10 · TestUAEPack2026_7 (numberingOnly, adoptsAddedRanges) · ADR-0048 As built (the debit memos' journal range) · ADR-0063 As built T75j · walkthrough steps 2 and 41 apply them, the pilot's settings no longer add journal_dd",
+        "src": "po:2026-11-18",
         "c": []
        }
       ]

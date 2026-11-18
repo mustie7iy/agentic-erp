@@ -5700,7 +5700,9 @@ erDiagram
   `.write`, `.confirm` and `.credit_release` (T77b);
   `sales.delivery.confirm`; `sales.billing.read`,
   `.write` and `.post` (posting comes with T79b); `sales.price.read` and
-  `.write`; `sales.return.read`, `.write` and `.confirm` (T85a) and
+  `.write`; `sales.customer_sales_data.read` and `.write` (migration
+  000394, product owner 2026-11-18: the customers' sales data, apart from
+  the prices); `sales.return.read`, `.write` and `.confirm` (T85a) and
   `.receive` (T85b).
 
 ## 3.30 Revenue recognition (`revenue`)

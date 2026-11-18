@@ -889,8 +889,12 @@ resume.
   entry, T33); an assets document's entry names its document's path
   (`asset-acquisitions/{id}:reverse`, `asset-retirements/{id}:reverse`
   (T57g), `asset-transfers/{id}:reverse` (T57h); a depreciation run's
-  entries are never reversed one by one, ADR-0057 §4, T57d). Entries of contexts with no reversal path yet
-  (receivables) are refused the same way, saying so.
+  entries are never reversed one by one, ADR-0057 §4, T57d); an inventory
+  material document's entry names `material-documents/{id}:reverse`, and a
+  price change's names its material and says it is corrected by another
+  price change on that material's valuation (ADR-0082,
+  As built S1c). Entries of contexts with no reversal path yet are refused
+  the same way, saying so.
 - Approval decisions (`:approve`, `:reject` on approval requests) require a
   human principal; agent tokens are refused with `403 identity.agent_not_allowed`
   and the database enforces the same rule (ADR-0010).

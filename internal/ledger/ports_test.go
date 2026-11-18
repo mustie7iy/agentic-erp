@@ -281,12 +281,13 @@ func TestAccountBalances(t *testing.T) {
 func TestReversalBelongsToTheOwner(t *testing.T) {
 	e := setup(t)
 	expense, ap := uuid.MustParse(e.account(t, "2000", "520000")), uuid.MustParse(e.account(t, "2000", "211000"))
-	post := func(source string) ledger.Entry {
+	material := "MA0000001" // a price change's entry names its material (inventory's revalue)
+	postAs := func(source, docType string, reference *string) ledger.Entry {
 		t.Helper()
 		var entry ledger.Entry
 		if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
-			entry, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: "SA", DocumentDate: date("2026-03-01"),
-				PostingDate: date("2026-03-02"), Currency: "EUR", SourceContext: source, SourceDocumentID: uuid.New(),
+			entry, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: docType, DocumentDate: date("2026-03-01"),
+				PostingDate: date("2026-03-02"), Currency: "EUR", Reference: reference, SourceContext: source, SourceDocumentID: uuid.New(),
 				Lines: []ledger.PostingLine{{AccountID: expense, Amount: 100}, {AccountID: ap, Amount: -100, PartnerID: &e.supplier}}})
 			return err
 		}); err != nil {
@@ -294,21 +295,31 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 		}
 		return entry
 	}
-	for _, c := range []struct{ source, endpoint string }{
-		{"payables", "/v1/supplier-invoices/"},
-		{"procurement", "/v1/goods-receipts/"},
-		{"receivables", "/v1/customer-invoices/"},
-		{"assets", "/v1/asset-acquisitions/"},
-		{"controlling", "/v1/internal-orders/"},
+	post := func(source string) ledger.Entry { t.Helper(); return postAs(source, "SA", &material) }
+	for _, c := range []struct{ source, docType, endpoint string }{
+		{"payables", "SA", "/v1/supplier-invoices/"},
+		{"procurement", "SA", "/v1/goods-receipts/"},
+		{"receivables", "SA", "/v1/customer-invoices/"},
+		{"assets", "SA", "/v1/asset-acquisitions/"},
+		{"controlling", "SA", "/v1/internal-orders/"},
+		{"inventory", "WE", "/v1/material-documents/"},
+		{"inventory", "PR", "/v1/material-valuations/"},
 	} {
-		t.Run(c.source, func(t *testing.T) {
-			entry := post(c.source)
+		t.Run(c.source+" "+c.docType, func(t *testing.T) {
+			entry := postAs(c.source, c.docType, &material)
 			_, tag := e.Must(200, "GET", "/v1/journal-entries/"+entry.ID.String(), "", "")
 			refused := e.Problem(409, "ledger.entry_owned_elsewhere", "POST", "/v1/journal-entries/"+entry.ID.String()+":reverse", "", tag)
-			if detail, _ := refused["detail"].(string); !strings.Contains(detail, c.endpoint) {
+			detail, _ := refused["detail"].(string)
+			if !strings.Contains(detail, c.endpoint) {
 				t.Errorf("detail: got %q, want it to name %s", detail, c.endpoint)
 			} else if !strings.HasPrefix(c.endpoint, "/v1/") && strings.Contains(detail, "/v1/") {
 				t.Errorf("detail: got %q, want no endpoint named where none exists", detail)
+			}
+			if want := "/v1/material-documents/" + entry.SourceDocumentID.String() + ":reverse"; c.docType == "WE" && !strings.Contains(detail, want) {
+				t.Errorf("detail: got %q, want the material document's reversal %s", detail, want)
+			}
+			if want := "of material MA0000001"; c.docType == "PR" && !strings.Contains(detail, want) {
+				t.Errorf("detail: got %q, want the price change's material named (%s)", detail, want)
 			}
 			if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 				_, err := postings().Reverse(ctx, entry.ID, nil, nil)
@@ -318,6 +329,15 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 			}
 		})
 	}
+	t.Run("inventory PR without a reference", func(t *testing.T) {
+		entry := postAs("inventory", "PR", nil)
+		_, tag := e.Must(200, "GET", "/v1/journal-entries/"+entry.ID.String(), "", "")
+		refused := e.Problem(409, "ledger.entry_owned_elsewhere", "POST", "/v1/journal-entries/"+entry.ID.String()+":reverse", "", tag)
+		want := "The journal entry was posted for inventory price change " + entry.SourceDocumentID.String() + "; a price change is not reversed"
+		if detail, _ := refused["detail"].(string); !strings.HasPrefix(detail, want) {
+			t.Errorf("detail: got %q, want it to start %q, naming no material", detail, want)
+		}
+	})
 	// Entries of contexts without a reversal of their own (a migration run's load) stay the ledger's to reverse.
 	for _, source := range []string{"integration", "payments"} {
 		entry := post(source)

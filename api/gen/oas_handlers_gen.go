@@ -18846,7 +18846,10 @@ func (s *Server) handleCreateCustomerInvoiceRequest(args [0]string, argsEscaped 
 // records. A customer has one sales data per company: a second is refused (409
 // `sales.customer_sales_data_exists`), and the first is found with
 // `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with
-// `updateCustomerSalesData`. The items priced before keep their prices. Audited, and published as
+// `updateCustomerSalesData`. The items priced before keep their prices. Setting up and changing sales
+// data takes `sales.customer_sales_data.write` and reading it `.read`, not the price permissions, so
+// maintaining prices and assigning customers to price groups can be held by different roles
+// (segregation of duties, product owner 2026-11-18). Audited, and published as
 // CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created.
 // Human-only (`x-agent: false`).
 //
@@ -119093,9 +119096,15 @@ func (s *Server) handleReverseInternalOrderSettlementRequest(args [2]string, arg
 // (a depreciation run's entries never one by one); an accounts receivable entry (`receivables`) is 409
 // `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed
 // with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit
-// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`.
-// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
-// them yet. Returns the new reversal entry. Human-only.
+// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`; an
+// inventory entry (`inventory`) is 409 `ledger.entry_owned_elsewhere` naming its path: a material
+// document's entry is reversed with `POST /v1/material-documents/{id}:reverse`, which posts its own
+// entry, and a price change's (document type `PR`) is not reversed but corrected by another price
+// change: the detail names the material by its number, whose plant's valuation
+// (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`) takes the new price
+// (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409
+// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
+// entry. Human-only.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
