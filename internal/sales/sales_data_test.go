@@ -81,6 +81,19 @@ func TestSalesDataSetUpAndChanged(t *testing.T) {
 			}
 		})
 	}
+	t.Run("paged by customer number", func(t *testing.T) {
+		first, _ := e.In(t).Must(200, "GET", "/v1/customer-sales-data?page_size=1", "", "")
+		token, _ := first["next_page_token"].(string)
+		next, _ := e.In(t).Must(200, "GET", "/v1/customer-sales-data?page_size=1&page_token="+token, "", "")
+		if a, b := items(t, first)[0]["customer_number"], items(t, next)[0]["customer_number"]; a != "BP70000001" || b != "BP70000002" {
+			t.Errorf("pages: got %v then %v, want BP70000001 then BP70000002", a, b)
+		}
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := endpoints(t, time.Now()).ListCustomerSalesData(ctx, gen.ListCustomerSalesDataParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		})
+		refusal(t, err, 400, "request.invalid_page_size")
+	})
 	path := "/v1/customer-sales-data/" + id
 	changed, tag := e.Must(200, "PATCH", path, `{"price_group": "02"}`, tag)
 	fields(t, changed, map[string]any{"price_group": "02", "price_group_name": "Retail", "version": float64(2)})
