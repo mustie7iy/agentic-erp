@@ -668,7 +668,10 @@ people() {
   local staff perm code approve n=0
   QUIET=1 api 200 '' listRoles -p page_size=100
   cp "$WORK/last.json" "$WORK/roles.json"
-  QUIET=1 api 200 '' listRolePermissions -p "id=$(role tenant_admin)" -p page_size=200
+  # One page holds them all: past 200 permissions (S1d's inventory ones),
+  # a page of 200 left finance_staff without the ones on the next.
+  QUIET=1 api 200 '' listRolePermissions -p "id=$(role tenant_admin)" -p page_size=500
+  [ "$(field '.next_page_token // ""')" = "" ] || fail "tenant_admin's permissions: more than one page of 500"
   field '.items[].permission_code' >"$WORK/permissions"
   api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "finance_staff", "name": "Finance staff"}'
   staff=$(field .id)
