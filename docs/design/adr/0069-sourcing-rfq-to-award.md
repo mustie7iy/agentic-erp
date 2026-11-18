@@ -604,3 +604,55 @@ leaves sourcing.
   `approved`, its approval standing; one event, `RequisitionReopened`, with
   a `cause`, offered to webhooks; agents may cancel or close as they may
   publish (a write, ADR-0036 level 2).
+
+### T82h An award's purchase order cancelled (migrations 000365, 000366)
+
+The two findings of the batch 78 review in this code (review:batch78,
+`plan-depth-2.md` §T82h): cancelling an order an award created moved its
+requisition back without an event, and left the RFQ naming the cancelled
+order as its award's result.
+
+- **API.** `POST /v1/purchase-orders/{id}:cancel` is unchanged in its
+  request and refusals. An RFQ shows the status `order_cancelled` (an
+  open enumeration) once its award's order is cancelled; it still names
+  the order (`purchase_order_id`, `purchase_order_document_number`) and
+  keeps `award_reason`.
+- **Behaviour.** `cancelOrder` calls `unsourced` (`rfq_close.go`) after
+  it cancels the order: the RFQ whose award created the order, if any, is
+  read under its row lock and moved `awarded` → `order_cancelled`
+  (guarded by its status, version bumped), audited
+  `procurement.rfq.order_cancelled` and published as `RfqChanged`
+  (`order_cancelled`); then the order's requisition, if any, is reopened
+  as T82g reopens one (`reopen`: `ordered` → `approved`, audited
+  `procurement.requisition.reopened`, `RequisitionReopened` with `cause`
+  `purchase_order_cancelled` and the order by id and number). This holds
+  for every order cancelled from a requisition, not only an award's: its
+  move back was audited `procurement.requisition.approved` with no event
+  before. The quotations' outcomes stay; the RFQ is not reopened (a new
+  RFQ sources the requisition again). Locks: the order, then the RFQ,
+  then the requisition. The award takes the RFQ, then the requisition,
+  and creates the order as a new row no other transaction holds, so no
+  path takes them the other way round.
+- **Schema.** `check_rfq`: an awarded RFQ becomes `order_cancelled` only
+  once the order it names is cancelled (`rfq_order_cancelled`), keeping
+  its document and reason (`rfq_stays_awarded`), and stays so
+  (`rfq_stays_ended`). The status check, `rfq_awarded_to_one_document`
+  (an `order_cancelled` RFQ names its order) and `rfq_award_reason_check`
+  are widened (NOT VALID, validated by 000366). The revert refuses while
+  an RFQ is `order_cancelled`. Schema tests in
+  `db/rfq_award_cancel_test.go`.
+- **Events and audit.** `RfqChanged` gains `purchase_order_id` and
+  `purchase_order_document_number` for an RFQ awarded to an order (added
+  within v1); `RequisitionReopened` gains the cause
+  `purchase_order_cancelled`, `previous_status` `ordered` and the order.
+  The event log's activities "Source requisition" and "Reopen
+  requisition" (ADR-0080 As built T103c) show the requisition's sourcing
+  in the order's case.
+- **Walkthrough.** `step_rfq_requisition` (step 115) extended: after the
+  release, Ben cancels the order; the requisition reads `approved`, the
+  RFQ `order_cancelled` naming the order, and the order's case in the
+  event log holds the requisition's two sourcings and reopenings.
+- **Defaults** (33-35, for the digest): every order cancelled from a
+  requisition publishes `RequisitionReopened`, not only an award's; the
+  RFQ keeps the cancelled order's id and number under the status
+  `order_cancelled` rather than dropping them; the RFQ is not reopened.

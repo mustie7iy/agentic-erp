@@ -2,6 +2,7 @@ package procurement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -12,7 +13,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// An RFQ ended without an award (T82g, ADR-0069 As built): a buyer
+// An RFQ ended without an award (T82g, ADR-0069 As built), and the
+// sourcing an award's cancelled order undoes (T82h): a buyer
 // cancels a draft or published RFQ that is no longer needed, or closes a
 // published one whose quotations do not lead to an award, with a reason.
 // Its recorded quotations are not awarded, and a requisition it was
@@ -104,4 +106,44 @@ func (e *Endpoints) reopen(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 	extra["cause"] = cause
 	_, err = e.moveRequisition(ctx, tx, p, req, Approved, "reopened", req.WorkflowRequestID, "requisition_reopened", extra)
 	return err
+}
+
+// RFQOrderCancelled is the status of an RFQ whose award's purchase order
+// was cancelled (T82h): the RFQ still names the order, which no longer
+// orders anything.
+const RFQOrderCancelled = "order_cancelled"
+
+// ReopenedByOrderCancelled is the cause of a requisition reopened because
+// its purchase order was cancelled.
+const ReopenedByOrderCancelled = "purchase_order_cancelled"
+
+// unsourced undoes what an order cancelled in this transaction had
+// sourced (T82h): the RFQ whose award created it, if any, moves from
+// awarded to order_cancelled, and its requisition, if any, is reopened.
+// Locks: the order (the caller's), then the RFQ, then the requisition,
+// the order an award takes the RFQ and the requisition in; the award's
+// order is a new row no other transaction holds.
+func (e *Endpoints) unsourced(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o PurchaseOrder) error {
+	var rfq uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT id FROM procurement.rfq WHERE purchase_order_id = $1 FOR UPDATE`, o.ID).Scan(&rfq)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows): // an order no award created
+	case err != nil:
+		return fmt.Errorf("procurement: cancel purchase order %s: lock its RFQ: %w", o.ID, err)
+	default:
+		// Only an awarded RFQ names an order that is not cancelled (000365).
+		if _, err := tx.Exec(ctx, `UPDATE procurement.rfq SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1 AND status = $4`,
+			rfq, RFQOrderCancelled, p.ID, RFQAwarded); err != nil {
+			return fmt.Errorf("procurement: cancel purchase order %s: its RFQ %s: %w", o.ID, rfq, err)
+		}
+		if _, err := e.recorded(ctx, tx, rfq, "order_cancelled", RFQOrderCancelled, map[string]any{"from_status": RFQAwarded,
+			"purchase_order_id": o.ID}); err != nil {
+			return err
+		}
+	}
+	if o.RequisitionID == nil {
+		return nil
+	}
+	return e.reopen(ctx, tx, p, *o.RequisitionID, ReopenedByOrderCancelled, map[string]any{"purchase_order_id": o.ID,
+		"purchase_order_document_number": o.DocumentNumber})
 }

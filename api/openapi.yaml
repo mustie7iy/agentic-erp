@@ -11273,7 +11273,7 @@ paths:
       tags:
         - procurement
       summary: Cancel a purchase order
-      description: "Cancels an order without receipts or invoices and returns its contract consumption. An order waiting for its release approval is cancelled too, and its request withdrawn; so is an open order change of a released order."
+      description: "Cancels an order without receipts or invoices and returns its contract consumption. An order waiting for its release approval is cancelled too, and its request withdrawn; so is an open order change of a released order. An order an RFQ's award created (`rfqs/{id}:award` with `award_to` `purchase_order`) moves that RFQ from `awarded` to `order_cancelled`, published as RfqChanged (`order_cancelled`); the RFQ still names the order (T82h). An order from a requisition moves it back to `approved`, to be sourced or ordered anew, published as RequisitionReopened (`cause` `purchase_order_cancelled`). Locks: the order, then its RFQ, then its requisition, in one transaction."
       x-permission: procurement.order.create
       x-problem-codes:
         - procurement.amount_too_large
@@ -49020,6 +49020,7 @@ components:
                 - awarded
                 - cancelled
                 - closed
+                - order_cancelled
               readOnly: true
             closing_reason:
               type: string
@@ -49037,7 +49038,7 @@ components:
             purchase_order_id:
               type: string
               format: uuid
-              description: "The draft purchase order an award to a purchase order created (T82f), at `/v1/purchase-orders/{purchase_order_id}`; absent otherwise."
+              description: "The draft purchase order an award to a purchase order created (T82f), at `/v1/purchase-orders/{purchase_order_id}`; absent otherwise. When that order is cancelled the RFQ's status is `order_cancelled` (T82h): it still names the order, which no longer orders anything."
               readOnly: true
             purchase_order_document_number:
               type: string

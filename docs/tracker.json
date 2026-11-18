@@ -4614,9 +4614,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Cancelling a purchase order created by an RFQ's award moves its requisition back without an event, and the RFQ still names the cancelled order as its award (found in the batch 78 rfq lane review).",
-        "r": "T82h · docs/design/plan-depth-2.md §T82h · internal/procurement order cancel (requisition back from ordered) · rfq_award_order.go · T82f · ADR-0007 outbox · ADR-0069",
+        "r": "T82h · docs/design/plan-depth-2.md §T82h · migrations 000365, 000366 · internal/procurement/rfq_close.go (unsourced), purchase_orders.go cancelOrder · RFQ status order_cancelled · RequisitionReopened (purchase_order_cancelled) · T82f · ADR-0007 outbox · ADR-0069 As built · walkthrough step_rfq_requisition",
         "src": "review:batch78",
         "c": []
        }
@@ -7042,9 +7042,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The purchase-to-pay event log has no activity for procurement.requisition.in_sourcing (T82e: an RFQ created from the requisition), so a case sourced by an RFQ shows no sourcing step between approval and the order (found in the batch 78 rfq lane review).",
-        "r": "T103c · docs/design/plan-depth-2.md §T82h · internal/processmining log.go activities · T103a · T82e",
+        "r": "T103c · docs/design/plan-depth-2.md §T82h · internal/processmining log.go activities (Source requisition, Reopen requisition) · T103a · T82e · ADR-0080 As built T103c · walkthrough step_rfq_requisition",
         "src": "review:batch78",
         "c": []
        },

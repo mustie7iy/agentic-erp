@@ -12515,11 +12515,14 @@ step_billing_cancellation() {
 # the requisition is approved again, and he asks again by a second RFQ
 # from it. Then (T82f) both suppliers quote; Ben awards the dearer one, which can deliver by the
 # need date, to a purchase order with his reason: the order carries the
-# quoted prices, the need date and the requisition, which is ordered.
+# quoted prices, the need date and the requisition, which is ordered. Last
+# (T82h), Tyrell cannot deliver after all and Ben cancels the order: the
+# requisition is approved again, the RFQ shows the order cancelled, and
+# the order's case in the event log shows the requisition's sourcing.
 step_rfq_requisition() {
-  heading "Step 115 — An RFQ from a requisition: an approved requisition's items, quantities and need date taken into an RFQ; the requisition in sourcing, naming the RFQ; the RFQ closed without an award and the requisition approved again; a second RFQ awarded with a reason to the dearer quotation as a purchase order naming the requisition, which is ordered"
+  heading "Step 115 — An RFQ from a requisition: an approved requisition's items, quantities and need date taken into an RFQ; the requisition in sourcing, naming the RFQ; the RFQ closed without an award and the requisition approved again; a second RFQ awarded with a reason to the dearer quotation as a purchase order naming the requisition, which is ordered; the order cancelled, the requisition approved again and the RFQ showing the order cancelled"
   as ben
-  local needed due expense req request rfq first body valid tyrells award po
+  local needed due expense req request rfq first body valid tyrells award po activities
   accounts
   expense=$(account 6000)
   needed=$(date_add "$(company_day)" 21)
@@ -12617,6 +12620,21 @@ step_rfq_requisition() {
   QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
   api 200 '"purchase order \(.document_number): \(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
   expect "the released order" "$(field .status)" released
+  say "Tyrell writes that it cannot deliver by the need date after all. Nothing was received or invoiced, so Ben"
+  say "cancels the order (T82h): the requisition is approved again, to be sourced anew, and the RFQ shows that its"
+  say "award's order was cancelled, still naming it:"
+  api 200 '"purchase order \(.document_number): \(.status)"' cancelPurchaseOrder -p "id=$po" -if-match "$ETAG"
+  api 200 '"requisition \(.document_number): \(.status)"' getRequisition -p "id=$req"
+  expect "the requisition reopened" "$(field .status)" approved
+  api 200 '"RFQ \(.document_number): \(.status), purchase order \(.purchase_order_document_number), awarded because: \(.award_reason)"' getRfq -p "id=$rfq"
+  expect "the RFQ" "$(field '"\(.status) \(.purchase_order_id)"')" "order_cancelled $po"
+  as pia
+  say "Pia reads the cancelled order's case in the purchase-to-pay event log: the requisition's sourcing by the two RFQs"
+  say "and its reopening after each are activities of the case (T103c):"
+  activities=$(log_case "$(company_day)" "$(company_day)" "$po")
+  jq -r '.[] | "  \(.)"' <<<"$activities"
+  expect "the requisition's sourcing and reopening" "$(jq -r '[.[] | select(. == "Source requisition" or . == "Reopen requisition")] | join(", ")' <<<"$activities")" \
+    "Source requisition, Reopen requisition, Source requisition, Reopen requisition"
   passed
 }
 

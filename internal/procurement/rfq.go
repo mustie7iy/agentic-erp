@@ -27,7 +27,7 @@ import (
 // RFQPublished is the status of an RFQ that was published to the suppliers
 // invited; before that it is a Draft, and an award (rfq_award.go) makes
 // it RFQAwarded; ended without one (rfq_close.go), it is RFQCancelled or
-// RFQClosed.
+// RFQClosed, and RFQOrderCancelled once its award's order is cancelled.
 const RFQPublished = "published"
 
 // rfqNumberRange is the document type RFQs draw their numbers from
@@ -399,6 +399,9 @@ func (e *Endpoints) recorded(ctx context.Context, tx pgx.Tx, id uuid.UUID, actio
 	changed["status"], changed["change"], changed["supplier_count"] = stored.Status, change, len(stored.Suppliers)
 	if stored.ClosingReason != nil {
 		changed["reason"] = *stored.ClosingReason
+	}
+	if stored.PurchaseOrderID != nil {
+		changed["purchase_order_id"], changed["purchase_order_document_number"] = *stored.PurchaseOrderID, *stored.PurchaseOrderNumber
 	}
 	events := []outbox.Event{event("rfq_changed", "rfq", stored.ID, changed)}
 	if stored.Status == RFQPublished {

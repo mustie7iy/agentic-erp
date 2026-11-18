@@ -94263,7 +94263,8 @@ type Rfq struct {
 	// That contract's document number; absent until the RFQ is awarded.
 	ContractDocumentNumber OptString `json:"contract_document_number"`
 	// The draft purchase order an award to a purchase order created (T82f), at
-	// `/v1/purchase-orders/{purchase_order_id}`; absent otherwise.
+	// `/v1/purchase-orders/{purchase_order_id}`; absent otherwise. When that order is cancelled the RFQ's
+	// status is `order_cancelled` (T82h): it still names the order, which no longer orders anything.
 	PurchaseOrderID OptUUID `json:"purchase_order_id"`
 	// That purchase order's document number; absent with it.
 	PurchaseOrderDocumentNumber OptString `json:"purchase_order_document_number"`

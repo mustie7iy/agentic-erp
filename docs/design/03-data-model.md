@@ -1782,7 +1782,7 @@ erDiagram
     uuid legal_entity_id
     char currency
     date due_date
-    text status "draft | published | awarded | cancelled | closed"
+    text status "draft | published | awarded | cancelled | closed | order_cancelled"
     text closing_reason "why it was cancelled or closed without an award (T82g)"
     uuid contract_id FK "the contract an award created"
     uuid purchase_order_id FK "the purchase order an award created (T82f)"
@@ -2080,6 +2080,11 @@ on those statuses, not blank, at most 500 characters), and only once each
 of its quotations is `not_awarded` (`rfq_lifecycle`); it stays so with
 its reason. Only a `draft` or `published` RFQ is its requisition's open
 RFQ, so a requisition whose RFQ ended is sourced again by a new one.
+When the purchase order an award created is cancelled (migration 000365,
+T82h), the RFQ moves from `awarded` to `order_cancelled`, only once that
+order is cancelled (`rfq_lifecycle`), keeping `purchase_order_id` and its
+award reason (`rfq_awarded_to_one_document` and `rfq_award_reason_check`
+widened to it), and stays so.
 
 A contract has a kind (migration 000301, T83a, ADR-0070 §1): `contract`,
 the default, or `scheduling_agreement`, given when it is created and kept

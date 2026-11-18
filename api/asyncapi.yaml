@@ -3034,7 +3034,7 @@ components:
       x-webhook: true
       title: Requisition reopened
       summary: "A requisition is approved again and can be sourced or ordered anew."
-      description: "Emitted when a requisition moves back to `approved` because the RFQ sourcing it was cancelled or closed without an award (`rfqs/{id}:cancel`, `rfqs/{id}:close`; from `in_sourcing`, T82g): its approval stands, and it can be sourced by a new RFQ, ordered or cancelled. The RFQ's reason is not given here; RfqChanged gives it. Subject is the requisition id."
+      description: "Emitted when a requisition moves back to `approved` because the RFQ sourcing it was cancelled or closed without an award (`rfqs/{id}:cancel`, `rfqs/{id}:close`; from `in_sourcing`, T82g) or the purchase order created from it was cancelled (`purchase-orders/{id}:cancel`, from `ordered`, T82h, whoever created the order): its approval stands, and it can be sourced by a new RFQ, ordered or cancelled. The RFQ's reason is not given here; RfqChanged gives it. Subject is the requisition id."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -3083,13 +3083,15 @@ components:
     RfqChanged:
       name: RfqChanged
       title: Request for quotation changed
-      summary: "A request for quotation was created, published, awarded, cancelled or closed."
+      summary: "A request for quotation was created, published, awarded, cancelled or closed, or its award's order cancelled."
       description: |
         Emitted by `rfqs` (POST, `created`), its `:publish` (`published`),
         its `:award` (`awarded`), its `:cancel` (`cancelled`) and its
-        `:close` (`closed`, without an award; T82g), ADR-0069 §5: the RFQ
-        as it stands after the change, with the reason given to cancel or
-        close it. Subject is the RFQ id.
+        `:close` (`closed`, without an award; T82g), and by
+        `purchase-orders/{id}:cancel` of the order an award created
+        (`order_cancelled`, T82h), ADR-0069 §5: the RFQ as it stands after
+        the change, with the reason given to cancel or close it and the
+        order an award created. Subject is the RFQ id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -7886,11 +7888,13 @@ components:
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
         legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
-        previous_status: {"type": "string", "description": "Open enum: in_sourcing (its RFQ was cancelled or closed)."}
+        previous_status: {"type": "string", "description": "Open enum: in_sourcing (its RFQ was cancelled or closed), ordered (its purchase order was cancelled)."}
         status: {"type": "string", "description": "Open enum; approved in v1."}
-        cause: {"type": "string", "description": "What reopened the requisition. Open enum: rfq_cancelled, rfq_closed."}
+        cause: {"type": "string", "description": "What reopened the requisition. Open enum: rfq_cancelled, rfq_closed, purchase_order_cancelled."}
         rfq_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.rfq.id`: the RFQ cancelled or closed, for those causes."}
         rfq_document_number: {"type": "string", "description": "That RFQ's document number; present with it."}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the order cancelled, for cause purchase_order_cancelled."}
+        purchase_order_document_number: {"type": "string", "description": "That order's document number; present with it."}
     PurchaseOrderClosedV1:
       type: object
       required: ["purchase_order_id", "document_number", "legal_entity_id", "supplier_id", "previous_status", "status"]
@@ -7937,13 +7941,15 @@ components:
         legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
         currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
         due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
-        status: {"type": "string", "description": "The status after the change. Open enum: draft, published, awarded, cancelled, closed."}
-        change: {"type": "string", "description": "Open enum: created, published, awarded, cancelled, closed."}
+        status: {"type": "string", "description": "The status after the change. Open enum: draft, published, awarded, cancelled, closed, order_cancelled."}
+        change: {"type": "string", "description": "Open enum: created, published, awarded, cancelled, closed, order_cancelled."}
         item_count: {"type": "integer", "description": "The items asked for."}
         supplier_count: {"type": "integer", "description": "The suppliers invited."}
         requisition_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.requisition.id`: the requisition the RFQ was created from (T82e), which is `in_sourcing` from then on; absent for an RFQ created with its own items. Added within v1."}
         requisition_document_number: {"type": "string", "description": "That requisition's document number; absent with it. Added within v1."}
         reason: {"type": "string", "description": "Why the RFQ was cancelled or closed (T82g), its `closing_reason`; absent for the other changes. Added within v1."}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the order an award to a purchase order created (T82f), for an RFQ `awarded` or `order_cancelled`; absent otherwise. Added within v1."}
+        purchase_order_document_number: {"type": "string", "description": "That order's document number; absent with it. Added within v1."}
     RfqPublishedV1:
       type: object
       required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "currency", "due_date", "item_count", "suppliers"]

@@ -7299,7 +7299,12 @@ func (s *Server) handleCancelParkedJournalEntryRequest(args [1]string, argsEscap
 //
 // Cancels an order without receipts or invoices and returns its contract consumption. An order waiting
 // for its release approval is cancelled too, and its request withdrawn; so is an open order change of
-// a released order.
+// a released order. An order an RFQ's award created (`rfqs/{id}:award` with `award_to`
+// `purchase_order`) moves that RFQ from `awarded` to `order_cancelled`, published as RfqChanged
+// (`order_cancelled`); the RFQ still names the order (T82h). An order from a requisition moves it back
+// to `approved`, to be sourced or ordered anew, published as RequisitionReopened (`cause`
+// `purchase_order_cancelled`). Locks: the order, then its RFQ, then its requisition, in one
+// transaction.
 //
 // POST /v1/purchase-orders/{id}:cancel
 func (s *Server) handleCancelPurchaseOrderRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
