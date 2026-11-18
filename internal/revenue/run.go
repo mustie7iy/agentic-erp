@@ -139,6 +139,7 @@ type Run struct {
 // runBasis is what a run is made on: the company, the period, and the
 // company's contract asset and contract liability accounts.
 type runBasis struct {
+	tenant    uuid.UUID // the run's tenant, the follows' (current)
 	le        tenancy.Entity
 	exp       int
 	period    ledger.FiscalPeriod
@@ -196,7 +197,7 @@ func (e *Endpoints) basisOfRun(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	if !ok || !access.Allows(le.ID) {
 		return runBasis{}, problem.ReferenceNotFound("legal_entity_id", "legal entity", "no legal entity with this id that you can access")
 	}
-	b := runBasis{le: le}
+	b := runBasis{tenant: p.TenantID, le: le}
 	if b.exp, err = currency.Exponent(ctx, tx, le.LocalCurrency, nil); err != nil {
 		return runBasis{}, fmt.Errorf("revenue: currency of company %s: %w", le.Code, err)
 	}
@@ -386,12 +387,8 @@ func (e *Endpoints) read(ctx context.Context, tx pgx.Tx, b runBasis) (Run, error
 	cal := &calendar{source: e.Calendar, company: b.le}
 	recognized, billed := make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts))
 	assets, liabilities, revenue := make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts)), make([]money.Minor, len(contracts))
-	_, p, err := reqctx.Request(ctx)
-	if err != nil {
-		return Run{}, err
-	}
 	for i, k := range contracts {
-		k, order, err := e.current(ctx, tx, p.TenantID, k)
+		k, order, err := e.current(ctx, tx, b.tenant, k)
 		if err != nil {
 			return Run{}, err
 		}

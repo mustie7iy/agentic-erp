@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 )
 
@@ -119,5 +122,21 @@ func TestFollowLeavesAnEndedObligation(t *testing.T) {
 	}
 	if f.changes[0].No != 2 {
 		t.Errorf("the change's obligation: got %d, want 2", f.changes[0].No)
+	}
+}
+
+// TestFollowConstraintProblems: the database's rules of an ended
+// contract and an ended obligation answer as the handlers do (T81e).
+func TestFollowConstraintProblems(t *testing.T) {
+	for name, code := range map[string]string{"contract_ended": "revenue.contract_ended", "performance_obligation_ended": "revenue.obligation_ended"} {
+		t.Run(name, func(t *testing.T) {
+			p := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: name})
+			if p.Code != code {
+				t.Errorf("code: got %s, want %s", p.Code, code)
+			}
+			if p.Status != 409 {
+				t.Errorf("status: got %d, want 409", p.Status)
+			}
+		})
 	}
 }

@@ -39,7 +39,7 @@ func init() {
 	// The handlers check under the order's row lock; the rule is the
 	// database's and answers alike (a delivery of a removed item).
 	problem.RegisterConstraint("sales_order_item_removed_undelivered", func() *problem.Problem {
-		return problem.Conflict("sales.order_item_removed", "The sales order's item is removed; it takes no delivery.")
+		return problem.Unprocessable("sales.order_item_removed", "The sales order's item is removed; it takes no delivery.")
 	})
 }
 

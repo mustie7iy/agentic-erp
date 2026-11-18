@@ -31,7 +31,10 @@ ALTER TABLE sales.sales_order_change
 -- or, once the order is changed, only in the transaction that keeps the
 -- order's next change (T78e), numbered after the order's highest item;
 -- never to a cancelled order. The application writes an order's own
--- items while it is a draft and adds every later one with its change.
+-- items while it is a draft and adds every later one with its change;
+-- the rule admits a confirmed order's items before any change too, so an
+-- order written whole (a test's or a migration's, confirmed with its
+-- items) stays valid.
 CREATE FUNCTION sales.check_sales_order_item_insert() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE

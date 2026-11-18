@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // TestOrderItemsAddedRemoved: in one change a confirmed order takes a new
@@ -145,4 +148,31 @@ func TestOrderItemAddedCreditCheck(t *testing.T) {
 	if n != 3 {
 		t.Errorf("items: got %d, want 3", n)
 	}
+}
+
+// TestRemovedItemConstraint: the database's refusal of a delivery of a
+// removed item answers as the handlers do (T78e).
+func TestRemovedItemConstraint(t *testing.T) {
+	p := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: "sales_order_item_removed_undelivered"})
+	if p.Code != "sales.order_item_removed" {
+		t.Errorf("code: got %s, want sales.order_item_removed", p.Code)
+	}
+	if p.Status != 422 {
+		t.Errorf("status: got %d, want 422", p.Status)
+	}
+}
+
+// TestChangeKeptBeforeT78e: an item of a change kept before T78e, which
+// names no kind, reads as changed.
+func TestChangeKeptBeforeT78e(t *testing.T) {
+	e := setup(t)
+	id := e.ordered(t)
+	pgtest.Exec(t, `INSERT INTO sales.sales_order_change (tenant_id, id, sales_order_id, change_no, order_version, net_amount_before, net_amount_after,
+			credit_block_before, credit_block_after, items, created_by)
+		SELECT tenant_id, gen_random_uuid(), id, 1, 2, net_amount, net_amount, 'none', 'none',
+			'[{"item_no": 1, "unit": "EA", "quantity_before": "1", "quantity_after": "2", "unit_price_before": 1000, "unit_price_after": 1000,
+			   "price_unit_before": 1, "price_unit_after": 1, "net_amount_before": 1000, "net_amount_after": 2000}]', created_by
+		FROM sales.sales_order WHERE tenant_id = $1 AND id = $2`, e.Tenant.ID, id)
+	page, _ := e.Must(200, "GET", "/v1/sales-orders/"+id+"/changes", "", "")
+	fields(t, items(t, items(t, page)[0])[0], map[string]any{"change": "changed"})
 }

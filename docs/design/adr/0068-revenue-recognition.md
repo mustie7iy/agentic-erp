@@ -891,4 +891,6 @@ as revenue accounting items, is the reference.
   the highest, at a point in time with its net value as its stand-alone
   selling price (`newObligations`, as §3 starts one); a removed item's
   obligation ends with nothing allocated, a draft's too, so the draft's
-  activation gives it nothing.
+  activation gives it nothing. A contract made for an order with an item
+  already removed takes the items that stand (`sales.Order.Standing`),
+  numbered from 1 (review round 2).

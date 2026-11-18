@@ -225,8 +225,9 @@ func (e *Endpoints) make(ctx context.Context, tx pgx.Tx, p reqctx.Principal, b b
 	if tag.RowsAffected() == 0 {
 		return Contract{}, false, nil
 	}
-	obligations := make([]Obligation, len(o.Items))
-	for i, it := range o.Items {
+	items := o.Standing() // a removed item (T78e) is not ordered, and is out of the transaction price
+	obligations := make([]Obligation, len(items))
+	for i, it := range items {
 		obligations[i] = Obligation{No: int32(i + 1), OrderItemNo: it.ItemNo, ItemKey: it.ItemKey, Description: it.Description, Net: it.Net,
 			Timing: PointInTime, StandalonePrice: it.Net}
 	}

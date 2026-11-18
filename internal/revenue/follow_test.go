@@ -25,6 +25,13 @@ func (e env) changeOrder(t *testing.T, order, body string) {
 	e.Must(200, "POST", "/v1/sales-orders/"+order+":change", body, tag)
 }
 
+// versionOf is the order's current version as an If-Match value.
+func (e env) versionOf(t *testing.T, order string) string {
+	t.Helper()
+	_, tag := e.Must(200, "GET", "/v1/sales-orders/"+order, "", "")
+	return tag
+}
+
 // cancelOrder cancels the order at its current version.
 func (e env) cancelOrder(t *testing.T, order string) {
 	t.Helper()
@@ -282,6 +289,13 @@ func TestCancelledOrderEndsContract(t *testing.T) {
 	if events := e.events(t, order); events[len(events)-1]["ended"] != true {
 		t.Errorf("the last RevenueContractChanged: got ended %v, want true", events[len(events)-1]["ended"])
 	}
+	ended := e.mustSchedule(t, id, "2026-03-31")
+	if got := ended.TransactionPrice.Amount; got != "0.00" {
+		t.Errorf("the ended contract's scheduled price: got %s, want 0.00", got)
+	}
+	if got := ended.RecognizedAmount.Amount; got != "0.00" {
+		t.Errorf("the ended contract's recognized amount: got %s, want 0.00", got)
+	}
 	e.ran(t, 2)
 	if got := e.balance(t, "125000"); got != 0 {
 		t.Errorf("contract assets after February: got %d, want 0, the support taken off", got)
@@ -365,7 +379,9 @@ func TestFollowRacingChange(t *testing.T) {
 func TestFollowDatabaseFailures(t *testing.T) {
 	e := setup(t)
 	id, order := e.contract(t, e.goods())
-	e.changeOrder(t, order, itemChange(1, "100", ""))
+	// A quantity changed and an item added: the follow updates one obligation and inserts another.
+	e.changeOrder(t, order, fmt.Sprintf(`{"items": [{"item_no": 1, "quantity": {"value": "100", "unit": "EA"}}], "new_items": [%s]}`,
+		e.item("Installation", "", "1", "300.00", "EUR")))
 	m := e.busEvent(t, order)
 	pool := pgtest.Pool(t)
 	failing := func(fail func(pgx.Tx) pgx.Tx) *revenue.Consumer {
@@ -447,6 +463,28 @@ func TestContractFollowsItemsAddedRemoved(t *testing.T) {
 	if !added {
 		t.Error("the kept follow: got no added obligation 3 and ended obligation 2, want both")
 	}
+	t.Run("an item added to a draft's order", func(t *testing.T) {
+		_, other := e.contract(t, e.goods())
+		e.changeOrder(t, other, fmt.Sprintf(`{"new_items": [%s]}`, e.item("Installation", "", "1", "300.00", "EUR")))
+		e.handled(t, c, other)
+		got := e.contractOf(t, other)
+		if n := netAmounts(t, got); !slices.Equal(n, []string{"1500.00 EUR", "300.00 EUR"}) {
+			t.Errorf("order values: got %v, want 1500.00 EUR and 300.00 EUR", n)
+		}
+	})
+	t.Run("an item removed before the confirmation", func(t *testing.T) {
+		draft := e.draft(t, "EUR", e.goods(), e.support())["id"].(string)
+		e.changeOrder(t, draft, `{"removed_items": [2]}`)
+		e.Must(200, "POST", "/v1/sales-orders/"+draft+":confirm", "", e.versionOf(t, draft))
+		e.handled(t, c, draft)
+		got := e.contractOf(t, draft)
+		if n := netAmounts(t, got); !slices.Equal(n, []string{"1500.00 EUR"}) {
+			t.Errorf("obligations: got %v, want the brackets' alone, the removed item not ordered", n)
+		}
+		if a := amount(t, got, "transaction_price"); a != "1500.00 EUR" {
+			t.Errorf("transaction price: got %s, want 1500.00 EUR", a)
+		}
+	})
 	t.Run("a draft's ended obligation", func(t *testing.T) {
 		draft, other := e.contract(t, e.goods(), e.support())
 		e.changeOrder(t, other, `{"removed_items": [2]}`)

@@ -63,8 +63,12 @@ type OrderItem struct {
 	Credits         []ItemCredit   `json:"credits"`
 }
 
-// standing are the order's items that are not removed (T78e): those its
-// net value, its credit check and its delivery take.
+// Standing are the order's items that are not removed (T78e): those its
+// net value, its credit check, its delivery and its revenue contract
+// take.
+func (o Order) Standing() []OrderItem { return standing(o.Items) }
+
+// standing are the items that are not removed (T78e).
 func standing(items []OrderItem) []OrderItem {
 	out := make([]OrderItem, 0, len(items))
 	for _, it := range items {
@@ -503,7 +507,7 @@ func recordOrder(ctx context.Context, action string, o Order, le tenancy.Entity,
 		"status": o.Status, "status_before": before, "credit_block": o.CreditBlock, "version": o.Version, "changes": o.Changes,
 		"requested_delivery_date": delivery}
 	detail := map[string]any{"document_number": o.DocumentNumber, "customer_id": o.CustomerID, "quotation_id": o.QuotationID, "status": o.Status,
-		"status_before": before, "payment_term_code": o.PaymentTermCode, "net_amount": net, "items": len(o.Items), "credit_block": o.CreditBlock,
+		"status_before": before, "payment_term_code": o.PaymentTermCode, "net_amount": net, "items": len(standing(o.Items)), "credit_block": o.CreditBlock,
 		"requested_delivery_date": delivery}
 	for k, v := range extra {
 		detail[k] = v
