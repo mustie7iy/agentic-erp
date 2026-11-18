@@ -38354,7 +38354,8 @@ func (s *CustomerCreditLimitPage) SetNextPageToken(val OptString) {
 func (*CustomerCreditLimitPage) listCreditLimitsRes() {}
 
 // Merge patch of a credit limit: its amount, its validity or its next review date; what is absent
-// stays, and a patch that changes nothing is refused (422 `credit.nothing_to_change`).
+// stays, and a patch that changes nothing of an active limit is refused (422
+// `credit.nothing_to_change`).
 // Ref: #/components/schemas/CustomerCreditLimitUpdate
 type CustomerCreditLimitUpdate struct {
 	// The new limit, in the limit's currency; zero or more.

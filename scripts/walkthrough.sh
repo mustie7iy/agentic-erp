@@ -13816,6 +13816,7 @@ step_credit_limit_validity() {
   expect "Northwind not on the worklist the day before" "$(field "[.items[] | select(.id == \"$id\")] | length")" 0
   say "Northwind's agreement ended yesterday, so Ruth ends the limit on $yesterday. On Maple's day it is not used: the"
   say "exposure shows no limit, naming the limit all the same, and the customer is treated as one without a limit:"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
   QUIET=1 api 200 '' updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"valid_to\": \"$yesterday\"}"
   approve_credit_limit "$(field .pending_change_id)"
   api 200 '"on \(.day): limit set: \(.has_limit) (credit limit \(.credit_limit_id)); 1000000.00 within: \(.is_within_limit)"' \

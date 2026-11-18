@@ -59586,7 +59586,7 @@ components:
         next_review_on: {type: string, format: date, description: "The day the limit's next review is planned for, which the worklist lists it by (`listCreditLimits?due_by=`). Absent: none is planned."}
     CustomerCreditLimitUpdate:
       type: object
-      description: "Merge patch of a credit limit: its amount, its validity or its next review date; what is absent stays, and a patch that changes nothing is refused (422 `credit.nothing_to_change`)."
+      description: "Merge patch of a credit limit: its amount, its validity or its next review date; what is absent stays, and a patch that changes nothing of an active limit is refused (422 `credit.nothing_to_change`)."
       additionalProperties: false
       properties:
         limit: {$ref: "#/components/schemas/Money", description: "The new limit, in the limit's currency; zero or more."}
