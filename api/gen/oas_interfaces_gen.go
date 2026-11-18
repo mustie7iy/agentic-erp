@@ -541,6 +541,14 @@ type CreateSodRuleRes interface {
 	createSodRuleRes()
 }
 
+type CreateStatisticalKeyFigurePostingRes interface {
+	createStatisticalKeyFigurePostingRes()
+}
+
+type CreateStatisticalKeyFigureRes interface {
+	createStatisticalKeyFigureRes()
+}
+
 type CreateSupplierInvoiceRes interface {
 	createSupplierInvoiceRes()
 }
@@ -1193,6 +1201,10 @@ type GetSodRuleRes interface {
 	getSodRuleRes()
 }
 
+type GetStatisticalKeyFigureRes interface {
+	getStatisticalKeyFigureRes()
+}
+
 type GetSupplierInvoiceDocumentRes interface {
 	getSupplierInvoiceDocumentRes()
 }
@@ -1807,6 +1819,14 @@ type ListSegmentsRes interface {
 
 type ListSodRulesRes interface {
 	listSodRulesRes()
+}
+
+type ListStatisticalKeyFigureValuesRes interface {
+	listStatisticalKeyFigureValuesRes()
+}
+
+type ListStatisticalKeyFiguresRes interface {
+	listStatisticalKeyFiguresRes()
 }
 
 type ListSupplierInvoicesRes interface {

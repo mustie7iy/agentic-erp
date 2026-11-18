@@ -6374,7 +6374,7 @@ step_order_settlement() {
 # account it was posted on, the shares adding up to it to the cent; the
 # centers' reports show the shares, and the period is run once.
 step_distribution() {
-  heading "Step 52 — A distribution cycle: a shared cost center's costs of the period are moved to two others at 60 and 40 percent, on the account they were posted on"
+  heading "Step 52 — A distribution cycle: a shared cost center's costs of the period are moved to two others at 60 and 40 percent, on the account they were posted on, and then by a statistical key figure's values"
   local first sender second expense bank cycle tag period entry before_first
   as sam
   QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
@@ -6434,7 +6434,59 @@ step_distribution() {
   api 200 '.items[] | "  run of \(.allocation_cycle_code) for \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) from \(.sender_cost_center_code), entry \(.journal_entry_number)"' \
     listAllocationRuns -p "allocation_cycle_id=$cycle"
   expect "the cycle's runs" "$(field '.items | length')" 1
+  key_figure_shares "$sender" "$first" "$second" "$expense" "$bank" "$period"
   passed
+}
+
+# key_figure_shares SENDER FIRST SECOND EXPENSE BANK PERIOD is T60j
+# (ADR-0064 As built T60j): Carla defines the statistical key figure EMPL,
+# the offices' employees, posts its values for the period (CC-1100 three,
+# CC-1300 one, in two postings, the second a correction) and defines a
+# second distribution of the shared services whose receivers' shares are
+# the key figure's values of the period run. Alex posts more shared
+# supplies, and the run splits them three to one, rounded to the cent.
+key_figure_shares() {
+  local sender=$1 first=$2 second=$3 expense=$4 bank=$5 period=$6 figure cycle tag before_first before_second
+  as carla
+  say "Carla shares the services by headcount instead: she defines a statistical key figure, EMPL, the employees of a"
+  say "cost center, counted in EA (each), and posts its values for $YEAR/$period. Values add up: the second posting"
+  say "corrects the first."
+  api 201 '"statistical key figure \(.code) \(.name) in \(.unit)"' createStatisticalKeyFigure \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"EMPL\", \"name\": \"Employees\", \"unit\": \"EA\"}"
+  figure=$(field .id)
+  api 201 '"posted for \(.fiscal_year)/\(.fiscal_period): \([.lines[] | "\(.cost_center_code) \(.value)"] | join(", "))"' createStatisticalKeyFigurePosting \
+    -p "id=$figure" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period, \"lines\": [{\"cost_center_id\": \"$first\", \"value\": \"4\"}, {\"cost_center_id\": \"$second\", \"value\": \"1\"}]}"
+  api 201 '"posted for \(.fiscal_year)/\(.fiscal_period): \([.lines[] | "\(.cost_center_code) \(.value)"] | join(", "))"' createStatisticalKeyFigurePosting \
+    -p "id=$figure" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period, \"lines\": [{\"cost_center_id\": \"$first\", \"value\": \"-1\"}]}"
+  api 200 '"values of \(.statistical_key_figure_code) in \(.fiscal_year)/\(.fiscal_period): \([.items[] | "\(.cost_center_code) \(.value)"] | join(", ")), total \(.total) \(.unit)"' \
+    listStatisticalKeyFigureValues -p "id=$figure" -p "fiscal_year=$YEAR" -p "fiscal_period=$period"
+  expect "the period's values and their total" "$(field '"\([.items[] | "\(.cost_center_code) \(.value)"] | sort | join(" ")) \(.total)"')" "CC-1100 3 CC-1300 1 4"
+  say "She defines the cycle SHARED-EMP from the shared services to the two offices, its shares the key figure's values;"
+  say "a receiver given a percentage is refused, since the key figure decides the shares:"
+  refused 422 controlling.allocation_cycle_invalid createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"SHARED-EMP\", \"name\": \"Shared services by employees\", \"kind\": \"distribution\", \"share_basis\": \"statistical_key_figure\", \"statistical_key_figure_id\": \"$figure\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"75\"}, {\"cost_center_id\": \"$second\"}]}"
+  expect "why the cycle is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "receivers[0].percentage not_allowed"
+  api 201 '"cycle \(.code) (\(.kind), shares by \(.share_basis) \(.statistical_key_figure_code)): from \(.sender_cost_center_code) to \([.receivers[] | .cost_center_code] | join(", "))"' createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"SHARED-EMP\", \"name\": \"Shared services by employees\", \"kind\": \"distribution\", \"share_basis\": \"statistical_key_figure\", \"statistical_key_figure_id\": \"$figure\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\"}, {\"cost_center_id\": \"$second\"}]}"
+  cycle=$(field .id)
+  tag=$ETAG
+  expect "the cycle's basis and key figure" "$(field '"\(.share_basis) \(.statistical_key_figure_id) \(.statistical_key_figure_code) \([.receivers[] | .percentage] | map(. // "none") | join(" "))"')" \
+    "statistical_key_figure $figure EMPL none none"
+  as alex
+  say "Alex posts more shared supplies, CAD 100.01, to the shared services' cost center:"
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(.amount.currency)\(if .cost_center_code then " on cost center \(.cost_center_code)" else "" end)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"More shared supplies\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"100.01\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$sender\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-100.01\", \"currency\": \"CAD\"}}]}"
+  as carla
+  before_first=$(center_costs "$first" "$expense")
+  before_second=$(center_costs "$second" "$expense")
+  say "Carla runs SHARED-EMP for $YEAR/$period. Three employees of four is 75.0075, one of four 25.0025: CAD 75.01 and"
+  say "25.00, which add up to the cost to the cent."
+  api 200 '"cycle \(.allocation_cycle_code) run for \(.fiscal_year)/\(.fiscal_period): \(.run.amount.amount) \(.run.amount.currency) from \(.run.sender_cost_center_code), entry \(.run.journal_entry_number)"' \
+    runAllocationCycle -p "id=$cycle" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "what the run moved" "$(field '"\(.posted) \(.run.amount.amount) \(.run.amount.currency)"')" "true 100.01 CAD"
+  expect "the first receiver's share by headcount, in cents" "$(($(center_costs "$first" "$expense") - before_first))" 7501
+  expect "the second receiver's share by headcount, in cents" "$(($(center_costs "$second" "$expense") - before_second))" 2500
+  expect "the sender's cost left on the account, in cents" "$(center_costs "$sender" "$expense")" 0
 }
 
 # step_assessment: an assessment cycle and its run (ADR-0064 §4-§5, T60g):

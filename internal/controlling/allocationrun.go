@@ -71,6 +71,9 @@ type allocationRun struct {
 	Accounts                   int32
 	CreatedAt                  time.Time
 	CreatedBy                  uuid.UUID
+	// Values are the key figure's values a run by key figure took its
+	// shares from, for its audit record; not kept on the run.
+	Values []shareValue
 }
 
 // runSelect reads runs with their cycles, as one relation r: a listing's
@@ -148,24 +151,40 @@ func (e *Endpoints) senderCosts(ctx context.Context, le, sender uuid.UUID, perio
 	return costs, nil
 }
 
+// fixedWeights are the receivers' parts of the whole by the cycle's fixed
+// percentages, in the cycle's order.
+func fixedWeights(c cycle) []*big.Rat {
+	out := make([]*big.Rat, len(c.Receivers))
+	for j, r := range c.Receivers {
+		out[j] = big.NewRat(int64(r.ShareBP), wholeBP)
+	}
+	return out
+}
+
+// split divides an amount among the receivers by their parts of the
+// whole: the amount times each part, divided by largest remainder
+// (money.Allocate), so the shares add up to the amount to the minor unit.
+func split(amount money.Minor, weights []*big.Rat) ([]money.Minor, error) {
+	exact := make([]*big.Rat, len(weights))
+	for j, w := range weights {
+		exact[j] = new(big.Rat).Mul(big.NewRat(int64(amount), 1), w)
+	}
+	return money.Allocate(exact)
+}
+
 // distributionLines are a distribution's lines, account by account in
 // the order the costs came in: the sender credited with the account's
 // cost and each receiver, in the cycle's order, debited with its share
 // of it, a receiver whose share rounds to nothing left out; and the total
-// moved. An account's shares are its cost times each receiver's part of
-// the whole, divided among them by largest remainder (money.Allocate),
-// so they add up to the cost to the minor unit and the entry balances
-// per account.
-func distributionLines(c cycle, costs []accountCost) ([]ledger.PostingLine, money.Minor, error) {
+// moved. An account's shares are its cost split by the receivers' parts
+// of the whole (weights, in the cycle's order), so they add up to the
+// cost to the minor unit and the entry balances per account.
+func distributionLines(c cycle, costs []accountCost, weights []*big.Rat) ([]ledger.PostingLine, money.Minor, error) {
 	var lines []ledger.PostingLine
 	amounts := make([]money.Minor, len(costs))
 	for i, cost := range costs {
 		amounts[i] = cost.Amount
-		exact := make([]*big.Rat, len(c.Receivers))
-		for j, r := range c.Receivers {
-			exact[j] = new(big.Rat).Mul(big.NewRat(int64(cost.Amount), 1), big.NewRat(int64(r.ShareBP), wholeBP))
-		}
-		shares, err := money.Allocate(exact)
+		shares, err := split(cost.Amount, weights)
 		if err != nil {
 			return nil, 0, fmt.Errorf("controlling: shares of account %s in allocation cycle %s: %w", cost.Number, c.ID, err)
 		}
@@ -187,11 +206,10 @@ func distributionLines(c cycle, costs []accountCost) ([]ledger.PostingLine, mone
 // account: the sender credited with the total of its costs and each
 // receiver, in the cycle's order, debited with its share of it, a
 // receiver whose share rounds to nothing left out; and the total charged.
-// The shares are the total times each receiver's part of the whole,
-// divided among them by largest remainder (money.Allocate), so they add
-// up to the total to the minor unit and the entry balances on the
-// account. Costs that add up to nothing have no lines.
-func assessmentLines(c cycle, costs []accountCost) ([]ledger.PostingLine, money.Minor, error) {
+// The shares are the total split by the receivers' parts of the whole
+// (weights), so they add up to the total to the minor unit and the entry
+// balances on the account. Costs that add up to nothing have no lines.
+func assessmentLines(c cycle, costs []accountCost, weights []*big.Rat) ([]ledger.PostingLine, money.Minor, error) {
 	amounts := make([]money.Minor, len(costs))
 	for i, cost := range costs {
 		amounts[i] = cost.Amount
@@ -203,11 +221,7 @@ func assessmentLines(c cycle, costs []accountCost) ([]ledger.PostingLine, money.
 	if total == 0 {
 		return nil, 0, nil
 	}
-	exact := make([]*big.Rat, len(c.Receivers))
-	for j, r := range c.Receivers {
-		exact[j] = new(big.Rat).Mul(big.NewRat(int64(total), 1), big.NewRat(int64(r.ShareBP), wholeBP))
-	}
-	shares, err := money.Allocate(exact)
+	shares, err := split(total, weights)
 	if err != nil {
 		return nil, 0, fmt.Errorf("controlling: shares of allocation cycle %s: %w", c.ID, err)
 	}
@@ -221,12 +235,55 @@ func assessmentLines(c cycle, costs []accountCost) ([]ledger.PostingLine, money.
 }
 
 // runLines are the lines of the cycle's run by its kind, with the amount
-// charged.
-func runLines(c cycle, costs []accountCost) ([]ledger.PostingLine, money.Minor, error) {
+// charged, the costs split by the receivers' parts of the whole.
+func runLines(c cycle, costs []accountCost, weights []*big.Rat) ([]ledger.PostingLine, money.Minor, error) {
 	if c.Kind == CycleAssessment {
-		return assessmentLines(c, costs)
+		return assessmentLines(c, costs, weights)
 	}
-	return distributionLines(c, costs)
+	return distributionLines(c, costs, weights)
+}
+
+// shareValue is a receiver's value of the cycle's key figure in the
+// period run, as the run's audit record keeps it.
+type shareValue struct {
+	CostCenterID uuid.UUID
+	Code, Value  string
+}
+
+// keyFigureWeights are the receivers' parts of the whole by their values
+// of the cycle's key figure in the period: each value over their total,
+// exact; a receiver without a value takes nothing. A negative value, or
+// values that add up to nothing, refuse the run (409) before anything is
+// posted: no share can be taken from them. It returns the values used,
+// in the cycle's order, for the run's audit record.
+func keyFigureWeights(ctx context.Context, tx pgx.Tx, c cycle, period ledger.FiscalPeriod) ([]*big.Rat, []shareValue, error) {
+	centers := make([]uuid.UUID, len(c.Receivers))
+	for j, r := range c.Receivers {
+		centers[j] = r.CostCenterID
+	}
+	values, err := receiverValues(ctx, tx, *c.KeyFigureID, period, centers)
+	if err != nil {
+		return nil, nil, err
+	}
+	total, weights, used := new(big.Rat), make([]*big.Rat, len(c.Receivers)), make([]shareValue, len(c.Receivers))
+	for j, r := range c.Receivers {
+		text := cmp.Or(values[r.CostCenterID], "0")
+		v, _ := new(big.Rat).SetString(text) // a numeric column's text, or 0: always a decimal
+		if v.Sign() < 0 {
+			return nil, nil, problem.Conflict("controlling.allocation_key_figure_negative", fmt.Sprintf("Receiver %s's value of key figure %s in %d/%d is %s: "+
+				"no share is taken from a negative value; post a correction first.", r.Code, c.KeyFigureCode, period.FiscalYear, period.Number, text))
+		}
+		total.Add(total, v)
+		weights[j], used[j] = v, shareValue{CostCenterID: r.CostCenterID, Code: r.Code, Value: text}
+	}
+	if total.Sign() == 0 {
+		return nil, nil, problem.Conflict("controlling.allocation_key_figure_missing", fmt.Sprintf("The receivers have no values of key figure %s in %d/%d, "+
+			"so the costs have nothing to be shared by; post the period's values first.", c.KeyFigureCode, period.FiscalYear, period.Number))
+	}
+	for j := range weights {
+		weights[j].Quo(weights[j], total)
+	}
+	return weights, used, nil
 }
 
 // senderAssessed refuses a run for a period in which a cycle of the
@@ -350,17 +407,48 @@ func (e *Endpoints) RunAllocationCycle(ctx context.Context, req *gen.AllocationC
 	return &gen.AllocationRunResultHeaders{Response: res}, recordRun(ctx, run, le.LocalCurrency, exp)
 }
 
-// charge posts the sender's costs to the receivers by the cycle's kind on
-// the period's last day and keeps the run, which names what it charged
-// and the number of the sender's accounts whose costs it charged. Costs
-// that give no line post nothing and keep no run: posted is false.
+// nothingToCharge reports whether the costs give a run no line: a sender
+// without costs, or an assessment's costs that add up to nothing. A total
+// beyond an amount is left to runLines, which refuses it.
+func nothingToCharge(c cycle, costs []accountCost) bool {
+	amounts := make([]money.Minor, len(costs))
+	for i, cost := range costs {
+		amounts[i] = cost.Amount
+	}
+	total, err := money.Sum(amounts...)
+	return len(costs) == 0 || (c.Kind == CycleAssessment && err == nil && total == 0)
+}
+
+// weights are the receivers' parts of the whole by the cycle's share
+// basis, with the key figure's values they come from (none on fixed
+// percentages).
+func weights(ctx context.Context, tx pgx.Tx, c cycle, period ledger.FiscalPeriod) ([]*big.Rat, []shareValue, error) {
+	if c.ShareBasis == SharesKeyFigure {
+		return keyFigureWeights(ctx, tx, c, period)
+	}
+	return fixedWeights(c), nil, nil
+}
+
+// charge posts the sender's costs to the receivers by the cycle's kind and
+// share basis on the period's last day and keeps the run, which names
+// what it charged and the number of the sender's accounts whose costs it
+// charged. Costs that give no line post nothing and keep no run: posted
+// is false; the shares are taken only for costs to charge.
 func (e *Endpoints) charge(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c cycle, le tenancy.Entity, period ledger.FiscalPeriod,
 	costs []accountCost) (allocationRun, bool, error) {
-	lines, total, err := runLines(c, costs)
+	if nothingToCharge(c, costs) {
+		return allocationRun{}, false, nil
+	}
+	parts, values, err := weights(ctx, tx, c, period)
+	if err != nil {
+		return allocationRun{}, false, err
+	}
+	lines, total, err := runLines(c, costs, parts)
 	if err != nil || len(lines) == 0 {
 		return allocationRun{}, false, err
 	}
 	run, err := e.post(ctx, tx, p, c, le, period, lines, total, len(costs))
+	run.Values = values
 	return run, err == nil, err
 }
 
@@ -400,6 +488,13 @@ func recordRun(ctx context.Context, r allocationRun, currency string, exp int) e
 	detail := map[string]any{"allocation_run_id": r.ID, "legal_entity_id": r.LegalEntityID, "code": r.CycleCode, "kind": r.Kind, "fiscal_year": r.FiscalYear,
 		"fiscal_period": r.FiscalPeriod, "posting_date": day, "sender_cost_center_id": r.SenderID, "sender_cost_center_code": r.SenderCode,
 		"amount": r.Amount.Plain(exp), "currency": currency, "account_count": r.Accounts, "journal_entry_id": r.EntryID, "journal_entry_number": r.DocumentNumber}
+	if r.Values != nil {
+		values := make([]map[string]any, len(r.Values))
+		for i, v := range r.Values {
+			values[i] = map[string]any{"cost_center_id": v.CostCenterID, "cost_center_code": v.Code, "value": v.Value}
+		}
+		detail["key_figure_values"] = values
+	}
 	return audit.Record(ctx, "controlling.allocation_cycle.run", "controlling.allocation_cycle", r.CycleID, detail,
 		outbox.Event{Context: "controlling", Name: "allocation_run_posted", AggregateType: "controlling.allocation_cycle", AggregateID: r.CycleID,
 			Payload: map[string]any{"allocation_run_id": r.ID, "allocation_cycle_id": r.CycleID, "legal_entity_id": r.LegalEntityID, "code": r.CycleCode,

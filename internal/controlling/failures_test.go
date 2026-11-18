@@ -200,14 +200,14 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		},
 		"create an allocation cycle": func(ctx context.Context) error {
 			_, err := h.CreateAllocationCycle(ctx, &gen.AllocationCycleCreate{LegalEntityID: c.DE, Code: "MADE", Name: "M", Kind: "distribution",
-				SenderCostCenterID: c.c.Admin, Receivers: []gen.AllocationCycleCreateReceiversItem{{CostCenterID: c.c.Sales, Percentage: "100"}}},
+				SenderCostCenterID: c.c.Admin, Receivers: []gen.AllocationCycleCreateReceiversItem{{CostCenterID: c.c.Sales, Percentage: gen.NewOptString("100")}}},
 				gen.CreateAllocationCycleParams{})
 			return err
 		},
 		"create an assessment cycle": func(ctx context.Context) error {
 			_, err := h.CreateAllocationCycle(ctx, &gen.AllocationCycleCreate{LegalEntityID: c.DE, Code: "MADE", Name: "M", Kind: "assessment",
 				SenderCostCenterID: c.c.Admin, AssessmentAccountID: gen.NewOptUUID(c.assessed),
-				Receivers: []gen.AllocationCycleCreateReceiversItem{{CostCenterID: c.c.Sales, Percentage: "100"}}}, gen.CreateAllocationCycleParams{})
+				Receivers: []gen.AllocationCycleCreateReceiversItem{{CostCenterID: c.c.Sales, Percentage: gen.NewOptString("100")}}}, gen.CreateAllocationCycleParams{})
 			return err
 		},
 		"get an assessment cycle": func(ctx context.Context) error {

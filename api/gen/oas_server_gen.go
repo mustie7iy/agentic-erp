@@ -991,7 +991,14 @@ type Handler interface {
 	// or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
 	// sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
 	// with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
-	// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
+	// 100 (`receivers`, `not_100`). The receivers' shares are fixed percentages (`share_basis`
+	// `fixed_percentages`, the default) or a statistical key figure's values in the period run
+	// (`statistical_key_figure`, ADR-0064 As built T60j); refused besides: a basis that is neither
+	// (`share_basis`, `unsupported`); a key figure missing with `statistical_key_figure`
+	// (`statistical_key_figure_id`, `required`), one that is no key figure of the legal entity
+	// (`unknown`), or one named with fixed percentages (`not_allowed`); a receiver without its percentage
+	// on fixed percentages (`receivers[i].percentage`, `required`) or with one on a key figure
+	// (`not_allowed`). A legal entity the caller cannot act in is answered as missing (422
 	// `request.reference_not_found`). A cycle is not changed in this version. Created directly by
 	// permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
 	// not create one.
@@ -2447,6 +2454,37 @@ type Handler interface {
 	//
 	// POST /v1/sod-rules
 	CreateSodRule(ctx context.Context, req *SodRuleCreate, params CreateSodRuleParams) (CreateSodRuleRes, error)
+	// CreateStatisticalKeyFigure implements createStatisticalKeyFigure operation.
+	//
+	// Defines a statistical key figure of a legal entity (ADR-0064 As built T60j): a quantity such as
+	// employees or floor space whose values are posted per cost center and period
+	// (`POST /v1/statistical-key-figures/{id}/postings`) and which an allocation cycle may take its
+	// receivers' shares from (`share_basis` `statistical_key_figure`). The code is unique in the legal
+	// entity (409 `controlling.statistical_key_figure_exists`); the unit is a unit of measure of the
+	// reference data (422 `controlling.statistical_key_figure_invalid`, field `unit`, code `unknown`). A
+	// legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A
+	// key figure is not changed in this version. Created directly by permission, with no approval request.
+	// Audited, and published as StatisticalKeyFigureChanged. Agents may not create one.
+	//
+	// POST /v1/statistical-key-figures
+	CreateStatisticalKeyFigure(ctx context.Context, req *StatisticalKeyFigureCreate, params CreateStatisticalKeyFigureParams) (CreateStatisticalKeyFigureRes, error)
+	// CreateStatisticalKeyFigurePosting implements createStatisticalKeyFigurePosting operation.
+	//
+	// Posts values of a statistical key figure for cost centers in a regular fiscal period of its legal
+	// entity (ADR-0064 As built T60j; SAP's KB31N, from memory). A posting adds to what was posted before:
+	// a cost center's value of a period is the sum of its postings' values, and a negative value corrects
+	// an earlier one. Each line names an active cost center of the key figure's legal entity, once (422
+	// `controlling.statistical_key_figure_posting_invalid`, whose field errors name each line:
+	// `lines[i].cost_center_id` `unknown`, `not_in_company`, `not_active`, `duplicate`; `lines[i].value`
+	// `zero`). Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that
+	// is no regular posting period of it (422 `controlling.period_not_regular`). A posting is not changed
+	// or deleted: a correction is a further posting. A key figure of a legal entity the caller cannot act
+	// in is answered as missing (404). The posting is kept, audited and published as
+	// StatisticalKeyFigurePosted; the values of a period are read with
+	// `GET /v1/statistical-key-figures/{id}/values`. Agents may not post values.
+	//
+	// POST /v1/statistical-key-figures/{id}/postings
+	CreateStatisticalKeyFigurePosting(ctx context.Context, req *StatisticalKeyFigurePostingCreate, params CreateStatisticalKeyFigurePostingParams) (CreateStatisticalKeyFigurePostingRes, error)
 	// CreateSupplierInvoice implements createSupplierInvoice operation.
 	//
 	// Creates a parked supplier invoice. The same supplier reference for the same supplier is refused with
@@ -4548,6 +4586,13 @@ type Handler interface {
 	//
 	// GET /v1/sod-rules/{id}
 	GetSodRule(ctx context.Context, params GetSodRuleParams) (GetSodRuleRes, error)
+	// GetStatisticalKeyFigure implements getStatisticalKeyFigure operation.
+	//
+	// Returns one statistical key figure. A key figure of a legal entity the caller cannot act in is
+	// answered as missing (404).
+	//
+	// GET /v1/statistical-key-figures/{id}
+	GetStatisticalKeyFigure(ctx context.Context, params GetStatisticalKeyFigureParams) (GetStatisticalKeyFigureRes, error)
 	// GetSupplierInvoice implements getSupplierInvoice operation.
 	//
 	// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
@@ -6098,6 +6143,23 @@ type Handler interface {
 	//
 	// GET /v1/sod-rules
 	ListSodRules(ctx context.Context, params ListSodRulesParams) (ListSodRulesRes, error)
+	// ListStatisticalKeyFigureValues implements listStatisticalKeyFigureValues operation.
+	//
+	// The values of a statistical key figure in a fiscal period (ADR-0064 As built T60j): per cost center
+	// that has a posting in the period, the sum of its postings' values, exact, in the order of the cost
+	// center's id; `total` is the sum over every cost center of the selection on every page, whatever the
+	// page. What a run of a cycle by this key figure for the period takes its receivers' shares from. A
+	// key figure of a legal entity the caller cannot act in is answered as missing (404).
+	//
+	// GET /v1/statistical-key-figures/{id}/values
+	ListStatisticalKeyFigureValues(ctx context.Context, params ListStatisticalKeyFigureValuesParams) (ListStatisticalKeyFigureValuesRes, error)
+	// ListStatisticalKeyFigures implements listStatisticalKeyFigures operation.
+	//
+	// Statistical key figures (ADR-0064 As built T60j) of the legal entities the caller may act in: each
+	// with its code, name and unit of measure. Sortable by: `code`.
+	//
+	// GET /v1/statistical-key-figures
+	ListStatisticalKeyFigures(ctx context.Context, params ListStatisticalKeyFiguresParams) (ListStatisticalKeyFiguresRes, error)
 	// ListSupplierInvoices implements listSupplierInvoices operation.
 	//
 	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
@@ -7578,27 +7640,33 @@ type Handler interface {
 	// the cycle's assessment account alone: the sender credited with the total of its primary costs and
 	// each receiver debited with its share of that total, split and rounded the same way, so the entry
 	// balances on the account; the sender's primary costs stay on their accounts, and the cost center
-	// report shows the sender relieved, and the receivers charged, on the assessment account. A sender
-	// without costs in the period, or for an assessment with costs that add up to nothing, posts nothing:
-	// `posted` is false and no run is kept, so the cycle may be run for the period later. One run per
-	// cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
-	// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
-	// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
-	// both post, and two cycles of one sender run at once follow one another: the second moves what the
-	// first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that
-	// sender is run for the period again (409 `controlling.allocation_sender_assessed`, naming the
-	// assessment's cycle and entry): the sender's primary costs are still on their accounts, and another
-	// run would charge them a second time. Refused besides: a fiscal year not set up (422
-	// `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422
-	// `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day
-	// (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any
-	// entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for
-	// actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its
-	// run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as
-	// AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing
-	// (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs
-	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
-	// not run a cycle.
+	// report shows the sender relieved, and the receivers charged, on the assessment account. With
+	// `share_basis` `statistical_key_figure` the shares are the receivers' values of the cycle's key
+	// figure in the period run (the sum of their postings, `GET /v1/statistical-key-figures/{id}/values`)
+	// over their total, split and rounded the same way; a receiver without a value takes nothing, a
+	// receiver whose value is negative refuses the run (409 `controlling.allocation_key_figure_negative`,
+	// naming it) and receivers whose values add up to nothing refuse it (409
+	// `controlling.allocation_key_figure_missing`), each before anything is posted; the values used are in
+	// the run's audit record. A sender without costs in the period, or for an assessment with costs that
+	// add up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for
+	// the period later. One run per cycle and period: a second is refused (409
+	// `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version.
+	// `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of
+	// them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run
+	// at once follow one another: the second moves what the first left. Once a cycle of the sender was run
+	// as an assessment for a period, no cycle of that sender is run for the period again (409
+	// `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's
+	// primary costs are still on their accounts, and another run would charge them a second time. Refused
+	// besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular
+	// posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid
+	// on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the
+	// ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and
+	// a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in
+	// the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`),
+	// audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is
+	// answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run`
+	// the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing`
+	// otherwise). Agents may not run a cycle.
 	//
 	// POST /v1/allocation-cycles/{id}:run
 	RunAllocationCycle(ctx context.Context, req *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error)

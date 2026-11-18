@@ -982,3 +982,88 @@ run only once the later ones are reversed.
   back where it was), a second reversal is refused, she settles the
   order again (CC-1100 shows the CAD 1,500.00 once) and the listing
   shows both settlements, the first reversed; the order is then closed.
+
+### T60j: receiver shares from statistical key figures (migrations 000373-000374)
+The allocation variant of plan-depth-3 §T60j. SAP S/4HANA is the
+reference, stated from memory for the specialist to confirm: statistical
+key figures (KK01) of a controlling area with a unit, their values
+posted per cost center and period (KB31N), totals values adding up
+within a period, and a cycle segment's receiver rule "variable portions"
+taking the receivers' tracing factors from a key figure's actual values.
+- **Tables** (000373): `controlling.statistical_key_figure` (a company's,
+  code unique in it, a name, a unit of measure of `ref.unit_of_measure`;
+  it keeps its company, code and unit, `statistical_key_figure_identity`),
+  `controlling.statistical_key_figure_posting` (a key figure's posting
+  for a fiscal year and period of its company; insert-only) and
+  `controlling.statistical_key_figure_value` (a posting's value per cost
+  center, once, numeric(20,6), not zero; insert-only). A cycle gains
+  `share_basis` (`fixed_percentages`, the default every cycle before
+  has, or `statistical_key_figure`) and `statistical_key_figure_id`,
+  exactly by key figure and a key figure of the cycle's company (a
+  foreign key, the key figure being controlling's own); the receivers of
+  a cycle by key figure hold no `share_bp`, and the deferred rule of
+  000283 reads the basis (`allocation_receiver_shares_whole` on fixed
+  percentages, `allocation_receiver_shares_by_basis` by key figure). The
+  cycle's new constraints are added `NOT VALID` and validated by 000374.
+  Schema tests: `db/key_figure_test.go` (`TestStatisticalKeyFigureRules`,
+  `TestKeyFigureCycleRules`).
+- **API**: `POST /v1/statistical-key-figures`, `GET` (list by `code`,
+  filters `legal_entity_id`, `code`), `GET /v1/statistical-key-figures/{id}`,
+  `POST /v1/statistical-key-figures/{id}/postings` (201 with the posting
+  and its lines, each value as the column keeps it), `GET
+  /v1/statistical-key-figures/{id}/values` (a period's value per cost
+  center in the order of the center's id, cursor paged, with the `total`
+  of every page); permissions `controlling.key_figure.read` and `.write`.
+  `POST /v1/allocation-cycles` takes `share_basis` and
+  `statistical_key_figure_id`; a cycle shows both and the key figure's
+  code, and its receivers' `percentage` only on fixed percentages (the
+  property became optional: `api/breaking-accepted.txt` is not needed,
+  oasdiff reports it as a warning). Events `StatisticalKeyFigureChanged`,
+  `StatisticalKeyFigurePosted`; `AllocationCycleChanged` .v2 for every
+  cycle, with `share_basis` and the key figure, beside .v1, published for
+  a cycle by fixed percentages alone (.v1 requires a percentage per
+  receiver; ADR-0041) until 2027-11-18. Audit actions
+  `controlling.statistical_key_figure.create` and `.post`.
+- **A run by key figure** reads, for its receivers, the sums of the key
+  figure's values in the period run, exact (numeric text read as
+  `big.Rat`, never a float), after the sender's costs and only when there
+  is something to charge (a sender without costs posts nothing, as
+  before). Each amount is split by each receiver's value over the
+  receivers' total with `money.Allocate`, so the shares add up to it to
+  the minor unit; a receiver without a value takes nothing. The values
+  used are in the run's audit record (`key_figure_values`). The values
+  are read without a lock: postings only add rows, and a value posted
+  after the run's read is not charged by that run, as a cost posted after
+  a run stays on the sender (T60f, default 8).
+- **Decided by default:**
+  1. Values are totals values per period (SAP's totals values): a
+     posting adds to what was posted before, a correction is a further
+     posting with a negative value; fixed values carried to later
+     periods are in the plan's "Later".
+  2. A posting names active cost centers of the key figure's company,
+     each once, in a regular period of its fiscal year; a period is not
+     locked for key figure postings in the first version ("Later").
+  3. A negative value of a receiver in the period refuses the run (409
+     `controlling.allocation_key_figure_negative`), and so do values that
+     add up to nothing (409 `controlling.allocation_key_figure_missing`):
+     no share can be taken from them, and posting nothing silently would
+     leave the costs on the sender unnoticed.
+  4. The sender's own value is not read: only the receivers' values
+     share the costs.
+  5. A key figure is not changed or deleted in the first version, as a
+     cycle; defining one and posting its values are a person's
+     (`x-agent: false`) under `controlling.key_figure.write`, reading
+     needs `controlling.key_figure.read`; the values are no ledger
+     amounts, so no `ledger.entry.read` is asked.
+  6. A cycle stays one segment: several segments or senders in a cycle
+     are in the placeholder.
+- **Rolling update**: the previous version scans a receiver's share as
+  not null, so a cycle by key figure defined while it still serves fails
+  its reads there until the update completes (minutes); nothing is
+  written wrongly.
+- **Walkthrough**: `step_distribution` extended (`key_figure_shares`):
+  Carla defines `EMPL` (unit EA), posts 4 for CC-1100 and 1 for CC-1300
+  and corrects CC-1100 by -1 (values 3 and 1, total 4), defines
+  `SHARED-EMP` from CC-1200 by the key figure (a receiver with a
+  percentage refused), Alex posts CAD 100.01 to CC-1200 and the run
+  splits it CAD 75.01 and 25.00.

@@ -47,12 +47,13 @@ to them.
   `.write`; the cycle's `share_basis` (`fixed_percentages`, the default,
   or `statistical_key_figure` naming the key figure, whose receivers
   carry no percentage); events `StatisticalKeyFigureChanged`,
-  `StatisticalKeyFigurePosted`.
+  `StatisticalKeyFigurePosted`, and `AllocationCycleChanged` .v2 beside
+  .v1 (whose receivers must have a percentage).
 - **Walkthrough:** `step_distribution` extended: Carla defines the key
   figure `EMPL` (employees, unit EA), posts 3 for CC-1100 and 1 for
-  CC-1300 for the period, defines a distribution `SHARED-EMP` from a
-  new sender whose shares are the key figure, and runs it: the cost is
-  split 3 to 1, rounded to the cent.
+  CC-1300 for the period, defines a distribution `SHARED-EMP` from the
+  shared services whose shares are the key figure, Alex posts more
+  shared supplies, and the run splits them 3 to 1, rounded to the cent.
 - **Acceptance:** a key figure's code is unique per company (409); its
   unit is a known unit of measure (422); a posting names a regular
   period of the company and active cost centers of its company, each

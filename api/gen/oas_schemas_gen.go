@@ -3069,11 +3069,22 @@ type AllocationCycle struct {
 	AssessmentAccountID OptUUID `json:"assessment_account_id"`
 	// The assessment account's number; present with `assessment_account_id`.
 	AssessmentAccountNumber OptString `json:"assessment_account_number"`
+	// What the receivers' shares are: `fixed_percentages`, each receiver's `percentage`, adding up to 100;
+	// `statistical_key_figure`, each receiver's value of the cycle's statistical key figure in the period
+	// run, over the receivers' total (ADR-0064 As built T60j). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1. Immutable.
+	ShareBasis string `json:"share_basis"`
+	// The statistical key figure the shares come from (`GET /v1/statistical-key-figures/{id}`); present
+	// exactly with `share_basis` `statistical_key_figure`. Immutable.
+	StatisticalKeyFigureID OptUUID `json:"statistical_key_figure_id"`
+	// The key figure's code; present with `statistical_key_figure_id`.
+	StatisticalKeyFigureCode OptString `json:"statistical_key_figure_code"`
 	// The cost center whose costs a run charges to the receivers (`GET /v1/cost-centers/{id}`).
 	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
 	// The sender's code.
 	SenderCostCenterCode string `json:"sender_cost_center_code"`
-	// The receivers, in the order given when the cycle was created; their percentages add up to 100.
+	// The receivers, in the order given when the cycle was created; with `share_basis` `fixed_percentages`
+	// their percentages add up to 100.
 	Receivers []AllocationReceiver `json:"receivers"`
 }
 
@@ -3135,6 +3146,21 @@ func (s *AllocationCycle) GetAssessmentAccountID() OptUUID {
 // GetAssessmentAccountNumber returns the value of AssessmentAccountNumber.
 func (s *AllocationCycle) GetAssessmentAccountNumber() OptString {
 	return s.AssessmentAccountNumber
+}
+
+// GetShareBasis returns the value of ShareBasis.
+func (s *AllocationCycle) GetShareBasis() string {
+	return s.ShareBasis
+}
+
+// GetStatisticalKeyFigureID returns the value of StatisticalKeyFigureID.
+func (s *AllocationCycle) GetStatisticalKeyFigureID() OptUUID {
+	return s.StatisticalKeyFigureID
+}
+
+// GetStatisticalKeyFigureCode returns the value of StatisticalKeyFigureCode.
+func (s *AllocationCycle) GetStatisticalKeyFigureCode() OptString {
+	return s.StatisticalKeyFigureCode
 }
 
 // GetSenderCostCenterID returns the value of SenderCostCenterID.
@@ -3212,6 +3238,21 @@ func (s *AllocationCycle) SetAssessmentAccountNumber(val OptString) {
 	s.AssessmentAccountNumber = val
 }
 
+// SetShareBasis sets the value of ShareBasis.
+func (s *AllocationCycle) SetShareBasis(val string) {
+	s.ShareBasis = val
+}
+
+// SetStatisticalKeyFigureID sets the value of StatisticalKeyFigureID.
+func (s *AllocationCycle) SetStatisticalKeyFigureID(val OptUUID) {
+	s.StatisticalKeyFigureID = val
+}
+
+// SetStatisticalKeyFigureCode sets the value of StatisticalKeyFigureCode.
+func (s *AllocationCycle) SetStatisticalKeyFigureCode(val OptString) {
+	s.StatisticalKeyFigureCode = val
+}
+
 // SetSenderCostCenterID sets the value of SenderCostCenterID.
 func (s *AllocationCycle) SetSenderCostCenterID(val uuid.UUID) {
 	s.SenderCostCenterID = val
@@ -3242,10 +3283,17 @@ type AllocationCycleCreate struct {
 	// whose cost element is `secondary`, on which the cycle's runs credit the sender and debit the
 	// receivers.
 	AssessmentAccountID OptUUID `json:"assessment_account_id"`
+	// What the receivers' shares are: `fixed_percentages` (the default), each receiver's `percentage`; or
+	// `statistical_key_figure`, each receiver's value of `statistical_key_figure_id` in the period run,
+	// the receivers naming no percentage. Open enumeration; a basis not listed is refused (422).
+	ShareBasis OptString `json:"share_basis"`
+	// Required with `share_basis` `statistical_key_figure`, refused otherwise: a statistical key figure of
+	// the legal entity.
+	StatisticalKeyFigureID OptUUID `json:"statistical_key_figure_id"`
 	// An active cost center of the legal entity whose costs the cycle's runs charge to the receivers.
 	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
 	// The receivers: active cost centers of the legal entity other than the sender, each once, with
-	// percentages adding up to 100.
+	// percentages adding up to 100 when the shares are fixed percentages.
 	Receivers []AllocationCycleCreateReceiversItem `json:"receivers"`
 }
 
@@ -3272,6 +3320,16 @@ func (s *AllocationCycleCreate) GetKind() string {
 // GetAssessmentAccountID returns the value of AssessmentAccountID.
 func (s *AllocationCycleCreate) GetAssessmentAccountID() OptUUID {
 	return s.AssessmentAccountID
+}
+
+// GetShareBasis returns the value of ShareBasis.
+func (s *AllocationCycleCreate) GetShareBasis() OptString {
+	return s.ShareBasis
+}
+
+// GetStatisticalKeyFigureID returns the value of StatisticalKeyFigureID.
+func (s *AllocationCycleCreate) GetStatisticalKeyFigureID() OptUUID {
+	return s.StatisticalKeyFigureID
 }
 
 // GetSenderCostCenterID returns the value of SenderCostCenterID.
@@ -3309,6 +3367,16 @@ func (s *AllocationCycleCreate) SetAssessmentAccountID(val OptUUID) {
 	s.AssessmentAccountID = val
 }
 
+// SetShareBasis sets the value of ShareBasis.
+func (s *AllocationCycleCreate) SetShareBasis(val OptString) {
+	s.ShareBasis = val
+}
+
+// SetStatisticalKeyFigureID sets the value of StatisticalKeyFigureID.
+func (s *AllocationCycleCreate) SetStatisticalKeyFigureID(val OptUUID) {
+	s.StatisticalKeyFigureID = val
+}
+
 // SetSenderCostCenterID sets the value of SenderCostCenterID.
 func (s *AllocationCycleCreate) SetSenderCostCenterID(val uuid.UUID) {
 	s.SenderCostCenterID = val
@@ -3322,8 +3390,9 @@ func (s *AllocationCycleCreate) SetReceivers(val []AllocationCycleCreateReceiver
 type AllocationCycleCreateReceiversItem struct {
 	// The receiving cost center.
 	CostCenterID uuid.UUID `json:"cost_center_id"`
-	// The receiver's share in percent: above 0 and at most 100, with up to two decimals.
-	Percentage string `json:"percentage"`
+	// The receiver's share in percent: above 0 and at most 100, with up to two decimals. Required with
+	// `share_basis` `fixed_percentages`, refused otherwise.
+	Percentage OptString `json:"percentage"`
 }
 
 // GetCostCenterID returns the value of CostCenterID.
@@ -3332,7 +3401,7 @@ func (s *AllocationCycleCreateReceiversItem) GetCostCenterID() uuid.UUID {
 }
 
 // GetPercentage returns the value of Percentage.
-func (s *AllocationCycleCreateReceiversItem) GetPercentage() string {
+func (s *AllocationCycleCreateReceiversItem) GetPercentage() OptString {
 	return s.Percentage
 }
 
@@ -3342,7 +3411,7 @@ func (s *AllocationCycleCreateReceiversItem) SetCostCenterID(val uuid.UUID) {
 }
 
 // SetPercentage sets the value of Percentage.
-func (s *AllocationCycleCreateReceiversItem) SetPercentage(val string) {
+func (s *AllocationCycleCreateReceiversItem) SetPercentage(val OptString) {
 	s.Percentage = val
 }
 
@@ -3477,8 +3546,9 @@ type AllocationReceiver struct {
 	CostCenterID uuid.UUID `json:"cost_center_id"`
 	// The receiving cost center's code.
 	CostCenterCode string `json:"cost_center_code"`
-	// The receiver's share of the sender's costs in percent, with two decimals.
-	Percentage string `json:"percentage"`
+	// The receiver's share of the sender's costs in percent, with two decimals; present exactly on a cycle
+	// whose `share_basis` is `fixed_percentages`.
+	Percentage OptString `json:"percentage"`
 }
 
 // GetCostCenterID returns the value of CostCenterID.
@@ -3492,7 +3562,7 @@ func (s *AllocationReceiver) GetCostCenterCode() string {
 }
 
 // GetPercentage returns the value of Percentage.
-func (s *AllocationReceiver) GetPercentage() string {
+func (s *AllocationReceiver) GetPercentage() OptString {
 	return s.Percentage
 }
 
@@ -3507,7 +3577,7 @@ func (s *AllocationReceiver) SetCostCenterCode(val string) {
 }
 
 // SetPercentage sets the value of Percentage.
-func (s *AllocationReceiver) SetPercentage(val string) {
+func (s *AllocationReceiver) SetPercentage(val OptString) {
 	s.Percentage = val
 }
 
@@ -27341,6 +27411,7 @@ func (*ConflictHeaders) createSalesPriceRes()                      {}
 func (*ConflictHeaders) createScheduleLineRes()                    {}
 func (*ConflictHeaders) createSegmentRes()                         {}
 func (*ConflictHeaders) createSodRuleRes()                         {}
+func (*ConflictHeaders) createStatisticalKeyFigureRes()            {}
 func (*ConflictHeaders) createSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) createSupplierQuotationRes()               {}
 func (*ConflictHeaders) createUploadRes()                          {}
@@ -35253,6 +35324,43 @@ func (*CreateSodRulePreconditionRequired) createSodRuleRes() {}
 type CreateSodRuleUnprocessableEntity Problem
 
 func (*CreateSodRuleUnprocessableEntity) createSodRuleRes() {}
+
+type CreateStatisticalKeyFigureBadRequest Problem
+
+func (*CreateStatisticalKeyFigureBadRequest) createStatisticalKeyFigureRes() {}
+
+type CreateStatisticalKeyFigureForbidden Problem
+
+func (*CreateStatisticalKeyFigureForbidden) createStatisticalKeyFigureRes() {}
+
+type CreateStatisticalKeyFigurePostingBadRequest Problem
+
+func (*CreateStatisticalKeyFigurePostingBadRequest) createStatisticalKeyFigurePostingRes() {}
+
+type CreateStatisticalKeyFigurePostingForbidden Problem
+
+func (*CreateStatisticalKeyFigurePostingForbidden) createStatisticalKeyFigurePostingRes() {}
+
+type CreateStatisticalKeyFigurePostingNotFound Problem
+
+func (*CreateStatisticalKeyFigurePostingNotFound) createStatisticalKeyFigurePostingRes() {}
+
+type CreateStatisticalKeyFigurePostingPreconditionRequired Problem
+
+func (*CreateStatisticalKeyFigurePostingPreconditionRequired) createStatisticalKeyFigurePostingRes() {
+}
+
+type CreateStatisticalKeyFigurePostingUnprocessableEntity Problem
+
+func (*CreateStatisticalKeyFigurePostingUnprocessableEntity) createStatisticalKeyFigurePostingRes() {}
+
+type CreateStatisticalKeyFigurePreconditionRequired Problem
+
+func (*CreateStatisticalKeyFigurePreconditionRequired) createStatisticalKeyFigureRes() {}
+
+type CreateStatisticalKeyFigureUnprocessableEntity Problem
+
+func (*CreateStatisticalKeyFigureUnprocessableEntity) createStatisticalKeyFigureRes() {}
 
 type CreateSupplierInvoiceBadRequest Problem
 
@@ -50798,6 +50906,46 @@ func (s *GetSodRuleOKHeaders) SetResponse(val SodRule) {
 
 func (*GetSodRuleOKHeaders) getSodRuleRes() {}
 
+type GetStatisticalKeyFigureBadRequest Problem
+
+func (*GetStatisticalKeyFigureBadRequest) getStatisticalKeyFigureRes() {}
+
+type GetStatisticalKeyFigureForbidden Problem
+
+func (*GetStatisticalKeyFigureForbidden) getStatisticalKeyFigureRes() {}
+
+type GetStatisticalKeyFigureNotFound Problem
+
+func (*GetStatisticalKeyFigureNotFound) getStatisticalKeyFigureRes() {}
+
+// GetStatisticalKeyFigureOKHeaders wraps StatisticalKeyFigure with response headers.
+type GetStatisticalKeyFigureOKHeaders struct {
+	ETag     OptString
+	Response StatisticalKeyFigure
+}
+
+// GetETag returns the value of ETag.
+func (s *GetStatisticalKeyFigureOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetStatisticalKeyFigureOKHeaders) GetResponse() StatisticalKeyFigure {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetStatisticalKeyFigureOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetStatisticalKeyFigureOKHeaders) SetResponse(val StatisticalKeyFigure) {
+	s.Response = val
+}
+
+func (*GetStatisticalKeyFigureOKHeaders) getStatisticalKeyFigureRes() {}
+
 type GetSupplierInvoiceBadRequest Problem
 
 func (*GetSupplierInvoiceBadRequest) getSupplierInvoiceRes() {}
@@ -64281,6 +64429,26 @@ func (*ListSodRulesBadRequest) listSodRulesRes() {}
 type ListSodRulesForbidden Problem
 
 func (*ListSodRulesForbidden) listSodRulesRes() {}
+
+type ListStatisticalKeyFigureValuesBadRequest Problem
+
+func (*ListStatisticalKeyFigureValuesBadRequest) listStatisticalKeyFigureValuesRes() {}
+
+type ListStatisticalKeyFigureValuesForbidden Problem
+
+func (*ListStatisticalKeyFigureValuesForbidden) listStatisticalKeyFigureValuesRes() {}
+
+type ListStatisticalKeyFigureValuesNotFound Problem
+
+func (*ListStatisticalKeyFigureValuesNotFound) listStatisticalKeyFigureValuesRes() {}
+
+type ListStatisticalKeyFiguresBadRequest Problem
+
+func (*ListStatisticalKeyFiguresBadRequest) listStatisticalKeyFiguresRes() {}
+
+type ListStatisticalKeyFiguresForbidden Problem
+
+func (*ListStatisticalKeyFiguresForbidden) listStatisticalKeyFiguresRes() {}
 
 type ListSupplierInvoicesBadRequest Problem
 
@@ -102558,6 +102726,8 @@ func (*ServiceUnavailableHeaders) createSalesOrderUploadRes()                {}
 func (*ServiceUnavailableHeaders) createScheduleLineRes()                    {}
 func (*ServiceUnavailableHeaders) createSegmentRes()                         {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()                         {}
+func (*ServiceUnavailableHeaders) createStatisticalKeyFigurePostingRes()     {}
+func (*ServiceUnavailableHeaders) createStatisticalKeyFigureRes()            {}
 func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()                 {}
 func (*ServiceUnavailableHeaders) createSupplierQuotationRes()               {}
 func (*ServiceUnavailableHeaders) createUploadRes()                          {}
@@ -103867,6 +104037,660 @@ func (s *StatementMatchTarget) SetPostingRule(val OptString) {
 func (s *StatementMatchTarget) SetIncoming(val OptBool) {
 	s.Incoming = val
 }
+
+// Merged schema.
+// Ref: #/components/schemas/StatisticalKeyFigure
+type StatisticalKeyFigure struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Legal entity (company code) the key figure belongs to. Immutable.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Code, unique in the legal entity. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// The unit of measure of its values (reference data). Immutable.
+	Unit string `json:"unit"`
+}
+
+// GetID returns the value of ID.
+func (s *StatisticalKeyFigure) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *StatisticalKeyFigure) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *StatisticalKeyFigure) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *StatisticalKeyFigure) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *StatisticalKeyFigure) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *StatisticalKeyFigure) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *StatisticalKeyFigure) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCode returns the value of Code.
+func (s *StatisticalKeyFigure) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *StatisticalKeyFigure) GetName() string {
+	return s.Name
+}
+
+// GetUnit returns the value of Unit.
+func (s *StatisticalKeyFigure) GetUnit() string {
+	return s.Unit
+}
+
+// SetID sets the value of ID.
+func (s *StatisticalKeyFigure) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *StatisticalKeyFigure) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *StatisticalKeyFigure) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *StatisticalKeyFigure) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *StatisticalKeyFigure) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *StatisticalKeyFigure) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *StatisticalKeyFigure) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCode sets the value of Code.
+func (s *StatisticalKeyFigure) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *StatisticalKeyFigure) SetName(val string) {
+	s.Name = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *StatisticalKeyFigure) SetUnit(val string) {
+	s.Unit = val
+}
+
+// The statistical key figure create request.
+// Ref: #/components/schemas/StatisticalKeyFigureCreate
+type StatisticalKeyFigureCreate struct {
+	// Legal entity (company code) the key figure belongs to.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Code, unique in the legal entity.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// A unit of measure of the reference data (`EA` for a count of employees, `M2` for floor space).
+	Unit string `json:"unit"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *StatisticalKeyFigureCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCode returns the value of Code.
+func (s *StatisticalKeyFigureCreate) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *StatisticalKeyFigureCreate) GetName() string {
+	return s.Name
+}
+
+// GetUnit returns the value of Unit.
+func (s *StatisticalKeyFigureCreate) GetUnit() string {
+	return s.Unit
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *StatisticalKeyFigureCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCode sets the value of Code.
+func (s *StatisticalKeyFigureCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *StatisticalKeyFigureCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *StatisticalKeyFigureCreate) SetUnit(val string) {
+	s.Unit = val
+}
+
+// StatisticalKeyFigureHeaders wraps StatisticalKeyFigure with response headers.
+type StatisticalKeyFigureHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           StatisticalKeyFigure
+}
+
+// GetETag returns the value of ETag.
+func (s *StatisticalKeyFigureHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *StatisticalKeyFigureHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *StatisticalKeyFigureHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *StatisticalKeyFigureHeaders) GetResponse() StatisticalKeyFigure {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *StatisticalKeyFigureHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *StatisticalKeyFigureHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *StatisticalKeyFigureHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *StatisticalKeyFigureHeaders) SetResponse(val StatisticalKeyFigure) {
+	s.Response = val
+}
+
+func (*StatisticalKeyFigureHeaders) createStatisticalKeyFigureRes() {}
+
+// One page of statistical key figures.
+// Ref: #/components/schemas/StatisticalKeyFigurePage
+type StatisticalKeyFigurePage struct {
+	// The statistical key figures on this page.
+	Items []StatisticalKeyFigure `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *StatisticalKeyFigurePage) GetItems() []StatisticalKeyFigure {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *StatisticalKeyFigurePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *StatisticalKeyFigurePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *StatisticalKeyFigurePage) SetItems(val []StatisticalKeyFigure) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *StatisticalKeyFigurePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *StatisticalKeyFigurePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*StatisticalKeyFigurePage) listStatisticalKeyFiguresRes() {}
+
+// A posting of a statistical key figure's values for a period (ADR-0064 As built T60j). Never changed.
+// Ref: #/components/schemas/StatisticalKeyFigurePosting
+type StatisticalKeyFigurePosting struct {
+	// The posting's id.
+	ID uuid.UUID `json:"id"`
+	// The key figure (`GET /v1/statistical-key-figures/{id}`).
+	StatisticalKeyFigureID uuid.UUID `json:"statistical_key_figure_id"`
+	// The key figure's code.
+	StatisticalKeyFigureCode string `json:"statistical_key_figure_code"`
+	// The key figure's unit of measure, the values' unit.
+	Unit string `json:"unit"`
+	// The key figure's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the period posted.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period posted.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The values posted, in the order given.
+	Lines []StatisticalKeyFigureValue `json:"lines"`
+	// When the values were posted (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who posted them.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *StatisticalKeyFigurePosting) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetStatisticalKeyFigureID returns the value of StatisticalKeyFigureID.
+func (s *StatisticalKeyFigurePosting) GetStatisticalKeyFigureID() uuid.UUID {
+	return s.StatisticalKeyFigureID
+}
+
+// GetStatisticalKeyFigureCode returns the value of StatisticalKeyFigureCode.
+func (s *StatisticalKeyFigurePosting) GetStatisticalKeyFigureCode() string {
+	return s.StatisticalKeyFigureCode
+}
+
+// GetUnit returns the value of Unit.
+func (s *StatisticalKeyFigurePosting) GetUnit() string {
+	return s.Unit
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *StatisticalKeyFigurePosting) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *StatisticalKeyFigurePosting) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *StatisticalKeyFigurePosting) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetLines returns the value of Lines.
+func (s *StatisticalKeyFigurePosting) GetLines() []StatisticalKeyFigureValue {
+	return s.Lines
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *StatisticalKeyFigurePosting) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *StatisticalKeyFigurePosting) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *StatisticalKeyFigurePosting) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetStatisticalKeyFigureID sets the value of StatisticalKeyFigureID.
+func (s *StatisticalKeyFigurePosting) SetStatisticalKeyFigureID(val uuid.UUID) {
+	s.StatisticalKeyFigureID = val
+}
+
+// SetStatisticalKeyFigureCode sets the value of StatisticalKeyFigureCode.
+func (s *StatisticalKeyFigurePosting) SetStatisticalKeyFigureCode(val string) {
+	s.StatisticalKeyFigureCode = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *StatisticalKeyFigurePosting) SetUnit(val string) {
+	s.Unit = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *StatisticalKeyFigurePosting) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *StatisticalKeyFigurePosting) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *StatisticalKeyFigurePosting) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetLines sets the value of Lines.
+func (s *StatisticalKeyFigurePosting) SetLines(val []StatisticalKeyFigureValue) {
+	s.Lines = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *StatisticalKeyFigurePosting) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *StatisticalKeyFigurePosting) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// Values of a statistical key figure posted for a period: each line adds its value to the cost
+// center's value of the period.
+// Ref: #/components/schemas/StatisticalKeyFigurePostingCreate
+type StatisticalKeyFigurePostingCreate struct {
+	// The fiscal year of the period, one set up for the legal entity.
+	FiscalYear int32 `json:"fiscal_year"`
+	// A regular posting period of the fiscal year.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The values: active cost centers of the key figure's legal entity, each once.
+	Lines []StatisticalKeyFigurePostingCreateLinesItem `json:"lines"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *StatisticalKeyFigurePostingCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *StatisticalKeyFigurePostingCreate) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetLines returns the value of Lines.
+func (s *StatisticalKeyFigurePostingCreate) GetLines() []StatisticalKeyFigurePostingCreateLinesItem {
+	return s.Lines
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *StatisticalKeyFigurePostingCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *StatisticalKeyFigurePostingCreate) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetLines sets the value of Lines.
+func (s *StatisticalKeyFigurePostingCreate) SetLines(val []StatisticalKeyFigurePostingCreateLinesItem) {
+	s.Lines = val
+}
+
+type StatisticalKeyFigurePostingCreateLinesItem struct {
+	// The cost center the value is posted for.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The value in the key figure's unit, not zero, with up to six decimals; a negative value corrects an
+	// earlier posting.
+	Value string `json:"value"`
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *StatisticalKeyFigurePostingCreateLinesItem) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetValue returns the value of Value.
+func (s *StatisticalKeyFigurePostingCreateLinesItem) GetValue() string {
+	return s.Value
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *StatisticalKeyFigurePostingCreateLinesItem) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetValue sets the value of Value.
+func (s *StatisticalKeyFigurePostingCreateLinesItem) SetValue(val string) {
+	s.Value = val
+}
+
+// StatisticalKeyFigurePostingHeaders wraps StatisticalKeyFigurePosting with response headers.
+type StatisticalKeyFigurePostingHeaders struct {
+	IdempotentReplayed OptBool
+	Response           StatisticalKeyFigurePosting
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *StatisticalKeyFigurePostingHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *StatisticalKeyFigurePostingHeaders) GetResponse() StatisticalKeyFigurePosting {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *StatisticalKeyFigurePostingHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *StatisticalKeyFigurePostingHeaders) SetResponse(val StatisticalKeyFigurePosting) {
+	s.Response = val
+}
+
+func (*StatisticalKeyFigurePostingHeaders) createStatisticalKeyFigurePostingRes() {}
+
+// A statistical key figure's value for a cost center.
+// Ref: #/components/schemas/StatisticalKeyFigureValue
+type StatisticalKeyFigureValue struct {
+	// The cost center (`GET /v1/cost-centers/{id}`).
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// The value in the key figure's unit, exact, without trailing zeros.
+	Value string `json:"value"`
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *StatisticalKeyFigureValue) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *StatisticalKeyFigureValue) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetValue returns the value of Value.
+func (s *StatisticalKeyFigureValue) GetValue() string {
+	return s.Value
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *StatisticalKeyFigureValue) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *StatisticalKeyFigureValue) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetValue sets the value of Value.
+func (s *StatisticalKeyFigureValue) SetValue(val string) {
+	s.Value = val
+}
+
+// One page of a statistical key figure's values in a period, per cost center, with the total of every
+// page.
+// Ref: #/components/schemas/StatisticalKeyFigureValuePage
+type StatisticalKeyFigureValuePage struct {
+	// The key figure (`GET /v1/statistical-key-figures/{id}`).
+	StatisticalKeyFigureID uuid.UUID `json:"statistical_key_figure_id"`
+	// The key figure's code.
+	StatisticalKeyFigureCode string `json:"statistical_key_figure_code"`
+	// The key figure's unit of measure, the values' unit.
+	Unit string `json:"unit"`
+	// The key figure's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year read.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period read.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The cost centers' values on this page: the sum of each one's postings in the period, in the order of
+	// the cost center's id.
+	Items []StatisticalKeyFigureValue `json:"items"`
+	// The sum of the values of every cost center of the selection, on every page, exact, without trailing
+	// zeros.
+	Total string `json:"total"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetStatisticalKeyFigureID returns the value of StatisticalKeyFigureID.
+func (s *StatisticalKeyFigureValuePage) GetStatisticalKeyFigureID() uuid.UUID {
+	return s.StatisticalKeyFigureID
+}
+
+// GetStatisticalKeyFigureCode returns the value of StatisticalKeyFigureCode.
+func (s *StatisticalKeyFigureValuePage) GetStatisticalKeyFigureCode() string {
+	return s.StatisticalKeyFigureCode
+}
+
+// GetUnit returns the value of Unit.
+func (s *StatisticalKeyFigureValuePage) GetUnit() string {
+	return s.Unit
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *StatisticalKeyFigureValuePage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *StatisticalKeyFigureValuePage) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *StatisticalKeyFigureValuePage) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetItems returns the value of Items.
+func (s *StatisticalKeyFigureValuePage) GetItems() []StatisticalKeyFigureValue {
+	return s.Items
+}
+
+// GetTotal returns the value of Total.
+func (s *StatisticalKeyFigureValuePage) GetTotal() string {
+	return s.Total
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *StatisticalKeyFigureValuePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetStatisticalKeyFigureID sets the value of StatisticalKeyFigureID.
+func (s *StatisticalKeyFigureValuePage) SetStatisticalKeyFigureID(val uuid.UUID) {
+	s.StatisticalKeyFigureID = val
+}
+
+// SetStatisticalKeyFigureCode sets the value of StatisticalKeyFigureCode.
+func (s *StatisticalKeyFigureValuePage) SetStatisticalKeyFigureCode(val string) {
+	s.StatisticalKeyFigureCode = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *StatisticalKeyFigureValuePage) SetUnit(val string) {
+	s.Unit = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *StatisticalKeyFigureValuePage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *StatisticalKeyFigureValuePage) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *StatisticalKeyFigureValuePage) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetItems sets the value of Items.
+func (s *StatisticalKeyFigureValuePage) SetItems(val []StatisticalKeyFigureValue) {
+	s.Items = val
+}
+
+// SetTotal sets the value of Total.
+func (s *StatisticalKeyFigureValuePage) SetTotal(val string) {
+	s.Total = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *StatisticalKeyFigureValuePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*StatisticalKeyFigureValuePage) listStatisticalKeyFigureValuesRes() {}
 
 type SubmitChangeRequestBadRequest Problem
 
@@ -107737,6 +108561,8 @@ func (*TooManyRequestsHeaders) createSalesPriceRes()                      {}
 func (*TooManyRequestsHeaders) createScheduleLineRes()                    {}
 func (*TooManyRequestsHeaders) createSegmentRes()                         {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                         {}
+func (*TooManyRequestsHeaders) createStatisticalKeyFigurePostingRes()     {}
+func (*TooManyRequestsHeaders) createStatisticalKeyFigureRes()            {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createSupplierQuotationRes()               {}
 func (*TooManyRequestsHeaders) createUploadRes()                          {}
@@ -107900,6 +108726,7 @@ func (*TooManyRequestsHeaders) getSalesPriceRes()                         {}
 func (*TooManyRequestsHeaders) getSchemaRes()                             {}
 func (*TooManyRequestsHeaders) getSegmentRes()                            {}
 func (*TooManyRequestsHeaders) getSodRuleRes()                            {}
+func (*TooManyRequestsHeaders) getStatisticalKeyFigureRes()               {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getTaxReturnDraftRes()                     {}
@@ -108054,6 +108881,8 @@ func (*TooManyRequestsHeaders) listSalesPricesRes()                       {}
 func (*TooManyRequestsHeaders) listScheduleLinesRes()                     {}
 func (*TooManyRequestsHeaders) listSegmentsRes()                          {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                          {}
+func (*TooManyRequestsHeaders) listStatisticalKeyFigureValuesRes()        {}
+func (*TooManyRequestsHeaders) listStatisticalKeyFiguresRes()             {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listSupplierQuotationsRes()                {}
 func (*TooManyRequestsHeaders) listTaxPeriodsRes()                        {}
@@ -108647,6 +109476,8 @@ func (*UnauthorizedHeaders) createSalesPriceRes()                      {}
 func (*UnauthorizedHeaders) createScheduleLineRes()                    {}
 func (*UnauthorizedHeaders) createSegmentRes()                         {}
 func (*UnauthorizedHeaders) createSodRuleRes()                         {}
+func (*UnauthorizedHeaders) createStatisticalKeyFigurePostingRes()     {}
+func (*UnauthorizedHeaders) createStatisticalKeyFigureRes()            {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createSupplierQuotationRes()               {}
 func (*UnauthorizedHeaders) createUploadRes()                          {}
@@ -108810,6 +109641,7 @@ func (*UnauthorizedHeaders) getSalesPriceRes()                         {}
 func (*UnauthorizedHeaders) getSchemaRes()                             {}
 func (*UnauthorizedHeaders) getSegmentRes()                            {}
 func (*UnauthorizedHeaders) getSodRuleRes()                            {}
+func (*UnauthorizedHeaders) getStatisticalKeyFigureRes()               {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*UnauthorizedHeaders) getSupplierInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getTaxReturnDraftRes()                     {}
@@ -108964,6 +109796,8 @@ func (*UnauthorizedHeaders) listSalesPricesRes()                       {}
 func (*UnauthorizedHeaders) listScheduleLinesRes()                     {}
 func (*UnauthorizedHeaders) listSegmentsRes()                          {}
 func (*UnauthorizedHeaders) listSodRulesRes()                          {}
+func (*UnauthorizedHeaders) listStatisticalKeyFigureValuesRes()        {}
+func (*UnauthorizedHeaders) listStatisticalKeyFiguresRes()             {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listSupplierQuotationsRes()                {}
 func (*UnauthorizedHeaders) listTaxPeriodsRes()                        {}

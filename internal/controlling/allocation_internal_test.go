@@ -62,7 +62,7 @@ func TestDistributionLines(t *testing.T) {
 			"x -500 S; x 300 A; x 200 B; y 100 S; y -60 A; y -40 B", 400},
 	} {
 		t.Run(name, func(t *testing.T) {
-			lines, total, err := distributionLines(tc.cycle, tc.costs)
+			lines, total, err := distributionLines(tc.cycle, tc.costs, fixedWeights(tc.cycle))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -85,12 +85,12 @@ func TestDistributionLines(t *testing.T) {
 			}
 		})
 	}
-	_, _, err := distributionLines(sixty, []accountCost{{AccountID: x, Amount: math.MaxInt64}, {AccountID: y, Amount: 1}})
+	_, _, err := distributionLines(sixty, []accountCost{{AccountID: x, Amount: math.MaxInt64}, {AccountID: y, Amount: 1}}, fixedWeights(sixty))
 	if !errors.Is(err, money.ErrOverflow) {
 		t.Errorf("a total beyond an amount: got %v, want an overflow", err)
 	}
 	// The most negative amount has no magnitude an amount can hold.
-	_, _, err = distributionLines(sixty, []accountCost{{AccountID: x, Amount: math.MinInt64}})
+	_, _, err = distributionLines(sixty, []accountCost{{AccountID: x, Amount: math.MinInt64}}, fixedWeights(sixty))
 	if !errors.Is(err, money.ErrOverflow) {
 		t.Errorf("shares of a cost beyond an amount: got %v, want an overflow", err)
 	}
@@ -122,7 +122,7 @@ func TestAssessmentLines(t *testing.T) {
 		"no costs":                                  {sixty, nil, "", 0},
 	} {
 		t.Run(name, func(t *testing.T) {
-			lines, total, err := runLines(tc.cycle, tc.costs)
+			lines, total, err := runLines(tc.cycle, tc.costs, fixedWeights(tc.cycle))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -143,19 +143,19 @@ func TestAssessmentLines(t *testing.T) {
 			}
 		})
 	}
-	_, _, err := runLines(sixty, []accountCost{{AccountID: x, Amount: math.MaxInt64}, {AccountID: y, Amount: 1}})
+	_, _, err := runLines(sixty, []accountCost{{AccountID: x, Amount: math.MaxInt64}, {AccountID: y, Amount: 1}}, fixedWeights(sixty))
 	if !errors.Is(err, money.ErrOverflow) {
 		t.Errorf("a total beyond an amount: got %v, want an overflow", err)
 	}
 	// The most negative amount has no magnitude an amount can hold.
-	_, _, err = runLines(sixty, []accountCost{{AccountID: x, Amount: math.MinInt64}})
+	_, _, err = runLines(sixty, []accountCost{{AccountID: x, Amount: math.MinInt64}}, fixedWeights(sixty))
 	if !errors.Is(err, money.ErrOverflow) {
 		t.Errorf("a total beyond an amount: got %v, want an overflow", err)
 	}
 	// Shares the database never holds, twice the whole: what no amount can
 	// hold is an error, not a wrapped amount.
 	twice := cycle{Kind: CycleAssessment, SenderID: s, AssessmentID: &z, Receivers: []cycleReceiver{{CostCenterID: a, ShareBP: wholeBP}, {CostCenterID: b, ShareBP: wholeBP}}}
-	_, _, err = runLines(twice, []accountCost{{AccountID: x, Amount: math.MaxInt64}})
+	_, _, err = runLines(twice, []accountCost{{AccountID: x, Amount: math.MaxInt64}}, fixedWeights(twice))
 	if !errors.Is(err, money.ErrOverflow) {
 		t.Errorf("shares beyond an amount: got %v, want an overflow", err)
 	}
@@ -167,7 +167,7 @@ func TestAssessmentLines(t *testing.T) {
 func TestRunLinesOfADistribution(t *testing.T) {
 	c := cycle{ID: uuid.New(), Kind: CycleDistribution, SenderID: uuid.New(), Receivers: []cycleReceiver{{CostCenterID: uuid.New(), ShareBP: wholeBP}}}
 	x := uuid.New()
-	lines, total, err := runLines(c, []accountCost{{AccountID: x, Amount: 700}})
+	lines, total, err := runLines(c, []accountCost{{AccountID: x, Amount: 700}}, fixedWeights(c))
 	if err != nil {
 		t.Fatal(err)
 	}

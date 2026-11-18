@@ -13122,7 +13122,14 @@ func (s *Server) handleCopyPlanCategoryRequest(args [1]string, argsEscaped bool,
 // or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
 // sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
 // with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
-// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
+// 100 (`receivers`, `not_100`). The receivers' shares are fixed percentages (`share_basis`
+// `fixed_percentages`, the default) or a statistical key figure's values in the period run
+// (`statistical_key_figure`, ADR-0064 As built T60j); refused besides: a basis that is neither
+// (`share_basis`, `unsupported`); a key figure missing with `statistical_key_figure`
+// (`statistical_key_figure_id`, `required`), one that is no key figure of the legal entity
+// (`unknown`), or one named with fixed percentages (`not_allowed`); a receiver without its percentage
+// on fixed percentages (`receivers[i].percentage`, `required`) or with one on a key figure
+// (`not_allowed`). A legal entity the caller cannot act in is answered as missing (422
 // `request.reference_not_found`). A cycle is not changed in this version. Created directly by
 // permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
 // not create one.
@@ -29114,6 +29121,433 @@ func (s *Server) handleCreateSodRuleRequest(args [0]string, argsEscaped bool, w 
 	}
 
 	if err := encodeCreateSodRuleResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleCreateStatisticalKeyFigureRequest handles createStatisticalKeyFigure operation.
+//
+// Defines a statistical key figure of a legal entity (ADR-0064 As built T60j): a quantity such as
+// employees or floor space whose values are posted per cost center and period
+// (`POST /v1/statistical-key-figures/{id}/postings`) and which an allocation cycle may take its
+// receivers' shares from (`share_basis` `statistical_key_figure`). The code is unique in the legal
+// entity (409 `controlling.statistical_key_figure_exists`); the unit is a unit of measure of the
+// reference data (422 `controlling.statistical_key_figure_invalid`, field `unit`, code `unknown`). A
+// legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A
+// key figure is not changed in this version. Created directly by permission, with no approval request.
+// Audited, and published as StatisticalKeyFigureChanged. Agents may not create one.
+//
+// POST /v1/statistical-key-figures
+func (s *Server) handleCreateStatisticalKeyFigureRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createStatisticalKeyFigure"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/statistical-key-figures"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateStatisticalKeyFigureOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateStatisticalKeyFigureOperation,
+			ID:   "createStatisticalKeyFigure",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateStatisticalKeyFigureOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateStatisticalKeyFigureParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateStatisticalKeyFigureRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateStatisticalKeyFigureRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateStatisticalKeyFigureOperation,
+			OperationSummary: "Create a statistical key figure",
+			OperationID:      "createStatisticalKeyFigure",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *StatisticalKeyFigureCreate
+			Params   = CreateStatisticalKeyFigureParams
+			Response = CreateStatisticalKeyFigureRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateStatisticalKeyFigureParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateStatisticalKeyFigure(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateStatisticalKeyFigure(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateStatisticalKeyFigureResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleCreateStatisticalKeyFigurePostingRequest handles createStatisticalKeyFigurePosting operation.
+//
+// Posts values of a statistical key figure for cost centers in a regular fiscal period of its legal
+// entity (ADR-0064 As built T60j; SAP's KB31N, from memory). A posting adds to what was posted before:
+// a cost center's value of a period is the sum of its postings' values, and a negative value corrects
+// an earlier one. Each line names an active cost center of the key figure's legal entity, once (422
+// `controlling.statistical_key_figure_posting_invalid`, whose field errors name each line:
+// `lines[i].cost_center_id` `unknown`, `not_in_company`, `not_active`, `duplicate`; `lines[i].value`
+// `zero`). Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that
+// is no regular posting period of it (422 `controlling.period_not_regular`). A posting is not changed
+// or deleted: a correction is a further posting. A key figure of a legal entity the caller cannot act
+// in is answered as missing (404). The posting is kept, audited and published as
+// StatisticalKeyFigurePosted; the values of a period are read with
+// `GET /v1/statistical-key-figures/{id}/values`. Agents may not post values.
+//
+// POST /v1/statistical-key-figures/{id}/postings
+func (s *Server) handleCreateStatisticalKeyFigurePostingRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createStatisticalKeyFigurePosting"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/statistical-key-figures/{id}/postings"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateStatisticalKeyFigurePostingOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateStatisticalKeyFigurePostingOperation,
+			ID:   "createStatisticalKeyFigurePosting",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateStatisticalKeyFigurePostingOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateStatisticalKeyFigurePostingParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateStatisticalKeyFigurePostingRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateStatisticalKeyFigurePostingRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateStatisticalKeyFigurePostingOperation,
+			OperationSummary: "Post a statistical key figure's values",
+			OperationID:      "createStatisticalKeyFigurePosting",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *StatisticalKeyFigurePostingCreate
+			Params   = CreateStatisticalKeyFigurePostingParams
+			Response = CreateStatisticalKeyFigurePostingRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateStatisticalKeyFigurePostingParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateStatisticalKeyFigurePosting(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateStatisticalKeyFigurePosting(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateStatisticalKeyFigurePostingResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -61467,6 +61901,194 @@ func (s *Server) handleGetSodRuleRequest(args [1]string, argsEscaped bool, w htt
 	}
 
 	if err := encodeGetSodRuleResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetStatisticalKeyFigureRequest handles getStatisticalKeyFigure operation.
+//
+// Returns one statistical key figure. A key figure of a legal entity the caller cannot act in is
+// answered as missing (404).
+//
+// GET /v1/statistical-key-figures/{id}
+func (s *Server) handleGetStatisticalKeyFigureRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getStatisticalKeyFigure"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/statistical-key-figures/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetStatisticalKeyFigureOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetStatisticalKeyFigureOperation,
+			ID:   "getStatisticalKeyFigure",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetStatisticalKeyFigureOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetStatisticalKeyFigureParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetStatisticalKeyFigureRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetStatisticalKeyFigureOperation,
+			OperationSummary: "Get a statistical key figure",
+			OperationID:      "getStatisticalKeyFigure",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetStatisticalKeyFigureParams
+			Response = GetStatisticalKeyFigureRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetStatisticalKeyFigureParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetStatisticalKeyFigure(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetStatisticalKeyFigure(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetStatisticalKeyFigureResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -94236,6 +94858,425 @@ func (s *Server) handleListSodRulesRequest(args [0]string, argsEscaped bool, w h
 	}
 }
 
+// handleListStatisticalKeyFigureValuesRequest handles listStatisticalKeyFigureValues operation.
+//
+// The values of a statistical key figure in a fiscal period (ADR-0064 As built T60j): per cost center
+// that has a posting in the period, the sum of its postings' values, exact, in the order of the cost
+// center's id; `total` is the sum over every cost center of the selection on every page, whatever the
+// page. What a run of a cycle by this key figure for the period takes its receivers' shares from. A
+// key figure of a legal entity the caller cannot act in is answered as missing (404).
+//
+// GET /v1/statistical-key-figures/{id}/values
+func (s *Server) handleListStatisticalKeyFigureValuesRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listStatisticalKeyFigureValues"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/statistical-key-figures/{id}/values"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListStatisticalKeyFigureValuesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListStatisticalKeyFigureValuesOperation,
+			ID:   "listStatisticalKeyFigureValues",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListStatisticalKeyFigureValuesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListStatisticalKeyFigureValuesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListStatisticalKeyFigureValuesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListStatisticalKeyFigureValuesOperation,
+			OperationSummary: "List a statistical key figure's values of a period",
+			OperationID:      "listStatisticalKeyFigureValues",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "fiscal_year",
+					In:   "query",
+				}: params.FiscalYear,
+				{
+					Name: "fiscal_period",
+					In:   "query",
+				}: params.FiscalPeriod,
+				{
+					Name: "cost_center_id",
+					In:   "query",
+				}: params.CostCenterID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListStatisticalKeyFigureValuesParams
+			Response = ListStatisticalKeyFigureValuesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListStatisticalKeyFigureValuesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListStatisticalKeyFigureValues(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListStatisticalKeyFigureValues(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListStatisticalKeyFigureValuesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListStatisticalKeyFiguresRequest handles listStatisticalKeyFigures operation.
+//
+// Statistical key figures (ADR-0064 As built T60j) of the legal entities the caller may act in: each
+// with its code, name and unit of measure. Sortable by: `code`.
+//
+// GET /v1/statistical-key-figures
+func (s *Server) handleListStatisticalKeyFiguresRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listStatisticalKeyFigures"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/statistical-key-figures"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListStatisticalKeyFiguresOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListStatisticalKeyFiguresOperation,
+			ID:   "listStatisticalKeyFigures",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListStatisticalKeyFiguresOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListStatisticalKeyFiguresParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListStatisticalKeyFiguresRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListStatisticalKeyFiguresOperation,
+			OperationSummary: "List statistical key figures",
+			OperationID:      "listStatisticalKeyFigures",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "code",
+					In:   "query",
+				}: params.Code,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+				{
+					Name: "include",
+					In:   "query",
+				}: params.Include,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListStatisticalKeyFiguresParams
+			Response = ListStatisticalKeyFiguresRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListStatisticalKeyFiguresParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListStatisticalKeyFigures(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListStatisticalKeyFigures(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListStatisticalKeyFiguresResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListSupplierInvoicesRequest handles listSupplierInvoices operation.
 //
 // Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
@@ -114461,27 +115502,33 @@ func (s *Server) handleRotateWebhookSubscriptionSecretRequest(args [1]string, ar
 // the cycle's assessment account alone: the sender credited with the total of its primary costs and
 // each receiver debited with its share of that total, split and rounded the same way, so the entry
 // balances on the account; the sender's primary costs stay on their accounts, and the cost center
-// report shows the sender relieved, and the receivers charged, on the assessment account. A sender
-// without costs in the period, or for an assessment with costs that add up to nothing, posts nothing:
-// `posted` is false and no run is kept, so the cycle may be run for the period later. One run per
-// cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
-// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
-// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
-// both post, and two cycles of one sender run at once follow one another: the second moves what the
-// first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that
-// sender is run for the period again (409 `controlling.allocation_sender_assessed`, naming the
-// assessment's cycle and entry): the sender's primary costs are still on their accounts, and another
-// run would charge them a second time. Refused besides: a fiscal year not set up (422
-// `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422
-// `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day
-// (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any
-// entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for
-// actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its
-// run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as
-// AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing
-// (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs
-// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
-// not run a cycle.
+// report shows the sender relieved, and the receivers charged, on the assessment account. With
+// `share_basis` `statistical_key_figure` the shares are the receivers' values of the cycle's key
+// figure in the period run (the sum of their postings, `GET /v1/statistical-key-figures/{id}/values`)
+// over their total, split and rounded the same way; a receiver without a value takes nothing, a
+// receiver whose value is negative refuses the run (409 `controlling.allocation_key_figure_negative`,
+// naming it) and receivers whose values add up to nothing refuse it (409
+// `controlling.allocation_key_figure_missing`), each before anything is posted; the values used are in
+// the run's audit record. A sender without costs in the period, or for an assessment with costs that
+// add up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for
+// the period later. One run per cycle and period: a second is refused (409
+// `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version.
+// `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of
+// them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run
+// at once follow one another: the second moves what the first left. Once a cycle of the sender was run
+// as an assessment for a period, no cycle of that sender is run for the period again (409
+// `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's
+// primary costs are still on their accounts, and another run would charge them a second time. Refused
+// besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular
+// posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid
+// on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the
+// ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and
+// a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in
+// the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`),
+// audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is
+// answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run`
+// the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing`
+// otherwise). Agents may not run a cycle.
 //
 // POST /v1/allocation-cycles/{id}:run
 func (s *Server) handleRunAllocationCycleRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

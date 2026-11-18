@@ -9031,7 +9031,7 @@ paths:
       tags:
         - controlling
       summary: Create an allocation cycle
-      description: "Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to. The kind is `distribution`, whose run moves the sender's primary costs to the receivers on their original accounts, or `assessment`, whose run charges them to the receivers in one amount on the cycle's assessment account and leaves them on the sender's accounts. An assessment cycle names its assessment account, `assessment_account_id`: an active account of the legal entity whose cost element is `secondary` (ADR-0064 §4), which only allocations post to; a distribution names none. The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind that is neither (`kind`, `unsupported`); an assessment without its account (`assessment_account_id`, `required`), with one that is no account of the legal entity (`unknown`), not a secondary cost element (`not_secondary`) or not active (`not_active`), and a distribution with one (`not_allowed`); a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100 with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A cycle is not changed in this version. Created directly by permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may not create one."
+      description: "Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to. The kind is `distribution`, whose run moves the sender's primary costs to the receivers on their original accounts, or `assessment`, whose run charges them to the receivers in one amount on the cycle's assessment account and leaves them on the sender's accounts. An assessment cycle names its assessment account, `assessment_account_id`: an active account of the legal entity whose cost element is `secondary` (ADR-0064 §4), which only allocations post to; a distribution names none. The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind that is neither (`kind`, `unsupported`); an assessment without its account (`assessment_account_id`, `required`), with one that is no account of the legal entity (`unknown`), not a secondary cost element (`not_secondary`) or not active (`not_active`), and a distribution with one (`not_allowed`); a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100 with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to 100 (`receivers`, `not_100`). The receivers' shares are fixed percentages (`share_basis` `fixed_percentages`, the default) or a statistical key figure's values in the period run (`statistical_key_figure`, ADR-0064 As built T60j); refused besides: a basis that is neither (`share_basis`, `unsupported`); a key figure missing with `statistical_key_figure` (`statistical_key_figure_id`, `required`), one that is no key figure of the legal entity (`unknown`), or one named with fixed percentages (`not_allowed`); a receiver without its percentage on fixed percentages (`receivers[i].percentage`, `required`) or with one on a key figure (`not_allowed`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A cycle is not changed in this version. Created directly by permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may not create one."
       x-permission: controlling.allocation.write
       x-agent: false
       x-problem-codes:
@@ -9114,7 +9114,7 @@ paths:
       tags:
         - controlling
       summary: Run an allocation cycle for a period
-      description: "Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A run reads the sender's primary costs of the period, per account, from the leading ledger (what the cost center report shows on primary cost accounts) and posts one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day). A distribution's entry has, per account, the sender credited with its cost and each receiver debited with its share on the same account, so the entry balances per account and every account's balance is unchanged; an account's cost is split by the receivers' percentages and rounded so that the shares add up to it to the minor unit (largest remainder). An assessment's entry is on the cycle's assessment account alone: the sender credited with the total of its primary costs and each receiver debited with its share of that total, split and rounded the same way, so the entry balances on the account; the sender's primary costs stay on their accounts, and the cost center report shows the sender relieved, and the receivers charged, on the assessment account. A sender without costs in the period, or for an assessment with costs that add up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run at once follow one another: the second moves what the first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that sender is run for the period again (409 `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's primary costs are still on their accounts, and another run would charge them a second time. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not run a cycle."
+      description: "Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A run reads the sender's primary costs of the period, per account, from the leading ledger (what the cost center report shows on primary cost accounts) and posts one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day). A distribution's entry has, per account, the sender credited with its cost and each receiver debited with its share on the same account, so the entry balances per account and every account's balance is unchanged; an account's cost is split by the receivers' percentages and rounded so that the shares add up to it to the minor unit (largest remainder). An assessment's entry is on the cycle's assessment account alone: the sender credited with the total of its primary costs and each receiver debited with its share of that total, split and rounded the same way, so the entry balances on the account; the sender's primary costs stay on their accounts, and the cost center report shows the sender relieved, and the receivers charged, on the assessment account. With `share_basis` `statistical_key_figure` the shares are the receivers' values of the cycle's key figure in the period run (the sum of their postings, `GET /v1/statistical-key-figures/{id}/values`) over their total, split and rounded the same way; a receiver without a value takes nothing, a receiver whose value is negative refuses the run (409 `controlling.allocation_key_figure_negative`, naming it) and receivers whose values add up to nothing refuse it (409 `controlling.allocation_key_figure_missing`), each before anything is posted; the values used are in the run's audit record. A sender without costs in the period, or for an assessment with costs that add up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run at once follow one another: the second moves what the first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that sender is run for the period again (409 `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's primary costs are still on their accounts, and another run would charge them a second time. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not run a cycle."
       x-permission: controlling.allocation.run
       x-also-permissions:
         - ledger.entry.read
@@ -9124,6 +9124,8 @@ paths:
         - config.not_bootstrapped
         - config.number_range_exhausted
         - controlling.allocation_center_not_valid
+        - controlling.allocation_key_figure_missing
+        - controlling.allocation_key_figure_negative
         - controlling.allocation_run_exists
         - controlling.allocation_sender_assessed
         - controlling.period_not_regular
@@ -9300,6 +9302,235 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AllocationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/statistical-key-figures:
+    get:
+      operationId: listStatisticalKeyFigures
+      tags:
+        - controlling
+      summary: List statistical key figures
+      description: "Statistical key figures (ADR-0064 As built T60j) of the legal entities the caller may act in: each with its code, name and unit of measure. Sortable by: `code`."
+      x-permission: controlling.key_figure.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: code
+          in: query
+          required: false
+          description: Only the key figures with this code (one per legal entity).
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,12}$"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of statistical key figures.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatisticalKeyFigurePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createStatisticalKeyFigure
+      tags:
+        - controlling
+      summary: Create a statistical key figure
+      description: "Defines a statistical key figure of a legal entity (ADR-0064 As built T60j): a quantity such as employees or floor space whose values are posted per cost center and period (`POST /v1/statistical-key-figures/{id}/postings`) and which an allocation cycle may take its receivers' shares from (`share_basis` `statistical_key_figure`). The code is unique in the legal entity (409 `controlling.statistical_key_figure_exists`); the unit is a unit of measure of the reference data (422 `controlling.statistical_key_figure_invalid`, field `unit`, code `unknown`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A key figure is not changed in this version. Created directly by permission, with no approval request. Audited, and published as StatisticalKeyFigureChanged. Agents may not create one."
+      x-permission: controlling.key_figure.write
+      x-agent: false
+      x-problem-codes:
+        - controlling.statistical_key_figure_exists
+        - controlling.statistical_key_figure_invalid
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The statistical key figure create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatisticalKeyFigureCreate"
+      responses:
+        "201":
+          description: "Created; the new statistical key figure."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatisticalKeyFigure"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/statistical-key-figures/{id}":
+    get:
+      operationId: getStatisticalKeyFigure
+      tags:
+        - controlling
+      summary: Get a statistical key figure
+      description: "Returns one statistical key figure. A key figure of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: controlling.key_figure.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The statistical key figure.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatisticalKeyFigure"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/statistical-key-figures/{id}/postings":
+    post:
+      operationId: createStatisticalKeyFigurePosting
+      tags:
+        - controlling
+      summary: Post a statistical key figure's values
+      description: "Posts values of a statistical key figure for cost centers in a regular fiscal period of its legal entity (ADR-0064 As built T60j; SAP's KB31N, from memory). A posting adds to what was posted before: a cost center's value of a period is the sum of its postings' values, and a negative value corrects an earlier one. Each line names an active cost center of the key figure's legal entity, once (422 `controlling.statistical_key_figure_posting_invalid`, whose field errors name each line: `lines[i].cost_center_id` `unknown`, `not_in_company`, `not_active`, `duplicate`; `lines[i].value` `zero`). Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`). A posting is not changed or deleted: a correction is a further posting. A key figure of a legal entity the caller cannot act in is answered as missing (404). The posting is kept, audited and published as StatisticalKeyFigurePosted; the values of a period are read with `GET /v1/statistical-key-figures/{id}/values`. Agents may not post values."
+      x-permission: controlling.key_figure.write
+      x-agent: false
+      x-problem-codes:
+        - controlling.period_not_regular
+        - controlling.statistical_key_figure_posting_invalid
+        - ledger.no_fiscal_period
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The values posted.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatisticalKeyFigurePostingCreate"
+      responses:
+        "201":
+          description: "Created; the posting with its lines."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatisticalKeyFigurePosting"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/statistical-key-figures/{id}/values":
+    get:
+      operationId: listStatisticalKeyFigureValues
+      tags:
+        - controlling
+      summary: List a statistical key figure's values of a period
+      description: "The values of a statistical key figure in a fiscal period (ADR-0064 As built T60j): per cost center that has a posting in the period, the sum of its postings' values, exact, in the order of the cost center's id; `total` is the sum over every cost center of the selection on every page, whatever the page. What a run of a cycle by this key figure for the period takes its receivers' shares from. A key figure of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: controlling.key_figure.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period
+          in: query
+          required: true
+          description: Fiscal period (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: cost_center_id
+          in: query
+          required: false
+          description: Only this cost center's value.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the period's values, with the total.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatisticalKeyFigureValuePage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -44878,7 +45109,7 @@ components:
           description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
           minimum: 0
     AllocationCycle:
-      description: "An allocation cycle (ADR-0064 §5): one sender cost center of a legal entity and receiver cost centers with fixed percentages adding up to 100, which a run charges the sender's costs of a period to."
+      description: "An allocation cycle (ADR-0064 §5): one sender cost center of a legal entity and receiver cost centers, which a run charges the sender's costs of a period to, each by its share: a fixed percentage, or the receiver's value of a statistical key figure in the period run."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -44887,6 +45118,7 @@ components:
             - code
             - name
             - kind
+            - share_basis
             - sender_cost_center_id
             - sender_cost_center_code
             - receivers
@@ -44923,6 +45155,22 @@ components:
               type: string
               description: "The assessment account's number; present with `assessment_account_id`."
               readOnly: true
+            share_basis:
+              type: string
+              description: "What the receivers' shares are: `fixed_percentages`, each receiver's `percentage`, adding up to 100; `statistical_key_figure`, each receiver's value of the cycle's statistical key figure in the period run, over the receivers' total (ADR-0064 As built T60j). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. Immutable."
+              x-extensible-enum:
+                - fixed_percentages
+                - statistical_key_figure
+              readOnly: true
+            statistical_key_figure_id:
+              type: string
+              format: uuid
+              description: "The statistical key figure the shares come from (`GET /v1/statistical-key-figures/{id}`); present exactly with `share_basis` `statistical_key_figure`. Immutable."
+              readOnly: true
+            statistical_key_figure_code:
+              type: string
+              description: "The key figure's code; present with `statistical_key_figure_id`."
+              readOnly: true
             sender_cost_center_id:
               type: string
               format: uuid
@@ -44936,7 +45184,7 @@ components:
               type: array
               minItems: 1
               maxItems: 100
-              description: "The receivers, in the order given when the cycle was created; their percentages add up to 100."
+              description: "The receivers, in the order given when the cycle was created; with `share_basis` `fixed_percentages` their percentages add up to 100."
               readOnly: true
               items:
                 $ref: "#/components/schemas/AllocationReceiver"
@@ -44951,6 +45199,7 @@ components:
           code: SHARED-IT
           name: IT services to the offices
           kind: distribution
+          share_basis: fixed_percentages
           sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
           sender_cost_center_code: CC-1200
           receivers:
@@ -44966,7 +45215,6 @@ components:
       required:
         - cost_center_id
         - cost_center_code
-        - percentage
       properties:
         cost_center_id:
           type: string
@@ -44979,7 +45227,7 @@ components:
           readOnly: true
         percentage:
           type: string
-          description: "The receiver's share of the sender's costs in percent, with two decimals."
+          description: "The receiver's share of the sender's costs in percent, with two decimals; present exactly on a cycle whose `share_basis` is `fixed_percentages`."
           readOnly: true
       examples:
         - cost_center_id: "0192a000-0000-7000-8000-000000000201"
@@ -45019,6 +45267,16 @@ components:
           type: string
           format: uuid
           description: "Required with kind `assessment`, refused with `distribution`: an active account of the legal entity whose cost element is `secondary`, on which the cycle's runs credit the sender and debit the receivers."
+        share_basis:
+          type: string
+          description: "What the receivers' shares are: `fixed_percentages` (the default), each receiver's `percentage`; or `statistical_key_figure`, each receiver's value of `statistical_key_figure_id` in the period run, the receivers naming no percentage. Open enumeration; a basis not listed is refused (422)."
+          x-extensible-enum:
+            - fixed_percentages
+            - statistical_key_figure
+        statistical_key_figure_id:
+          type: string
+          format: uuid
+          description: "Required with `share_basis` `statistical_key_figure`, refused otherwise: a statistical key figure of the legal entity."
         sender_cost_center_id:
           type: string
           format: uuid
@@ -45027,12 +45285,11 @@ components:
           type: array
           minItems: 1
           maxItems: 100
-          description: "The receivers: active cost centers of the legal entity other than the sender, each once, with percentages adding up to 100."
+          description: "The receivers: active cost centers of the legal entity other than the sender, each once, with percentages adding up to 100 when the shares are fixed percentages."
           items:
             type: object
             required:
               - cost_center_id
-              - percentage
             properties:
               cost_center_id:
                 type: string
@@ -45041,7 +45298,7 @@ components:
               percentage:
                 type: string
                 pattern: "^(100(\\.0{1,2})?|[0-9]{1,2}(\\.[0-9]{1,2})?)$"
-                description: "The receiver's share in percent: above 0 and at most 100, with up to two decimals."
+                description: "The receiver's share in percent: above 0 and at most 100, with up to two decimals. Required with `share_basis` `fixed_percentages`, refused otherwise."
             additionalProperties: false
       additionalProperties: false
       examples:
@@ -45327,6 +45584,330 @@ components:
           format: int64
           description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
           minimum: 0
+    StatisticalKeyFigure:
+      description: "A statistical key figure of a legal entity (ADR-0064 As built T60j): a quantity such as employees or floor space, whose values are posted per cost center and period and which an allocation cycle may take its receivers' shares from."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - code
+            - name
+            - unit
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: "Legal entity (company code) the key figure belongs to. Immutable."
+              readOnly: true
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,12}$"
+              description: "Code, unique in the legal entity. Immutable."
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+              readOnly: true
+            unit:
+              type: string
+              pattern: "^[A-Z0-9]{1,6}$"
+              description: "The unit of measure of its values (reference data). Immutable."
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000d21"
+          version: 1
+          created_at: "2026-11-18T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-11-18T09:00:00Z"
+          updated_by: "0192a000-0000-7000-8000-000000000101"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: EMPL
+          name: Employees
+          unit: EA
+    StatisticalKeyFigureCreate:
+      type: object
+      description: The statistical key figure create request.
+      required:
+        - legal_entity_id
+        - code
+        - name
+        - unit
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity (company code) the key figure belongs to.
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,12}$"
+          description: "Code, unique in the legal entity."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        unit:
+          type: string
+          pattern: "^[A-Z0-9]{1,6}$"
+          description: "A unit of measure of the reference data (`EA` for a count of employees, `M2` for floor space)."
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: EMPL
+          name: Employees
+          unit: EA
+    StatisticalKeyFigurePage:
+      type: object
+      description: One page of statistical key figures.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatisticalKeyFigure"
+          description: The statistical key figures on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    StatisticalKeyFigurePostingCreate:
+      type: object
+      description: "Values of a statistical key figure posted for a period: each line adds its value to the cost center's value of the period."
+      required:
+        - fiscal_year
+        - fiscal_period
+        - lines
+      properties:
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: "The fiscal year of the period, one set up for the legal entity."
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: A regular posting period of the fiscal year.
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 500
+          description: "The values: active cost centers of the key figure's legal entity, each once."
+          items:
+            type: object
+            required:
+              - cost_center_id
+              - value
+            properties:
+              cost_center_id:
+                type: string
+                format: uuid
+                description: The cost center the value is posted for.
+              value:
+                type: string
+                pattern: "^-?(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$"
+                description: "The value in the key figure's unit, not zero, with up to six decimals; a negative value corrects an earlier posting."
+            additionalProperties: false
+      additionalProperties: false
+      examples:
+        - fiscal_year: 2026
+          fiscal_period: 11
+          lines:
+            - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+              value: "3"
+            - cost_center_id: "0192a000-0000-7000-8000-000000000202"
+              value: "1"
+    StatisticalKeyFigurePosting:
+      type: object
+      description: "A posting of a statistical key figure's values for a period (ADR-0064 As built T60j). Never changed."
+      required:
+        - id
+        - statistical_key_figure_id
+        - statistical_key_figure_code
+        - unit
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - lines
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The posting's id.
+          readOnly: true
+        statistical_key_figure_id:
+          type: string
+          format: uuid
+          description: "The key figure (`GET /v1/statistical-key-figures/{id}`)."
+          readOnly: true
+        statistical_key_figure_code:
+          type: string
+          description: The key figure's code.
+          readOnly: true
+        unit:
+          type: string
+          description: The key figure's unit of measure, the values' unit.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The key figure's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period posted.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: The period posted.
+        lines:
+          type: array
+          readOnly: true
+          description: The values posted, in the order given.
+          items:
+            $ref: "#/components/schemas/StatisticalKeyFigureValue"
+        created_at:
+          type: string
+          format: date-time
+          description: When the values were posted (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: The principal who posted them.
+          readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000d22"
+          statistical_key_figure_id: "0192a000-0000-7000-8000-000000000d21"
+          statistical_key_figure_code: EMPL
+          unit: EA
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          lines:
+            - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+              cost_center_code: CC-1100
+              value: "3"
+          created_at: "2026-11-18T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    StatisticalKeyFigureValue:
+      type: object
+      description: A statistical key figure's value for a cost center.
+      required:
+        - cost_center_id
+        - cost_center_code
+        - value
+      properties:
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "The cost center (`GET /v1/cost-centers/{id}`)."
+          readOnly: true
+        cost_center_code:
+          type: string
+          description: The cost center's code.
+          readOnly: true
+        value:
+          type: string
+          description: "The value in the key figure's unit, exact, without trailing zeros."
+          readOnly: true
+      examples:
+        - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          cost_center_code: CC-1100
+          value: "3"
+    StatisticalKeyFigureValuePage:
+      type: object
+      description: "One page of a statistical key figure's values in a period, per cost center, with the total of every page."
+      required:
+        - statistical_key_figure_id
+        - statistical_key_figure_code
+        - unit
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - items
+        - total
+      properties:
+        statistical_key_figure_id:
+          type: string
+          format: uuid
+          description: "The key figure (`GET /v1/statistical-key-figures/{id}`)."
+          readOnly: true
+        statistical_key_figure_code:
+          type: string
+          description: The key figure's code.
+          readOnly: true
+        unit:
+          type: string
+          description: The key figure's unit of measure, the values' unit.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The key figure's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year read.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: The period read.
+        items:
+          type: array
+          description: "The cost centers' values on this page: the sum of each one's postings in the period, in the order of the cost center's id."
+          items:
+            $ref: "#/components/schemas/StatisticalKeyFigureValue"
+        total:
+          type: string
+          description: "The sum of the values of every cost center of the selection, on every page, exact, without trailing zeros."
+          readOnly: true
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - statistical_key_figure_id: "0192a000-0000-7000-8000-000000000d21"
+          statistical_key_figure_code: EMPL
+          unit: EA
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          items:
+            - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+              cost_center_code: CC-1100
+              value: "3"
+            - cost_center_id: "0192a000-0000-7000-8000-000000000202"
+              cost_center_code: CC-1300
+              value: "1"
+          total: "4"
     InternalOrder:
       description: "An internal order (ADR-0064 §1): a cost object of the controlling context in one legal entity, collecting the costs of a job or an event. Costs are posted to it once it is released."
       allOf:
