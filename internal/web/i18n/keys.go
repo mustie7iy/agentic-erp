@@ -93,6 +93,7 @@ const (
 	ObjectGRIRClearing   Key = "object.gr_ir_clearing"
 	ObjectTaxReturn      Key = "object.tax_return"
 	ObjectMaterialChange Key = "object.material_change"
+	ObjectCreditLimit    Key = "object.credit_limit_change"
 	StatusPending        Key = "approval.status.pending"
 	StatusApproved       Key = "approval.status.approved"
 	StatusRejected       Key = "approval.status.rejected"

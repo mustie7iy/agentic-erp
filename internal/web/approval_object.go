@@ -158,6 +158,10 @@ var objectReads = map[string]objectRead{
 		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetMaterialChange(ctx, gen.GetMaterialChangeParams{ID: id})
 		})},
+	"credit_limit_change": {op: Operation{ID: "getCreditLimitChange", HiddenBy: "credit.limit.read", PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+			return c.GetCreditLimitChange(ctx, gen.GetCreditLimitChangeParams{ID: id})
+		})},
 }
 
 // objectOps are the object reads in the inventory: a request's page calls
@@ -210,6 +214,11 @@ func summaryOf(res any) (*ui.ObjectSummary, bool) {
 		return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(c.Number)}, {Key: i18n.SummaryKind, Value: ui.Code(c.Kind)},
 			{Key: i18n.SummaryTitle, Value: ui.Data(c.MaterialNumber + " " + c.MaterialDescription)}, {Key: i18n.SummaryStatus, Value: ui.Code(c.Status)},
 			{Key: i18n.SummaryReason, Value: ui.Data(c.Reason)}}}, true
+	case *gen.CreditLimitChangeHeaders:
+		c := v.Response
+		return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryKind, Value: ui.Code(c.Kind)},
+			{Key: i18n.SummaryTitle, Value: ui.Data(c.CustomerNumber + " " + c.CustomerName + ", " + c.CompanyCode)},
+			{Key: i18n.SummaryTotal, Value: ui.Amount(moneyOf(c.Limit))}, {Key: i18n.SummaryStatus, Value: ui.Code(c.Status)}}}, true
 	case *gen.GetPartnerChangeOKHeaders:
 		c := v.Response
 		return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(c.Number)}, {Key: i18n.SummaryKind, Value: ui.Code(c.Kind)},

@@ -22,7 +22,8 @@
 // (purchasing.order_release_approval, T47), and the posting of a matched
 // bank statement line by its company's bank_statements.approval_tiers, or
 // by DefaultBankClearingRole until the company has tiers (ADR-0047, T49f),
-// and center changes by DefaultCenterChangeRole (T56a), and the release
+// and center changes by DefaultCenterChangeRole (T56a), and credit limit
+// changes by DefaultCreditLimitRole (T77d), and the release
 // of a payment run whose total, in its company's currency at the run
 // date's rate, is above the company's release_dual_limit by one holder of
 // payments.release_role (ADR-0038, product owner 2026-10-22).
@@ -75,6 +76,10 @@ const (
 	// MaterialChange is the creation or change of a material, applied when
 	// approved (ADR-0082 §9, S1b).
 	MaterialChange = "material_change"
+	// CreditLimitChange is a new credit limit, or a change raising one or
+	// changing its validity, applied when approved (ADR-0066, As built
+	// T77d).
+	CreditLimitChange = "credit_limit_change"
 )
 
 // Request statuses.
@@ -125,6 +130,12 @@ const DefaultTaxReturnRole = config.TaxReturnRole
 // configurable approver is planned.
 const DefaultMaterialChangeRole = "process_owner"
 
+// DefaultCreditLimitRole approves a credit limit change (ADR-0066, As
+// built T77d): the controller, a fixed role as for period unlocks and
+// manual entries, until approval tiers or a configurable approver are
+// planned.
+const DefaultCreditLimitRole = "controller"
+
 // ObjectPermissions is the approval permission of each object type
 // (x-object-permissions of approveApprovalRequest).
 var ObjectPermissions = map[string]string{
@@ -140,6 +151,7 @@ var ObjectPermissions = map[string]string{
 	PaymentRunRelease: "payments.run.release",
 	TaxReturn:         "tax.return.approve",
 	MaterialChange:    "materials.change.approve",
+	CreditLimitChange: "credit.limit.approve",
 }
 
 func init() {
@@ -489,6 +501,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		out = append(out, policyStep{DefaultTaxReturnRole, 1})
 	case MaterialChange:
 		out = append(out, policyStep{DefaultMaterialChangeRole, 1})
+	case CreditLimitChange:
+		out = append(out, policyStep{DefaultCreditLimitRole, 1})
 	case ManualEntry:
 		return manualEntrySteps(ctx, rates, doc, in)
 	case PurchaseOrder, OrderChange:

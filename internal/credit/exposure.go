@@ -25,9 +25,10 @@ import (
 // booked, credits netted; Ordered is what its Orders confirmed sales
 // orders not yet billed come to, net plus output tax; Total is the two
 // together, the exposure. Day is the company's day the limit's validity
-// is judged on (T77c). Limit is the customer's limit valid on Day, nil
-// when none is; LimitID names the customer's limit whether it is valid
-// on Day or not, nil when none is set. Available is the limit less
+// is judged on (T77c). Limit is the customer's limit in effect on Day
+// (active and valid, Limit.InEffectOn), nil when none is; LimitID names
+// the customer's limit whether it is in effect or not, nil when none is
+// set. Available is the limit less
 // Total, set with Limit. Checked is the amount asked about, nil when none
 // was given. Within says whether Total and Checked together are no more
 // than the limit: always true without a valid limit, which restricts
@@ -108,7 +109,7 @@ func (e *Endpoints) ExposureOf(ctx context.Context, legalEntity, customer uuid.U
 	if ok {
 		x.LimitID = &l.ID
 	}
-	if !ok || !l.ValidOn(x.Day) {
+	if !ok || !l.InEffectOn(x.Day) {
 		x.Within = true // no limit is set, or none valid today: the customer is not restricted
 		return x, nil
 	}
@@ -128,9 +129,9 @@ func (e *Endpoints) ExposureOf(ctx context.Context, legalEntity, customer uuid.U
 // confirmation under way, which the next check would not see. The
 // limit's row is read FOR UPDATE as well, so a change of the limit waits
 // too. A customer without a limit is within it, and its exposure is not
-// read: no limit restricts nothing; so is one whose limit is not valid on
-// the company's day (T77c), which is read only when the customer has a
-// limit. The caller has checked the caller's access to the order's
+// read: no limit restricts nothing; so is one whose limit is not in
+// effect on the company's day: pending its approval (T77d) or outside its
+// validity (T77c), the day read only when the customer has a limit. The caller has checked the caller's access to the order's
 // company; Company, Customer, Exponent and LimitID are not set, nor Day
 // without a limit.
 func (e *Endpoints) Check(ctx context.Context, legalEntity, customer uuid.UUID, amount money.Minor) (Exposure, error) {
@@ -153,7 +154,7 @@ func (e *Endpoints) Check(ctx context.Context, legalEntity, customer uuid.UUID, 
 	if x.Day, err = e.day(ctx, legalEntity); err != nil {
 		return Exposure{}, err
 	}
-	if !l.ValidOn(x.Day) {
+	if !l.InEffectOn(x.Day) {
 		x.Within = true
 		return x, nil
 	}

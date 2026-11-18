@@ -35790,11 +35790,11 @@ type CreditExposure struct {
 	// The exposure: `open_items` and `open_orders` together; negative when the customer's credits exceed
 	// what it owes and has ordered.
 	Exposure Money `json:"exposure"`
-	// Whether the customer has a credit limit in the company that is valid on `day`. False: none is, and
-	// the customer is not restricted.
+	// Whether the customer has a credit limit in the company that is active and valid on `day`. False:
+	// none is, and the customer is not restricted.
 	HasLimit bool `json:"has_limit"`
-	// The customer's credit limit in the company (`GET /v1/credit-limits/{id}`), valid on `day` or not;
-	// absent when none is set.
+	// The customer's credit limit in the company (`GET /v1/credit-limits/{id}`), in effect on `day` or not
+	// (pending, or outside its validity); absent when none is set.
 	CreditLimitID OptUUID `json:"credit_limit_id"`
 	// The credit limit; absent when none is valid on `day`.
 	Limit OptMoney `json:"limit"`
@@ -36068,6 +36068,386 @@ func (s *CreditLimit) SetCredited(val Money) {
 func (s *CreditLimit) SetAttempted(val Money) {
 	s.Attempted = val
 }
+
+// Merged schema.
+// Ref: #/components/schemas/CreditLimitChange
+type CreditLimitChange struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The credit limit (`GET /v1/credit-limits/{id}`).
+	CreditLimitID uuid.UUID `json:"credit_limit_id"`
+	// The limit's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// `create`: a pending limit's approval, asked for when it is set or again after a rejection. `change`:
+	// a change of an active limit. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// `pending`: waiting for its approval. `applied`: written to the limit. `rejected`: refused by its
+	// approver. `cancelled`: withdrawn by its requester. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The limit asked for, in the company's currency.
+	Limit Money `json:"limit"`
+	// The first day asked for; absent: from the start.
+	ValidFrom OptDate `json:"valid_from"`
+	// The last day asked for; absent: no end.
+	ValidTo OptDate `json:"valid_to"`
+	// The next review date asked for; absent: none.
+	NextReviewOn OptDate `json:"next_review_on"`
+	// A `change`'s limit when it was asked for; absent on a `create`, whose limit was never in effect.
+	LimitBefore OptMoney `json:"limit_before"`
+	// A `change`'s limit's first day when it was asked for; absent when open, or on a `create`.
+	ValidFromBefore OptDate `json:"valid_from_before"`
+	// A `change`'s limit's last day when it was asked for; absent when open, or on a `create`.
+	ValidToBefore OptDate `json:"valid_to_before"`
+	// A `change`'s limit's review date when it was asked for; absent when none, or on a `create`.
+	NextReviewOnBefore OptDate `json:"next_review_on_before"`
+	// Its approval request (`GET /v1/approval-requests/{id}`).
+	WorkflowRequestID OptUUID `json:"workflow_request_id"`
+	// Who asked for it.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	// When it was applied, rejected or withdrawn; absent while it is pending.
+	DecidedAt OptDateTime `json:"decided_at"`
+}
+
+// GetID returns the value of ID.
+func (s *CreditLimitChange) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CreditLimitChange) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CreditLimitChange) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CreditLimitChange) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CreditLimitChange) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CreditLimitChange) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetCreditLimitID returns the value of CreditLimitID.
+func (s *CreditLimitChange) GetCreditLimitID() uuid.UUID {
+	return s.CreditLimitID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CreditLimitChange) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CreditLimitChange) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CreditLimitChange) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CreditLimitChange) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CreditLimitChange) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CreditLimitChange) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetKind returns the value of Kind.
+func (s *CreditLimitChange) GetKind() string {
+	return s.Kind
+}
+
+// GetStatus returns the value of Status.
+func (s *CreditLimitChange) GetStatus() string {
+	return s.Status
+}
+
+// GetLimit returns the value of Limit.
+func (s *CreditLimitChange) GetLimit() Money {
+	return s.Limit
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *CreditLimitChange) GetValidFrom() OptDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CreditLimitChange) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetNextReviewOn returns the value of NextReviewOn.
+func (s *CreditLimitChange) GetNextReviewOn() OptDate {
+	return s.NextReviewOn
+}
+
+// GetLimitBefore returns the value of LimitBefore.
+func (s *CreditLimitChange) GetLimitBefore() OptMoney {
+	return s.LimitBefore
+}
+
+// GetValidFromBefore returns the value of ValidFromBefore.
+func (s *CreditLimitChange) GetValidFromBefore() OptDate {
+	return s.ValidFromBefore
+}
+
+// GetValidToBefore returns the value of ValidToBefore.
+func (s *CreditLimitChange) GetValidToBefore() OptDate {
+	return s.ValidToBefore
+}
+
+// GetNextReviewOnBefore returns the value of NextReviewOnBefore.
+func (s *CreditLimitChange) GetNextReviewOnBefore() OptDate {
+	return s.NextReviewOnBefore
+}
+
+// GetWorkflowRequestID returns the value of WorkflowRequestID.
+func (s *CreditLimitChange) GetWorkflowRequestID() OptUUID {
+	return s.WorkflowRequestID
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *CreditLimitChange) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetDecidedAt returns the value of DecidedAt.
+func (s *CreditLimitChange) GetDecidedAt() OptDateTime {
+	return s.DecidedAt
+}
+
+// SetID sets the value of ID.
+func (s *CreditLimitChange) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CreditLimitChange) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CreditLimitChange) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CreditLimitChange) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CreditLimitChange) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CreditLimitChange) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetCreditLimitID sets the value of CreditLimitID.
+func (s *CreditLimitChange) SetCreditLimitID(val uuid.UUID) {
+	s.CreditLimitID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CreditLimitChange) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CreditLimitChange) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CreditLimitChange) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CreditLimitChange) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CreditLimitChange) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CreditLimitChange) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CreditLimitChange) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CreditLimitChange) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *CreditLimitChange) SetLimit(val Money) {
+	s.Limit = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CreditLimitChange) SetValidFrom(val OptDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CreditLimitChange) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetNextReviewOn sets the value of NextReviewOn.
+func (s *CreditLimitChange) SetNextReviewOn(val OptDate) {
+	s.NextReviewOn = val
+}
+
+// SetLimitBefore sets the value of LimitBefore.
+func (s *CreditLimitChange) SetLimitBefore(val OptMoney) {
+	s.LimitBefore = val
+}
+
+// SetValidFromBefore sets the value of ValidFromBefore.
+func (s *CreditLimitChange) SetValidFromBefore(val OptDate) {
+	s.ValidFromBefore = val
+}
+
+// SetValidToBefore sets the value of ValidToBefore.
+func (s *CreditLimitChange) SetValidToBefore(val OptDate) {
+	s.ValidToBefore = val
+}
+
+// SetNextReviewOnBefore sets the value of NextReviewOnBefore.
+func (s *CreditLimitChange) SetNextReviewOnBefore(val OptDate) {
+	s.NextReviewOnBefore = val
+}
+
+// SetWorkflowRequestID sets the value of WorkflowRequestID.
+func (s *CreditLimitChange) SetWorkflowRequestID(val OptUUID) {
+	s.WorkflowRequestID = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *CreditLimitChange) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetDecidedAt sets the value of DecidedAt.
+func (s *CreditLimitChange) SetDecidedAt(val OptDateTime) {
+	s.DecidedAt = val
+}
+
+// CreditLimitChangeHeaders wraps CreditLimitChange with response headers.
+type CreditLimitChangeHeaders struct {
+	ETag     OptString
+	Response CreditLimitChange
+}
+
+// GetETag returns the value of ETag.
+func (s *CreditLimitChangeHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *CreditLimitChangeHeaders) GetResponse() CreditLimitChange {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CreditLimitChangeHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CreditLimitChangeHeaders) SetResponse(val CreditLimitChange) {
+	s.Response = val
+}
+
+func (*CreditLimitChangeHeaders) getCreditLimitChangeRes() {}
+
+// One page of credit limit changes.
+// Ref: #/components/schemas/CreditLimitChangePage
+type CreditLimitChangePage struct {
+	// The credit limit changes on this page.
+	Items []CreditLimitChange `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CreditLimitChangePage) GetItems() []CreditLimitChange {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CreditLimitChangePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CreditLimitChangePage) SetItems(val []CreditLimitChange) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CreditLimitChangePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CreditLimitChangePage) listCreditLimitChangesRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/CreditMemoRequest
@@ -37624,6 +38004,13 @@ type CustomerCreditLimit struct {
 	ValidTo OptDate `json:"valid_to"`
 	// The day the limit's next review is planned for; absent: none is planned.
 	NextReviewOn OptDate `json:"next_review_on"`
+	// `pending`: asked for and not yet approved, not in effect: the customer is treated as one without a
+	// limit (T77d). `active`: approved, in effect within its validity. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Its credit limit change waiting for approval (`GET /v1/credit-limit-changes/{id}`); absent when none
+	// is.
+	PendingChangeID OptUUID `json:"pending_change_id"`
 }
 
 // GetID returns the value of ID.
@@ -37706,6 +38093,16 @@ func (s *CustomerCreditLimit) GetNextReviewOn() OptDate {
 	return s.NextReviewOn
 }
 
+// GetStatus returns the value of Status.
+func (s *CustomerCreditLimit) GetStatus() string {
+	return s.Status
+}
+
+// GetPendingChangeID returns the value of PendingChangeID.
+func (s *CustomerCreditLimit) GetPendingChangeID() OptUUID {
+	return s.PendingChangeID
+}
+
 // SetID sets the value of ID.
 func (s *CustomerCreditLimit) SetID(val uuid.UUID) {
 	s.ID = val
@@ -37784,6 +38181,16 @@ func (s *CustomerCreditLimit) SetValidTo(val OptDate) {
 // SetNextReviewOn sets the value of NextReviewOn.
 func (s *CustomerCreditLimit) SetNextReviewOn(val OptDate) {
 	s.NextReviewOn = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CustomerCreditLimit) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetPendingChangeID sets the value of PendingChangeID.
+func (s *CustomerCreditLimit) SetPendingChangeID(val OptUUID) {
+	s.PendingChangeID = val
 }
 
 // Set a customer's credit limit in a company.
@@ -49077,6 +49484,18 @@ func (*GetCreditExposureUnprocessableEntity) getCreditExposureRes() {}
 type GetCreditLimitBadRequest Problem
 
 func (*GetCreditLimitBadRequest) getCreditLimitRes() {}
+
+type GetCreditLimitChangeBadRequest Problem
+
+func (*GetCreditLimitChangeBadRequest) getCreditLimitChangeRes() {}
+
+type GetCreditLimitChangeForbidden Problem
+
+func (*GetCreditLimitChangeForbidden) getCreditLimitChangeRes() {}
+
+type GetCreditLimitChangeNotFound Problem
+
+func (*GetCreditLimitChangeNotFound) getCreditLimitChangeRes() {}
 
 type GetCreditLimitForbidden Problem
 
@@ -64537,6 +64956,14 @@ func (*ListCountryPacksBadRequest) listCountryPacksRes() {}
 type ListCountryPacksForbidden Problem
 
 func (*ListCountryPacksForbidden) listCountryPacksRes() {}
+
+type ListCreditLimitChangesBadRequest Problem
+
+func (*ListCreditLimitChangesBadRequest) listCreditLimitChangesRes() {}
+
+type ListCreditLimitChangesForbidden Problem
+
+func (*ListCreditLimitChangesForbidden) listCreditLimitChangesRes() {}
 
 type ListCreditLimitsBadRequest Problem
 
@@ -112848,6 +113275,7 @@ func (*TooManyRequestsHeaders) getControlMatrixRes()                      {}
 func (*TooManyRequestsHeaders) getControlRes()                            {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCreditExposureRes()                     {}
+func (*TooManyRequestsHeaders) getCreditLimitChangeRes()                  {}
 func (*TooManyRequestsHeaders) getCreditLimitRes()                        {}
 func (*TooManyRequestsHeaders) getCreditMemoRequestRes()                  {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
@@ -113003,6 +113431,7 @@ func (*TooManyRequestsHeaders) listCostCenterPathsRes()                   {}
 func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()              {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                       {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
+func (*TooManyRequestsHeaders) listCreditLimitChangesRes()                {}
 func (*TooManyRequestsHeaders) listCreditLimitsRes()                      {}
 func (*TooManyRequestsHeaders) listCreditMemoRequestsRes()                {}
 func (*TooManyRequestsHeaders) listCustomerContactsRes()                  {}
@@ -113785,6 +114214,7 @@ func (*UnauthorizedHeaders) getControlMatrixRes()                      {}
 func (*UnauthorizedHeaders) getControlRes()                            {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCreditExposureRes()                     {}
+func (*UnauthorizedHeaders) getCreditLimitChangeRes()                  {}
 func (*UnauthorizedHeaders) getCreditLimitRes()                        {}
 func (*UnauthorizedHeaders) getCreditMemoRequestRes()                  {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
@@ -113940,6 +114370,7 @@ func (*UnauthorizedHeaders) listCostCenterPathsRes()                   {}
 func (*UnauthorizedHeaders) listCostCenterPlanActualRes()              {}
 func (*UnauthorizedHeaders) listCostCentersRes()                       {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
+func (*UnauthorizedHeaders) listCreditLimitChangesRes()                {}
 func (*UnauthorizedHeaders) listCreditLimitsRes()                      {}
 func (*UnauthorizedHeaders) listCreditMemoRequestsRes()                {}
 func (*UnauthorizedHeaders) listCustomerContactsRes()                  {}

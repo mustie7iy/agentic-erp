@@ -9,10 +9,16 @@
 // (ADR-0066 §4); the sales context asks it when an order is confirmed
 // and blocks the order itself (Check).
 //
+// A limit is used only on the company's days within its validity (As
+// built T77c), and a new limit, a raise or a change of its validity
+// applies only once approved through the approvals context (As built
+// T77d, changes.go).
+//
 // The context is a leaf (ADR-0066 §1): it reads the ledger's customer
 // open items, the partner context's customers, the sales context's open
-// orders and tenancy through the ports below, posts nothing, and no
-// context imports it.
+// orders, tenancy and the configuration's company day through the ports
+// below, opens approval requests, posts nothing, and no context imports
+// it.
 package credit
 
 import (
@@ -95,40 +101,54 @@ type Endpoints struct {
 	Partners      Partners
 	Orders        OpenOrders
 	Settings      config.Documents
+	Approvals     Opener
 	Now           func() time.Time
 }
+
+// Limit statuses (ADR-0066, As built T77d): a limit is pending, asked for
+// and never approved, until its create change is approved, and not in
+// effect while it is.
+const (
+	LimitPending = "pending"
+	LimitActive  = "active"
+)
 
 // Limit is a row of credit.credit_limit: the most a customer may owe a
 // company. Amount is minor units of Currency, the company's, whose
 // minor-unit digits are Exponent. ValidFrom and ValidTo are the
 // company's first and last day it is used on, nil when open; NextReview
 // is the day its next review is planned for, nil when none is (T77c).
+// Status is LimitPending or LimitActive; PendingChangeID names its change
+// waiting for approval, nil when none is (T77d).
 type Limit struct {
-	ID             uuid.UUID
-	LegalEntityID  uuid.UUID
-	CustomerID     uuid.UUID
-	CustomerNumber string
-	Currency       string
-	Exponent       int
-	Amount         money.Minor
-	ValidFrom      *time.Time
-	ValidTo        *time.Time
-	NextReview     *time.Time
-	Version        int32
-	CreatedAt      time.Time
-	CreatedBy      uuid.UUID
-	UpdatedAt      time.Time
-	UpdatedBy      uuid.UUID
+	ID              uuid.UUID
+	LegalEntityID   uuid.UUID
+	CustomerID      uuid.UUID
+	CustomerNumber  string
+	Currency        string
+	Exponent        int
+	Amount          money.Minor
+	ValidFrom       *time.Time
+	ValidTo         *time.Time
+	NextReview      *time.Time
+	Status          string
+	PendingChangeID *uuid.UUID
+	Version         int32
+	CreatedAt       time.Time
+	CreatedBy       uuid.UUID
+	UpdatedAt       time.Time
+	UpdatedBy       uuid.UUID
 }
 
 const limitSelect = `SELECT l.id, l.legal_entity_id, l.customer_id, l.customer_number, l.currency, c.exponent, l.amount,
-		l.valid_from, l.valid_to, l.next_review_on, l.version, l.created_at, l.created_by, l.updated_at, l.updated_by
+		l.valid_from, l.valid_to, l.next_review_on, l.status, (SELECT c.id FROM credit.credit_limit_change c
+			WHERE c.tenant_id = l.tenant_id AND c.credit_limit_id = l.id AND c.status = 'pending') AS pending_change_id, l.version, l.created_at, l.created_by, l.updated_at, l.updated_by
 	FROM credit.credit_limit l JOIN ref.currency c ON c.code = l.currency`
 
 func scanLimit(row pgx.Row) (Limit, error) {
 	var l Limit
 	err := row.Scan(&l.ID, &l.LegalEntityID, &l.CustomerID, &l.CustomerNumber, &l.Currency, &l.Exponent, &l.Amount,
-		&l.ValidFrom, &l.ValidTo, &l.NextReview, &l.Version, &l.CreatedAt, &l.CreatedBy, &l.UpdatedAt, &l.UpdatedBy)
+		&l.ValidFrom, &l.ValidTo, &l.NextReview, &l.Status, &l.PendingChangeID, &l.Version, &l.CreatedAt, &l.CreatedBy, &l.UpdatedAt, &l.UpdatedBy)
 	return l, errs.Wrapf(err, "scan credit limit")
 }
 
@@ -137,6 +157,12 @@ func scanLimit(row pgx.Row) (Limit, error) {
 // on its side (T77c).
 func (l Limit) ValidOn(day time.Time) bool {
 	return (l.ValidFrom == nil || !day.Before(*l.ValidFrom)) && (l.ValidTo == nil || !day.After(*l.ValidTo))
+}
+
+// InEffectOn says whether the check uses the limit on the company's day:
+// it is active, approved (T77d), and valid on the day (T77c).
+func (l Limit) InEffectOn(day time.Time) bool {
+	return l.Status == LimitActive && l.ValidOn(day)
 }
 
 // day is the legal entity's day now, in its company's time zone

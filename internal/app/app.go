@@ -465,6 +465,7 @@ func approvalHandlers(cfg Config) map[string]approvals.Handler {
 		approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: procurementEndpoints(cfg)},
 		approvals.TaxReturn:         taxfiling.TaxReturns{Endpoints: &taxfiling.Endpoints{Items: ledger.TaxItems{}}},
 		approvals.MaterialChange:    materials.Approvals{Endpoints: Materials(cfg)},
+		approvals.CreditLimitChange: credit.Approvals{Endpoints: Credit(cfg)},
 	}
 }
 
@@ -536,7 +537,7 @@ func salesAndCredit(cfg Config) (*sales.Endpoints, *credit.Endpoints) {
 		Settings: configuration.Settings{}, Rates: ledger.Rates{LegalEntities: tenancy.Directory{}}, People: LedgerPeople{},
 		Uploads: uploads(cfg), OrderExtractor: cfg.OrderExtractor, Finder: partner.Payees{Keys: cfg.FieldKeys}, Now: cfg.Now}
 	c := &credit.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Customers: partner.Customers{},
-		Partners: partner.Payees{}, Orders: s, Settings: configuration.Settings{}, Now: cfg.Now}
+		Partners: partner.Payees{}, Orders: s, Settings: configuration.Settings{}, Approvals: opener(), Now: cfg.Now}
 	s.Credit = salesCredit{credit: c}
 	return s, c
 }

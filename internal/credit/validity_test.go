@@ -50,7 +50,7 @@ func TestValidityAndReview(t *testing.T) {
 			t.Errorf("field: got %v, want valid_to", f)
 		}
 	})
-	set, tag := e.Must(201, "POST", "/v1/credit-limits", e.limitFor("2027-01-01", "2027-12-31", "2027-10-01"), "")
+	set, tag := e.set(t, e.limitFor("2027-01-01", "2027-12-31", "2027-10-01"))
 	if d := dates(set); d != "2027-01-01 2027-12-31 2027-10-01" {
 		t.Errorf("set: got %s, want 2027-01-01 2027-12-31 2027-10-01", d)
 	}
@@ -63,7 +63,7 @@ func TestValidityAndReview(t *testing.T) {
 		{"the review cleared with the amount", `{"next_review_on": null, "limit": {"amount": "400.00", "currency": "EUR"}}`, "- 2027-06-30 -"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, next := e.In(t).Must(200, "PATCH", path, c.body, tag)
+			got, next := e.patch(t, id, c.body, tag)
 			tag = next
 			if d := dates(got); d != c.want {
 				t.Errorf("got %s, want %s", d, c.want)
@@ -83,11 +83,11 @@ func TestValidityAndReview(t *testing.T) {
 		e.In(t).Problem(400, "request.invalid_body", "PATCH", path, `{}`, tag)
 	})
 	audits := e.audited(t, id)
-	if len(audits) != 5 {
-		t.Fatalf("audit records: got %d, want 5: the limit set and changed four times", len(audits))
+	if len(audits) != 6 {
+		t.Fatalf("audit records: got %d, want 6: the limit set, approved and changed four times", len(audits))
 	}
-	if want := `"valid_to": "2027-06-30", "valid_from": null, `; !strings.Contains(audits[3], want) || !strings.Contains(audits[3], `"valid_from_before": "2027-01-01"`) {
-		t.Errorf("the third change's audit record: got %s, want the dates after (%s) and before", audits[3], want)
+	if want := `"valid_to": "2027-06-30", "valid_from": null, `; !strings.Contains(audits[4], want) || !strings.Contains(audits[4], `"valid_from_before": "2027-01-01"`) {
+		t.Errorf("the third change's audit record: got %s, want the dates after (%s) and before", audits[4], want)
 	}
 	events := e.changed(t)
 	if got := fmt.Sprintf("%v %v %v", events[0]["valid_from"], events[0]["valid_to"], events[0]["next_review_on"]); got != "2027-01-01 2027-12-31 2027-10-01" {
@@ -142,7 +142,7 @@ func zoned(doc *config.Config) {
 func TestValidOnTheCompanysDay(t *testing.T) {
 	e := setupWith(t, zoned)
 	e.story(t) // Northwind owes 290.00 EUR
-	set, tag := e.Must(201, "POST", "/v1/credit-limits", e.limitFor("", "", ""), "")
+	set, tag := e.set(t, e.limitFor("", "", ""))
 	id := apitest.String(t, set, "id")
 	h := endpoints(t)
 	// 20:00 UTC on 30 June is 1 July in Auckland.
@@ -158,7 +158,7 @@ func TestValidOnTheCompanysDay(t *testing.T) {
 		{"from the day after", `{"valid_from": "2026-07-02", "valid_to": null}`, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			_, next := e.In(t).Must(200, "PATCH", "/v1/credit-limits/"+id, c.body, tag)
+			_, next := e.patch(t, id, c.body, tag)
 			tag = next
 			var x, checked credit.Exposure
 			err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
@@ -180,7 +180,7 @@ func TestValidOnTheCompanysDay(t *testing.T) {
 		})
 	}
 	t.Run("through the API", func(t *testing.T) {
-		e.In(t).Must(200, "PATCH", "/v1/credit-limits/"+id, `{"valid_from": "2099-01-01"}`, tag)
+		e.patch(t, id, `{"valid_from": "2099-01-01"}`, tag)
 		got := e.exposure(t, e.DE, e.north, "&amount=1000000.00")
 		if got["credit_limit_id"] != id || got["has_limit"] != false || got["is_within_limit"] != true {
 			t.Errorf("got credit_limit_id %v, has_limit %v, within %v; want %s, false, true: the limit starts in the future",

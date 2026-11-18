@@ -85,6 +85,7 @@
   "object.gr_ir_clearing": "Apurement GR/IR d'une commande close",
   "object.tax_return": "Déclaration de taxes",
   "object.material_change": "Modification d’article",
+  "object.credit_limit_change": "Modification de limite de crédit",
   "object.payment_run_release": "Libération de cycle de paiement",
   "approval.status.pending": "En attente",
   "approval.status.approved": "Approuvée",

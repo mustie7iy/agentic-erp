@@ -38,7 +38,7 @@ func (o ordered) OpenOrders(context.Context, uuid.UUID, uuid.UUID) (int32, money
 func TestExposureHasTwoParts(t *testing.T) {
 	e := setup(t)
 	e.story(t) // Northwind owes 290.00 EUR
-	e.Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.north, "500.00", "EUR"), "")
+	e.set(t, limitOf(e.DE, e.north, "500.00", "EUR"))
 	h := endpoints(t)
 	h.Orders = ordered{orders: 2, gross: 15000}
 	read := func(t *testing.T, customer uuid.UUID, amount string) *gen.CreditExposure {
@@ -104,7 +104,7 @@ func TestExposureHasTwoParts(t *testing.T) {
 func TestCheck(t *testing.T) {
 	e := setup(t)
 	e.story(t) // Northwind owes 290.00 EUR
-	e.Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.north, "500.00", "EUR"), "")
+	e.set(t, limitOf(e.DE, e.north, "500.00", "EUR"))
 	check := func(t *testing.T, h *credit.Endpoints, customer uuid.UUID, amount money.Minor) (credit.Exposure, error) {
 		t.Helper()
 		var x credit.Exposure
@@ -172,7 +172,7 @@ func TestCheck(t *testing.T) {
 // ADR-0008).
 func TestCheckHoldsTheCustomer(t *testing.T) {
 	e := setup(t)
-	e.Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.north, "500.00", "EUR"), "")
+	e.set(t, limitOf(e.DE, e.north, "500.00", "EUR"))
 	h := endpoints(t)
 	check := func(ctx context.Context) error {
 		_, err := h.Check(ctx, e.DE, e.north, 100)

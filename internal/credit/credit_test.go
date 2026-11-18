@@ -63,6 +63,7 @@ func setupWith(t *testing.T, extend func(*config.Config)) env {
 	e.companyData(t, e.north, e.DE)
 	e.companyData(t, e.north, e.US)
 	e.companyData(t, e.east, e.DE)
+	f.Controller(t) // Approver holds the role that approves credit limit changes (T77d)
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
 		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.8, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
 	return e
@@ -114,6 +115,31 @@ func (e env) post(t *testing.T, items ...item) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// approved has the limit's pending change approved, when it has one, by
+// the controller (T77d), and reads the limit back with its ETag.
+func (e env) approved(t *testing.T, l map[string]any) (map[string]any, string) {
+	t.Helper()
+	if change, ok := l["pending_change_id"].(string); ok {
+		e.Approve(t, change)
+	}
+	return e.In(t).Must(200, "GET", "/v1/credit-limits/"+apitest.String(t, l, "id"), "", "")
+}
+
+// set sets a limit and has it approved: a limit in effect.
+func (e env) set(t *testing.T, body string) (map[string]any, string) {
+	t.Helper()
+	l, _ := e.In(t).Must(201, "POST", "/v1/credit-limits", body, "")
+	return e.approved(t, l)
+}
+
+// patch changes a limit and has the change approved when it waits for
+// it.
+func (e env) patch(t *testing.T, id, body, tag string) (map[string]any, string) {
+	t.Helper()
+	l, _ := e.In(t).Must(200, "PATCH", "/v1/credit-limits/"+id, body, tag)
+	return e.approved(t, l)
 }
 
 // limitOf is the JSON of a credit limit of the customer in the company.
@@ -185,9 +211,11 @@ func (e env) changed(t *testing.T) []map[string]any {
 
 // TestSetAndRead: a limit is set for a customer in a company, in the
 // company's currency, and reads back with the names of what it
-// references and its amount with its currency; the audit record and
-// CreditLimitChanged carry the limit and no limit before, the event the
-// customer by id and number, never by name (T77a acceptance).
+// references and its amount with its currency, pending its approval with
+// its create change named (T77d); approved by the controller it is
+// active, and CreditLimitChanged carries the limit, no limit before and
+// the change applied, the customer by id and number, never by name
+// (T77a acceptance).
 func TestSetAndRead(t *testing.T) {
 	e := setup(t)
 	req := apitest.Req{Method: "POST", Path: "/v1/credit-limits", Body: limitOf(e.DE, e.north, "500.00", "EUR"), Tenant: e.Tenant.ID, As: e.Tenant.Human,
@@ -198,14 +226,15 @@ func TestSetAndRead(t *testing.T) {
 	}
 	got := apitest.JSON(t, rec)
 	id := apitest.String(t, got, "id")
-	if tag := rec.Header().Get("ETag"); tag != `"1"` {
-		t.Errorf("ETag: got %s, want \"1\"", tag)
+	change := apitest.String(t, got, "pending_change_id")
+	if tag := rec.Header().Get("ETag"); tag != `"2"` {
+		t.Errorf("ETag: got %s, want \"2\": set, then naming its change", tag)
 	}
 	if loc := rec.Header().Get("Location"); loc != "/v1/credit-limits/"+id {
 		t.Errorf("Location: got %s, want /v1/credit-limits/%s", loc, id)
 	}
 	for f, want := range map[string]any{"legal_entity_id": e.DE.String(), "company_code": "2000", "company_name": "Acme GmbH",
-		"customer_id": e.north.String(), "customer_number": "BP70000002", "customer_name": "Northwind Traders", "version": float64(1)} {
+		"customer_id": e.north.String(), "customer_number": "BP70000002", "customer_name": "Northwind Traders", "version": float64(2), "status": "pending"} {
 		if got[f] != want {
 			t.Errorf("%s: got %v, want %v", f, got[f], want)
 		}
@@ -214,7 +243,7 @@ func TestSetAndRead(t *testing.T) {
 		t.Errorf("limit: got %s, want 500.00 EUR", a)
 	}
 	read, tag := e.Must(200, "GET", "/v1/credit-limits/"+id, "", "")
-	if a, b := mustJSON(t, read)+" "+tag, mustJSON(t, got)+` "1"`; a != b {
+	if a, b := mustJSON(t, read)+" "+tag, mustJSON(t, got)+` "2"`; a != b {
 		t.Errorf("read back: got %s, want %s", a, b)
 	}
 	t.Run("the same request again", func(t *testing.T) {
@@ -226,10 +255,21 @@ func TestSetAndRead(t *testing.T) {
 			t.Errorf("replay: got limit %v, want the first answer's %s", got, id)
 		}
 	})
-	wantAudit := fmt.Sprintf(`credit.credit_limit.create {"limit": {"amount": "500.00", "currency": "EUR"}, "valid_to": null, "valid_from": null, `+
-		`"customer_id": %q, "limit_before": null, "next_review_on": null, "customer_number": "BP70000002", "legal_entity_id": %q}`, e.north, e.DE)
-	if a := e.audited(t, id); len(a) != 1 || a[0] != wantAudit {
-		t.Errorf("audit records: got %q, want one: %s", a, wantAudit)
+	if events := e.changed(t); len(events) != 0 {
+		t.Errorf("CreditLimitChanged before the approval: got %d, want none", len(events))
+	}
+	e.Approve(t, change)
+	active, tag := e.Must(200, "GET", "/v1/credit-limits/"+id, "", "")
+	if got := fmt.Sprintf("%v %v %s", active["status"], active["pending_change_id"], tag); got != `active <nil> "3"` {
+		t.Errorf("approved: got %s, want active <nil> \"3\"", got)
+	}
+	wantAudit := []string{fmt.Sprintf(`credit.credit_limit.create {"limit": {"amount": "500.00", "currency": "EUR"}, "status": "pending", "valid_to": null, `+
+		`"valid_from": null, "customer_id": %q, "limit_before": null, "next_review_on": null, "customer_number": "BP70000002", "legal_entity_id": %q}`, e.north, e.DE),
+		fmt.Sprintf(`credit.credit_limit.change {"limit": {"amount": "500.00", "currency": "EUR"}, "status": "active", "valid_to": null, `+
+			`"valid_from": null, "customer_id": %q, "limit_before": null, "next_review_on": null, "customer_number": "BP70000002", "legal_entity_id": %q, `+
+			`"credit_limit_change_id": %q}`, e.north, e.DE, change)}
+	if a := e.audited(t, id); !slices.Equal(a, wantAudit) {
+		t.Errorf("audit records: got %q, want %q", a, wantAudit)
 	}
 	events := e.changed(t)
 	if len(events) != 1 {
@@ -237,26 +277,27 @@ func TestSetAndRead(t *testing.T) {
 	}
 	want := map[string]any{"credit_limit_id": id, "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "customer_id": e.north.String(),
 		"customer_number": "BP70000002", "limit": map[string]any{"amount": "500.00", "currency": "EUR"}, "limit_before": nil, "next_review_on": nil,
-		"valid_from": nil, "valid_to": nil, "version": float64(1)}
+		"valid_from": nil, "valid_to": nil, "credit_limit_change_id": change, "version": float64(3)}
 	if a, b := mustJSON(t, events[0]), mustJSON(t, want); a != b {
 		t.Errorf("event payload: got %s, want %s", a, b)
 	}
 	apitest.NeverPublished(t, e.Tenant, "credit", "Northwind")
 }
 
-// TestChange: a limit's amount is changed with the caller's version of
-// it; the audit record and the event carry the amounts before and after;
-// a stale version changes nothing; the limit's currency stays, and a
-// change to the amount it has is refused (T77a acceptance).
+// TestChange: a lowering of an active limit holds at once with the
+// caller's version of it; the audit record and the event carry the
+// amounts before and after; a stale version changes nothing; the limit's
+// currency stays, and a change to the amount it has is refused (T77a
+// acceptance; T77d).
 func TestChange(t *testing.T) {
 	e := setup(t)
-	set, tag := e.Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.north, "500.00", "EUR"), "")
+	set, tag := e.set(t, limitOf(e.DE, e.north, "500.00", "EUR"))
 	id := apitest.String(t, set, "id")
 	path := "/v1/credit-limits/" + id
-	got, next := e.Must(200, "PATCH", path, change("750.00", "EUR"), tag)
+	got, next := e.Must(200, "PATCH", path, change("250.00", "EUR"), tag)
 	if a := fmt.Sprintf("%s, ETag %s, version %v of %v", amount(t, got, "limit"), next, got["version"], got["customer_name"]); a !=
-		`750.00 EUR, ETag "2", version 2 of Northwind Traders` {
-		t.Errorf("changed: got %s; want 750.00 EUR, ETag \"2\", version 2 of Northwind Traders", a)
+		`250.00 EUR, ETag "4", version 4 of Northwind Traders` {
+		t.Errorf("changed: got %s; want 250.00 EUR, ETag \"4\", version 4 of Northwind Traders", a)
 	}
 	for _, c := range []struct {
 		name      string
@@ -265,12 +306,12 @@ func TestChange(t *testing.T) {
 		body, tag string
 		field     any
 	}{
-		{"with the version before the change", 412, "request.version_mismatch", change("900.00", "EUR"), tag, nil},
-		{"without a version", 428, "request.precondition_required", change("900.00", "EUR"), "", nil},
-		{"to the amount it has", 422, "credit.nothing_to_change", change("750.00", "EUR"), next, nil},
-		{"in another currency", 422, "credit.currency_mismatch", change("900.00", "USD"), next, "limit.currency"},
+		{"with the version before the change", 412, "request.version_mismatch", change("100.00", "EUR"), tag, nil},
+		{"without a version", 428, "request.precondition_required", change("100.00", "EUR"), "", nil},
+		{"to the amount it has", 422, "credit.nothing_to_change", change("250.00", "EUR"), next, nil},
+		{"in another currency", 422, "credit.currency_mismatch", change("100.00", "USD"), next, "limit.currency"},
 		{"to less than nothing", 422, "credit.invalid_amount", change("-0.01", "EUR"), next, "limit.amount"},
-		{"with the wrong decimals", 400, "request.invalid_amount", change("900", "EUR"), next, "limit.amount"},
+		{"with the wrong decimals", 400, "request.invalid_amount", change("100", "EUR"), next, "limit.amount"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := e.In(t).Problem(c.status, c.code, "PATCH", path, c.body, c.tag)
@@ -280,37 +321,37 @@ func TestChange(t *testing.T) {
 		})
 	}
 	t.Run("a limit that does not exist", func(t *testing.T) {
-		e.In(t).Problem(404, "request.not_found", "PATCH", "/v1/credit-limits/"+uuid.NewString(), change("900.00", "EUR"), next)
+		e.In(t).Problem(404, "request.not_found", "PATCH", "/v1/credit-limits/"+uuid.NewString(), change("100.00", "EUR"), next)
 	})
 	t.Run("by a person of another company", func(t *testing.T) {
 		other := e.As(e.Reader(t, "A person of company 1000", e.US))
-		other.In(t).Problem(404, "request.not_found", "PATCH", path, change("900.00", "EUR"), next)
+		other.In(t).Problem(404, "request.not_found", "PATCH", path, change("100.00", "EUR"), next)
 	})
 	t.Run("to nothing on credit", func(t *testing.T) {
 		zero, _ := e.In(t).Must(200, "PATCH", path, change("0.00", "EUR"), next)
-		if a := fmt.Sprintf("%s at version %v", amount(t, zero, "limit"), zero["version"]); a != "0.00 EUR at version 3" {
-			t.Errorf("got %s, want 0.00 EUR at version 3", a)
+		if a := fmt.Sprintf("%s at version %v", amount(t, zero, "limit"), zero["version"]); a != "0.00 EUR at version 5" {
+			t.Errorf("got %s, want 0.00 EUR at version 5", a)
 		}
 	})
 	audits := e.audited(t, id)
-	if len(audits) != 3 {
-		t.Fatalf("audit records: got %q, want 3: the limit set and changed twice; the refused changes record nothing", audits)
+	if len(audits) != 4 {
+		t.Fatalf("audit records: got %q, want 4: the limit set, approved and lowered twice; the refused changes record nothing", audits)
 	}
-	wantAudit := fmt.Sprintf(`credit.credit_limit.change {"limit": {"amount": "750.00", "currency": "EUR"}, "valid_to": null, "valid_from": null, `+
-		`"customer_id": %q, "limit_before": {"amount": "500.00", "currency": "EUR"}, "next_review_on": null, "customer_number": "BP70000002", `+
+	wantAudit := fmt.Sprintf(`credit.credit_limit.change {"limit": {"amount": "250.00", "currency": "EUR"}, "status": "active", "valid_to": null, `+
+		`"valid_from": null, "customer_id": %q, "limit_before": {"amount": "500.00", "currency": "EUR"}, "next_review_on": null, "customer_number": "BP70000002", `+
 		`"legal_entity_id": %q, "valid_to_before": null, "valid_from_before": null, "next_review_on_before": null}`, e.north, e.DE)
-	if audits[1] != wantAudit {
-		t.Errorf("the first change's audit record: got %s, want %s", audits[1], wantAudit)
+	if audits[2] != wantAudit {
+		t.Errorf("the first lowering's audit record: got %s, want %s", audits[2], wantAudit)
 	}
 	events := e.changed(t)
 	if len(events) != 3 {
 		t.Fatalf("CreditLimitChanged events: got %d, want 3: the refused changes publish nothing", len(events))
 	}
-	for i, want := range []string{"750.00 500.00 2", "0.00 750.00 3"} {
+	for i, want := range []string{"250.00 500.00 4 <nil>", "0.00 250.00 5 <nil>"} {
 		ev := events[i+1]
 		before, _ := ev["limit_before"].(map[string]any)
-		if got := fmt.Sprintf("%v %v %v", apitest.Object(t, ev, "limit")["amount"], before["amount"], ev["version"]); got != want {
-			t.Errorf("event %d: got %s, want %s (limit, limit before, version)", i+2, got, want)
+		if got := fmt.Sprintf("%v %v %v %v", apitest.Object(t, ev, "limit")["amount"], before["amount"], ev["version"], ev["credit_limit_change_id"]); got != want {
+			t.Errorf("event %d: got %s, want %s (limit, limit before, version, change)", i+2, got, want)
 		}
 	}
 }
@@ -354,8 +395,8 @@ func TestSetRefusals(t *testing.T) {
 	var limits, events int
 	pgtest.Scan(t, `SELECT (SELECT count(*) FROM credit.credit_limit WHERE tenant_id = $1), (SELECT count(*) FROM credit.outbox WHERE tenant_id = $1)`,
 		[]any{e.Tenant.ID}, &limits, &events)
-	if got := fmt.Sprintf("%d limits, %d events", limits, events); got != "2 limits, 2 events" {
-		t.Errorf("stored: got %s, want 2 limits, 2 events: a refusal stores and publishes nothing", got)
+	if got := fmt.Sprintf("%d limits, %d events", limits, events); got != "2 limits, 0 events" {
+		t.Errorf("stored: got %s, want 2 limits, pending, 0 events: a refusal stores and publishes nothing", got)
 	}
 	t.Run("without the permission", func(t *testing.T) {
 		pgtest.Exec(t, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND permission_code = 'credit.limit.write'`, e.Tenant.ID)

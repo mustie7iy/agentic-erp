@@ -58,12 +58,13 @@ func validity(from, to *time.Time) error {
 }
 
 // SetLimit sets a customer's credit limit in a company (ADR-0066 §2,
-// T77a): one amount in the company's currency, holding at once, with its
-// audit record and CreditLimitChanged, used on the company's days within
-// its validity (T77c). The customer is a business partner with the
-// customer role and customer data in the company. A customer's second
-// limit in a company is refused by the database, 409
-// credit.limit_exists.
+// T77a): one amount in the company's currency, used on the company's days
+// within its validity (T77c), once its create change is approved (T77d):
+// the limit is written pending, with its audit record, and the change
+// asks for its approval; CreditLimitChanged follows when it applies. The
+// customer is a business partner with the customer role and customer
+// data in the company. A customer's second limit in a company is refused
+// by the database, 409 credit.limit_exists.
 func (e *Endpoints) SetLimit(ctx context.Context, in LimitInput) (Limit, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -105,15 +106,19 @@ func (e *Endpoints) SetLimit(ctx context.Context, in LimitInput) (Limit, error) 
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO credit.credit_limit (tenant_id, id, legal_entity_id, customer_id, customer_number, currency, amount,
-			valid_from, valid_to, next_review_on, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)`,
+			valid_from, valid_to, next_review_on, status, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, $11)`,
 		p.TenantID, id, le.ID, c.ID, c.Number, le.LocalCurrency, amount, in.ValidFrom, in.ValidTo, in.NextReview, p.ID); err != nil {
 		return Limit{}, fmt.Errorf("credit: insert the credit limit of customer %s in company %s: %w", c.Number, le.Code, err)
 	}
-	l, err := limit(ctx, tx, id, false)
+	l, err := limit(ctx, tx, id, true)
 	if err != nil {
 		return Limit{}, err
 	}
-	return l, record(ctx, "credit.credit_limit.create", l, le, nil)
+	asked, err := e.request(ctx, tx, p, l, l.terms(), le)
+	if err != nil {
+		return Limit{}, err
+	}
+	return asked, audit.Record(ctx, "credit.credit_limit.create", "credit.credit_limit", l.ID, detailOf(l, nil, nil)) // its error names the action
 }
 
 // patched is the limit as the change would leave it: its amount, read in
@@ -154,11 +159,23 @@ func unchanged(before, after Limit) bool {
 		sameDay(before.NextReview, after.NextReview)
 }
 
+// raisesNothing says whether a change of an active limit applies at once
+// (T77d): its amount is not raised and its validity stays, so the limit
+// restricts no less; the review date may change with it. Any other
+// change waits for its approval: a raise, and a change of the validity,
+// which decides on which days the limit restricts at all.
+func raisesNothing(before, after Limit) bool {
+	return after.Amount <= before.Amount && sameDay(before.ValidFrom, after.ValidFrom) && sameDay(before.ValidTo, after.ValidTo)
+}
+
 // ChangeLimit changes the amount, the validity or the next review date
 // of a credit limit with the caller's version of it (ADR-0008, ADR-0066
-// §2, T77c): the row is locked, the version compared, and the change
-// recorded with what it changed before and after. The limit's customer,
-// company and currency stay.
+// §2, T77c): the row is locked and the version compared. A change of an
+// active limit that raises nothing applies at once, recorded with what it
+// changed before and after; any other, and any change of a pending limit,
+// asks for its approval and answers the limit as it is (T77d). A limit
+// with a change waiting is refused (409 credit.change_pending). The
+// limit's customer, company and currency stay.
 func (e *Endpoints) ChangeLimit(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, ch LimitChange) (Limit, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -171,16 +188,30 @@ func (e *Endpoints) ChangeLimit(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := ifMatch(l.Version); err != nil {
 		return Limit{}, err
 	}
+	// Read again under the row lock, in a statement of its own: the locking
+	// read's subquery may have seen a change that a decision committed
+	// while the lock was awaited.
+	if l, err = limit(ctx, tx, id, false); err != nil {
+		return Limit{}, err
+	}
+	if l.PendingChangeID != nil {
+		return Limit{}, errChangePending()
+	}
 	to, err := patched(l, ch)
 	if err != nil {
 		return Limit{}, err
 	}
-	if unchanged(l, to) {
+	// A pending limit is asked for again as it is too: its last request
+	// was rejected or withdrawn.
+	if l.Status == LimitActive && unchanged(l, to) {
 		return Limit{}, problem.Unprocessable("credit.nothing_to_change", "The change would leave the credit limit as it is.")
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, l.LegalEntityID) // a stored limit's legal entity exists
 	if err != nil {
 		return Limit{}, fmt.Errorf("credit: company of credit limit %s: %w", id, err)
+	}
+	if l.Status != LimitActive || !raisesNothing(l, to) {
+		return e.request(ctx, tx, p, l, to.terms(), le)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE credit.credit_limit SET amount = $2, valid_from = $3, valid_to = $4, next_review_on = $5,
 			version = version + 1, updated_by = $6 WHERE id = $1`, id, to.Amount, to.ValidFrom, to.ValidTo, to.NextReview, p.ID); err != nil {
@@ -190,30 +221,41 @@ func (e *Endpoints) ChangeLimit(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Limit{}, err
 	}
-	return after, record(ctx, "credit.credit_limit.change", after, le, &l)
+	return after, record(ctx, "credit.credit_limit.change", after, le, &l, nil)
 }
 
-// record adds the audit record of a limit set or changed and publishes
-// CreditLimitChanged in the same transaction (ADR-0007, ADR-0011), both
-// with the limit after and the limit before; before is nil for a limit
-// just set, which had none. The audit record carries the validity and the
-// review date before and after too, the event those after. The event
-// names the customer by id and number, never by name (product owner,
-// 2026-11-05).
-func record(ctx context.Context, action string, l Limit, le tenancy.Entity, before *Limit) error {
-	now := money.EventAmount(l.Amount, l.Currency, l.Exponent)
+// detailOf is a limit's audit detail: its customer, company, amount and
+// dates, and, for a change, its amount and dates before (before nil: none,
+// a limit set) and the credit limit change applied (change nil: none,
+// one applied at once).
+func detailOf(l Limit, before *Limit, change *uuid.UUID) map[string]any {
 	detail := map[string]any{"legal_entity_id": l.LegalEntityID, "customer_id": l.CustomerID, "customer_number": l.CustomerNumber,
-		"limit": now, "valid_from": outbox.Date(l.ValidFrom), "valid_to": outbox.Date(l.ValidTo), "next_review_on": outbox.Date(l.NextReview)}
-	var was any
+		"limit": money.EventAmount(l.Amount, l.Currency, l.Exponent), "limit_before": nil, "valid_from": outbox.Date(l.ValidFrom),
+		"valid_to": outbox.Date(l.ValidTo), "next_review_on": outbox.Date(l.NextReview), "status": l.Status}
 	if before != nil {
-		was = money.EventAmount(before.Amount, l.Currency, l.Exponent)
+		detail["limit_before"] = money.EventAmount(before.Amount, l.Currency, l.Exponent)
 		detail["valid_from_before"], detail["valid_to_before"] = outbox.Date(before.ValidFrom), outbox.Date(before.ValidTo)
 		detail["next_review_on_before"] = outbox.Date(before.NextReview)
 	}
-	detail["limit_before"] = was
+	if change != nil {
+		detail["credit_limit_change_id"] = *change
+	}
+	return detail
+}
+
+// record adds the audit record of a limit changed, or set in effect, and
+// publishes CreditLimitChanged in the same transaction (ADR-0007,
+// ADR-0011), both with the limit after and the limit before; before is
+// nil for a limit that had none in effect, a create applied. change names
+// the credit limit change applied, nil for a change applied at once
+// (T77d). The event names the customer by id and number, never by name
+// (product owner, 2026-11-05).
+func record(ctx context.Context, action string, l Limit, le tenancy.Entity, before *Limit, change *uuid.UUID) error {
+	detail := detailOf(l, before, change)
 	payload := map[string]any{"credit_limit_id": l.ID, "legal_entity_id": l.LegalEntityID, "legal_entity_code": le.Code,
-		"customer_id": l.CustomerID, "customer_number": l.CustomerNumber, "limit": now, "limit_before": was, "valid_from": outbox.Date(l.ValidFrom),
-		"valid_to": outbox.Date(l.ValidTo), "next_review_on": outbox.Date(l.NextReview), "version": l.Version}
+		"customer_id": l.CustomerID, "customer_number": l.CustomerNumber, "limit": detail["limit"], "limit_before": detail["limit_before"],
+		"valid_from": detail["valid_from"], "valid_to": detail["valid_to"], "next_review_on": detail["next_review_on"],
+		"credit_limit_change_id": change, "version": l.Version}
 	if err := audit.Record(ctx, action, "credit.credit_limit", l.ID, detail,
 		outbox.Event{Context: "credit", Name: "credit_limit_changed", AggregateType: "credit.credit_limit", AggregateID: l.ID, Payload: payload}); err != nil {
 		return fmt.Errorf("credit: record %s of credit limit %s: %w", action, l.ID, err)

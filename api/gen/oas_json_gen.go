@@ -93065,6 +93065,651 @@ func (s *CreditLimit) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *CreditLimitChange) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CreditLimitChange) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("id")
+		json.EncodeUUID(e, s.ID)
+	}
+	{
+		e.FieldStart("version")
+		e.Int32(s.Version)
+	}
+	{
+		e.FieldStart("created_at")
+		json.EncodeDateTime(e, s.CreatedAt)
+	}
+	{
+		e.FieldStart("created_by")
+		json.EncodeUUID(e, s.CreatedBy)
+	}
+	{
+		e.FieldStart("updated_at")
+		json.EncodeDateTime(e, s.UpdatedAt)
+	}
+	{
+		if s.UpdatedBy.Set {
+			e.FieldStart("updated_by")
+			s.UpdatedBy.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("credit_limit_id")
+		json.EncodeUUID(e, s.CreditLimitID)
+	}
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("company_code")
+		e.Str(s.CompanyCode)
+	}
+	{
+		e.FieldStart("company_name")
+		e.Str(s.CompanyName)
+	}
+	{
+		e.FieldStart("customer_id")
+		json.EncodeUUID(e, s.CustomerID)
+	}
+	{
+		e.FieldStart("customer_number")
+		e.Str(s.CustomerNumber)
+	}
+	{
+		e.FieldStart("customer_name")
+		e.Str(s.CustomerName)
+	}
+	{
+		e.FieldStart("kind")
+		e.Str(s.Kind)
+	}
+	{
+		e.FieldStart("status")
+		e.Str(s.Status)
+	}
+	{
+		e.FieldStart("limit")
+		s.Limit.Encode(e)
+	}
+	{
+		if s.ValidFrom.Set {
+			e.FieldStart("valid_from")
+			s.ValidFrom.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.ValidTo.Set {
+			e.FieldStart("valid_to")
+			s.ValidTo.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.NextReviewOn.Set {
+			e.FieldStart("next_review_on")
+			s.NextReviewOn.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.LimitBefore.Set {
+			e.FieldStart("limit_before")
+			s.LimitBefore.Encode(e)
+		}
+	}
+	{
+		if s.ValidFromBefore.Set {
+			e.FieldStart("valid_from_before")
+			s.ValidFromBefore.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.ValidToBefore.Set {
+			e.FieldStart("valid_to_before")
+			s.ValidToBefore.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.NextReviewOnBefore.Set {
+			e.FieldStart("next_review_on_before")
+			s.NextReviewOnBefore.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.WorkflowRequestID.Set {
+			e.FieldStart("workflow_request_id")
+			s.WorkflowRequestID.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("requested_by")
+		json.EncodeUUID(e, s.RequestedBy)
+	}
+	{
+		if s.DecidedAt.Set {
+			e.FieldStart("decided_at")
+			s.DecidedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+}
+
+var jsonFieldsNameOfCreditLimitChange = [26]string{
+	0:  "id",
+	1:  "version",
+	2:  "created_at",
+	3:  "created_by",
+	4:  "updated_at",
+	5:  "updated_by",
+	6:  "credit_limit_id",
+	7:  "legal_entity_id",
+	8:  "company_code",
+	9:  "company_name",
+	10: "customer_id",
+	11: "customer_number",
+	12: "customer_name",
+	13: "kind",
+	14: "status",
+	15: "limit",
+	16: "valid_from",
+	17: "valid_to",
+	18: "next_review_on",
+	19: "limit_before",
+	20: "valid_from_before",
+	21: "valid_to_before",
+	22: "next_review_on_before",
+	23: "workflow_request_id",
+	24: "requested_by",
+	25: "decided_at",
+}
+
+// Decode decodes CreditLimitChange from json.
+func (s *CreditLimitChange) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CreditLimitChange to nil")
+	}
+	var requiredBitSet [4]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "version":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.Version = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"version\"")
+			}
+		case "created_at":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.CreatedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_at\"")
+			}
+		case "created_by":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.CreatedBy = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_by\"")
+			}
+		case "updated_at":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.UpdatedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"updated_at\"")
+			}
+		case "updated_by":
+			if err := func() error {
+				s.UpdatedBy.Reset()
+				if err := s.UpdatedBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"updated_by\"")
+			}
+		case "credit_limit_id":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.CreditLimitID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credit_limit_id\"")
+			}
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "company_code":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "company_name":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_name\"")
+			}
+		case "customer_id":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.CustomerID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_id\"")
+			}
+		case "customer_number":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.CustomerNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_number\"")
+			}
+		case "customer_name":
+			requiredBitSet[1] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.CustomerName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_name\"")
+			}
+		case "kind":
+			requiredBitSet[1] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.Kind = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"kind\"")
+			}
+		case "status":
+			requiredBitSet[1] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.Status = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "limit":
+			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				if err := s.Limit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"limit\"")
+			}
+		case "valid_from":
+			if err := func() error {
+				s.ValidFrom.Reset()
+				if err := s.ValidFrom.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_from\"")
+			}
+		case "valid_to":
+			if err := func() error {
+				s.ValidTo.Reset()
+				if err := s.ValidTo.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_to\"")
+			}
+		case "next_review_on":
+			if err := func() error {
+				s.NextReviewOn.Reset()
+				if err := s.NextReviewOn.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_review_on\"")
+			}
+		case "limit_before":
+			if err := func() error {
+				s.LimitBefore.Reset()
+				if err := s.LimitBefore.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"limit_before\"")
+			}
+		case "valid_from_before":
+			if err := func() error {
+				s.ValidFromBefore.Reset()
+				if err := s.ValidFromBefore.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_from_before\"")
+			}
+		case "valid_to_before":
+			if err := func() error {
+				s.ValidToBefore.Reset()
+				if err := s.ValidToBefore.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"valid_to_before\"")
+			}
+		case "next_review_on_before":
+			if err := func() error {
+				s.NextReviewOnBefore.Reset()
+				if err := s.NextReviewOnBefore.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_review_on_before\"")
+			}
+		case "workflow_request_id":
+			if err := func() error {
+				s.WorkflowRequestID.Reset()
+				if err := s.WorkflowRequestID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"workflow_request_id\"")
+			}
+		case "requested_by":
+			requiredBitSet[3] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.RequestedBy = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"requested_by\"")
+			}
+		case "decided_at":
+			if err := func() error {
+				s.DecidedAt.Reset()
+				if err := s.DecidedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"decided_at\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CreditLimitChange")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [4]uint8{
+		0b11011111,
+		0b11111111,
+		0b00000000,
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCreditLimitChange) {
+					name = jsonFieldsNameOfCreditLimitChange[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CreditLimitChange) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CreditLimitChange) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *CreditLimitChangePage) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CreditLimitChangePage) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("items")
+		e.ArrStart()
+		for _, elem := range s.Items {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
+		if s.NextPageToken.Set {
+			e.FieldStart("next_page_token")
+			s.NextPageToken.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfCreditLimitChangePage = [2]string{
+	0: "items",
+	1: "next_page_token",
+}
+
+// Decode decodes CreditLimitChangePage from json.
+func (s *CreditLimitChangePage) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CreditLimitChangePage to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "items":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				s.Items = make([]CreditLimitChange, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem CreditLimitChange
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Items = append(s.Items, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"items\"")
+			}
+		case "next_page_token":
+			if err := func() error {
+				s.NextPageToken.Reset()
+				if err := s.NextPageToken.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_page_token\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CreditLimitChangePage")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCreditLimitChangePage) {
+					name = jsonFieldsNameOfCreditLimitChangePage[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CreditLimitChangePage) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CreditLimitChangePage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *CreditMemoRequest) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -96134,9 +96779,19 @@ func (s *CustomerCreditLimit) encodeFields(e *jx.Encoder) {
 			s.NextReviewOn.Encode(e, json.EncodeDate)
 		}
 	}
+	{
+		e.FieldStart("status")
+		e.Str(s.Status)
+	}
+	{
+		if s.PendingChangeID.Set {
+			e.FieldStart("pending_change_id")
+			s.PendingChangeID.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfCustomerCreditLimit = [16]string{
+var jsonFieldsNameOfCustomerCreditLimit = [18]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -96153,6 +96808,8 @@ var jsonFieldsNameOfCustomerCreditLimit = [16]string{
 	13: "valid_from",
 	14: "valid_to",
 	15: "next_review_on",
+	16: "status",
+	17: "pending_change_id",
 }
 
 // Decode decodes CustomerCreditLimit from json.
@@ -96160,7 +96817,7 @@ func (s *CustomerCreditLimit) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode CustomerCreditLimit to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -96346,6 +97003,28 @@ func (s *CustomerCreditLimit) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"next_review_on\"")
 			}
+		case "status":
+			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Status = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "pending_change_id":
+			if err := func() error {
+				s.PendingChangeID.Reset()
+				if err := s.PendingChangeID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"pending_change_id\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -96355,9 +97034,10 @@ func (s *CustomerCreditLimit) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11011111,
 		0b00011111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -124708,6 +125388,120 @@ func (s *GetCreditLimitBadRequest) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *GetCreditLimitBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetCreditLimitChangeBadRequest as json.
+func (s *GetCreditLimitChangeBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetCreditLimitChangeBadRequest from json.
+func (s *GetCreditLimitChangeBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetCreditLimitChangeBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetCreditLimitChangeBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetCreditLimitChangeBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetCreditLimitChangeBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetCreditLimitChangeForbidden as json.
+func (s *GetCreditLimitChangeForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetCreditLimitChangeForbidden from json.
+func (s *GetCreditLimitChangeForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetCreditLimitChangeForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetCreditLimitChangeForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetCreditLimitChangeForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetCreditLimitChangeForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetCreditLimitChangeNotFound as json.
+func (s *GetCreditLimitChangeNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetCreditLimitChangeNotFound from json.
+func (s *GetCreditLimitChangeNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetCreditLimitChangeNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetCreditLimitChangeNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetCreditLimitChangeNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetCreditLimitChangeNotFound) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -165919,6 +166713,82 @@ func (s *ListCountryPacksForbidden) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ListCountryPacksForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ListCreditLimitChangesBadRequest as json.
+func (s *ListCreditLimitChangesBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListCreditLimitChangesBadRequest from json.
+func (s *ListCreditLimitChangesBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListCreditLimitChangesBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListCreditLimitChangesBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListCreditLimitChangesBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListCreditLimitChangesBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ListCreditLimitChangesForbidden as json.
+func (s *ListCreditLimitChangesForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ListCreditLimitChangesForbidden from json.
+func (s *ListCreditLimitChangesForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ListCreditLimitChangesForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ListCreditLimitChangesForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ListCreditLimitChangesForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ListCreditLimitChangesForbidden) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

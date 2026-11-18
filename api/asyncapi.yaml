@@ -4511,10 +4511,11 @@ components:
       title: Credit limit changed
       summary: A customer's credit limit in a company was set or changed.
       description: |
-        Emitted when a customer's credit limit in a company is set
-        (`limit_before` null) and at each change of its amount, its
-        validity or its next review date (ADR-0066 §5, T77a, T77c), with
-        the limit after the change and the amount before. It
+        Emitted when a customer's credit limit in a company comes into
+        effect, its create change approved (`limit_before` null), and at
+        each change of its amount, its validity or its next review date
+        (ADR-0066 §5, T77a, T77c), applied at once or once approved
+        (T77d), with the limit after the change and the amount before. It
         names the customer by id and number, never by name. It does not
         carry what the customer owes: `GET /v1/credit-exposure` returns
         the exposure and the check against the limit, and
@@ -4530,10 +4531,10 @@ components:
       examples:
         - name: set
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f05, source: /erp/eu-1/credit, type: com.example.erp.credit.credit_limit_changed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '5000.00', currency: CAD}, limit_before: null, valid_from: null, valid_to: '2027-12-31', next_review_on: '2027-10-01', version: 1}
+          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '5000.00', currency: CAD}, limit_before: null, valid_from: null, valid_to: '2027-12-31', next_review_on: '2027-10-01', credit_limit_change_id: 0192a000-0000-7000-8000-000000000f61, version: 2}
         - name: changed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f06, source: /erp/eu-1/credit, type: com.example.erp.credit.credit_limit_changed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '7500.00', currency: CAD}, limit_before: {amount: '5000.00', currency: CAD}, valid_from: null, valid_to: '2027-12-31', next_review_on: '2027-10-01', version: 2}
+          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '7500.00', currency: CAD}, limit_before: {amount: '5000.00', currency: CAD}, valid_from: null, valid_to: '2027-12-31', next_review_on: '2027-10-01', credit_limit_change_id: null, version: 3}
     IncomingPaymentApplied:
       name: IncomingPaymentApplied
       x-webhook: true
@@ -6154,7 +6155,7 @@ components:
         version: {type: integer, description: "The case's version after the change."}
     CreditLimitChangedV1:
       type: object
-      required: [credit_limit_id, legal_entity_id, legal_entity_code, customer_id, customer_number, limit, limit_before, valid_from, valid_to, next_review_on, version]
+      required: [credit_limit_id, legal_entity_id, legal_entity_code, customer_id, customer_number, limit, limit_before, valid_from, valid_to, next_review_on, credit_limit_change_id, version]
       properties:
         credit_limit_id: {$ref: '#/components/schemas/Uuid', description: '`credit.credit_limit.id`.'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company the limit holds in.}
@@ -6166,6 +6167,7 @@ components:
         valid_from: {type: [string, 'null'], format: date, description: "The company's first day the limit is used on after the change (T77c); null: from the start."}
         valid_to: {type: [string, 'null'], format: date, description: "The company's last day the limit is used on after the change; null: no end."}
         next_review_on: {type: [string, 'null'], format: date, description: "The day the limit's next review is planned for after the change; null: none."}
+        credit_limit_change_id: {oneOf: [{$ref: '#/components/schemas/Uuid'}, {type: 'null'}], description: 'The credit limit change whose approval applied it (`credit.credit_limit_change.id`, T77d); null for a change that applied at once.'}
         version: {type: integer, description: "The limit's version after the change."}
     IncomingPaymentAppliedV1:
       type: object

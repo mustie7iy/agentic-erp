@@ -5037,7 +5037,9 @@ which setting a limit takes too, so two orders of one customer are
 checked one after the other (ADR-0066, As built T77b). T77b adds no table and no column
 here. T77c (migration 000390) gives a limit a validity and a next review
 date; the check uses a limit only on the company's days within its
-validity.
+validity. T77d (migration 000391) has a new limit, or a change raising
+one or changing its validity, approved through the approvals context
+before it applies: the limit's `status` and `credit.credit_limit_change`.
 
 ```mermaid
 erDiagram
@@ -5050,7 +5052,17 @@ erDiagram
     date valid_from "T77c, null: no start"
     date valid_to "T77c, null: no end"
     date next_review_on "T77c, null: none"
+    text status "T77d: pending or active"
     int version }
+  credit_limit_change { uuid id PK
+    uuid credit_limit_id FK
+    text kind "create or change"
+    bigint amount "asked for"
+    bigint amount_before "a change's"
+    text status "pending, applied, rejected, cancelled"
+    uuid workflow_request_id "workflow"
+    int version }
+  credit_limit ||--o{ credit_limit_change : "asked of"
 ```
 
 - `credit.credit_limit`: the most a customer may owe a company, an
@@ -5072,11 +5084,30 @@ erDiagram
   limit. `next_review_on` is the day its next review is planned for: the
   worklist (`GET /v1/credit-limits?due_by=`) lists the limits whose review
   or end is due by a day, a filter of the tenant's few limits beside the
-  list's index, which needs no index of its own.
+  list's index, which needs no index of its own. `status` (T77d,
+  `credit_limit_status_check`) is `pending` until its create change is
+  approved, and the limit is not in effect while it is; an active limit
+  stays active (`credit_limit_status_guard`, a trigger).
+- `credit.credit_limit_change` (T77d): what a change asks of a limit, the
+  amount (`credit_limit_change_amount_check`) and dates
+  (`credit_limit_change_validity_check`), and for kind `change` the
+  limit's values when it was asked for (`credit_limit_change_before_check`:
+  a `create` has none), `credit_limit_change_kind_check`,
+  `credit_limit_change_amount_before_check`; its status
+  (`credit_limit_change_status_check`) decided once with `decided_at`
+  (`credit_limit_change_decided_check`, and the trigger
+  `credit_limit_change_decided_once`), one pending per limit
+  (`credit_limit_change_one_pending`, 409 `credit.change_pending`), of a
+  limit of the tenant (`credit_limit_change_limit_fkey`); listed by limit
+  and by tenant, newest first (`credit_limit_change_by_limit`,
+  `credit_limit_change_by_created`). The application may update
+  `status`, `workflow_request_id`, `decided_at`, `version` and
+  `updated_by` alone, and delete nothing.
 - `credit.outbox`, `credit.inbox`: the context's events
   (`CreditLimitChanged`).
-- Permissions `credit.limit.read` (limits and the exposure) and
-  `credit.limit.write`.
+- Permissions `credit.limit.read` (limits, their changes and the
+  exposure), `credit.limit.write` and the approval permission
+  `credit.limit.approve` (T77d).
 
 ## 3.29 Sales (`sales`)
 

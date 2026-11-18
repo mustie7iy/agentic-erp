@@ -450,3 +450,87 @@ date of its next check; stated from memory) and the ADRs:
   of UTC's at both ends of a validity, through the check and the
   exposure), `db/credit_test.go`; walkthrough
   `step_credit_limit_validity`.
+
+### T77d Approval of credit limit changes (migration 000391)
+
+A new limit, or a change raising one or changing its validity, takes
+effect only once a second person approves it
+(`docs/design/plan-depth-3.md` §T77d); §2's "holds at once: there is no
+approval" and §6 read with these changes. Decided by default, with
+materials' governed changes (ADR-0082 §9, S1b) as the pattern:
+
+- **Through the approvals context.** The object type
+  `credit_limit_change`, approved by one holder of the fixed role
+  `controller` (`approvals.DefaultCreditLimitRole`, as period unlocks and
+  manual entries are), who needs the new approval permission
+  `credit.limit.approve`, which agents never hold. The approver is never
+  the requester (the approvals context's rule). `credit` imports
+  `approvals` for its request type, as materials does; nothing imports
+  `credit`, which stays a leaf; the composition root registers its
+  handler (`credit.Approvals`, a `Locator` naming
+  `/v1/credit-limit-changes/{id}`). A policy that asked no approval of
+  the type would be refused, never applied unapproved.
+- **What waits and what holds at once.** A change of an active limit
+  applies at once when it raises nothing: its amount is not above the
+  limit's and its validity stays (the next review date may change with
+  it). A raise waits, and so does any change of the validity, which
+  decides on which days the limit restricts at all (an earlier end would
+  lift the limit, a later one keep it). A lowering bundled with a change
+  of the validity waits whole. Product owner's brief, 18 Nov: a lowered
+  limit takes effect at once.
+- **A new limit is pending.** `POST /v1/credit-limits` writes the limit
+  `pending` with the values asked for and its create change; it is not in
+  effect (the check and the exposure treat the customer as one without a
+  limit, naming it) until the change is approved, when it becomes
+  `active`. Rejected or withdrawn, it stays `pending`, and a patch of it
+  asks again, as it is or changed (a new create). A customer still has
+  one limit row per company, so `credit.limit_exists` stays as it was.
+- **The change.** `credit.credit_limit_change`: kind `create` or
+  `change`, the amount and dates asked for and, for a change, the limit's
+  when asked (a create has none: its limit was never in effect), status
+  `pending` then `applied`, `rejected` or `cancelled` once with
+  `decided_at`, the approval request, who asked. One pending per limit
+  (`credit_limit_change_one_pending`): a change of a limit with one
+  waiting is 409 `credit.change_pending`. Applied, it writes its values,
+  not a merge over the limit as it then is: nothing else can change the
+  limit while it waits. Read with `GET /v1/credit-limit-changes`
+  (filters limit and status, newest first) and `/{id}`, held to the
+  companies the caller may act in, as limits are; the web workspace's
+  approval page summarises it.
+- **Lowering while a raise waits** is refused until the raise is decided
+  (its requester may withdraw it). Applying the lowering and withdrawing
+  the raise in one step would take the approval request's row lock after
+  the limit's, the opposite of an approval's order, and could deadlock.
+  Listed for the product owner and kept in the placeholder.
+- **Versions.** A limit's version moves when it comes to name a change
+  waiting and when it no longer does (rejected, withdrawn or applied), so
+  its ETag follows what it shows.
+- **Locks.** Applying, rejecting or withdrawing a change takes the
+  customer's key in the company (`hold`), then the limit's row, then the
+  change's, after the approval request's row the approvals context holds:
+  the order a check of the customer's orders takes (key, limit). A
+  request takes the limit's row, then writes the change and opens the
+  approval request (a new row, no lock on another's). Nothing takes them
+  the other way round.
+- **Records.** Audit records `credit.credit_limit_change.request`,
+  `.apply`, `.reject`, `.cancel` on the change (its limit, customer,
+  company, kind, status and the values asked for); on the limit
+  `credit.credit_limit.create` when it is asked for (pending) and
+  `credit.credit_limit.change` when a change applies, at once or
+  approved, naming the change (`credit_limit_change_id`).
+  `CreditLimitChanged` is published only when the limit in effect
+  changes: when a create or a change is applied, or at once; it gains
+  `credit_limit_change_id`, null for a change at once. No event for the
+  change's own steps: the approvals context publishes the request's.
+- **Migration.** `status` on the limit (default `active`, which every
+  limit set before is; a trigger keeps an active limit active), the
+  table with its checks, the decided-once trigger, the column grants
+  (what a change asks for never changes), the permission. The down file
+  refuses while a limit is pending.
+- **Tests.** `internal/credit/approval_test.go` (a raise approved, what
+  waits and what holds at once, a rejection and a withdrawal, a pending
+  limit not in effect and asked again, the approval serialized with a
+  check by `apitest.Serialized`, the refused policy),
+  `db/credit_test.go`; walkthrough `step_credit_limit` (step 59), the
+  limits of steps 113 and 120 approved by Carla, and
+  `step_credit_limit_approval`.

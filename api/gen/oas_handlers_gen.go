@@ -17932,19 +17932,22 @@ func (s *Server) handleCreateCostCenterRequest(args [0]string, argsEscaped bool,
 //
 // Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
 // one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
-// holds at once: there is no approval of it. It may be given a validity, `valid_from` to `valid_to`,
-// both included and either open (T77c): the credit check and `getCreditExposure` use it only on the
-// company's days within it; a validity ending before it starts is refused (422
-// `credit.invalid_validity`, naming `valid_to`). `next_review_on` plans its next review, which the
-// worklist `listCreditLimits?due_by=` lists it by. The customer is a business partner with the
-// customer role and customer data in the company (422 `request.reference_not_found` naming
-// `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
-// per company: a second is refused (409 `credit.limit_exists`), and the first is found with
+// is created `pending`, not in effect, with a credit limit change of kind `create` waiting for its
+// approval (`pending_change_id`, `GET /v1/credit-limit-changes/{id}`; T77d): approved by a holder of
+// the role `controller` other than the requester, it is `active` and CreditLimitChanged is published;
+// rejected or withdrawn, it stays `pending` and is asked for again with `updateCreditLimit`. It may be
+// given a validity, `valid_from` to `valid_to`, both included and either open (T77c): the credit check
+// and `getCreditExposure` use it only on the company's days within it; a validity ending before it
+// starts is refused (422 `credit.invalid_validity`, naming `valid_to`). `next_review_on` plans its
+// next review, which the worklist `listCreditLimits?due_by=` lists it by. The customer is a business
+// partner with the customer role and customer data in the company (422 `request.reference_not_found`
+// naming `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one
+// limit per company: a second is refused (409 `credit.limit_exists`), and the first is found with
 // `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
 // amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming
 // `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`).
 // Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount
-// against. An audit record and CreditLimitChanged are written with it. A retry with the same
+// against once it is active. An audit record is written with it. A retry with the same
 // `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`).
 //
 // POST /v1/credit-limits
@@ -46077,20 +46080,21 @@ func (s *Server) handleGetCostCenterRequest(args [1]string, argsEscaped bool, w 
 // is an amount to check, zero or more, in the company's currency; without it nothing is added.
 // `is_within_limit` says whether the exposure and the amount together are no more than the limit. A
 // customer without a limit is not restricted: `has_limit` is false, `limit` and `available` are absent
-// and `is_within_limit` is true; so is a customer whose limit is not valid on `day`, which
-// `credit_limit_id` still names. The check changes nothing and blocks nothing: what a consumer does
-// with the answer is its own; confirming a sales order makes the same check on the order's gross value
-// and blocks the order when it is not within the limit (`confirmSalesOrder`). It is computed at the
-// read from one database state (a repeatable-read snapshot) and stores nothing. Any business partner
-// can be asked about; one without open items or orders in the company has an exposure of zero. An open
-// order whose value cannot be calculated refuses the read rather than being left out: one whose tax
-// code is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), one in
-// another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`), one
-// too large for an amount (422 `sales.amount_too_large`). An amount below zero is refused (422
-// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
-// is 400 `request.invalid_amount`. Open items and orders that add up, alone or with the limit or the
-// amount, to more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity
-// the caller cannot act in is 404, as a business partner that does not exist.
+// and `is_within_limit` is true; so is a customer whose limit is not valid on `day` or still `pending`
+// its approval (T77d), which `credit_limit_id` still names. The check changes nothing and blocks
+// nothing: what a consumer does with the answer is its own; confirming a sales order makes the same
+// check on the order's gross value and blocks the order when it is not within the limit
+// (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read
+// snapshot) and stores nothing. Any business partner can be asked about; one without open items or
+// orders in the company has an exposure of zero. An open order whose value cannot be calculated
+// refuses the read rather than being left out: one whose tax code is no longer an output tax code on
+// the order's date (422 `sales.unknown_tax_code`), one in another currency without a rate into the
+// company's on its date (422 `ledger.no_exchange_rate`), one too large for an amount (422
+// `sales.amount_too_large`). An amount below zero is refused (422 `credit.invalid_amount`, naming
+// `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`.
+// Open items and orders that add up, alone or with the limit or the amount, to more than an amount
+// holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is
+// 404, as a business partner that does not exist.
 //
 // GET /v1/credit-exposure
 func (s *Server) handleGetCreditExposureRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -46465,6 +46469,195 @@ func (s *Server) handleGetCreditLimitRequest(args [1]string, argsEscaped bool, w
 	}
 
 	if err := encodeGetCreditLimitResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetCreditLimitChangeRequest handles getCreditLimitChange operation.
+//
+// One credit limit change (ADR-0066, As built T77d), as its approver reads it: its limit's company and
+// customer, the amount and dates it asks for and the limit's before, its status and its approval
+// request. One of a company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/credit-limit-changes/{id}
+func (s *Server) handleGetCreditLimitChangeRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCreditLimitChange"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/credit-limit-changes/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetCreditLimitChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetCreditLimitChangeOperation,
+			ID:   "getCreditLimitChange",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetCreditLimitChangeOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetCreditLimitChangeParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetCreditLimitChangeRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetCreditLimitChangeOperation,
+			OperationSummary: "Get a credit limit change",
+			OperationID:      "getCreditLimitChange",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetCreditLimitChangeParams
+			Response = GetCreditLimitChangeRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetCreditLimitChangeParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetCreditLimitChange(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetCreditLimitChange(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetCreditLimitChangeResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -77495,6 +77688,212 @@ func (s *Server) handleListCountryPacksRequest(args [0]string, argsEscaped bool,
 	}
 
 	if err := encodeListCountryPacksResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListCreditLimitChangesRequest handles listCreditLimitChanges operation.
+//
+// Credit limit changes waiting for or given their approval (ADR-0066, As built T77d), newest first, of
+// the companies the caller may act in: each with its limit's company and customer, its kind, its
+// status, the amount and dates it asks for, the limit's before (a `change`'s) and its approval
+// request. Filtered by limit and status. Sortable by: `created_at`.
+//
+// GET /v1/credit-limit-changes
+func (s *Server) handleListCreditLimitChangesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCreditLimitChanges"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/credit-limit-changes"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListCreditLimitChangesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListCreditLimitChangesOperation,
+			ID:   "listCreditLimitChanges",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListCreditLimitChangesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListCreditLimitChangesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListCreditLimitChangesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListCreditLimitChangesOperation,
+			OperationSummary: "List credit limit changes",
+			OperationID:      "listCreditLimitChanges",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "credit_limit_id",
+					In:   "query",
+				}: params.CreditLimitID,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListCreditLimitChangesParams
+			Response = ListCreditLimitChangesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListCreditLimitChangesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListCreditLimitChanges(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListCreditLimitChanges(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListCreditLimitChangesResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -127058,11 +127457,19 @@ func (s *Server) handleUpdateCostCenterRequest(args [1]string, argsEscaped bool,
 // is in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`,
 // `credit.invalid_amount` naming `limit.amount`); `valid_from`, `valid_to` and `next_review_on` are
 // days, `null` clearing them (T77c), and a validity ending before it starts is refused (422
-// `credit.invalid_validity`, naming `valid_to`). The customer, the company and the currency of a limit
-// do not change. A change that leaves the limit as it is is refused (422 `credit.nothing_to_change`).
-// The audit record carries what changed before and after, and CreditLimitChanged the limit after and
-// its amount before. JSON Merge Patch (RFC 7396): absent fields stay. A limit of a company the caller
-// may not act in is not found (404). Human-only (`x-agent: false`).
+// `credit.invalid_validity`, naming `valid_to`). A change of an `active` limit that raises nothing,
+// its amount not above the limit's and its validity as it is (the next review date may change with
+// it), holds at once. Any other (a raise, a change of the validity) and any change of a `pending`
+// limit opens a credit limit change waiting for its approval by a holder of the role `controller`
+// other than the requester (T77d): the limit is answered as it is, naming the change in
+// `pending_change_id`, and takes the change's amount and dates when it is approved; rejected or
+// withdrawn, it stays as it is. A limit with a change waiting is refused (409
+// `credit.change_pending`). The customer, the company and the currency of a limit do not change. A
+// change that leaves an active limit as it is is refused (422 `credit.nothing_to_change`); a pending
+// limit is asked for again as it is. The audit record carries what changed before and after, and
+// CreditLimitChanged the limit after and its amount before. JSON Merge Patch (RFC 7396): absent fields
+// stay. A limit of a company the caller may not act in is not found (404). Human-only
+// (`x-agent: false`).
 //
 // PATCH /v1/credit-limits/{id}
 func (s *Server) handleUpdateCreditLimitRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

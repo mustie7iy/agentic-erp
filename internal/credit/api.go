@@ -58,7 +58,7 @@ func limitToAPI(l Limit, s shown) gen.CustomerCreditLimit {
 		UpdatedBy: gen.NewOptUUID(l.UpdatedBy), LegalEntityID: l.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name,
 		CustomerID: l.CustomerID, CustomerNumber: l.CustomerNumber, CustomerName: s.customers[l.CustomerID].Name,
 		Limit: apitypes.Money(l.Amount, l.Currency, l.Exponent), ValidFrom: apitypes.OptDate(l.ValidFrom), ValidTo: apitypes.OptDate(l.ValidTo),
-		NextReviewOn: apitypes.OptDate(l.NextReview)}
+		NextReviewOn: apitypes.OptDate(l.NextReview), Status: l.Status, PendingChangeID: apitypes.OptUUID(l.PendingChangeID)}
 }
 
 // one is a single limit as the API gives it.
