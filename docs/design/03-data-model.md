@@ -5534,6 +5534,26 @@ erDiagram
   discount has a condition type and a `percent` above 0 and below 100
   (`price_percent_range`) and none of a price's columns. The discounts
   of a key are read by their type (`price_by_condition`).
+  From T80e (migration 000373; ADR-0067 §12) a record may have a scale:
+  `scale_basis` `quantity` or `value` (`price_scale_basis_check`) with
+  the unit (`scale_uom_code`) or the currency (`scale_currency`) it is
+  read in, both of the reference data, the one its basis needs and not
+  the other, and a value scale a discount's only (`price_scale_stated`);
+  a price's quantity scale is in its own unit (`price_scale_unit`).
+- `sales.price_scale` (T80e, migration 000373; ADR-0067 §12): the scale
+  levels of a record (foreign key to `sales.price`), numbered 1 to 20
+  (`price_scale_level_check`), each starting at a quantity
+  (`from_quantity`) or a value in minor units of the scale's currency
+  (`from_amount`), one of them and above zero (`price_scale_from`,
+  `price_scale_from_quantity_check`, `price_scale_from_amount_check`),
+  with one rate (`price_scale_rate`): a price per the record's price
+  unit above zero (`price_scale_unit_price_check`) or a percent above 0
+  and below 100 (`price_scale_percent_check`). No two levels of a record
+  start at the same place (`price_scale_by_quantity`,
+  `price_scale_by_amount`). An item takes the rate of the level with the
+  highest start its quantity or its value before the condition reaches,
+  and the record's own below the first. Insert-only
+  (`platform.forbid_mutation`), as the record is.
 - `conditions` on `sales.quotation_item` and `sales.sales_order_item`
   (T80b): a JSON array (`quotation_item_conditions_array`,
   `sales_order_item_conditions_array`), empty by default, of the
@@ -5544,6 +5564,9 @@ erDiagram
   amounts add up to the item's `net_amount`. An item whose price was
   entered (`price_source` `manual`) has its price alone: an entered
   price is the final net price (T80c, product owner 2026-11-12).
+  A condition found by a scaled record (T80e) has its `scale`: the
+  `basis`, the `level` reached (0 below the first) and where it starts,
+  `from_quantity` with its `unit` or `from_amount`.
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
   `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,

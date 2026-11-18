@@ -188082,6 +188082,39 @@ func (s *OptReportTileWhere) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes SalesConditionScale as json.
+func (o OptSalesConditionScale) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes SalesConditionScale from json.
+func (o *OptSalesConditionScale) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptSalesConditionScale to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptSalesConditionScale) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptSalesConditionScale) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes SalesOrderCaptured as json.
 func (o OptSalesOrderCaptured) Encode(e *jx.Encoder) {
 	if !o.Set {
@@ -246723,9 +246756,15 @@ func (s *SalesCondition) encodeFields(e *jx.Encoder) {
 		e.FieldStart("amount")
 		s.Amount.Encode(e)
 	}
+	{
+		if s.Scale.Set {
+			e.FieldStart("scale")
+			s.Scale.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfSalesCondition = [7]string{
+var jsonFieldsNameOfSalesCondition = [8]string{
 	0: "condition_type",
 	1: "name",
 	2: "kind",
@@ -246733,6 +246772,7 @@ var jsonFieldsNameOfSalesCondition = [7]string{
 	4: "price_unit",
 	5: "percent",
 	6: "amount",
+	7: "scale",
 }
 
 // Decode decodes SalesCondition from json.
@@ -246820,6 +246860,16 @@ func (s *SalesCondition) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
+		case "scale":
+			if err := func() error {
+				s.Scale.Reset()
+				if err := s.Scale.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"scale\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -246872,6 +246922,153 @@ func (s *SalesCondition) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *SalesCondition) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SalesConditionScale) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SalesConditionScale) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("basis")
+		e.Str(s.Basis)
+	}
+	{
+		e.FieldStart("level")
+		e.Int32(s.Level)
+	}
+	{
+		if s.FromQuantity.Set {
+			e.FieldStart("from_quantity")
+			s.FromQuantity.Encode(e)
+		}
+	}
+	{
+		if s.FromAmount.Set {
+			e.FieldStart("from_amount")
+			s.FromAmount.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfSalesConditionScale = [4]string{
+	0: "basis",
+	1: "level",
+	2: "from_quantity",
+	3: "from_amount",
+}
+
+// Decode decodes SalesConditionScale from json.
+func (s *SalesConditionScale) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SalesConditionScale to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "basis":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Basis = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"basis\"")
+			}
+		case "level":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.Level = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"level\"")
+			}
+		case "from_quantity":
+			if err := func() error {
+				s.FromQuantity.Reset()
+				if err := s.FromQuantity.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"from_quantity\"")
+			}
+		case "from_amount":
+			if err := func() error {
+				s.FromAmount.Reset()
+				if err := s.FromAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"from_amount\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SalesConditionScale")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSalesConditionScale) {
+					name = jsonFieldsNameOfSalesConditionScale[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SalesConditionScale) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SalesConditionScale) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -251211,9 +251408,23 @@ func (s *SalesPrice) encodeFields(e *jx.Encoder) {
 			s.ValidTo.Encode(e, json.EncodeDate)
 		}
 	}
+	{
+		if s.ScaleBasis.Set {
+			e.FieldStart("scale_basis")
+			s.ScaleBasis.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("scale")
+		e.ArrStart()
+		for _, elem := range s.Scale {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
 }
 
-var jsonFieldsNameOfSalesPrice = [21]string{
+var jsonFieldsNameOfSalesPrice = [23]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -251235,6 +251446,8 @@ var jsonFieldsNameOfSalesPrice = [21]string{
 	18: "percent",
 	19: "valid_from",
 	20: "valid_to",
+	21: "scale_basis",
+	22: "scale",
 }
 
 // Decode decodes SalesPrice from json.
@@ -251478,6 +251691,34 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"valid_to\"")
 			}
+		case "scale_basis":
+			if err := func() error {
+				s.ScaleBasis.Reset()
+				if err := s.ScaleBasis.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"scale_basis\"")
+			}
+		case "scale":
+			requiredBitSet[2] |= 1 << 6
+			if err := func() error {
+				s.Scale = make([]SalesPriceScaleLevel, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SalesPriceScaleLevel
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Scale = append(s.Scale, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"scale\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -251490,7 +251731,7 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b00100011,
-		0b00001000,
+		0b01001000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -251599,19 +251840,37 @@ func (s *SalesPriceCreate) encodeFields(e *jx.Encoder) {
 			s.ValidTo.Encode(e, json.EncodeDate)
 		}
 	}
+	{
+		if s.ScaleBasis.Set {
+			e.FieldStart("scale_basis")
+			s.ScaleBasis.Encode(e)
+		}
+	}
+	{
+		if s.Scale != nil {
+			e.FieldStart("scale")
+			e.ArrStart()
+			for _, elem := range s.Scale {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSalesPriceCreate = [10]string{
-	0: "legal_entity_id",
-	1: "item_key",
-	2: "customer_id",
-	3: "condition_type",
-	4: "unit",
-	5: "unit_price",
-	6: "price_unit",
-	7: "percent",
-	8: "valid_from",
-	9: "valid_to",
+var jsonFieldsNameOfSalesPriceCreate = [12]string{
+	0:  "legal_entity_id",
+	1:  "item_key",
+	2:  "customer_id",
+	3:  "condition_type",
+	4:  "unit",
+	5:  "unit_price",
+	6:  "price_unit",
+	7:  "percent",
+	8:  "valid_from",
+	9:  "valid_to",
+	10: "scale_basis",
+	11: "scale",
 }
 
 // Decode decodes SalesPriceCreate from json.
@@ -251728,6 +251987,33 @@ func (s *SalesPriceCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"valid_to\"")
+			}
+		case "scale_basis":
+			if err := func() error {
+				s.ScaleBasis.Reset()
+				if err := s.ScaleBasis.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"scale_basis\"")
+			}
+		case "scale":
+			if err := func() error {
+				s.Scale = make([]SalesPriceScaleLevelCreate, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SalesPriceScaleLevelCreate
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Scale = append(s.Scale, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"scale\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -251905,6 +252191,284 @@ func (s *SalesPricePage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *SalesPricePage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SalesPriceScaleLevel) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SalesPriceScaleLevel) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("level")
+		e.Int32(s.Level)
+	}
+	{
+		if s.FromQuantity.Set {
+			e.FieldStart("from_quantity")
+			s.FromQuantity.Encode(e)
+		}
+	}
+	{
+		if s.FromAmount.Set {
+			e.FieldStart("from_amount")
+			s.FromAmount.Encode(e)
+		}
+	}
+	{
+		if s.UnitPrice.Set {
+			e.FieldStart("unit_price")
+			s.UnitPrice.Encode(e)
+		}
+	}
+	{
+		if s.Percent.Set {
+			e.FieldStart("percent")
+			s.Percent.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfSalesPriceScaleLevel = [5]string{
+	0: "level",
+	1: "from_quantity",
+	2: "from_amount",
+	3: "unit_price",
+	4: "percent",
+}
+
+// Decode decodes SalesPriceScaleLevel from json.
+func (s *SalesPriceScaleLevel) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SalesPriceScaleLevel to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "level":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.Level = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"level\"")
+			}
+		case "from_quantity":
+			if err := func() error {
+				s.FromQuantity.Reset()
+				if err := s.FromQuantity.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"from_quantity\"")
+			}
+		case "from_amount":
+			if err := func() error {
+				s.FromAmount.Reset()
+				if err := s.FromAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"from_amount\"")
+			}
+		case "unit_price":
+			if err := func() error {
+				s.UnitPrice.Reset()
+				if err := s.UnitPrice.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"unit_price\"")
+			}
+		case "percent":
+			if err := func() error {
+				s.Percent.Reset()
+				if err := s.Percent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"percent\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SalesPriceScaleLevel")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSalesPriceScaleLevel) {
+					name = jsonFieldsNameOfSalesPriceScaleLevel[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SalesPriceScaleLevel) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SalesPriceScaleLevel) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SalesPriceScaleLevelCreate) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SalesPriceScaleLevelCreate) encodeFields(e *jx.Encoder) {
+	{
+		if s.FromQuantity.Set {
+			e.FieldStart("from_quantity")
+			s.FromQuantity.Encode(e)
+		}
+	}
+	{
+		if s.FromAmount.Set {
+			e.FieldStart("from_amount")
+			s.FromAmount.Encode(e)
+		}
+	}
+	{
+		if s.UnitPrice.Set {
+			e.FieldStart("unit_price")
+			s.UnitPrice.Encode(e)
+		}
+	}
+	{
+		if s.Percent.Set {
+			e.FieldStart("percent")
+			s.Percent.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfSalesPriceScaleLevelCreate = [4]string{
+	0: "from_quantity",
+	1: "from_amount",
+	2: "unit_price",
+	3: "percent",
+}
+
+// Decode decodes SalesPriceScaleLevelCreate from json.
+func (s *SalesPriceScaleLevelCreate) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SalesPriceScaleLevelCreate to nil")
+	}
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "from_quantity":
+			if err := func() error {
+				s.FromQuantity.Reset()
+				if err := s.FromQuantity.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"from_quantity\"")
+			}
+		case "from_amount":
+			if err := func() error {
+				s.FromAmount.Reset()
+				if err := s.FromAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"from_amount\"")
+			}
+		case "unit_price":
+			if err := func() error {
+				s.UnitPrice.Reset()
+				if err := s.UnitPrice.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"unit_price\"")
+			}
+		case "percent":
+			if err := func() error {
+				s.Percent.Reset()
+				if err := s.Percent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"percent\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SalesPriceScaleLevelCreate")
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SalesPriceScaleLevelCreate) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SalesPriceScaleLevelCreate) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

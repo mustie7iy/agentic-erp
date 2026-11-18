@@ -75091,6 +75091,52 @@ func (o OptReportTileWhere) Or(d ReportTileWhere) ReportTileWhere {
 	return d
 }
 
+// NewOptSalesConditionScale returns new OptSalesConditionScale with value set to v.
+func NewOptSalesConditionScale(v SalesConditionScale) OptSalesConditionScale {
+	return OptSalesConditionScale{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSalesConditionScale is optional SalesConditionScale.
+type OptSalesConditionScale struct {
+	Value SalesConditionScale
+	Set   bool
+}
+
+// IsSet returns true if OptSalesConditionScale was set.
+func (o OptSalesConditionScale) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSalesConditionScale) Reset() {
+	var v SalesConditionScale
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSalesConditionScale) SetTo(v SalesConditionScale) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSalesConditionScale) Get() (v SalesConditionScale, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSalesConditionScale) Or(d SalesConditionScale) SalesConditionScale {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptSalesOrderCaptured returns new OptSalesOrderCaptured with value set to v.
 func NewOptSalesOrderCaptured(v SalesOrderCaptured) OptSalesOrderCaptured {
 	return OptSalesOrderCaptured{
@@ -99108,6 +99154,9 @@ type SalesCondition struct {
 	// for a discount, the percentage of the value before it, rounded half away from zero to the currency's
 	// minor unit, negative.
 	Amount Money `json:"amount"`
+	// The scale of the record the condition was found by (T80e), with the level the item reached; absent:
+	// the record has no scale.
+	Scale OptSalesConditionScale `json:"scale"`
 }
 
 // GetConditionType returns the value of ConditionType.
@@ -99145,6 +99194,11 @@ func (s *SalesCondition) GetAmount() Money {
 	return s.Amount
 }
 
+// GetScale returns the value of Scale.
+func (s *SalesCondition) GetScale() OptSalesConditionScale {
+	return s.Scale
+}
+
 // SetConditionType sets the value of ConditionType.
 func (s *SalesCondition) SetConditionType(val string) {
 	s.ConditionType = val
@@ -99178,6 +99232,70 @@ func (s *SalesCondition) SetPercent(val OptString) {
 // SetAmount sets the value of Amount.
 func (s *SalesCondition) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetScale sets the value of Scale.
+func (s *SalesCondition) SetScale(val OptSalesConditionScale) {
+	s.Scale = val
+}
+
+// The scale level a sales item reached on the record its condition was found by (ADR-0067 §12): the
+// highest level whose `from` the item's quantity or value reaches; level 0, below the first, is the
+// record's own rate.
+// Ref: #/components/schemas/SalesConditionScale
+type SalesConditionScale struct {
+	// What the scale is read by: `quantity`, the item's quantity in its unit; `value`, the item's value
+	// before the condition, in the document's currency. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Basis string `json:"basis"`
+	// The level reached, from 1 in the order of the record's `scale`; 0: below the first level, the
+	// record's own rate applied.
+	Level int32 `json:"level"`
+	// A quantity scale: where the level reached starts; absent at level 0 and for a value scale.
+	FromQuantity OptQuantity `json:"from_quantity"`
+	// A value scale: where the level reached starts, in the document's currency; absent at level 0 and for
+	// a quantity scale.
+	FromAmount OptMoney `json:"from_amount"`
+}
+
+// GetBasis returns the value of Basis.
+func (s *SalesConditionScale) GetBasis() string {
+	return s.Basis
+}
+
+// GetLevel returns the value of Level.
+func (s *SalesConditionScale) GetLevel() int32 {
+	return s.Level
+}
+
+// GetFromQuantity returns the value of FromQuantity.
+func (s *SalesConditionScale) GetFromQuantity() OptQuantity {
+	return s.FromQuantity
+}
+
+// GetFromAmount returns the value of FromAmount.
+func (s *SalesConditionScale) GetFromAmount() OptMoney {
+	return s.FromAmount
+}
+
+// SetBasis sets the value of Basis.
+func (s *SalesConditionScale) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetLevel sets the value of Level.
+func (s *SalesConditionScale) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetFromQuantity sets the value of FromQuantity.
+func (s *SalesConditionScale) SetFromQuantity(val OptQuantity) {
+	s.FromQuantity = val
+}
+
+// SetFromAmount sets the value of FromAmount.
+func (s *SalesConditionScale) SetFromAmount(val OptMoney) {
+	s.FromAmount = val
 }
 
 // A delivery confirmation (sales, ADR-0067 §8): quantities of a sales order's items a person
@@ -101328,6 +101446,13 @@ type SalesPrice struct {
 	ValidFrom time.Time `json:"valid_from"`
 	// The last day the price is valid; absent: no last day.
 	ValidTo OptDate `json:"valid_to"`
+	// What the record's scale is read by (ADR-0067 §12): `quantity` or `value`; absent: the record has no
+	// scale. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	ScaleBasis OptString `json:"scale_basis"`
+	// The scale levels by `from`, the lowest first; empty for a record without a scale, whose own rate
+	// applies to every item.
+	Scale []SalesPriceScaleLevel `json:"scale"`
 }
 
 // GetID returns the value of ID.
@@ -101435,6 +101560,16 @@ func (s *SalesPrice) GetValidTo() OptDate {
 	return s.ValidTo
 }
 
+// GetScaleBasis returns the value of ScaleBasis.
+func (s *SalesPrice) GetScaleBasis() OptString {
+	return s.ScaleBasis
+}
+
+// GetScale returns the value of Scale.
+func (s *SalesPrice) GetScale() []SalesPriceScaleLevel {
+	return s.Scale
+}
+
 // SetID sets the value of ID.
 func (s *SalesPrice) SetID(val uuid.UUID) {
 	s.ID = val
@@ -101540,6 +101675,16 @@ func (s *SalesPrice) SetValidTo(val OptDate) {
 	s.ValidTo = val
 }
 
+// SetScaleBasis sets the value of ScaleBasis.
+func (s *SalesPrice) SetScaleBasis(val OptString) {
+	s.ScaleBasis = val
+}
+
+// SetScale sets the value of Scale.
+func (s *SalesPrice) SetScale(val []SalesPriceScaleLevel) {
+	s.Scale = val
+}
+
 // Record a price for an item key (ADR-0067 §10), or a discount on it (§11): for every customer of
 // the company, or for one. A price gives `unit` and `unit_price`; a discount gives `condition_type`, a
 // configured type of kind `discount_percent`, and `percent`.
@@ -101572,6 +101717,16 @@ type SalesPriceCreate struct {
 	// The last day the price is valid, not before `valid_from`; absent: valid until a later record
 	// replaces it.
 	ValidTo OptDate `json:"valid_to"`
+	// With `scale`, what the scale is read by (ADR-0067 §12, T80e): `quantity`, the item's quantity, the
+	// levels' `from_quantity` in one unit (a price's own `unit`); `value`, the item's value before the
+	// condition, the levels' `from_amount` in one currency, a discount's only. Absent: the record has no
+	// scale. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
+	ScaleBasis OptString `json:"scale_basis"`
+	// With `scale_basis`, the scale levels, their `from` more than zero and each above the one before: an
+	// item takes the rate of the highest level whose `from` its quantity or value reaches, and the
+	// record's own rate below the first.
+	Scale []SalesPriceScaleLevelCreate `json:"scale"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -101624,6 +101779,16 @@ func (s *SalesPriceCreate) GetValidTo() OptDate {
 	return s.ValidTo
 }
 
+// GetScaleBasis returns the value of ScaleBasis.
+func (s *SalesPriceCreate) GetScaleBasis() OptString {
+	return s.ScaleBasis
+}
+
+// GetScale returns the value of Scale.
+func (s *SalesPriceCreate) GetScale() []SalesPriceScaleLevelCreate {
+	return s.Scale
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SalesPriceCreate) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -101672,6 +101837,16 @@ func (s *SalesPriceCreate) SetValidFrom(val time.Time) {
 // SetValidTo sets the value of ValidTo.
 func (s *SalesPriceCreate) SetValidTo(val OptDate) {
 	s.ValidTo = val
+}
+
+// SetScaleBasis sets the value of ScaleBasis.
+func (s *SalesPriceCreate) SetScaleBasis(val OptString) {
+	s.ScaleBasis = val
+}
+
+// SetScale sets the value of Scale.
+func (s *SalesPriceCreate) SetScale(val []SalesPriceScaleLevelCreate) {
+	s.Scale = val
 }
 
 // SalesPriceHeaders wraps SalesPrice with response headers.
@@ -101754,6 +101929,127 @@ func (s *SalesPricePage) SetNextPageToken(val OptString) {
 }
 
 func (*SalesPricePage) listSalesPricesRes() {}
+
+// A scale level of a price record (ADR-0067 §12): its number, where it starts and its rate.
+// Ref: #/components/schemas/SalesPriceScaleLevel
+type SalesPriceScaleLevel struct {
+	// The level's number, from 1, in the order of `from`.
+	Level int32 `json:"level"`
+	// A quantity scale: the quantity the level starts at.
+	FromQuantity OptQuantity `json:"from_quantity"`
+	// A value scale: the item value the level starts at.
+	FromAmount OptMoney `json:"from_amount"`
+	// A price: the net price per the record's `price_unit` at this level.
+	UnitPrice OptMoney `json:"unit_price"`
+	// A discount: the percentage at this level, a decimal string.
+	Percent OptString `json:"percent"`
+}
+
+// GetLevel returns the value of Level.
+func (s *SalesPriceScaleLevel) GetLevel() int32 {
+	return s.Level
+}
+
+// GetFromQuantity returns the value of FromQuantity.
+func (s *SalesPriceScaleLevel) GetFromQuantity() OptQuantity {
+	return s.FromQuantity
+}
+
+// GetFromAmount returns the value of FromAmount.
+func (s *SalesPriceScaleLevel) GetFromAmount() OptMoney {
+	return s.FromAmount
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SalesPriceScaleLevel) GetUnitPrice() OptMoney {
+	return s.UnitPrice
+}
+
+// GetPercent returns the value of Percent.
+func (s *SalesPriceScaleLevel) GetPercent() OptString {
+	return s.Percent
+}
+
+// SetLevel sets the value of Level.
+func (s *SalesPriceScaleLevel) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetFromQuantity sets the value of FromQuantity.
+func (s *SalesPriceScaleLevel) SetFromQuantity(val OptQuantity) {
+	s.FromQuantity = val
+}
+
+// SetFromAmount sets the value of FromAmount.
+func (s *SalesPriceScaleLevel) SetFromAmount(val OptMoney) {
+	s.FromAmount = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SalesPriceScaleLevel) SetUnitPrice(val OptMoney) {
+	s.UnitPrice = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *SalesPriceScaleLevel) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// A scale level of a price record (ADR-0067 §12): where it starts, by the record's `scale_basis`, and
+// its rate, by the record's kind.
+// Ref: #/components/schemas/SalesPriceScaleLevelCreate
+type SalesPriceScaleLevelCreate struct {
+	// A quantity scale: the quantity the level starts at, more than zero, in the scale's unit (a price's
+	// own `unit`).
+	FromQuantity OptQuantity `json:"from_quantity"`
+	// A value scale: the item value the level starts at, more than zero, in the scale's currency.
+	FromAmount OptMoney `json:"from_amount"`
+	// A price's rate at this level: the net price per the record's `price_unit`, more than zero, in the
+	// record's currency.
+	UnitPrice OptMoney `json:"unit_price"`
+	// A discount's rate at this level: a percentage more than 0 and less than 100 of at most six decimals.
+	Percent OptString `json:"percent"`
+}
+
+// GetFromQuantity returns the value of FromQuantity.
+func (s *SalesPriceScaleLevelCreate) GetFromQuantity() OptQuantity {
+	return s.FromQuantity
+}
+
+// GetFromAmount returns the value of FromAmount.
+func (s *SalesPriceScaleLevelCreate) GetFromAmount() OptMoney {
+	return s.FromAmount
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SalesPriceScaleLevelCreate) GetUnitPrice() OptMoney {
+	return s.UnitPrice
+}
+
+// GetPercent returns the value of Percent.
+func (s *SalesPriceScaleLevelCreate) GetPercent() OptString {
+	return s.Percent
+}
+
+// SetFromQuantity sets the value of FromQuantity.
+func (s *SalesPriceScaleLevelCreate) SetFromQuantity(val OptQuantity) {
+	s.FromQuantity = val
+}
+
+// SetFromAmount sets the value of FromAmount.
+func (s *SalesPriceScaleLevelCreate) SetFromAmount(val OptMoney) {
+	s.FromAmount = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SalesPriceScaleLevelCreate) SetUnitPrice(val OptMoney) {
+	s.UnitPrice = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *SalesPriceScaleLevelCreate) SetPercent(val OptString) {
+	s.Percent = val
+}
 
 // Merged schema.
 // Ref: #/components/schemas/ScheduleLine

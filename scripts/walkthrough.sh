@@ -13069,6 +13069,60 @@ step_sales_order_items() {
   passed
 }
 
+# step_price_scales is T80e (ADR-0067 §12): Paula records BOLT-M10's
+# general price with quantity scale levels and Northwind's discount on it
+# with value scale levels; a scale whose levels do not rise, and a price
+# scaled by value, are refused naming the field. Sally's quotation items
+# take the rate of the level their quantity, or their value before the
+# discount, reaches, and the record's own below the first level; each
+# condition shows the level.
+step_price_scales() {
+  heading "Step 122 — Scales on price records: a price by quantity and a customer's discount by value, each item taking the rate of the level its quantity or value reaches and showing it; levels that do not rise and a price scaled by value refused"
+  local customer=$CUSTOMER sales from until bolts price discount conditions
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as paula
+  sales=$(account 4000)
+  from="$YEAR-01-01"
+  until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Maple sells M10 bolts at 0.80 CAD each, 0.70 from 1000 and 0.60 from 5000. Paula records the price with its"
+  say "quantity scale (SAP's scale on a condition record, by quantity, from memory):"
+  price="{\"legal_entity_id\": \"$LE\", \"item_key\": \"BOLT-M10\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"0.80\", \"currency\": \"CAD\"}, \"valid_from\": \"$from\", \"scale_basis\": \"quantity\", \"scale\": [{\"from_quantity\": {\"value\": \"1000\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"0.70\", \"currency\": \"CAD\"}}, {\"from_quantity\": {\"value\": \"5000\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"0.60\", \"currency\": \"CAD\"}}]}"
+  api 201 '"price of \(.item_key) for every customer: \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), scale by \(.scale_basis)", (.scale[] | "  level \(.level) from \(.from_quantity.value) \(.from_quantity.unit): \(.unit_price.amount) \(.unit_price.currency)")' \
+    createSalesPrice -body "$price"
+  expect "the price's scale" "$(field '"\(.scale_basis): " + ([.scale[] | "\(.level) from \(.from_quantity.value) at \(.unit_price.amount)"] | join(", "))')" \
+    "quantity: 1 from 1000 at 0.70, 2 from 5000 at 0.60"
+  say "Northwind's discount on the bolts grows with the order: one percent, two from an item value of 1000.00 CAD and"
+  say "three from 5000.00, read by the item's value before the discount:"
+  discount="{\"legal_entity_id\": \"$LE\", \"item_key\": \"BOLT-M10\", \"customer_id\": \"$customer\", \"condition_type\": \"K007\", \"percent\": \"1\", \"valid_from\": \"$from\", \"scale_basis\": \"value\", \"scale\": [{\"from_amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}, \"percent\": \"2\"}, {\"from_amount\": {\"amount\": \"5000.00\", \"currency\": \"CAD\"}, \"percent\": \"3\"}]}"
+  api 201 '"\(.kind) \(.condition_type) on \(.item_key) for \(.customer_number) \(.customer_name): \(.percent) percent, scale by \(.scale_basis)", (.scale[] | "  level \(.level) from \(.from_amount.amount) \(.from_amount.currency): \(.percent) percent")' \
+    createSalesPrice -body "$discount"
+  expect "the discount's scale" "$(field '"\(.scale_basis): " + ([.scale[] | "\(.level) from \(.from_amount.amount) at \(.percent)"] | join(", "))')" \
+    "value: 1 from 1000.00 at 2, 2 from 5000.00 at 3"
+  say "Each level starts above the one before, and a price's scale is read by quantity: a value scale is a discount's."
+  say "Both are refused naming the field:"
+  refused 422 sales.invalid_scale createSalesPrice -body "${price/\"value\": \"5000\"/\"value\": \"500\"}"
+  expect "the field refused" "$(field '.errors[0].field')" "scale[1].from_quantity.value"
+  refused 422 sales.invalid_scale createSalesPrice -body "${price/\"scale_basis\": \"quantity\"/\"scale_basis\": \"value\"}"
+  expect "the field refused" "$(field '.errors[0].field')" "scale_basis"
+  as sally
+  conditions='"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount), net \(.net_amount.amount)", (.conditions[] | "    \(.condition_type) \(.name): \(if .kind == "price" then .unit_price.amount else "\(.percent) percent" end), scale level \(.scale.level)\(if .scale.from_quantity then " from \(.scale.from_quantity.value) \(.scale.from_quantity.unit)" elif .scale.from_amount then " from \(.scale.from_amount.amount) \(.scale.from_amount.currency)" else "" end) = \(.amount.amount)"))'
+  bolts="{\"item_key\": \"BOLT-M10\", \"description\": \"Bolt M10\", \"quantity\": {\"value\": \"6000\", \"unit\": \"EA\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  say "Sally quotes Northwind 6000 bolts. They reach the price's second level, 0.60: 3600.00; that value reaches the"
+  say "discount's first level, two percent: 72.00 off, 3528.00 net:"
+  api 201 "$conditions" createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$bolts]}"
+  expect "the conditions and their levels" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.scale.level) \(.amount.amount)"] | join(", ")')" \
+    "PR00 2 3600.00, K007 1 -72.00"
+  expect "the item's net value" "$(field '"\(.items[0].net_amount.amount) \(.net_amount.currency)"')" "3528.00 CAD"
+  say "500 bolts reach no level: the record's own rates apply, 0.80 and one percent, 400.00 less 4.00:"
+  api 201 "$conditions" createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [${bolts/\"6000\"/\"500\"}]}"
+  expect "the conditions below the first levels" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.scale.level) \(.amount.amount)"] | join(", ")')" \
+    "PR00 0 400.00, K007 0 -4.00"
+  expect "the item's net value" "$(field '"\(.items[0].unit_price.amount) \(.items[0].net_amount.amount)"')" "0.80 396.00"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -15099,7 +15153,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_price_scales step_close'
 
 main() {
   stop_unseen

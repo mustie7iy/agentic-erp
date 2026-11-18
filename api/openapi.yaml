@@ -21050,7 +21050,7 @@ paths:
       tags:
         - sales
       summary: Create a quotation
-      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
+      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
       x-permission: sales.quotation.write
       x-agent: false
       x-problem-codes:
@@ -21765,7 +21765,7 @@ paths:
       tags:
         - sales
       summary: Record a sales price
-      description: "Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with `customer_id` for one, per `price_unit` of a unit of measure, in the currency of `unit_price`, valid from a day and, with `valid_to`, until a day. A quotation or sales order item that names the item key without a `unit_price` takes the price valid on the document's date in the item's unit and the document's currency: the customer's before the general one and, among several, the one with the latest `valid_from` (of two with the same `valid_from`, the one recorded last). The company is one the caller may act in. The item key is not white space alone (422 `request.validation_failed`). A customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise). The unit is one of the reference data (422 `sales.unknown_unit` naming `unit`), the currency a known one (422 `sales.unknown_currency` naming `unit_price.currency`) and the price more than zero (422 `sales.amount_not_positive` naming `unit_price.amount`). `valid_to` is not before `valid_from` (422 `sales.invalid_validity`). With `condition_type` the record is of that type of the active configuration (422 `sales.unknown_condition_type` for one it does not have): one of kind `price` is a price as above, one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422 `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422 `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the item key that is priced from the price records when the pricing procedure names its type, the customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price` was entered has none. A record is never changed or deleted: a new price is recorded with a later `valid_from`, and the items priced before keep their price. Audited, and published as SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only (`x-agent: false`)."
+      description: "Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with `customer_id` for one, per `price_unit` of a unit of measure, in the currency of `unit_price`, valid from a day and, with `valid_to`, until a day. A quotation or sales order item that names the item key without a `unit_price` takes the price valid on the document's date in the item's unit and the document's currency: the customer's before the general one and, among several, the one with the latest `valid_from` (of two with the same `valid_from`, the one recorded last). The company is one the caller may act in. The item key is not white space alone (422 `request.validation_failed`). A customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise). The unit is one of the reference data (422 `sales.unknown_unit` naming `unit`), the currency a known one (422 `sales.unknown_currency` naming `unit_price.currency`) and the price more than zero (422 `sales.amount_not_positive` naming `unit_price.amount`). `valid_to` is not before `valid_from` (422 `sales.invalid_validity`). With `condition_type` the record is of that type of the active configuration (422 `sales.unknown_condition_type` for one it does not have): one of kind `price` is a price as above, one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422 `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422 `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the item key that is priced from the price records when the pricing procedure names its type, the customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price` was entered has none. With `scale_basis` and `scale` the record has scale levels (ADR-0067 §12, T80e): an item takes the rate of the highest level whose `from` its quantity (`quantity`) or its value before the condition (`value`) reaches, and the record's own rate below the first level. A price's scale is by quantity in its own unit; a discount's by quantity in the one unit its levels state, which an item in another unit does not take, or by value in the one currency they state, which a document in another currency does not take. Each level gives its `from` of the basis, more than zero and above the one before, and the rate of the record's kind, a price's `unit_price` in the record's currency or a discount's `percent`; anything else is refused naming the level's field (422 `sales.invalid_scale`; a level's price not more than zero `sales.amount_not_positive`, in another currency `sales.currency_mismatch`, a percent out of range `sales.invalid_percent`, a discount's unknown scale unit or currency `sales.unknown_unit`, `sales.unknown_currency`). A record is never changed or deleted: a new price is recorded with a later `valid_from`, and the items priced before keep their price. Audited, and published as SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only (`x-agent: false`)."
       x-permission: sales.price.write
       x-agent: false
       x-problem-codes:
@@ -21773,8 +21773,10 @@ paths:
         - request.invalid_amount
         - request.validation_failed
         - sales.amount_not_positive
+        - sales.currency_mismatch
         - sales.customer_not_usable
         - sales.invalid_percent
+        - sales.invalid_scale
         - sales.invalid_validity
         - sales.price_or_percent
         - sales.unknown_condition_type
@@ -21822,6 +21824,31 @@ paths:
                   condition_type: K007
                   percent: "5"
                   valid_from: "2026-11-01"
+              quantity_scale:
+                summary: A price with quantity scale levels
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  item_key: BOLT-M10
+                  unit: EA
+                  unit_price: {amount: "0.80", currency: CAD}
+                  valid_from: "2026-11-01"
+                  scale_basis: quantity
+                  scale:
+                    - {from_quantity: {value: "1000", unit: EA}, unit_price: {amount: "0.70", currency: CAD}}
+                    - {from_quantity: {value: "5000", unit: EA}, unit_price: {amount: "0.60", currency: CAD}}
+              value_scale:
+                summary: A customer's discount with value scale levels
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  item_key: BOLT-M10
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  condition_type: K007
+                  percent: "1"
+                  valid_from: "2026-11-01"
+                  scale_basis: value
+                  scale:
+                    - {from_amount: {amount: "1000.00", currency: CAD}, percent: "2"}
+                    - {from_amount: {amount: "5000.00", currency: CAD}, percent: "3"}
       responses:
         "201":
           description: "Created; the new price record."
@@ -57809,6 +57836,20 @@ components:
         price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity a price's unit price refers to; absent for a discount.", readOnly: true}
         percent: {type: string, description: "A discount's rate: the percentage of the value before it, a decimal string; absent for a price.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "What the condition adds to the item's net value: for a price, quantity × unit price ÷ price unit; for a discount, the percentage of the value before it, rounded half away from zero to the currency's minor unit, negative."}
+        scale: {$ref: "#/components/schemas/SalesConditionScale", description: "The scale of the record the condition was found by (T80e), with the level the item reached; absent: the record has no scale."}
+    SalesConditionScale:
+      type: object
+      description: "The scale level a sales item reached on the record its condition was found by (ADR-0067 §12): the highest level whose `from` the item's quantity or value reaches; level 0, below the first, is the record's own rate."
+      required: [basis, level]
+      properties:
+        basis:
+          type: string
+          x-extensible-enum: [quantity, value]
+          description: "What the scale is read by: `quantity`, the item's quantity in its unit; `value`, the item's value before the condition, in the document's currency. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        level: {type: integer, format: int32, minimum: 0, description: "The level reached, from 1 in the order of the record's `scale`; 0: below the first level, the record's own rate applied.", readOnly: true}
+        from_quantity: {$ref: "#/components/schemas/Quantity", description: "A quantity scale: where the level reached starts; absent at level 0 and for a value scale."}
+        from_amount: {$ref: "#/components/schemas/Money", description: "A value scale: where the level reached starts, in the document's currency; absent at level 0 and for a quantity scale."}
     QuotationCreate:
       type: object
       description: "Create a quotation. It is created `open`, dated the company's date today; its items' values and its net value are calculated."
@@ -58227,12 +58268,42 @@ components:
         percent: {type: string, minLength: 1, maxLength: 10, description: "A discount: the percentage of the item's value before it, a decimal more than 0 and less than 100 of at most six decimals. Required for a discount, not given for a price.", example: "5"}
         valid_from: {type: string, format: date, description: "The first day the price is valid, a document's date."}
         valid_to: {type: string, format: date, description: "The last day the price is valid, not before `valid_from`; absent: valid until a later record replaces it."}
+        scale_basis:
+          type: string
+          pattern: "^[a-z_]{1,20}$"
+          x-extensible-enum: [quantity, value]
+          description: "With `scale`, what the scale is read by (ADR-0067 §12, T80e): `quantity`, the item's quantity, the levels' `from_quantity` in one unit (a price's own `unit`); `value`, the item's value before the condition, the levels' `from_amount` in one currency, a discount's only. Absent: the record has no scale. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        scale:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: {$ref: "#/components/schemas/SalesPriceScaleLevelCreate"}
+          description: "With `scale_basis`, the scale levels, their `from` more than zero and each above the one before: an item takes the rate of the highest level whose `from` its quantity or value reaches, and the record's own rate below the first."
+    SalesPriceScaleLevelCreate:
+      type: object
+      description: "A scale level of a price record (ADR-0067 §12): where it starts, by the record's `scale_basis`, and its rate, by the record's kind."
+      additionalProperties: false
+      properties:
+        from_quantity: {$ref: "#/components/schemas/Quantity", description: "A quantity scale: the quantity the level starts at, more than zero, in the scale's unit (a price's own `unit`)."}
+        from_amount: {$ref: "#/components/schemas/Money", description: "A value scale: the item value the level starts at, more than zero, in the scale's currency."}
+        unit_price: {$ref: "#/components/schemas/Money", description: "A price's rate at this level: the net price per the record's `price_unit`, more than zero, in the record's currency."}
+        percent: {type: string, minLength: 1, maxLength: 10, description: "A discount's rate at this level: a percentage more than 0 and less than 100 of at most six decimals.", example: "2"}
+    SalesPriceScaleLevel:
+      type: object
+      description: "A scale level of a price record (ADR-0067 §12): its number, where it starts and its rate."
+      required: [level]
+      properties:
+        level: {type: integer, format: int32, minimum: 1, description: "The level's number, from 1, in the order of `from`.", readOnly: true}
+        from_quantity: {$ref: "#/components/schemas/Quantity", description: "A quantity scale: the quantity the level starts at."}
+        from_amount: {$ref: "#/components/schemas/Money", description: "A value scale: the item value the level starts at."}
+        unit_price: {$ref: "#/components/schemas/Money", description: "A price: the net price per the record's `price_unit` at this level."}
+        percent: {type: string, description: "A discount: the percentage at this level, a decimal string.", readOnly: true}
     SalesPrice:
       description: "A price record (sales, ADR-0067 §10, §11): the net price of an item key in a company, or a percentage discount on it, for every customer or for one, valid from a day. `kind` says which: a `price` has `unit`, `unit_price` and `price_unit`, a `discount_percent` has `percent`. It is written once and never changed, so its `version` is 1."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, company_name, item_key, kind, valid_from]
+          required: [legal_entity_id, company_code, company_name, item_key, kind, valid_from, scale]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose price it is.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -58253,6 +58324,15 @@ components:
             percent: {type: string, description: "A discount: the percentage of the item's value before it, a decimal string; absent for a price.", readOnly: true}
             valid_from: {type: string, format: date, description: "The first day the price is valid.", readOnly: true}
             valid_to: {type: string, format: date, description: "The last day the price is valid; absent: no last day.", readOnly: true}
+            scale_basis:
+              type: string
+              x-extensible-enum: [quantity, value]
+              description: "What the record's scale is read by (ADR-0067 §12): `quantity` or `value`; absent: the record has no scale. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            scale:
+              type: array
+              items: {$ref: "#/components/schemas/SalesPriceScaleLevel"}
+              description: "The scale levels by `from`, the lowest first; empty for a record without a scale, whose own rate applies to every item."
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
           version: 1

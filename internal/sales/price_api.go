@@ -45,6 +45,7 @@ func priceAPI(p Price, refs references) gen.SalesPrice {
 	if p.UnitPrice != nil { // a price: its currency came with it
 		out.UnitPrice = gen.NewOptMoney(apitypes.Money(*p.UnitPrice, *p.Currency, *p.Exponent))
 	}
+	out.ScaleBasis, out.Scale = apitypes.OptString(p.ScaleBasis), scaleAPI(p)
 	if p.CustomerID != nil {
 		customer := refs.partners[*p.CustomerID]
 		out.CustomerNumber, out.CustomerName = gen.NewOptString(customer.Number), gen.NewOptString(customer.Name)
@@ -69,6 +70,7 @@ func (e *Endpoints) CreateSalesPrice(ctx context.Context, req *gen.SalesPriceCre
 	if price, ok := req.UnitPrice.Get(); ok {
 		in.UnitPrice = &Amount{Value: price.Amount, Currency: price.Currency}
 	}
+	in.ScaleBasis, in.Scale = apitypes.Ptr[string](req.ScaleBasis), scaleInputs(req.Scale)
 	p, err := e.RecordPrice(ctx, in)
 	if err != nil {
 		return nil, err
@@ -129,6 +131,9 @@ func (e *Endpoints) ListSalesPrices(ctx context.Context, params gen.ListSalesPri
 	if err != nil {
 		return nil, fmt.Errorf("sales: list prices: %w", err)
 	}
+	if err := withScales(ctx, tx, prices); err != nil {
+		return nil, err
+	}
 	items, next, err := apitypes.PageWith(ks, prices, func(p Price) (string, uuid.UUID) {
 		if ks.Field() == "valid_from" {
 			return p.ValidFrom.Format(time.DateOnly), p.ID
@@ -139,4 +144,42 @@ func (e *Endpoints) ListSalesPrices(ctx context.Context, params gen.ListSalesPri
 		return nil, err
 	}
 	return &gen.SalesPricePage{Items: items, NextPageToken: next}, nil
+}
+
+// scaleAPI is a record's scale levels as the API gives them: a quantity
+// scale's starts in its unit, a value scale's in its currency, a price's
+// rates in the record's currency; empty for a record without a scale.
+func scaleAPI(p Price) []gen.SalesPriceScaleLevel {
+	out := make([]gen.SalesPriceScaleLevel, len(p.Scale))
+	for i, l := range p.Scale {
+		out[i] = gen.SalesPriceScaleLevel{Level: l.Level, Percent: apitypes.OptString(l.Percent)}
+		if l.FromQuantity != nil {
+			out[i].FromQuantity = gen.NewOptQuantity(gen.Quantity{Value: *l.FromQuantity, Unit: *p.ScaleUnit})
+		}
+		if l.FromAmount != nil {
+			out[i].FromAmount = gen.NewOptMoney(apitypes.Money(*l.FromAmount, *p.ScaleCurrency, *p.ScaleExponent))
+		}
+		if l.UnitPrice != nil {
+			out[i].UnitPrice = gen.NewOptMoney(apitypes.Money(*l.UnitPrice, *p.Currency, *p.Exponent))
+		}
+	}
+	return out
+}
+
+// scaleInputs are a request's scale levels as RecordPrice checks them.
+func scaleInputs(levels []gen.SalesPriceScaleLevelCreate) []ScaleLevelInput {
+	out := make([]ScaleLevelInput, len(levels))
+	for i, l := range levels {
+		out[i].Percent = apitypes.Ptr[string](l.Percent)
+		if q, ok := l.FromQuantity.Get(); ok {
+			out[i].FromQuantity = &Measure{Value: q.Value, Unit: q.Unit}
+		}
+		if a, ok := l.FromAmount.Get(); ok {
+			out[i].FromAmount = &Amount{Value: a.Amount, Currency: a.Currency}
+		}
+		if a, ok := l.UnitPrice.Get(); ok {
+			out[i].UnitPrice = &Amount{Value: a.Amount, Currency: a.Currency}
+		}
+	}
+	return out
 }

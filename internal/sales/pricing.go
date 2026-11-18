@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -35,16 +36,21 @@ type Condition struct {
 	PriceUnit *int32       `json:"price_unit,omitempty"`
 	Percent   *string      `json:"percent,omitempty"`
 	Amount    money.Minor  `json:"amount"`
+	// Scale is the level the item reached on a scaled record (ADR-0067
+	// §12); nil for a record without a scale and an entered price.
+	Scale *ConditionScale `json:"scale,omitempty"`
 }
 
 // priced is what pricing gives an item: its unit price per price unit and
 // its net value, in minor units of the document's currency, where the
-// price came from and the conditions applied, none without a procedure.
+// price came from, the scale level its price record's scale gave it, if
+// it has one, and the conditions applied, none without a procedure.
 type priced struct {
 	UnitPrice  money.Minor
 	PriceUnit  int32
 	Net        money.Minor
 	Source     string
+	scale      *ConditionScale
 	Conditions []Condition
 }
 
@@ -132,9 +138,10 @@ func validRecord(columns, which string) string {
 // the item's unit of measure and the document's currency. A price is a
 // record without a condition type or, for a tenant with a pricing
 // procedure, of the procedure's price type; a record of another type
-// waits for a procedure that names it. An item without a key, or without
-// such a record, is refused naming the price it lacks (422
-// sales.no_price).
+// waits for a procedure that names it. A scaled record gives the price of
+// the level the item's quantity reaches (§12, reached), its own below the
+// first. An item without a key, or without such a record, is refused
+// naming the price it lacks (422 sales.no_price).
 func determined(ctx context.Context, tx pgx.Tx, doc document, field string, it ItemInput) (priced, error) {
 	if it.ItemKey == nil {
 		return priced{}, problem.Invalid("sales.no_price", field, "An item has a unit price, or an item key that a price is recorded for.")
@@ -144,9 +151,11 @@ func determined(ctx context.Context, tx pgx.Tx, doc document, field string, it I
 		priceType = doc.procedure[0].Code
 	}
 	p := priced{Source: PriceList}
-	err := tx.QueryRow(ctx, validRecord(`unit_price, price_unit`,
+	var id uuid.UUID
+	var basis *string
+	err := tx.QueryRow(ctx, validRecord(`id, unit_price, price_unit, scale_basis`,
 		`percent IS NULL AND uom_code = $5 AND currency = $6 AND (condition_type IS NULL OR condition_type = $7)`),
-		doc.le.ID, *it.ItemKey, doc.customer, doc.date, it.Unit, doc.currency, priceType).Scan(&p.UnitPrice, &p.PriceUnit)
+		doc.le.ID, *it.ItemKey, doc.customer, doc.date, it.Unit, doc.currency, priceType).Scan(&id, &p.UnitPrice, &p.PriceUnit, &basis)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return priced{}, problem.Invalid("sales.no_price", field, "No price is recorded for item key "+*it.ItemKey+" in "+it.Unit+" and "+doc.currency+
 			" that is valid on "+doc.date.Format(time.DateOnly)+", for the customer or for every customer; give the item a unit price or record one.")
@@ -154,6 +163,17 @@ func determined(ctx context.Context, tx pgx.Tx, doc document, field string, it I
 	if err != nil {
 		return priced{}, fmt.Errorf("sales: find the price of item key %s: %w", *it.ItemKey, err)
 	}
+	if basis == nil {
+		return p, nil
+	}
+	level, err := reached(ctx, tx, id, *basis, it.Quantity, 0) // a price's scale is by quantity
+	if err != nil {
+		return priced{}, err
+	}
+	if level.UnitPrice != nil {
+		p.UnitPrice = *level.UnitPrice
+	}
+	p.scale = conditionScale(*basis, level, it.Unit)
 	return p, nil
 }
 
@@ -163,37 +183,67 @@ func determined(ctx context.Context, tx pgx.Tx, doc document, field string, it I
 // discount type: the record of that type that applies to the item's key
 // (validRecord), if there is one, takes its percentage off the value
 // before it, rounded half away from zero to the currency's minor unit
-// (money.Scale). The conditions are listed in the procedure's order and
+// (money.Scale; discount). The conditions are listed in the procedure's order and
 // their amounts add up to the net value. A price entered with the item
 // is its final net price (PO 2026-11-12, T80c): no discount is taken off
 // it, and its price is its only condition. An item without a key has no
 // discount either: discounts are recorded by item key.
 func conditioned(ctx context.Context, tx pgx.Tx, doc document, it ItemInput, p priced) (priced, error) {
 	first, unit, per := doc.procedure[0], p.UnitPrice, p.PriceUnit
-	p.Conditions = []Condition{{Type: first.Code, Name: first.Name, Kind: first.Kind, UnitPrice: &unit, PriceUnit: &per, Amount: p.Net}}
+	p.Conditions = []Condition{{Type: first.Code, Name: first.Name, Kind: first.Kind, UnitPrice: &unit, PriceUnit: &per, Amount: p.Net, Scale: p.scale}}
 	if it.ItemKey == nil || p.Source == Manual {
 		return p, nil
 	}
 	for _, step := range doc.procedure[1:] {
-		var percent string
-		var off money.Minor
-		err := tx.QueryRow(ctx, validRecord(`trim_scale(percent)::text`, `percent IS NOT NULL AND condition_type = $5`),
-			doc.le.ID, *it.ItemKey, doc.customer, doc.date, step.Code).Scan(&percent)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err == nil {
-			// The percentage is the record's, a decimal below 100, so the
-			// discount is within the value's range.
-			off, err = money.Scale(p.Net, percent, 100)
-		}
+		c, found, err := discount(ctx, tx, doc, it, step, p.Net)
 		if err != nil {
-			return priced{}, fmt.Errorf("sales: discount %s of item key %s: %w", step.Code, *it.ItemKey, err)
+			return priced{}, err
 		}
-		p.Net -= off
-		p.Conditions = append(p.Conditions, Condition{Type: step.Code, Name: step.Name, Kind: step.Kind, Percent: &percent, Amount: -off})
+		if found {
+			p.Net += c.Amount
+			p.Conditions = append(p.Conditions, c)
+		}
 	}
 	return p, nil
+}
+
+// discount is the condition of a discount type of the procedure on an
+// item whose value before it is net, if a record of the type applies
+// (validRecord). A scaled record counts only for an item in the unit or
+// the document in the currency its scale is read in, since nothing is
+// converted, and gives the percent of the level the item's quantity or
+// its value before the discount reaches (§12, reached), its own below
+// the first.
+func discount(ctx context.Context, tx pgx.Tx, doc document, it ItemInput, step config.ConditionType, net money.Minor) (Condition, bool, error) {
+	var id uuid.UUID
+	var percent string
+	var basis *string
+	err := tx.QueryRow(ctx, validRecord(`id, trim_scale(percent)::text, scale_basis`,
+		`percent IS NOT NULL AND condition_type = $5 AND (scale_basis IS NULL OR scale_uom_code = $6 OR scale_currency = $7)`),
+		doc.le.ID, *it.ItemKey, doc.customer, doc.date, step.Code, it.Unit, doc.currency).Scan(&id, &percent, &basis)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Condition{}, false, nil
+	}
+	if err != nil {
+		return Condition{}, false, fmt.Errorf("sales: discount %s of item key %s: %w", step.Code, *it.ItemKey, err)
+	}
+	c := Condition{Type: step.Code, Name: step.Name, Kind: step.Kind}
+	if basis != nil {
+		level, err := reached(ctx, tx, id, *basis, it.Quantity, net)
+		if err != nil {
+			return Condition{}, false, err
+		}
+		if level.Percent != nil {
+			percent = *level.Percent
+		}
+		c.Scale = conditionScale(*basis, level, it.Unit)
+	}
+	// The percentage is a record's, a plain decimal below 100 as the
+	// database keeps it, so the discount is within the value's range and
+	// Scale cannot fail.
+	off, _ := money.Scale(net, percent, 100)
+	c.Percent, c.Amount = &percent, -off
+	return c, true, nil
 }
 
 // procedure is the tenant's pricing procedure from the active

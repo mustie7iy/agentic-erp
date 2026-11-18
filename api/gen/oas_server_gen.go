@@ -2113,12 +2113,13 @@ type Handler interface {
 	// tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure
 	// recorded for the item's key and valid on the quotation's date, the customer's before the general
 	// one, is taken off an item priced from the price records, in the procedure's order, as a percentage
-	// of the value before it rounded half away from zero; `conditions` lists the price and the discounts
-	// applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A
-	// `unit_price` entered with the item is its final net price: no discount is taken off it, and its
-	// price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the
-	// invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-	// (`x-agent: false`).
+	// of the value before it rounded half away from zero; a price or discount record with a scale gives
+	// the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12,
+	// the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount`
+	// is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with
+	// the item is its final net price: no discount is taken off it, and its price is its only condition.
+	// Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with
+	// the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/quotations
 	CreateQuotation(ctx context.Context, req *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
@@ -2406,10 +2407,20 @@ type Handler interface {
 	// `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
 	// item key that is priced from the price records when the pricing procedure names its type, the
 	// customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price`
-	// was entered has none. A record is never changed or deleted: a new price is recorded with a later
-	// `valid_from`, and the items priced before keep their price. Audited, and published as
-	// SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
-	// (`x-agent: false`).
+	// was entered has none. With `scale_basis` and `scale` the record has scale levels (ADR-0067 §12,
+	// T80e): an item takes the rate of the highest level whose `from` its quantity (`quantity`) or its
+	// value before the condition (`value`) reaches, and the record's own rate below the first level. A
+	// price's scale is by quantity in its own unit; a discount's by quantity in the one unit its levels
+	// state, which an item in another unit does not take, or by value in the one currency they state,
+	// which a document in another currency does not take. Each level gives its `from` of the basis, more
+	// than zero and above the one before, and the rate of the record's kind, a price's `unit_price` in the
+	// record's currency or a discount's `percent`; anything else is refused naming the level's field (422
+	// `sales.invalid_scale`; a level's price not more than zero `sales.amount_not_positive`, in another
+	// currency `sales.currency_mismatch`, a percent out of range `sales.invalid_percent`, a discount's
+	// unknown scale unit or currency `sales.unknown_unit`, `sales.unknown_currency`). A record is never
+	// changed or deleted: a new price is recorded with a later `valid_from`, and the items priced before
+	// keep their price. Audited, and published as SalesPriceChanged. A retry with the same
+	// `Idempotency-Key` answers the record created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-prices
 	CreateSalesPrice(ctx context.Context, req *SalesPriceCreate, params CreateSalesPriceParams) (CreateSalesPriceRes, error)

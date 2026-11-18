@@ -311,6 +311,29 @@ price as to a recorded one; that was default 15, which the product
 owner overruled. An item without an item key has no discount either,
 since discounts are recorded by key.
 
+### 12. Scales on a price record (T80e)
+A price or a discount may have a **scale** (`docs/design/plan-depth-3.md`
+§T80e; SAP's scales on a condition record, from memory): a basis and up
+to 20 levels. The basis is `quantity`, the item's quantity, or `value`,
+the item's value before the condition, which only a discount has: a
+price's value would be read from the price it is to give. A level
+starts at a quantity in the scale's unit or a value in the scale's
+currency, above zero and above the level before, and gives the rate of
+the record's kind: a price per the record's price unit in its currency,
+or a percent. An item takes the rate of the level with the highest
+start its basis reaches ("from" scale), compared exactly (a quantity as
+a decimal, a value in minor units); below the first level the record's
+own rate applies, so a record always prices the items it finds.
+
+A price's scale is in its own unit. A discount's states its unit or its
+currency, and an item in another unit, or a document in another
+currency, does not take the record: nothing is converted (§10), and the
+determination passes on to the next record that applies. The level is
+read when the item is priced and fixed with the price: the condition
+keeps its `scale` (basis, level reached, its start), and an order from a
+quotation copies it. A tenant without a procedure has no conditions
+(§11): its items take a scaled price's level all the same.
+
 ## Alternatives
 - **Discounts in a table of their own, with their own endpoint**: the
   plan puts `condition_type` and `percent` on `sales.price` and adds no
@@ -415,6 +438,20 @@ Taken in T80b beside plan default 9:
 19. Changes to the `pricing` section are tier 2, a type's name tier 1.
 20. An item's conditions are kept as a JSON array on the item, with the
     condition type's name when the item was priced.
+
+Taken in T80e (§12):
+
+21. The record's own rate applies below its first level, rather than the
+    record not applying there: every record prices the items it finds.
+22. Only a discount has a value scale; a price's scale is by quantity, in
+    its own unit.
+23. A scaled discount in another unit or currency than the item's does
+    not count, and the next record that applies is taken, as a price in
+    another unit is passed over (default 9).
+24. A record has at most 20 levels, each above the one before; the rates
+    need not fall as the levels rise.
+25. Without a pricing procedure the level reached is not shown on the
+    item (it has no conditions); the unit price is the level's.
 
 ## Questions
 - Plan questions 2 and 3 (accounting specialist, product owner): when
@@ -1875,3 +1912,48 @@ change documents) is the reference.
   item, removed ones included, so a number is never reused (an
   obligation names it); (5) an order keeps at most 999 items, removed ones
   included, as a new order takes.
+
+### T80e Scales on a price record (migration 000373)
+- `internal/sales/scales.go`: a record's scale checked (`scale`,
+  `scaleCheck`), written (`insertScale`), read with the records
+  (`withScales`) and the level an item reaches (`reached`), §12.
+  `prices.go` records and reads a record's scale and publishes it;
+  `pricing.go`'s `determined` takes a scaled price's level and
+  `discount` (split out of `conditioned`) a scaled discount's, passing
+  over one whose scale is in another unit or currency; `Condition`
+  keeps its `scale`. No new port, no new wiring.
+- Migration 000373: `scale_basis`, `scale_uom_code`, `scale_currency` on
+  `sales.price` (`price_scale_basis_check`, `price_scale_stated`,
+  `price_scale_unit`); `sales.price_scale` (`price_scale_level_check`,
+  `price_scale_from`, `price_scale_rate` and their range checks,
+  `price_scale_by_quantity`, `price_scale_by_amount`; insert-only). Down
+  deletes the scaled records, which the previous version would price at
+  their own rate. Schema tests in `db/sales_price_scale_test.go`.
+- Contract: `SalesPriceCreate` gains `scale_basis` and `scale[]`
+  (`SalesPriceScaleLevelCreate`: `from_quantity` or `from_amount`,
+  `unit_price` or `percent`); `SalesPrice` gains `scale_basis` and
+  `scale[]` (`SalesPriceScaleLevel`, with its `level`), always present,
+  empty without a scale; `SalesCondition` gains `scale`
+  (`SalesConditionScale`: `basis`, `level`, `from_quantity` or
+  `from_amount`). `SalesPriceChanged` gains `scale_basis` and `scale`;
+  the audit record `sales.price.create` carries them too. No new
+  endpoint, permission or problem code beyond `sales.invalid_scale`.
+- Refusals, each naming the request's field: a basis without levels,
+  levels without a basis, an unknown basis, a price by value, a level
+  from the other basis's field or from nowhere, from zero or less, not
+  above the level before, in another unit than a price's or than the
+  first level's, in another currency than the first level's, a level's
+  rate of the other kind or missing, 422 `sales.invalid_scale`; a level's
+  price in another currency than the record's `sales.currency_mismatch`,
+  of zero or less `sales.amount_not_positive`, a percent out of range
+  `sales.invalid_percent`, an unknown unit or currency of a discount's
+  scale `sales.unknown_unit`, `sales.unknown_currency`; an amount that is
+  not its currency's 400 `request.invalid_amount`.
+- Walkthrough `step_price_scales` (step 122): Paula records BOLT-M10 at
+  0.80 CAD, 0.70 from 1000 and 0.60 from 5000, and Northwind's K007 of
+  one percent, two from 1000.00 CAD and three from 5000.00 by value;
+  levels that do not rise and a price scaled by value are refused
+  naming the field; Sally's 6000 bolts take 0.60 (level 2), 3600.00, and
+  two percent (level 1), 72.00 off, 3528.00; 500 take the record's own
+  rates, 400.00 less 4.00.
+- **Decided by default:** defaults 21-25 above.

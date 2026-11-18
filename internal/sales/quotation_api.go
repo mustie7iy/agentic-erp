@@ -99,6 +99,16 @@ func conditionAPI(c Condition, currency string, exp int) gen.SalesCondition {
 	if c.UnitPrice != nil {
 		out.UnitPrice = gen.NewOptMoney(apitypes.Money(*c.UnitPrice, currency, exp))
 	}
+	if c.Scale != nil {
+		scale := gen.SalesConditionScale{Basis: c.Scale.Basis, Level: c.Scale.Level}
+		if c.Scale.FromQuantity != nil {
+			scale.FromQuantity = gen.NewOptQuantity(gen.Quantity{Value: *c.Scale.FromQuantity, Unit: *c.Scale.Unit})
+		}
+		if c.Scale.FromAmount != nil {
+			scale.FromAmount = gen.NewOptMoney(apitypes.Money(*c.Scale.FromAmount, currency, exp))
+		}
+		out.Scale = gen.NewOptSalesConditionScale(scale)
+	}
 	return out
 }
 

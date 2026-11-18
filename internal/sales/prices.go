@@ -27,7 +27,11 @@ import (
 // minor-unit digits are Exponent, or a discount of a condition type, a
 // Percent of an item's value and nothing of a price's. ConditionType is
 // the record's condition type of the configuration, nil for a price
-// recorded without one. A record is written once and never changed.
+// recorded without one. A scaled record (ADR-0067 §12) has its
+// ScaleBasis, the unit (ScaleUnit) or the currency (ScaleCurrency, whose
+// minor-unit digits are ScaleExponent) its scale is read in, and its
+// Scale levels by their start. A record is written once and never
+// changed.
 type Price struct {
 	ID            uuid.UUID
 	LegalEntityID uuid.UUID
@@ -42,6 +46,11 @@ type Price struct {
 	Percent       *string
 	ValidFrom     time.Time
 	ValidTo       *time.Time
+	ScaleBasis    *string
+	ScaleUnit     *string
+	ScaleCurrency *string
+	ScaleExponent *int
+	Scale         []ScaleLevel
 	CreatedAt     time.Time
 	CreatedBy     uuid.UUID
 }
@@ -57,7 +66,8 @@ func (p Price) Kind() string {
 
 // PriceInput is a price record as a client sends it: a price gives Unit
 // and UnitPrice, with PriceUnit when it is not 1; a discount gives
-// ConditionType and Percent.
+// ConditionType and Percent. A scaled record gives its ScaleBasis and its
+// Scale levels.
 type PriceInput struct {
 	LegalEntityID uuid.UUID
 	ItemKey       string
@@ -69,21 +79,24 @@ type PriceInput struct {
 	Percent       *string
 	ValidFrom     time.Time
 	ValidTo       *time.Time
+	ScaleBasis    *string
+	Scale         []ScaleLevelInput
 }
 
 const priceSelect = `SELECT p.id, p.legal_entity_id, p.item_key, p.customer_id, p.condition_type, p.uom_code, p.currency, c.exponent, p.unit_price,
-		p.price_unit, trim_scale(p.percent)::text, p.valid_from, p.valid_to, p.created_at, p.created_by
-	FROM sales.price p LEFT JOIN ref.currency c ON c.code = p.currency`
+		p.price_unit, trim_scale(p.percent)::text, p.valid_from, p.valid_to, p.scale_basis, p.scale_uom_code, p.scale_currency, sc.exponent,
+		p.created_at, p.created_by
+	FROM sales.price p LEFT JOIN ref.currency c ON c.code = p.currency LEFT JOIN ref.currency sc ON sc.code = p.scale_currency`
 
 func scanPrice(row pgx.Row) (Price, error) {
 	var p Price
 	err := row.Scan(&p.ID, &p.LegalEntityID, &p.ItemKey, &p.CustomerID, &p.ConditionType, &p.Unit, &p.Currency, &p.Exponent, &p.UnitPrice,
-		&p.PriceUnit, &p.Percent, &p.ValidFrom, &p.ValidTo, &p.CreatedAt, &p.CreatedBy)
+		&p.PriceUnit, &p.Percent, &p.ValidFrom, &p.ValidTo, &p.ScaleBasis, &p.ScaleUnit, &p.ScaleCurrency, &p.ScaleExponent, &p.CreatedAt, &p.CreatedBy)
 	return p, errs.Wrapf(err, "scan sales price")
 }
 
-// loadPrice reads a price record whatever its company; GetPrice applies
-// company access.
+// loadPrice reads a price record with its scale whatever its company;
+// GetPrice applies company access.
 func loadPrice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Price, error) {
 	p, err := scanPrice(tx.QueryRow(ctx, priceSelect+` WHERE p.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -92,7 +105,11 @@ func loadPrice(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Price, error) {
 	if err != nil {
 		return Price{}, fmt.Errorf("sales: read price %s: %w", id, err)
 	}
-	return p, nil
+	one := []Price{p}
+	if err := withScales(ctx, tx, one); err != nil {
+		return Price{}, err
+	}
+	return one[0], nil
 }
 
 // GetPrice returns a price record of a legal entity the caller may act
@@ -114,9 +131,11 @@ func GetPrice(ctx context.Context, id uuid.UUID) (Price, error) {
 }
 
 // rate is what a record says beyond its key and validity, checked: a
-// price's unit, currency, amount and price unit, or a discount's percent.
+// price's unit, currency with its minor-unit digits, amount and price
+// unit, or a discount's percent.
 type rate struct {
 	unit, currency *string
+	exp            int
 	amount         *money.Minor
 	priceUnit      *int32
 	percent        *string
@@ -151,17 +170,24 @@ func (e *Endpoints) RecordPrice(ctx context.Context, in PriceInput) (Price, erro
 	if err != nil {
 		return Price{}, err
 	}
+	s, err := scale(ctx, tx, in, r)
+	if err != nil {
+		return Price{}, err
+	}
 	if in.ValidTo != nil && in.ValidTo.Before(in.ValidFrom) {
 		return Price{}, problem.Invalid("sales.invalid_validity", "valid_to",
 			"A price is valid until a day not before the day it is valid from, "+in.ValidFrom.Format(time.DateOnly)+".")
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO sales.price (tenant_id, id, legal_entity_id, item_key, customer_id, condition_type, uom_code, currency,
-			unit_price, price_unit, percent, valid_from, valid_to, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12, $13, $14)`,
+			unit_price, price_unit, percent, valid_from, valid_to, scale_basis, scale_uom_code, scale_currency, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::numeric, $12, $13, $14, $15, $16, $17)`,
 		p.TenantID, id, le.ID, in.ItemKey, in.CustomerID, in.ConditionType, r.unit, r.currency, r.amount, r.priceUnit, r.percent,
-		in.ValidFrom, in.ValidTo, p.ID); err != nil {
+		in.ValidFrom, in.ValidTo, s.basis, s.unit, s.currency, p.ID); err != nil {
 		return Price{}, fmt.Errorf("sales: insert price %s: %w", id, err)
+	}
+	if err := insertScale(ctx, tx, p.TenantID, id, s.levels); err != nil {
+		return Price{}, err
 	}
 	recorded, err := loadPrice(ctx, tx, id)
 	if err != nil {
@@ -226,7 +252,7 @@ func (e *Endpoints) rate(ctx context.Context, tx pgx.Tx, in PriceInput) (rate, e
 		}
 	}
 	if kind == config.ConditionDiscountPercent {
-		return discountRate(*in.Percent)
+		return discountRate(*in.Percent, "percent")
 	}
 	return priceRate(ctx, tx, in)
 }
@@ -244,11 +270,12 @@ var hundred = big.NewRat(100, 1)
 
 // discountRate is a discount's percent: a plain decimal more than 0 and
 // less than 100 of at most six decimals (422 sales.invalid_percent naming
-// percent). A discount of 100 percent would leave an item no value, which
-// no item may have (ADR-0067 default 4).
-func discountRate(percent string) (rate, error) {
+// field, the record's percent or a scale level's). A discount of 100
+// percent would leave an item no value, which no item may have (ADR-0067
+// default 4).
+func discountRate(percent, field string) (rate, error) {
 	if money.PositiveQuantity(percent) != nil || money.ParseRat(percent).Cmp(hundred) >= 0 {
-		return rate{}, problem.Invalid("sales.invalid_percent", "percent",
+		return rate{}, problem.Invalid("sales.invalid_percent", field,
 			fmt.Sprintf("A discount is a percentage more than 0 and less than 100, a plain decimal of at most %d decimals.", money.QuantityDecimals))
 	}
 	return rate{percent: &percent}, nil
@@ -283,7 +310,7 @@ func priceRate(ctx context.Context, tx pgx.Tx, in PriceInput) (rate, error) {
 	if in.PriceUnit != nil {
 		priceUnit = *in.PriceUnit
 	}
-	return rate{unit: in.Unit, currency: &code, amount: &amount, priceUnit: &priceUnit}, nil
+	return rate{unit: in.Unit, currency: &code, exp: exp, amount: &amount, priceUnit: &priceUnit}, nil
 }
 
 // recordPrice adds the audit record of a new price record and publishes
@@ -291,7 +318,8 @@ func priceRate(ctx context.Context, tx pgx.Tx, in PriceInput) (rate, error) {
 // event names the customer by id and number, never by name (product
 // owner, 2026-11-05); both are null for a general record. A price's
 // unit, unit price and price unit are null for a discount, and a
-// discount's percent for a price.
+// discount's percent for a price; a record without a scale has a null
+// basis and no levels.
 func recordPrice(ctx context.Context, p Price, le tenancy.Entity, customerNumber *string) error {
 	var amount map[string]string
 	if p.UnitPrice != nil {
@@ -302,11 +330,33 @@ func recordPrice(ctx context.Context, p Price, le tenancy.Entity, customerNumber
 		day := p.ValidTo.Format(time.DateOnly)
 		validTo = &day
 	}
+	levels := scaleEvent(p)
 	payload := map[string]any{"price_id": p.ID, "legal_entity_id": p.LegalEntityID, "legal_entity_code": le.Code, "item_key": p.ItemKey,
 		"customer_id": p.CustomerID, "customer_number": customerNumber, "kind": p.Kind(), "condition_type": p.ConditionType, "unit": p.Unit,
-		"unit_price": amount, "price_unit": p.PriceUnit, "percent": p.Percent, "valid_from": p.ValidFrom.Format(time.DateOnly), "valid_to": validTo}
+		"unit_price": amount, "price_unit": p.PriceUnit, "percent": p.Percent, "valid_from": p.ValidFrom.Format(time.DateOnly), "valid_to": validTo,
+		"scale_basis": p.ScaleBasis, "scale": levels}
 	detail := map[string]any{"legal_entity_id": p.LegalEntityID, "item_key": p.ItemKey, "customer_id": p.CustomerID, "kind": p.Kind(),
 		"condition_type": p.ConditionType, "unit": p.Unit, "unit_price": amount, "price_unit": p.PriceUnit, "percent": p.Percent,
-		"valid_from": p.ValidFrom.Format(time.DateOnly), "valid_to": validTo}
+		"valid_from": p.ValidFrom.Format(time.DateOnly), "valid_to": validTo, "scale_basis": p.ScaleBasis, "scale": levels}
 	return record(ctx, "sales.price.create", "price", "sales_price_changed", p.ID, detail, payload)
+}
+
+// scaleEvent is a record's scale levels as its event and audit record
+// carry them: each with its start and its rate, the others null.
+func scaleEvent(p Price) []map[string]any {
+	out := make([]map[string]any, len(p.Scale))
+	for i, l := range p.Scale {
+		var from, at, price map[string]string
+		if l.FromQuantity != nil {
+			from = map[string]string{"value": *l.FromQuantity, "unit": *p.ScaleUnit}
+		}
+		if l.FromAmount != nil {
+			at = money.EventAmount(*l.FromAmount, *p.ScaleCurrency, *p.ScaleExponent)
+		}
+		if l.UnitPrice != nil {
+			price = money.EventAmount(*l.UnitPrice, *p.Currency, *p.Exponent)
+		}
+		out[i] = map[string]any{"level": l.Level, "from_quantity": from, "from_amount": at, "unit_price": price, "percent": l.Percent}
+	}
+	return out
 }

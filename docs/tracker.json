@@ -5004,9 +5004,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Scales on a condition record: a price or discount's rate by the level an item's quantity or value reaches (basis quantity or value, its unit or currency stated, a \"from\" scale exact in minor units), shown on the item's condition",
-        "r": "T80e · docs/design/plan-depth-3.md §T80e · ADR-0067 §10, §11",
+        "r": "T80e · docs/design/plan-depth-3.md §T80e · db/migrations/000373 · sales.price_scale · scale_basis, scale[] on POST /v1/sales-prices and SalesPrice · SalesCondition.scale · SalesPriceChanged · walkthrough step_price_scales · ADR-0067 §12 and As built",
         "src": "split:T80a · po:2026-11-17",
         "c": []
        },
