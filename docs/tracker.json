@@ -2895,6 +2895,13 @@
         "r": "docs/design/plan-breadth-week2.md §T81d, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "The recognition run reads every active contract of the company on each run, ended contracts and contracts whose transaction price is zero included, so the set it reads only grows with the contracts a company ever had and drifts toward revenue.recognition_run_too_large; it should read only the contracts with revenue left to recognize (found in T81e's review)",
+        "r": "internal/revenue run.go activeContracts · revenue.recognition_run_too_large · ADR-0068",
+        "src": "review:batch79",
+        "c": []
        }
       ]
      }
@@ -6513,6 +6520,13 @@
         "r": "docs/design/plan-breadth-week3.md §T100c, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
+       },
+       {
+        "s": "T",
+        "t": "Free-text personal data is copied into audit details (a dispute case's reason and note, a customer contact's name and note), which a deletion run cannot blank: audit records are insert-only, so the text outlives the erasure of its subject; keep such text out of audit details, or make it erasable (found in batch 79's review)",
+        "r": "internal/collections disputes.go and contacts.go audit details · audit.audit_event · ADR-0079 · ADR-0011",
+        "src": "review:batch79",
+        "c": []
        }
       ],
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
@@ -9030,7 +9044,7 @@
       ]
      },
      {
-      "s": "D",
+      "s": "P",
       "t": "REST API server with interfaces generated from the contract (ogen)",
       "r": "api/gen · cmd/erp-server",
       "c": [
@@ -9081,6 +9095,13 @@
         "t": "Generated code checked against the contract in CI",
         "r": "",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A problem's field names are prefixed with the request's path (items[n]., a nested object) by rewrites written inline in payables, ledger, closing, web and sales: one shared helper in internal/platform/problem (found in T78e's review)",
+        "r": "internal/platform/problem · the inline field-prefix rewrites in internal/payables, internal/ledger, internal/closing, internal/web and internal/sales · 04 §4.6",
+        "src": "review:batch79",
         "c": []
        }
       ]
