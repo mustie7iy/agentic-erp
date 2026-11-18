@@ -145,15 +145,6 @@ type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
 }
 
-// RevenueContracts asks the revenue context whether a sales order has a
-// revenue contract (ADR-0068; ADR-0067, As built T78d), which holds the
-// order items' net values: an order with one keeps its items' quantities
-// and prices and is not cancelled. Revenue imports sales, so sales
-// declares the port and the application wires revenue to it.
-type RevenueContracts interface {
-	HasContract(ctx context.Context, order uuid.UUID) (bool, error)
-}
-
 // Endpoints implements the sales part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
@@ -172,7 +163,6 @@ type Endpoints struct {
 	Rates         Rates
 	Credit        Credit
 	People        People
-	Revenue       RevenueContracts
 	// Uploads, OrderExtractor and Finder serve order capture (T90a): the
 	// upload's document, the model that reads it (nil: capture answers
 	// 503) and the customer it names.

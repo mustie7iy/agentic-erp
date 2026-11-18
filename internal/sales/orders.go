@@ -48,15 +48,35 @@ func quotationOrdered() *problem.Problem {
 // unit.
 // Deliveries are the item's deliveries by date (T78c) and Billings its
 // posted billings by posting date (T79b); Orders.Order reads them, the
-// API's reads of an order do not and leave them nil.
+// API's reads of an order do not and leave them nil. RemovedInChange is
+// the change that removed the item (T78e), nil while it stands: a removed
+// item keeps its values and is out of the order's net value, delivery and
+// billing.
 type OrderItem struct {
 	Item
-	Delivered  string         `json:"delivered_quantity"`
-	Billed     string         `json:"billed_quantity"`
-	Returned   string         `json:"returned_quantity"`
-	Deliveries []ItemDelivery `json:"deliveries"`
-	Billings   []ItemBilling  `json:"billings"`
-	Credits    []ItemCredit   `json:"credits"`
+	Delivered       string         `json:"delivered_quantity"`
+	Billed          string         `json:"billed_quantity"`
+	Returned        string         `json:"returned_quantity"`
+	RemovedInChange *int32         `json:"removed_in_change"`
+	Deliveries      []ItemDelivery `json:"deliveries"`
+	Billings        []ItemBilling  `json:"billings"`
+	Credits         []ItemCredit   `json:"credits"`
+}
+
+// Standing are the order's items that are not removed (T78e): those its
+// net value, its credit check, its delivery and its revenue contract
+// take.
+func (o Order) Standing() []OrderItem { return standing(o.Items) }
+
+// standing are the items that are not removed (T78e).
+func standing(items []OrderItem) []OrderItem {
+	out := make([]OrderItem, 0, len(items))
+	for _, it := range items {
+		if it.RemovedInChange == nil {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 // Order is a row of sales.sales_order with its items. Amounts are minor
@@ -126,7 +146,7 @@ func orderQuery(extra string) string {
 		o.cancelled_by, o.cancelled_by_name, o.credit_block, o.credit_released_by, o.credit_released_by_name, o.credit_released_at, ` +
 		itemsJSON("sales_order_item", "sales_order_id", "o",
 			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text,
-				'returned_quantity', trim_scale(t.returned_quantity)::text`+extra) + `,
+				'returned_quantity', trim_scale(t.returned_quantity)::text, 'removed_in_change', t.removed_in_change`+extra) + `,
 		o.capture, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
 	FROM sales.sales_order o JOIN ref.currency c ON c.code = o.currency`
 }
@@ -217,13 +237,13 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 }
 
 // Shared is Order under a share lock on the order's row (ADR-0008),
-// which the revenue context reads an order with before it makes the
-// order's contract (ADR-0067, As built T78d): a change or cancellation of
-// the order, which holds the row FOR UPDATE and then asks whether a
-// contract exists (RevenueContracts), waits for the contract's
-// transaction and then sees its contract, or the contract's reading waits
-// for the change and reads the order as it was left. The lock is taken by
-// a statement of its own, for the reason loadOrder takes its own.
+// which the revenue context reads an order with before it makes or
+// follows the order's contract (ADR-0068, As built T81e): a change or
+// cancellation of the order, which holds the row FOR UPDATE, waits for
+// the contract's transaction, and the contract's reading waits for the
+// change and reads the order as it was left, whose event the contract
+// then follows. The lock is taken by a statement of its own, for the
+// reason loadOrder takes its own.
 func (o Orders) Shared(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -487,7 +507,7 @@ func recordOrder(ctx context.Context, action string, o Order, le tenancy.Entity,
 		"status": o.Status, "status_before": before, "credit_block": o.CreditBlock, "version": o.Version, "changes": o.Changes,
 		"requested_delivery_date": delivery}
 	detail := map[string]any{"document_number": o.DocumentNumber, "customer_id": o.CustomerID, "quotation_id": o.QuotationID, "status": o.Status,
-		"status_before": before, "payment_term_code": o.PaymentTermCode, "net_amount": net, "items": len(o.Items), "credit_block": o.CreditBlock,
+		"status_before": before, "payment_term_code": o.PaymentTermCode, "net_amount": net, "items": len(standing(o.Items)), "credit_block": o.CreditBlock,
 		"requested_delivery_date": delivery}
 	for k, v := range extra {
 		detail[k] = v

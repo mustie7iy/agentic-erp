@@ -4823,6 +4823,10 @@ components:
         It carries the contract's transaction price, the order's net value
         without tax, and the number of its performance obligations, not the
         obligations, and names the customer by id and number, never by name.
+        From T81e also when the system follows a change of its sales order
+        (status kept, status_before the same; `changes` counts the follows)
+        or the order's cancellation (`ended` true, the transaction price
+        zero).
         `GET /v1/revenue-contracts/{id}` returns the contract at `version`
         or later. Subject is the contract id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -6191,10 +6195,12 @@ components:
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
         transaction_price: {$ref: '#/components/schemas/Money', description: "The contract's transaction price: the sales order's net value, without tax, in the company's local currency."}
-        obligation_count: {type: integer, description: "The contract's performance obligations, one per item of the sales order."}
+        obligation_count: {type: integer, description: "The contract's performance obligations, one per item of the sales order, ended ones included."}
         status: {type: string, description: "The contract's status after the change. Open enum: draft, active."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created, and `draft` again when a draft''s obligations were changed.'}
         version: {type: integer, description: "The contract's version after the change."}
+        changes: {type: integer, description: "How many changes and cancellations of its sales order the contract has followed (T81e); not among the required fields, since a field added to a published event is not required of it (ADR-0041)."}
+        ended: {type: boolean, description: "Whether the contract has ended, its sales order being cancelled (T81e): its transaction price is then zero. Not among the required fields (ADR-0041)."}
     LeaseRunPostedV1:
       type: object
       required: [lease_run_id, legal_entity_id, legal_entity_code, fiscal_year, fiscal_period, posting_date, contract_count, posting_count, interest_amount, depreciation_amount]

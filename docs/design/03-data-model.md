@@ -5279,7 +5279,12 @@ erDiagram
   cancelled once, while no item has anything delivered. A cancelled
   order changes no more. The application may also update
   `requested_delivery_date`, `net_amount`, `changes` and the
-  cancellation's three columns.
+  cancellation's three columns. T78e (migration 000364) lets it update
+  `payment_term_code` too: only with `changes` moved to a kept change
+  (`sales_order_payment_term_kept`) and while no billing document of the
+  order stands that is not cancelled (`sales_order_payment_term_billed`),
+  for the tables' owner too; `net_amount` is the sum of the items that
+  are not removed.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
@@ -5295,7 +5300,19 @@ erDiagram
   trigger `sales_order_item_change`, on an update that sets one of them,
   refuses an item with anything billed and an item of a cancelled order,
   for the tables' owner too; a quantity stays at least what is delivered
-  (`sales_order_item_quantities`).
+  (`sales_order_item_quantities`). T78e (migration 000364) adds
+  `removed_in_change`, the change that removed the item: set only in the
+  transaction that keeps the order's next change, which it names
+  (`sales_order_item_removed_kept`), on an item with nothing delivered
+  (`sales_order_item_removed_undelivered`, which also refuses a later
+  delivery), after which the item changes no more
+  (`sales_order_item_removed_fixed`); and an insert rule
+  (`sales_order_item_added`): an item is written with its order before
+  any change is kept, else only with the order's next change kept
+  (`sales_order_item_added_kept`), numbered after the order's highest
+  (`sales_order_item_added_after`), never to a cancelled order. A removed
+  item stays, out of the order's value, its credit exposure and the
+  sales lines.
 - `sales.sales_order_change` (T78d, migration 000355): a change of an
   order, numbered from 1 within it (`sales_order_change_no_positive`,
   `sales_order_change_once`), with the order's version after it
@@ -5304,9 +5321,12 @@ erDiagram
   net value before and after (above zero), its requested delivery date
   and credit block before and after, and `items`, a JSON array of the
   items changed, each with its quantity, unit price, price unit and net
-  value before and after (`sales_order_change_items_check`). Insert-only
-  (`platform.forbid_mutation`); the list reads an order's changes by
-  number.
+  value before and after (`sales_order_change_items_check`); from T78e
+  each with its `change` (`changed`, `added`, `removed`; absent in a
+  change kept before, which is `changed`), and the payment term before
+  and after, both or neither (`sales_order_change_payment_term`).
+  Insert-only (`platform.forbid_mutation`); the list reads an order's
+  changes by number.
 - `sales.delivery` (T78c, migration 000292): a confirmation that
   quantities of an order's items were delivered on `delivery_date`,
   numbered within its order (`delivery_no_positive`, `delivery_no_once`).
@@ -5543,19 +5563,33 @@ T81d (migrations 000311 and 000312) adds the recognition run with its
 postings, which posts through the ledger's port with `source_context`
 `revenue` (the journal's source contexts gain it), and the account
 determination keys `contract_asset` and `contract_liability` (§3.7).
+T81e (migration 000363) has a contract follow its sales order's changes
+and cancellation (§3.29, T78d), each follow kept as a numbered change.
 
 ```mermaid
 erDiagram
   contract ||--|{ performance_obligation : "has"
+  contract ||--o{ contract_change : "followed"
   contract { uuid id PK
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner"
     uuid sales_order_id "sales, one contract per order"
     text sales_order_number "when created"
     char currency "the company's local currency"
-    bigint transaction_price "the order's net value, without tax"
+    bigint transaction_price "the order's net value, without tax; 0 once ended"
     text status "draft, active"
+    int changes "follows kept"
+    timestamptz ended_at "its order cancelled"
     int version }
+  contract_change { uuid id PK
+    uuid contract_id FK
+    int change_no "the contract's next"
+    text cause "sales_order_changed, sales_order_cancelled"
+    int sales_order_version
+    int sales_order_changes
+    bigint transaction_price_before
+    bigint transaction_price_after
+    jsonb obligations "each changed: order value and share before and after, ended" }
   performance_obligation { int obligation_no PK
     uuid contract_id FK
     int order_item_no "sales: one obligation per order item"
@@ -5567,7 +5601,8 @@ erDiagram
     date service_to "not before service_from"
     date satisfied_on "point_in_time alone: a person's day, else the deliveries"
     bigint standalone_selling_price "above 0"
-    bigint allocated_amount "set at activation; the shares are the transaction price" }
+    bigint allocated_amount "set at activation, again by a follow; the shares are the transaction price"
+    timestamptz ended_at "its order cancelled; nothing allocated" }
   recognition_run ||--o{ recognition_posting : "posted"
   contract ||--o{ recognition_posting : "per run"
   recognition_posting ||--|{ recognition_posting_obligation : "has"
@@ -5602,17 +5637,23 @@ erDiagram
   (`contract_one_per_sales_order`: the consumer's insert and a person's
   request leave an existing one as it is); the status is `draft` or
   `active` (`contract_status_check`); `transaction_price` is
-  above zero (`contract_transaction_price_positive`), minor units of
+  above zero, or zero for a contract that has ended
+  (`contract_transaction_price_positive`), minor units of
   `currency`; it keeps its order's number
   (`contract_sales_order_number_check`), which the list reads the
   tenant's contracts by (`contract_by_order_number`,
-  `contract_by_customer`). A contract changes only while it is a draft
-  (`contract_fixed_once_active`: its version moves with each change of
-  its obligations, and activating it is its last change), and becomes
-  active only when every obligation holds its allocated amount and the
-  amounts add up to the transaction price
-  (`contract_allocated_in_full`). The application may set its status,
-  version and `updated_by` alone, and deletes nothing.
+  `contract_by_customer`). A person changes a contract only while it is
+  a draft (`contract_fixed_once_active`: its version moves with each
+  change of its obligations, and activating it is the person's last
+  change); a follow of its order (T81e) changes a draft or an active one,
+  its `changes` moving by one to a change kept in
+  `revenue.contract_change` and its status kept, and alone moves its
+  transaction price and sets `ended_at` (`contract_follow_kept`); an
+  ended contract changes no more (`contract_ended`). An active contract
+  holds, after every change, an allocated amount on every obligation
+  that adds up to the transaction price (`contract_allocated_in_full`).
+  The application may set its status, version, `updated_by`, transaction
+  price, `changes` and `ended_at` alone, and deletes nothing.
 - `revenue.performance_obligation`: numbered from 1 within its contract,
   one per order item (`performance_obligation_one_per_order_item`), with
   the item's key and description
@@ -5631,13 +5672,27 @@ erDiagram
   item's delivery confirmations say when; `allocated_amount` is not
   negative (`performance_obligation_allocated_check`); the application
   leaves it absent until it activates the contract (the database holds
-  the activation to the amounts, not a draft to their absence). An obligation is written and changed only
-  while its contract is a draft
+  the activation to the amounts, not a draft to their absence). A person
+  writes and changes an obligation only while its contract is a draft
   (`performance_obligation_fixed_once_active`, which locks the
-  contract's row, so a change and the activation wait for one another).
-  The application may set its timing, service period, the day it is
-  satisfied on, stand-alone selling price and allocated amount alone,
-  and deletes nothing.
+  contract's row, so a change, a follow and the activation wait for one
+  another); a follow (T81e) changes its order value, allocated amount and
+  end in the transaction that keeps the contract's next change, never
+  what a person judged (`performance_obligation_judgement_kept`), and
+  alone moves the order value or sets `ended_at`
+  (`contract_follow_kept`); an ended obligation has nothing allocated
+  (`performance_obligation_ended_unallocated`) and changes no more
+  (`contract_ended`). The application may set its timing, service
+  period, the day it is satisfied on, stand-alone selling price,
+  allocated amount, order value and `ended_at` alone, and deletes
+  nothing.
+- `revenue.contract_change` (T81e): a follow of the contract's sales
+  order, numbered from 1 within its contract
+  (`contract_change_once`), its cause (`contract_change_cause_check`),
+  the order's version and change count it followed, the transaction
+  price before and after, and each obligation it changed with its order
+  value and allocated amount before and after and whether it ended.
+  Written once and never changed.
 - `revenue.recognition_run` (T81d): one per company and fiscal period
   (`recognition_run_once`), each for a later period than the company's
   last (`recognition_run_in_order`, a trigger that holds the company's

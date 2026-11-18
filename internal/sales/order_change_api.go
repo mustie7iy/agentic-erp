@@ -19,7 +19,8 @@ import (
 // changeInput is a change request as the domain takes it.
 func changeInput(req *gen.SalesOrderChangeRequest) OrderChangeInput {
 	in := OrderChangeInput{Reason: apitypes.Ptr[string](req.Reason), DeliveryDateSet: req.RequestedDeliveryDate.Set,
-		Items: make([]ItemChangeInput, len(req.Items))}
+		Items: make([]ItemChangeInput, len(req.Items)), NewItems: itemInputs(req.NewItems), Removed: req.RemovedItems,
+		PaymentTerm: apitypes.Ptr[string](req.PaymentTermCode)}
 	if d, ok := req.RequestedDeliveryDate.Get(); ok {
 		in.DeliveryDate = &d
 	}
@@ -67,10 +68,11 @@ func changeAPI(h OrderChange) gen.SalesOrderChange {
 	out := gen.SalesOrderChange{ID: h.ID, ChangeNo: h.No, SalesOrderID: h.OrderID, Version: h.Version, Reason: apitypes.OptString(h.Reason),
 		NetAmountBefore: amount(h.NetBefore), NetAmountAfter: amount(h.NetAfter),
 		RequestedDeliveryDateBefore: apitypes.OptDate(h.DeliveryBefore), RequestedDeliveryDateAfter: apitypes.OptDate(h.DeliveryAfter),
-		CreditBlockBefore: h.BlockBefore, CreditBlockAfter: h.BlockAfter, Items: make([]gen.SalesOrderChangeItem, len(h.Items)),
+		CreditBlockBefore: h.BlockBefore, CreditBlockAfter: h.BlockAfter, PaymentTermCodeBefore: apitypes.OptString(h.TermBefore),
+		PaymentTermCodeAfter: apitypes.OptString(h.TermAfter), Items: make([]gen.SalesOrderChangeItem, len(h.Items)),
 		CreatedAt: h.CreatedAt, CreatedBy: h.CreatedBy}
 	for i, it := range h.Items {
-		out.Items[i] = gen.SalesOrderChangeItem{ItemNo: it.ItemNo, QuantityBefore: gen.Quantity{Value: it.QuantityBefore, Unit: it.Unit},
+		out.Items[i] = gen.SalesOrderChangeItem{ItemNo: it.ItemNo, Change: it.Kind, QuantityBefore: gen.Quantity{Value: it.QuantityBefore, Unit: it.Unit},
 			QuantityAfter: gen.Quantity{Value: it.QuantityAfter, Unit: it.Unit}, UnitPriceBefore: amount(it.UnitPriceBefore),
 			UnitPriceAfter: amount(it.UnitPriceAfter), PriceUnitBefore: it.PriceUnitBefore, PriceUnitAfter: it.PriceUnitAfter,
 			NetAmountBefore: amount(it.NetBefore), NetAmountAfter: amount(it.NetAfter)}

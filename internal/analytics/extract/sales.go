@@ -38,13 +38,14 @@ type salesLine struct {
 // salesLinesSQL reads both kinds of item in month order, then by kind,
 // document and item, so the same rows always give the same file. A billing
 // document's item names what is sold by its order's item, which nothing
-// changes. A draft order and a billing document not posted are left out.
+// changes. A draft order, an order's removed item (T78e) and a billing
+// document not posted are left out.
 const salesLinesSQL = `SELECT s.tenant_id, s.id, s.item_no, s.kind, le.code, s.document_date, bp.number, bp.name, s.item_key, s.net_amount, s.currency, c.exponent
 	FROM (
 		SELECT o.tenant_id, o.id, i.item_no, 'order' AS kind, o.legal_entity_id, o.customer_id, o.order_date AS document_date, i.item_key, i.net_amount, o.currency
 		FROM sales.sales_order o
 		JOIN sales.sales_order_item i ON i.tenant_id = o.tenant_id AND i.sales_order_id = o.id
-		WHERE o.status = 'confirmed'
+		WHERE o.status = 'confirmed' AND i.removed_in_change IS NULL
 		UNION ALL
 		SELECT d.tenant_id, d.id, b.item_no, 'billing', d.legal_entity_id, d.customer_id, d.billing_date, i.item_key, b.net_amount, d.currency
 		FROM sales.billing_document d

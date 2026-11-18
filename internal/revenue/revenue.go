@@ -138,7 +138,9 @@ type Endpoints struct {
 // obligation is satisfied over, nil for a point-in-time obligation.
 // SatisfiedOn is the day a person says a point-in-time obligation is
 // satisfied, nil when its order item's delivery confirmations say it
-// (ADR-0068 §8).
+// (ADR-0068 §8). EndedAt is when the obligation ended, its order being
+// cancelled or its item removed, nil while it stands (T81e): an ended
+// obligation keeps its last order value and has nothing allocated.
 type Obligation struct {
 	No              int32        `json:"obligation_no"`
 	OrderItemNo     int32        `json:"order_item_no"`
@@ -151,22 +153,29 @@ type Obligation struct {
 	SatisfiedOn     *time.Time   `json:"satisfied_on"`
 	StandalonePrice money.Minor  `json:"standalone_selling_price"`
 	Allocated       *money.Minor `json:"allocated_amount"`
+	EndedAt         *time.Time   `json:"ended_at"`
 }
 
 // record adds the audit record of a contract's change and publishes
 // RevenueContractChanged in the same transaction (ADR-0007, ADR-0011);
 // before is its status before, nil when it had none, and source says what
-// made the change: a person's request or the order's confirmation. The
-// event names the customer by id and number, never by name (product
-// owner, 2026-11-05), and carries the transaction price, not the
-// obligations.
-func record(ctx context.Context, action, source string, c Contract, le tenancy.Entity, customerNumber string, before *string) error {
+// made the change: a person's request, the order's confirmation or, for a
+// follow (T81e), the order's change or cancellation. The event names the
+// customer by id and number, never by name (product owner, 2026-11-05),
+// and carries the transaction price, the follows kept and whether the
+// contract ended, not the obligations. extra is more the audit record says
+// (a follow's values before and after), nil for nothing more.
+func record(ctx context.Context, action, source string, c Contract, le tenancy.Entity, customerNumber string, before *string, extra map[string]any) error {
 	price := money.EventAmount(c.TransactionPrice, c.Currency, c.Exponent)
 	payload := map[string]any{"revenue_contract_id": c.ID, "sales_order_id": c.SalesOrderID, "sales_order_number": c.SalesOrderNumber,
 		"legal_entity_id": c.LegalEntityID, "legal_entity_code": le.Code, "customer_id": c.CustomerID, "customer_number": customerNumber,
-		"transaction_price": price, "obligation_count": len(c.Obligations), "status": c.Status, "status_before": before, "version": c.Version}
+		"transaction_price": price, "obligation_count": len(c.Obligations), "status": c.Status, "status_before": before, "version": c.Version,
+		"changes": c.Changes, "ended": c.EndedAt != nil}
 	detail := map[string]any{"sales_order_id": c.SalesOrderID, "sales_order_number": c.SalesOrderNumber, "customer_id": c.CustomerID,
 		"transaction_price": price, "obligations": len(c.Obligations), "status": c.Status, "status_before": before, "source": source}
+	for k, v := range extra {
+		detail[k] = v
+	}
 	if err := audit.Record(ctx, action, "revenue.contract", c.ID, detail,
 		outbox.Event{Context: "revenue", Name: "revenue_contract_changed", AggregateType: "revenue.contract", AggregateID: c.ID, Payload: payload}); err != nil {
 		return fmt.Errorf("revenue: record %s of contract %s: %w", action, c.ID, err)

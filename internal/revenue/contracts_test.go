@@ -1,7 +1,6 @@
 package revenue_test
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -9,7 +8,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
-	"github.com/mustie7iy/agentic-erp/internal/revenue"
 )
 
 // TestContractCreatedOnRequest: a person creates the contract of a
@@ -74,7 +72,7 @@ func TestContractCreatedOnRequest(t *testing.T) {
 	want := map[string]any{"revenue_contract_id": id, "sales_order_id": order, "sales_order_number": number, "legal_entity_id": e.DE.String(),
 		"legal_entity_code": "2000", "customer_id": e.customer.String(), "customer_number": "BP70000001",
 		"transaction_price": map[string]any{"amount": "2725.03", "currency": "EUR"}, "obligation_count": float64(3), "status": "draft",
-		"status_before": nil, "version": float64(1)}
+		"status_before": nil, "version": float64(1), "changes": float64(0), "ended": false}
 	if a, b := mustJSON(t, e.events(t, order)), mustJSON(t, []map[string]any{want}); a != b {
 		t.Errorf("RevenueContractChanged: got %s, want %s", a, b)
 	}
@@ -230,12 +228,4 @@ func TestContractsListed(t *testing.T) {
 	t.Run("an unknown sort field", func(t *testing.T) {
 		e.In(t).Problem(400, "request.invalid_order_by", "GET", contracts+"?order_by=status", "", "")
 	})
-}
-
-// TestOrderContractsOutsideARequest: the sales context's question is
-// answered in a request's transaction alone.
-func TestOrderContractsOutsideARequest(t *testing.T) {
-	if _, err := (revenue.OrderContracts{}).HasContract(context.Background(), uuid.New()); err == nil {
-		t.Error("outside a unit of work: got nil error, want an error")
-	}
 }
