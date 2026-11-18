@@ -38,7 +38,8 @@ type Reversal struct {
 //
 // The memo's row is read FOR UPDATE (ADR-0008) and only a posted one is
 // reversed, at the version the client read: a second reversal waits for
-// the first and is then refused, 409 receivables.invalid_status. An
+// the first and then meets another version (412), or, sent at the new
+// version, a reversed memo (409 receivables.invalid_status). An
 // invoice is not reversed (corrected by a credit memo, ADR-0063 §5), nor
 // a memo another context entered from its document (sales'), which that
 // context corrects. Whether the memo's item is cleared is read here only
@@ -96,7 +97,8 @@ func (e *Endpoints) reversible(ctx context.Context, v Invoice, in Reversal) (tim
 			" is not reversed: enter a credit memo naming it (POST /v1/customer-invoices with kind credit_memo).")
 	case v.SourceDocumentID != nil:
 		return time.Time{}, problem.Conflict("receivables.entered_from_source", "Customer "+strings.ReplaceAll(v.Kind, "_", " ")+" "+v.DocumentNumber+
-			" was entered from sales document "+*v.SourceDocumentNumber+" ("+v.SourceDocumentID.String()+"); it is corrected there, not reversed here.")
+			" was entered from sales document "+*v.SourceDocumentNumber+ // named with its id (customer_invoice_source)
+			" ("+v.SourceDocumentID.String()+"); it is corrected there, not reversed here.")
 	}
 	if err := problem.RequireText("reason", in.Reason); err != nil {
 		return time.Time{}, err

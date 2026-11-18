@@ -39,12 +39,7 @@ func (e *Endpoints) references(ctx context.Context, invoices []Invoice) (referen
 	var partners, accounts, centers, entries []uuid.UUID
 	for _, v := range invoices {
 		partners = append(partners, v.CustomerID)
-		if v.EntryID != nil {
-			entries = append(entries, *v.EntryID)
-		}
-		if v.Reversal != nil {
-			entries = append(entries, v.Reversal.EntryID)
-		}
+		entries = append(entries, entriesOf(v)...)
 		for _, it := range v.Items {
 			accounts = append(accounts, it.AccountID)
 			for _, c := range []*uuid.UUID{it.CostCenterID, it.ProfitCenterID} {
@@ -76,6 +71,19 @@ func (e *Endpoints) references(ctx context.Context, invoices []Invoice) (referen
 		return references{}, fmt.Errorf("receivables: journal entries of %d invoices: %w", len(invoices), err)
 	}
 	return refs, nil
+}
+
+// entriesOf are the journal entries a document names: the one it posted
+// and the reversal of a reversed memo.
+func entriesOf(v Invoice) []uuid.UUID {
+	var ids []uuid.UUID
+	if v.EntryID != nil {
+		ids = append(ids, *v.EntryID)
+	}
+	if v.Reversal != nil {
+		ids = append(ids, v.Reversal.EntryID)
+	}
+	return ids
 }
 
 // toAPI is an invoice as the API gives it, with what it names by id.

@@ -933,6 +933,20 @@ func TestCustomerMemoReversal(t *testing.T) {
 			return all(tx, posted(s, "debit_memo"), reversed(s), step(`UPDATE receivables.customer_invoice SET status = 'posted', reversal_date = NULL,
 				reversal_entry_year = NULL, reversal_entry_id = NULL, reversal_reason = NULL, version = version + 1`))
 		}, "only a draft is posted and a posted document reversed"},
+		{"reversed without its posted entry and due date", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(`INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+				currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, posting_date, payment_term_code,
+				reversal_date, reversal_entry_year, reversal_entry_id, reversal_reason)
+				VALUES ($1, $2, 'CI1', $3, gen_random_uuid(), 'debit_memo', '2026-03-10', 'EUR', 100, 0, 100, 'reversed', $1, $1, '2026-03-12', 'NT30',
+				'2026-03-20', 2026, $4, 'x')`, s.tenant, s.doc, s.company, s.entry))
+		}, "customer_invoice_posted"},
+		{"reversed without a payment term", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(`INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+				currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, posting_date, net_due_date, journal_entry_year, journal_entry_id,
+				reversal_date, reversal_entry_year, reversal_entry_id, reversal_reason)
+				VALUES ($1, $2, 'CI1', $3, gen_random_uuid(), 'debit_memo', '2026-03-10', 'EUR', 100, 0, 100, 'reversed', $1, $1, '2026-03-12', '2026-04-09',
+				2026, gen_random_uuid(), '2026-03-20', 2026, $4, 'x')`, s.tenant, s.doc, s.company, s.entry))
+		}, "customer_invoice_posted"},
 		{"two memos reversed by one entry", func(tx pgx.Tx, s scene) error {
 			other := id()
 			return all(tx, posted(s, "debit_memo"), step(doc, s.tenant, other, "CI2", s.company, "credit_memo", "posted", noSource, noNumber), reversed(s),
