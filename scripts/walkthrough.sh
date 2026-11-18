@@ -12363,9 +12363,9 @@ step_dunning_blocks() {
 # order directly and, before confirming it, changes it in place: more
 # brackets at a lower price and a requested delivery date. The change is
 # kept, numbered, with its values before and after; a stale version is
-# refused. Once confirmed, the order may have a revenue contract (made
-# when it is confirmed), which holds its items' values: its delivery date
-# still changes. A second order is cancelled with a reason, once; the
+# refused. Once confirmed, its delivery date changes again (its revenue
+# contract follows an order's changes, step 116). A second order is
+# cancelled with a reason, once; the
 # delivered order of step 63 cannot be. Nothing is posted.
 # SALES_CHANGED_ORDER is the changed order, which step_billing_cancellation
 # delivers and bills.
@@ -12411,8 +12411,8 @@ step_sales_order_change() {
     "1 2 600.00>700.00 40>50 15.00>14.00"
   say "Her earlier version is stale now: a change with it is refused."
   refused 412 request.version_mismatch changeSalesOrder -p "id=$order" -if-match '"1"' -body '{"items": [{"item_no": 1, "quantity": {"value": "60", "unit": "EA"}}]}'
-  say "Sally confirms the order: 735.00 with GST, within the limit. A confirmed order has a revenue contract once"
-  say "revenue accounting makes it, which holds the items' values, so from then on only its delivery date changes:"
+  say "Sally confirms the order: 735.00 with GST, within the limit; its revenue contract is made by itself and follows"
+  say "the order's changes (step 116). Northwind's warehouse opens a week later, so its delivery date changes:"
   api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match '"2"'
   expect "the confirmed order" "$(field '"\(.status) \(.credit_block) \(.version)"')" "confirmed none 3"
   later=$(jq -rn --arg d "$day" '$d | strptime("%Y-%m-%d") | mktime + 21 * 86400 | strftime("%Y-%m-%d")')
@@ -12591,6 +12591,129 @@ step_rfq_requisition() {
   QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
   api 200 '"purchase order \(.document_number): \(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
   expect "the released order" "$(field .status)" released
+  passed
+}
+
+# step_revenue_follows_order is T81e (ADR-0068, As built T81e): the
+# revenue contract follows its sales order. Ruth gives Northwind room on
+# its credit limit. Sally creates and confirms an order of brackets and
+# installation; its contract appears by itself. She lowers the brackets'
+# price: the draft contract follows, its order values and transaction
+# price the order's, the stand-alone selling prices as they were. Nora
+# activates it; Sally raises the quantity and the active contract is
+# allocated again by those prices, to the cent. A second order's
+# cancellation ends its contract, whose price is then zero; the ended
+# contract is not activated. Nothing is posted.
+step_revenue_follows_order() {
+  heading "Step 116 — A revenue contract follows its sales order: a price and a quantity changed, the contract's order values and transaction price following, an active contract allocated again by its stand-alone selling prices; a cancelled order ending its contract; nothing posted"
+  local customer=$CUSTOMER sales item1 item2 order second contract ended exposure limit id i
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ruth
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  exposure=$(field .exposure.amount)
+  limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 5000 }')
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  id=$(field '.items[0].id')
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth sets Northwind's limit at $limit CAD, 5,000.00 above what it owes and has on order:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
+  as sally
+  sales=$(account 4000)
+  item1="{\"item_key\": \"BRACKET-M6\", \"description\": \"Machined bracket M6\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"12.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  item2="{\"item_key\": \"INSTALL\", \"description\": \"Installation of the brackets\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"600.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  say "Northwind orders 100 M6 brackets at 12.00 and their installation at 600.00: 1800.00 net. Sally creates the order"
+  say "and confirms it:"
+  api 201 '"sales order \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [$item1, $item2]}"
+  order=$(field .id)
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match '"1"'
+  expect "the confirmed order" "$(field '"\(.status) \(.credit_block)"')" "confirmed none"
+  as nora
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listRevenueContracts -p "sales_order_id=$order"
+    if [ "$(field '.items | length')" = 1 ]; then break; fi
+    sleep 0.25
+  done
+  expect "the order's revenue contracts (after $i checks)" "$(field '.items | length')" 1
+  contract=$(field '.items[0].id')
+  expect "the new contract" "$(field '.items[0] | "\(.status) \(.changes) \(.transaction_price.amount)"')" "draft 0 1800.00"
+  as sally
+  say "Northwind gets the brackets at 11.00. Sally changes the confirmed order's price (T78d); the order is 1700.00 now."
+  say "Its revenue contract no longer refuses that: it follows the order (ADR-0068, As built T81e)."
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): change \(.changes), net \(.net_amount.amount)"' changeSalesOrder -p "id=$order" -if-match "$ETAG" \
+    -body '{"reason": "Price agreed for the M6 brackets", "items": [{"item_no": 1, "unit_price": {"amount": "11.00", "currency": "CAD"}}]}'
+  expect "the changed order" "$(field '"\(.changes) \(.net_amount.amount)"')" "1 1700.00"
+  as nora
+  say "The revenue context reads the order's SalesOrderChanged and brings the contract to the order as it is: the"
+  say "brackets' order value and the transaction price follow; the stand-alone selling prices stay what they were,"
+  say "since they are Nora's judgement, not the order's:"
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getRevenueContract -p "id=$contract"
+    if [ "$(field .changes)" = 1 ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), follow \(.changes), version \(.version), transaction price \(.transaction_price.amount) \(.transaction_price.currency)", (.obligations[] | "  obligation \(.obligation_no) \(.description): order value \(.net_amount.amount), stand-alone selling price \(.standalone_selling_price.amount)")' \
+    getRevenueContract -p "id=$contract"
+  expect "the followed contract (after $i checks)" "$(field '"\(.status) \(.changes) \(.transaction_price.amount)"')" "draft 1 1700.00"
+  expect "its order values and stand-alone selling prices" \
+    "$(field '[.obligations[] | "\(.net_amount.amount)/\(.standalone_selling_price.amount)"] | join(" ")')" "1100.00/1200.00 600.00/600.00"
+  say "Nora activates it. The 1700.00 is allocated by the stand-alone selling prices, 1200.00 and 600.00: two thirds"
+  say "and one third, 1133.33 and 566.67, to the cent:"
+  api 200 '"revenue contract: \(.status), allocated " + ([.obligations[] | .allocated_amount.amount] | join(" and "))' \
+    activateRevenueContract -p "id=$contract" -if-match "$ETAG"
+  expect "the active contract's allocated amounts" "$(field '"\(.status) " + ([.obligations[] | .allocated_amount.amount] | join(" "))')" "active 1133.33 566.67"
+  as sally
+  say "Northwind takes 120 brackets instead of 100. Sally changes the quantity: 120 at 11.00 are 1320.00, the order 1920.00."
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): change \(.changes), net \(.net_amount.amount)"' changeSalesOrder -p "id=$order" -if-match "$ETAG" \
+    -body '{"items": [{"item_no": 1, "quantity": {"value": "120", "unit": "EA"}}]}'
+  expect "the changed order" "$(field '"\(.changes) \(.net_amount.amount)"')" "2 1920.00"
+  as nora
+  say "The active contract follows and allocates the new transaction price again by the same proportion: 1280.00 and"
+  say "640.00. What a recognition run already posted stands; the next run posts the difference in its own period."
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getRevenueContract -p "id=$contract"
+    if [ "$(field .changes)" = 2 ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '"revenue contract: \(.status), follow \(.changes), transaction price \(.transaction_price.amount), allocated " + ([.obligations[] | .allocated_amount.amount] | join(" and "))' \
+    getRevenueContract -p "id=$contract"
+  expect "the reallocated contract (after $i checks)" "$(field '"\(.status) \(.changes) \(.transaction_price.amount) " + ([.obligations[] | .allocated_amount.amount] | join(" "))')" \
+    "active 2 1920.00 1280.00 640.00"
+  expect "the allocated amounts' sum in cents, the transaction price's" \
+    "$(field '[.obligations[] | .allocated_amount.amount | sub("\\."; "") | tonumber] | add')" "$(field '.transaction_price.amount | sub("\\."; "") | tonumber')"
+  as sally
+  say "A second order of 10 brackets is confirmed and then withdrawn; Sally cancels it."
+  api 201 '"sales order \(.document_number): \(.status)"' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [${item1/\"100\"/\"10\"}]}"
+  second=$(field .id)
+  QUIET=1 api 200 '' confirmSalesOrder -p "id=$second" -if-match '"1"'
+  as nora
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listRevenueContracts -p "sales_order_id=$second"
+    if [ "$(field '.items | length')" = 1 ]; then break; fi
+    sleep 0.25
+  done
+  expect "the second order's revenue contracts (after $i checks)" "$(field '.items | length')" 1
+  ended=$(field '.items[0].id')
+  as sally
+  QUIET=1 api 200 '' getSalesOrder -p "id=$second"
+  api 200 '"sales order \(.document_number): \(.status), \(.cancellation_reason)"' cancelSalesOrder -p "id=$second" -if-match "$ETAG" \
+    -body '{"reason": "Northwind withdrew the order"}'
+  as nora
+  say "Its contract ends: every obligation has ended with nothing to recognize, and the transaction price is zero."
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' getRevenueContract -p "id=$ended"
+    if [ "$(field '.ended_at != null')" = true ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), ended \(.ended_at[0:10]), transaction price \(.transaction_price.amount) \(.transaction_price.currency)"' \
+    getRevenueContract -p "id=$ended"
+  expect "the ended contract (after $i checks)" "$(field '"\(.changes) \(.transaction_price.amount) " + ([.obligations[] | .ended_at != null] | join(" "))')" "1 0.00 true"
+  say "An ended contract is not activated:"
+  refused 409 revenue.contract_ended activateRevenueContract -p "id=$ended" -if-match "$ETAG"
   passed
 }
 
@@ -14624,7 +14747,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_sales_order_change step_billing_cancellation step_rfq_requisition step_revenue_follows_order step_close'
 
 main() {
   stop_unseen

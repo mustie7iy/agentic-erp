@@ -1673,7 +1673,10 @@ delivered, are the reference.
   customer's open orders (`OpenOrders` reads confirmed ones), with who
   cancelled it by id and by name then (`cancelled_by_name`, as a credit
   release keeps its releaser's).
-- **The revenue contract.** A contract holds the order items' net values
+- **The revenue contract** (lifted by T81e, ADR-0068 As built T81e: the
+  contract follows the order's change and cancellation through its
+  event, and sales lost the port and the refusal below; kept here as it
+  was built). A contract holds the order items' net values
   as its obligations' (ADR-0068 §3) and follows no change of them, so a
   changed price or quantity, or a cancellation, would leave what is
   recognized and what is billed never meeting. Sales declares the port

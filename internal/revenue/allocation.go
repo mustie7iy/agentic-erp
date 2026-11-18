@@ -30,6 +30,13 @@ func init() {
 	// the database's rules and answer alike.
 	problem.RegisterConstraint("contract_fixed_once_active", notDraft)
 	problem.RegisterConstraint("performance_obligation_fixed_once_active", notDraft)
+	problem.RegisterConstraint("contract_ended", contractEnded)
+}
+
+// contractEnded refuses a change or an activation of a contract whose
+// sales order is cancelled (T81e): its obligations have ended.
+func contractEnded() *problem.Problem {
+	return problem.Conflict("revenue.contract_ended", "The revenue contract has ended, its sales order being cancelled; it is not changed or activated.")
 }
 
 // notDraft refuses a change of a contract that is no longer a draft.
@@ -54,7 +61,8 @@ type ObligationChange struct {
 
 // draft reads the contract under its row lock for a change (ADR-0008):
 // one of a company the caller may act in, at the version the caller read,
-// that is still a draft (409 revenue.invalid_status). The lock is taken
+// that has not ended (409 revenue.contract_ended, T81e) and is still a
+// draft (409 revenue.invalid_status). The lock is taken
 // by a statement of its own, so the obligations read after it are as the
 // transaction that held it left them.
 func draft(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(int32) error) (Contract, error) {
@@ -74,6 +82,9 @@ func draft(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch func(int32) err
 	}
 	if err := ifMatch(c.Version); err != nil {
 		return Contract{}, err
+	}
+	if c.EndedAt != nil {
+		return Contract{}, contractEnded()
 	}
 	if c.Status != Draft {
 		return Contract{}, notDraft()
@@ -138,7 +149,7 @@ func (e *Endpoints) changed(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err != nil {
 		return Contract{}, fmt.Errorf("revenue: customer of contract %s: %w", c.ID, err)
 	}
-	return after, record(ctx, action, byRequest, after, le, names[after.CustomerID].Number, before)
+	return after, record(ctx, action, byRequest, after, le, names[after.CustomerID].Number, before, nil)
 }
 
 // applied is the contract's obligations the changes name, as they are
@@ -308,11 +319,16 @@ func (e *Endpoints) Activate(ctx context.Context, id uuid.UUID, ifMatch func(int
 // earlier obligation first. The same prices always give the same shares.
 // With prices that add up to the transaction price, each share is its
 // price. The arithmetic is exact: big integers, no floating point
-// (ADR-0005).
+// (ADR-0005). A follow (T81e) gives an ended obligation the weight zero,
+// so it takes nothing; when every obligation has ended the price is zero
+// too, and so is every share.
 func allocate(price money.Minor, prices []money.Minor) []money.Minor {
 	total := new(big.Int)
 	for _, p := range prices {
 		total.Add(total, big.NewInt(int64(p)))
+	}
+	if total.Sign() == 0 {
+		return make([]money.Minor, len(prices))
 	}
 	exact := make([]*big.Rat, len(prices))
 	for i, p := range prices {

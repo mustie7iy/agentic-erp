@@ -217,13 +217,13 @@ func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 }
 
 // Shared is Order under a share lock on the order's row (ADR-0008),
-// which the revenue context reads an order with before it makes the
-// order's contract (ADR-0067, As built T78d): a change or cancellation of
-// the order, which holds the row FOR UPDATE and then asks whether a
-// contract exists (RevenueContracts), waits for the contract's
-// transaction and then sees its contract, or the contract's reading waits
-// for the change and reads the order as it was left. The lock is taken by
-// a statement of its own, for the reason loadOrder takes its own.
+// which the revenue context reads an order with before it makes or
+// follows the order's contract (ADR-0068, As built T81e): a change or
+// cancellation of the order, which holds the row FOR UPDATE, waits for
+// the contract's transaction, and the contract's reading waits for the
+// change and reads the order as it was left, whose event the contract
+// then follows. The lock is taken by a statement of its own, for the
+// reason loadOrder takes its own.
 func (o Orders) Shared(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {

@@ -2820,9 +2820,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "A revenue contract follows a change of its sales order: changed quantities or prices update its obligations' order values and the transaction price's allocation, and a cancelled order ends the contract's unrecognized obligations (split from the revenue contract variants placeholder after T78d).",
-        "r": "T81e · docs/design/plan-depth-2.md §T81e · split from docs/design/plan-breadth-week2.md §T81a, Later · T78d sales order change and cancel · ADR-0068",
+        "s": "D",
+        "t": "A revenue contract follows a change of its sales order: changed quantities or prices update its obligations' order values and the transaction price's allocation, and a cancelled order ends the contract's obligations (split from the revenue contract variants placeholder after T78d).",
+        "r": "T81e · docs/design/plan-depth-2.md §T81e · db/migrations/000363 · revenue.contract_change · revenue.Consumer follows SalesOrderChanged · walkthrough step_revenue_follows_order · ADR-0068 As built T81e · split from docs/design/plan-breadth-week2.md §T81a, Later",
         "src": "split:T81a",
         "c": []
        },

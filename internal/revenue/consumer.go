@@ -62,7 +62,9 @@ type confirmation struct {
 }
 
 // Handle creates the revenue contract of the sales order a
-// SalesOrderChanged event says was confirmed. Another event is skipped,
+// SalesOrderChanged event says was confirmed, and brings an order's
+// contract to the order as it is when the event says it is confirmed or
+// cancelled (T81e: a change or a cancellation). Another event is skipped,
 // as is an order's change to another status. A malformed event, or one
 // whose subject names another tenant than its tenantid, is refused and
 // logged, and so is an order no contract is made for (one in a foreign
@@ -78,7 +80,7 @@ func (c *Consumer) Handle(ctx context.Context, m outbox.Message) error {
 		c.Log.WarnContext(ctx, "revenue contracts refused an event", "subject", m.Subject, "ce_id", m.Header["ce-id"], "error", err)
 		return nil
 	}
-	if ev.status != sales.Confirmed {
+	if ev.status != sales.Confirmed && ev.status != sales.Cancelled {
 		return nil
 	}
 	job := uow.Job{Begin: c.begin, Scope: database.Scope{Role: c.AppRole, TenantID: ev.tenant}, Now: c.Now,
@@ -135,11 +137,31 @@ func claim(ctx context.Context, tx pgx.Tx, ev confirmation) (bool, error) {
 	return tag.RowsAffected() == 1, nil
 }
 
-// contract creates the confirmed order's contract unless it has one. An
+// contract follows the order with its contract (T81e), or creates the
+// contract of a confirmed order that has none. The order is read under a
+// share lock before the contract's row lock is taken, the order a
+// contract's creation takes them in, so a change of the order waits for
+// the follow and the follow reads the order as the change left it. An
 // order no contract is made for is logged and left: the event stays
-// recorded as read.
+// recorded as read. A cancelled order without a contract needs none.
 func (c *Consumer) contract(ctx context.Context, tx pgx.Tx, builder reqctx.Principal, ev confirmation) error {
-	b, no, err := c.Endpoints.basisOf(ctx, ev.order, func(uuid.UUID) bool { return true })
+	o, ok, err := c.Endpoints.SalesOrders.Shared(ctx, ev.order)
+	if err != nil {
+		return fmt.Errorf("revenue: sales order %s of a contract: %w", ev.order, err)
+	}
+	if ok {
+		k, has, err := lockedContractOf(ctx, tx, ev.order)
+		if err != nil {
+			return err
+		}
+		if has {
+			return c.Endpoints.follow(ctx, tx, builder, k, o)
+		}
+		if o.Status == sales.Cancelled {
+			return nil
+		}
+	}
+	b, no, err := c.Endpoints.basis(ctx, o, ok, func(uuid.UUID) bool { return true })
 	if err != nil {
 		return err
 	}

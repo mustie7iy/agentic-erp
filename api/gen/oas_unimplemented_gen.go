@@ -220,11 +220,14 @@ func (UnimplementedHandler) ActivateOrgUnit(ctx context.Context, params Activate
 // transaction price exactly; a minor unit left by the rounding goes to the obligations with the
 // largest remainders, the earlier one first, so the same contract always allocates the same way. With
 // the prices a contract starts with, the order items' net values, each share is its order item's
-// value. Activating fixes the obligations and their amounts: a later change or a second activation is
-// refused (409 `revenue.invalid_status`). The system does the arithmetic only: the obligations, their
-// timing and their stand-alone selling prices are the person's judgement as they stand. Nothing is
-// posted. Audited, and published as RevenueContractChanged. A retry with the same `Idempotency-Key`
-// answers the active contract. Human-only (`x-agent: false`).
+// value. Activating fixes the obligations and their amounts: a later change by a person or a second
+// activation is refused (409 `revenue.invalid_status`); the contract still follows a change of its
+// sales order, which allocates its new transaction price the same way (T81e). A contract that has
+// ended, its sales order cancelled, is not activated (409 `revenue.contract_ended`). The system does
+// the arithmetic only: the obligations, their timing and their stand-alone selling prices are the
+// person's judgement as they stand. Nothing is posted. Audited, and published as
+// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the active contract.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/revenue-contracts/{id}:activate
 func (UnimplementedHandler) ActivateRevenueContract(ctx context.Context, params ActivateRevenueContractParams) (r ActivateRevenueContractRes, _ error) {
@@ -662,13 +665,12 @@ func (UnimplementedHandler) CancelRevaluationRun(ctx context.Context, req *Reaso
 // T78d), at the version the caller read (`If-Match`), with a reason: the order is read under a row
 // lock and moves to `cancelled` once, naming the reason, who cancelled it and when. An order already
 // cancelled is refused (409 `sales.invalid_status`), as is one with a quantity delivered (409
-// `sales.order_delivered`) and a confirmed one with a revenue contract (409
-// `sales.revenue_contract_exists`), whose obligations hold the order's values: since only what is
-// delivered is billed, nothing of a cancelled order is billed. A cancelled order takes no change,
-// delivery or billing document, and leaves the customer's open orders (`getCreditExposure`). The
-// quotation it came from stays ordered. Nothing is posted. Audited, and published as
-// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the cancelled order. Human-only
-// (`x-agent: false`).
+// `sales.order_delivered`): since only what is delivered is billed, nothing of a cancelled order is
+// billed. A confirmed order's revenue contract ends by itself, shortly after (ADR-0068, As built
+// T81e). A cancelled order takes no change, delivery or billing document, and leaves the customer's
+// open orders (`getCreditExposure`). The quotation it came from stays ordered. Nothing is posted.
+// Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the
+// cancelled order. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:cancel
 func (UnimplementedHandler) CancelSalesOrder(ctx context.Context, req *ReasonInput, params CancelSalesOrderParams) (r CancelSalesOrderRes, _ error) {
@@ -751,19 +753,17 @@ func (UnimplementedHandler) CaptureSupplierInvoice(ctx context.Context, req *Sup
 // quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
 // `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
 // (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
-// (`cancelBillingDocument`). A confirmed order with a revenue contract (`createRevenueContract`, or
-// made when the order is confirmed) keeps its items' quantities and prices (409
-// `sales.revenue_contract_exists`): the contract holds their values, and follows no change of them;
-// its requested delivery date still changes. `requested_delivery_date` is on or after the order's date
-// (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request that changes nothing is
-// refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' again. A
-// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
-// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
-// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
-// release; a lower value leaves the block as it is. The change is kept, numbered within the order,
-// with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes`
-// counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-// `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+// (`cancelBillingDocument`). A confirmed order's revenue contract (`getRevenueContract`) follows the
+// change by itself, shortly after it (ADR-0068, As built T81e). `requested_delivery_date` is on or
+// after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. A request
+// that changes nothing is refused (422 `sales.nothing_changed`). The order's net value is the sum of
+// its items' again. A change that raises a confirmed order's net value checks the customer's credit
+// for the increase, as a confirmation checks the order (`confirmSalesOrder`): an order that no longer
+// fits the limit is blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked),
+// whatever an earlier release; a lower value leaves the block as it is. The change is kept, numbered
+// within the order, with its reason and its values before and after (`listSalesOrderChanges`), and the
+// order's `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry
+// with the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:change
 func (UnimplementedHandler) ChangeSalesOrder(ctx context.Context, req *SalesOrderChangeRequest, params ChangeSalesOrderParams) (r ChangeSalesOrderRes, _ error) {
@@ -9926,10 +9926,11 @@ func (UnimplementedHandler) UpdateRequisition(ctx context.Context, req *Requisit
 // `revenue.satisfied_on_not_allowed`: send it as null when setting the timing to `over_time`); a
 // stand-alone selling price is in the contract's currency (422 `revenue.currency_mismatch`) and more
 // than zero (422 `revenue.price_not_positive`). The contract is read under a row lock; one that is
-// `active` is fixed and refused (409 `revenue.invalid_status`). Nothing is allocated before the
-// contract is activated. The contract's `version` moves. Audited, and published as
-// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as the first
-// answered it. Human-only (`x-agent: false`).
+// `active` is fixed and refused (409 `revenue.invalid_status`), as is one that has ended, its sales
+// order cancelled (409 `revenue.contract_ended`, T81e). Nothing is allocated before the contract is
+// activated. The contract's `version` moves. Audited, and published as RevenueContractChanged. A retry
+// with the same `Idempotency-Key` answers the contract as the first answered it. Human-only
+// (`x-agent: false`).
 //
 // PATCH /v1/revenue-contracts/{id}
 func (UnimplementedHandler) UpdateRevenueContract(ctx context.Context, req *RevenueContractUpdate, params UpdateRevenueContractParams) (r UpdateRevenueContractRes, _ error) {

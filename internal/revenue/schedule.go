@@ -217,11 +217,13 @@ func (c *calendar) onDay(ctx context.Context, o Obligation, asOf time.Time) ([]P
 }
 
 // obligation schedules one obligation of an active contract by its
-// timing, with its sums.
+// timing, with its sums. An ended obligation (T81e) has nothing allocated
+// and is in no period.
 func (c *calendar) obligation(ctx context.Context, o Obligation, item sales.OrderItem, asOf time.Time) (ObligationSchedule, error) {
 	out := ObligationSchedule{Obligation: o, Unit: item.Unit}
 	var err error
 	switch {
+	case o.EndedAt != nil:
 	case o.Timing == OverTime:
 		out.Periods, err = c.straightLine(ctx, o, asOf)
 	case o.SatisfiedOn != nil:

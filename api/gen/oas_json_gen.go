@@ -191732,9 +191732,15 @@ func (s *PerformanceObligation) encodeFields(e *jx.Encoder) {
 			s.AllocatedAmount.Encode(e)
 		}
 	}
+	{
+		if s.EndedAt.Set {
+			e.FieldStart("ended_at")
+			s.EndedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
 }
 
-var jsonFieldsNameOfPerformanceObligation = [11]string{
+var jsonFieldsNameOfPerformanceObligation = [12]string{
 	0:  "obligation_no",
 	1:  "order_item_no",
 	2:  "item_key",
@@ -191746,6 +191752,7 @@ var jsonFieldsNameOfPerformanceObligation = [11]string{
 	8:  "satisfied_on",
 	9:  "standalone_selling_price",
 	10: "allocated_amount",
+	11: "ended_at",
 }
 
 // Decode decodes PerformanceObligation from json.
@@ -191874,6 +191881,16 @@ func (s *PerformanceObligation) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"allocated_amount\"")
+			}
+		case "ended_at":
+			if err := func() error {
+				s.EndedAt.Reset()
+				if err := s.EndedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ended_at\"")
 			}
 		default:
 			return d.Skip()
@@ -230680,6 +230697,16 @@ func (s *RevenueContract) encodeFields(e *jx.Encoder) {
 		s.TransactionPrice.Encode(e)
 	}
 	{
+		e.FieldStart("changes")
+		e.Int32(s.Changes)
+	}
+	{
+		if s.EndedAt.Set {
+			e.FieldStart("ended_at")
+			s.EndedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
 		e.FieldStart("status")
 		e.Str(s.Status)
 	}
@@ -230693,7 +230720,7 @@ func (s *RevenueContract) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfRevenueContract = [18]string{
+var jsonFieldsNameOfRevenueContract = [20]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -230710,8 +230737,10 @@ var jsonFieldsNameOfRevenueContract = [18]string{
 	13: "sales_order_number",
 	14: "currency",
 	15: "transaction_price",
-	16: "status",
-	17: "obligations",
+	16: "changes",
+	17: "ended_at",
+	18: "status",
+	19: "obligations",
 }
 
 // Decode decodes RevenueContract from json.
@@ -230911,8 +230940,30 @@ func (s *RevenueContract) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"transaction_price\"")
 			}
-		case "status":
+		case "changes":
 			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.Changes = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"changes\"")
+			}
+		case "ended_at":
+			if err := func() error {
+				s.EndedAt.Reset()
+				if err := s.EndedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ended_at\"")
+			}
+		case "status":
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -230924,7 +230975,7 @@ func (s *RevenueContract) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
 		case "obligations":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				s.Obligations = make([]PerformanceObligation, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -230953,7 +231004,7 @@ func (s *RevenueContract) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b11111111,
-		0b00000011,
+		0b00001101,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

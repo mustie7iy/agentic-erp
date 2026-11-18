@@ -77514,7 +77514,7 @@ type PerformanceObligation struct {
 	ItemKey OptString `json:"item_key"`
 	// The order item's description: what was promised.
 	Description string `json:"description"`
-	// The order item's net value, without tax.
+	// The order item's net value, without tax, as the contract last followed its sales order (T81e).
 	NetAmount Money `json:"net_amount"`
 	// When the obligation is satisfied, a person's judgement: `point_in_time`, which every obligation
 	// starts as, or `over_time`. Open enumeration: clients must accept and preserve values not listed
@@ -77534,9 +77534,14 @@ type PerformanceObligation struct {
 	// value.
 	StandaloneSellingPrice Money `json:"standalone_selling_price"`
 	// The obligation's share of the contract's transaction price, allocated in proportion to the
-	// stand-alone selling prices when the contract is activated; the obligations' shares add up to the
-	// transaction price exactly. Absent while the contract is a `draft`.
+	// stand-alone selling prices when the contract is activated, and again when it follows a change of its
+	// sales order (T81e); the obligations' shares add up to the transaction price exactly. Zero once the
+	// obligation has ended. Absent while the contract is a `draft`.
 	AllocatedAmount OptMoney `json:"allocated_amount"`
+	// When the obligation ended, its sales order being cancelled (T81e): it keeps its last order value and
+	// has nothing allocated, so a recognition run takes off what earlier runs recognized of it. Absent
+	// while it stands.
+	EndedAt OptDateTime `json:"ended_at"`
 }
 
 // GetObligationNo returns the value of ObligationNo.
@@ -77594,6 +77599,11 @@ func (s *PerformanceObligation) GetAllocatedAmount() OptMoney {
 	return s.AllocatedAmount
 }
 
+// GetEndedAt returns the value of EndedAt.
+func (s *PerformanceObligation) GetEndedAt() OptDateTime {
+	return s.EndedAt
+}
+
 // SetObligationNo sets the value of ObligationNo.
 func (s *PerformanceObligation) SetObligationNo(val int32) {
 	s.ObligationNo = val
@@ -77647,6 +77657,11 @@ func (s *PerformanceObligation) SetStandaloneSellingPrice(val Money) {
 // SetAllocatedAmount sets the value of AllocatedAmount.
 func (s *PerformanceObligation) SetAllocatedAmount(val OptMoney) {
 	s.AllocatedAmount = val
+}
+
+// SetEndedAt sets the value of EndedAt.
+func (s *PerformanceObligation) SetEndedAt(val OptDateTime) {
+	s.EndedAt = val
 }
 
 // What to set on one performance obligation. A field left out stays as it is.
@@ -92372,8 +92387,19 @@ type RevenueContract struct {
 	SalesOrderNumber string `json:"sales_order_number"`
 	// The contract's currency (ISO 4217): the company's local currency, which is the order's.
 	Currency string `json:"currency"`
-	// The contract's transaction price: the sales order's net value, without tax.
+	// The contract's transaction price: the sales order's net value, without tax, as the contract last
+	// followed the order (T81e); zero once the contract has ended.
 	TransactionPrice Money `json:"transaction_price"`
+	// How many changes and cancellations of the sales order the contract has followed (T81e): each brings
+	// the obligations' order values and the transaction price to the order's and, for an `active`
+	// contract, allocates the price again by the stand-alone selling prices, which stay as a person set
+	// them. What earlier recognition runs posted stands; the next run posts the difference in its own
+	// period.
+	Changes int32 `json:"changes"`
+	// When the contract ended, its sales order being cancelled (T81e): every obligation has ended, the
+	// transaction price is zero, and the contract is not changed or activated (409
+	// `revenue.contract_ended`). Absent while it stands.
+	EndedAt OptDateTime `json:"ended_at"`
 	// `draft`: created; its obligations' timing, service periods and stand-alone selling prices can be set
 	// (`updateRevenueContract`). `active`: activated, once (`:activate`): the transaction price is
 	// allocated and the obligations are fixed. Open enumeration: clients must accept and preserve values
@@ -92461,6 +92487,16 @@ func (s *RevenueContract) GetCurrency() string {
 // GetTransactionPrice returns the value of TransactionPrice.
 func (s *RevenueContract) GetTransactionPrice() Money {
 	return s.TransactionPrice
+}
+
+// GetChanges returns the value of Changes.
+func (s *RevenueContract) GetChanges() int32 {
+	return s.Changes
+}
+
+// GetEndedAt returns the value of EndedAt.
+func (s *RevenueContract) GetEndedAt() OptDateTime {
+	return s.EndedAt
 }
 
 // GetStatus returns the value of Status.
@@ -92551,6 +92587,16 @@ func (s *RevenueContract) SetCurrency(val string) {
 // SetTransactionPrice sets the value of TransactionPrice.
 func (s *RevenueContract) SetTransactionPrice(val Money) {
 	s.TransactionPrice = val
+}
+
+// SetChanges sets the value of Changes.
+func (s *RevenueContract) SetChanges(val int32) {
+	s.Changes = val
+}
+
+// SetEndedAt sets the value of EndedAt.
+func (s *RevenueContract) SetEndedAt(val OptDateTime) {
+	s.EndedAt = val
 }
 
 // SetStatus sets the value of Status.
