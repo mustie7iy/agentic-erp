@@ -67118,9 +67118,9 @@ type MaterialDocument struct {
 	// That entry's document number; absent with it.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number`
-	// (`GET /v1/goods-receipts/{id}`), whose WE entry `journal_entry_id` is, posting the stock against
-	// GR/IR (S1e); absent on every other document. Such a document is reversed by reversing its goods
-	// receipt (409 `inventory.reverse_goods_receipt` here).
+	// (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock
+	// against GR/IR (S1e); absent on every other document. Such a document is reversed by reversing its
+	// goods receipt (409 `inventory.reverse_goods_receipt` here).
 	Reference OptString `json:"reference"`
 	// Its lines, in line order.
 	Lines []MaterialDocumentLine `json:"lines"`
@@ -90518,11 +90518,21 @@ type PurchaseOrderItem struct {
 	// the stock still holds the invoiced quantity at a moving price, to the class's price difference
 	// account otherwise. A stock item is not returned to the supplier (122) yet. A released order's item
 	// keeps its plant and storage location (422 `procurement.invalid_change`); an order change that sends
-	// neither keeps them.
+	// neither keeps them, and a kept item is checked only for its quantity's exact conversion, not again
+	// for its material's status or extension, so a change still brings down the open quantity of an item
+	// whose material was blocked since.
 	PlantID OptUUID `json:"plant_id"`
 	// The storage location (an org unit of kind `storage_location` under `plant_id`) a stock item is
 	// received into; see `plant_id`.
 	StorageLocationID OptUUID `json:"storage_location_id"`
+	// Derived: `plant_id`'s code (`GET /v1/org-units/{id}`); with it.
+	PlantCode OptString `json:"plant_code"`
+	// Derived: `plant_id`'s name; with it.
+	PlantName OptString `json:"plant_name"`
+	// Derived: `storage_location_id`'s code; with it.
+	StorageLocationCode OptString `json:"storage_location_code"`
+	// Derived: `storage_location_id`'s name; with it.
+	StorageLocationName OptString `json:"storage_location_name"`
 	// The day the item is expected to be delivered (SAP's delivery date, EKET-EINDT; ADR-0051 §5, T53g).
 	// Optional. An item that gives none takes the `needed_by` of the requisition its order was created
 	// from, if it has one; in an order change, an item the order has keeps its own date first. The
@@ -90607,6 +90617,26 @@ func (s *PurchaseOrderItem) GetPlantID() OptUUID {
 // GetStorageLocationID returns the value of StorageLocationID.
 func (s *PurchaseOrderItem) GetStorageLocationID() OptUUID {
 	return s.StorageLocationID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *PurchaseOrderItem) GetPlantCode() OptString {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *PurchaseOrderItem) GetPlantName() OptString {
+	return s.PlantName
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *PurchaseOrderItem) GetStorageLocationCode() OptString {
+	return s.StorageLocationCode
+}
+
+// GetStorageLocationName returns the value of StorageLocationName.
+func (s *PurchaseOrderItem) GetStorageLocationName() OptString {
+	return s.StorageLocationName
 }
 
 // GetDeliveryDate returns the value of DeliveryDate.
@@ -90697,6 +90727,26 @@ func (s *PurchaseOrderItem) SetPlantID(val OptUUID) {
 // SetStorageLocationID sets the value of StorageLocationID.
 func (s *PurchaseOrderItem) SetStorageLocationID(val OptUUID) {
 	s.StorageLocationID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *PurchaseOrderItem) SetPlantCode(val OptString) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *PurchaseOrderItem) SetPlantName(val OptString) {
+	s.PlantName = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *PurchaseOrderItem) SetStorageLocationCode(val OptString) {
+	s.StorageLocationCode = val
+}
+
+// SetStorageLocationName sets the value of StorageLocationName.
+func (s *PurchaseOrderItem) SetStorageLocationName(val OptString) {
+	s.StorageLocationName = val
 }
 
 // SetDeliveryDate sets the value of DeliveryDate.

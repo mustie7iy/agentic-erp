@@ -222858,6 +222858,30 @@ func (s *PurchaseOrderItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PlantCode.Set {
+			e.FieldStart("plant_code")
+			s.PlantCode.Encode(e)
+		}
+	}
+	{
+		if s.PlantName.Set {
+			e.FieldStart("plant_name")
+			s.PlantName.Encode(e)
+		}
+	}
+	{
+		if s.StorageLocationCode.Set {
+			e.FieldStart("storage_location_code")
+			s.StorageLocationCode.Encode(e)
+		}
+	}
+	{
+		if s.StorageLocationName.Set {
+			e.FieldStart("storage_location_name")
+			s.StorageLocationName.Encode(e)
+		}
+	}
+	{
 		if s.DeliveryDate.Set {
 			e.FieldStart("delivery_date")
 			s.DeliveryDate.Encode(e, json.EncodeDate)
@@ -222883,7 +222907,7 @@ func (s *PurchaseOrderItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPurchaseOrderItem = [18]string{
+var jsonFieldsNameOfPurchaseOrderItem = [22]string{
 	0:  "item_no",
 	1:  "material_id",
 	2:  "description",
@@ -222898,10 +222922,14 @@ var jsonFieldsNameOfPurchaseOrderItem = [18]string{
 	11: "contract_item_no",
 	12: "plant_id",
 	13: "storage_location_id",
-	14: "delivery_date",
-	15: "received_quantity",
-	16: "valuation_price",
-	17: "valuation_price_unit",
+	14: "plant_code",
+	15: "plant_name",
+	16: "storage_location_code",
+	17: "storage_location_name",
+	18: "delivery_date",
+	19: "received_quantity",
+	20: "valuation_price",
+	21: "valuation_price_unit",
 }
 
 // Decode decodes PurchaseOrderItem from json.
@@ -223057,6 +223085,46 @@ func (s *PurchaseOrderItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"storage_location_id\"")
+			}
+		case "plant_code":
+			if err := func() error {
+				s.PlantCode.Reset()
+				if err := s.PlantCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_code\"")
+			}
+		case "plant_name":
+			if err := func() error {
+				s.PlantName.Reset()
+				if err := s.PlantName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"plant_name\"")
+			}
+		case "storage_location_code":
+			if err := func() error {
+				s.StorageLocationCode.Reset()
+				if err := s.StorageLocationCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"storage_location_code\"")
+			}
+		case "storage_location_name":
+			if err := func() error {
+				s.StorageLocationName.Reset()
+				if err := s.StorageLocationName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"storage_location_name\"")
 			}
 		case "delivery_date":
 			if err := func() error {

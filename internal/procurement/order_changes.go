@@ -290,6 +290,7 @@ func (e *Endpoints) proposal(ctx context.Context, tx pgx.Tx, o PurchaseOrder, ba
 	if err != nil {
 		return ChangeProposal{}, 0, err
 	}
+	h.kept = len(o.Items)
 	if pr.Items, err = e.orderItems(ctx, h, keptTolerance(o.Items, in.Items)); err != nil {
 		return ChangeProposal{}, 0, err
 	}

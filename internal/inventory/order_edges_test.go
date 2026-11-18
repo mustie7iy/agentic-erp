@@ -3,8 +3,10 @@ package inventory_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -55,8 +57,10 @@ func (e orderEnv) order(t *testing.T, currency string, item map[string]any) stri
 func TestStockItemOrders(t *testing.T) {
 	e := setupOrders(t)
 	o, _ := e.Must(201, "POST", "/v1/purchase-orders", e.order(t, "EUR", e.orderItem(nil)), "")
-	if it := rows(t, o, "items")[0]; it["plant_id"] != e.p1.String() || it["storage_location_id"] != e.s1.String() {
-		t.Errorf("stock item: got %v %v, want %v %v", it["plant_id"], it["storage_location_id"], e.p1, e.s1)
+	it := rows(t, o, "items")[0]
+	if got, want := fmt.Sprintf("%v %v %v/%v %v/%v", it["plant_id"], it["storage_location_id"], it["plant_code"], it["plant_name"], it["storage_location_code"],
+		it["storage_location_name"]), fmt.Sprintf("%v %v P1/Unit P1 S1/Unit S1", e.p1, e.s1); got != want {
+		t.Errorf("stock item: got %s, want %s", got, want)
 	}
 	pending := e.material(t, "Washer", "trading_good", false)
 	for _, c := range []struct {
@@ -100,7 +104,36 @@ func TestStockItemOrders(t *testing.T) {
 			return mustJSON(t, map[string]any{"reason": "More brackets", "items": []any{first, bolt, paper, nut}})
 		}
 		e.Problem(422, "procurement.invalid_change", "POST", "/v1/purchase-orders/"+po.String()+"/changes", items(e.s2), "")
-		e.Must(201, "POST", "/v1/purchase-orders/"+po.String()+"/changes", items(nil), "")
+		ch, _ := e.Must(201, "POST", "/v1/purchase-orders/"+po.String()+"/changes", items(nil), "")
+		if got := rows(t, ch, "items")[0]["storage_location_code"]; got != "S1" {
+			t.Errorf("the change's stock item: got storage location %v, want S1", got)
+		}
+		page, _ := e.Must(200, "GET", "/v1/purchase-orders/"+po.String()+"/changes", "", "")
+		if got := rows(t, rows(t, page, "items")[0], "items")[0]["plant_code"]; got != "P1" {
+			t.Errorf("the listed change's stock item: got plant %v, want P1", got)
+		}
+		_, got, _ := e.Do("GET", "/v1/purchase-orders/"+po.String()+"/changes/"+ch["id"].(string), "", "")
+		if code := rows(t, got, "items")[0]["plant_code"]; code != "P1" {
+			t.Errorf("the change's stock item read: got plant %v, want P1", code)
+		}
+	})
+	t.Run("a change after the material is blocked", func(t *testing.T) {
+		// An item ordered while its material was active is changed after it
+		// is blocked: its open quantity can still be brought down.
+		po := e.stockOrder(t, "PO-10", "EUR")
+		_, mtag := e.Must(200, "GET", "/v1/materials/"+e.nut, "", "")
+		e.Must(200, "PATCH", "/v1/materials/"+e.nut, `{"status": "blocked"}`, mtag)
+		change := func(nuts map[string]any) string {
+			return mustJSON(t, map[string]any{"reason": "Fewer nuts", "items": []any{
+				e.orderItem(map[string]any{"quantity": map[string]any{"value": "100", "unit": "EA"}}),
+				e.orderItem(map[string]any{"material_id": e.bolt, "description": "Bolt", "unit_price": amount("1.20")}),
+				e.orderItem(map[string]any{"material_id": nil, "description": "Paper", "quantity": map[string]any{"value": "5", "unit": "EA"},
+					"unit_price": amount("2.00"), "plant_id": nil, "storage_location_id": nil}),
+				e.orderItem(map[string]any{"material_id": e.nut, "description": "Nut", "unit_price": amount("0.10"), "quantity": nuts})}})
+		}
+		e.Must(201, "POST", "/v1/purchase-orders/"+po.String()+"/changes", change(map[string]any{"value": "5", "unit": "EA"}), "")
+		// A kept item's quantity still converts exactly.
+		e.Problem(422, "procurement.invalid_stock_item", "POST", "/v1/purchase-orders/"+po.String()+"/changes", change(map[string]any{"value": "1", "unit": "KG"}), "")
 	})
 }
 
@@ -346,15 +379,66 @@ func TestStockReceiptDatabaseFailures(t *testing.T) {
 // returns its id.
 func (e orderEnv) parked(t *testing.T, po uuid.UUID, gross string, items ...invoiced) string {
 	t.Helper()
-	list := make([]map[string]any, len(items))
-	for i, it := range items {
-		list[i] = map[string]any{"purchase_order_id": po, "po_item_no": it.no, "quantity": map[string]any{"value": it.qty, "unit": "EA"}, "amount": amount(it.amount)}
-	}
 	*e.receiptSeq++
 	inv, tag := e.Must(201, "POST", "/v1/supplier-invoices", mustJSON(t, map[string]any{"legal_entity_id": e.DE, "supplier_id": e.supplier,
-		"supplier_reference": "PARKED", "invoice_date": e.day, "posting_date": e.day, "gross_amount": amount(gross), "tax_amount": amount("0.00"), "items": list}), "")
+		"supplier_reference": fmt.Sprintf("PARKED-%d", *e.receiptSeq), "invoice_date": e.day, "posting_date": e.day, "gross_amount": amount(gross), "tax_amount": amount("0.00"), "items": invoiceItems(po, items)}), "")
 	if m, _ := e.Must(200, "POST", "/v1/supplier-invoices/"+inv["id"].(string)+":match", "", tag); m["is_clean"] != true {
 		t.Fatalf("match: got %v, want clean", m["issues"])
 	}
 	return inv["id"].(string)
+}
+
+// TestStockReceiptsAtOnce (S1e; ADR-0082 As built S1e, locks): goods
+// receipts of the bracket, issues of it to a cost center and receipts of
+// it without an order post at once, none waiting on another for good:
+// each takes the valuation, then the stock, then the ranges and the
+// ledger's locks; invoices of another order's received brackets post
+// beside them, taking the order items, then the valuation.
+func TestStockReceiptsAtOnce(t *testing.T) {
+	e := setupOrders(t)
+	po, billed := e.stockOrder(t, "PO-1", "EUR"), e.stockOrder(t, "PO-2", "EUR")
+	e.receive(t, billed, 1, "40")
+	e.post(t, "501", e.item("40", "EA", map[string]any{"amount": amount("100.00")}))
+	invoices := make([]string, 4)
+	for i := range invoices {
+		invoices[i] = e.parked(t, billed, "25.00", invoiced{1, "10", "25.00"})
+	}
+	var wg sync.WaitGroup
+	statuses := make([]int, 16)
+	for i := range statuses {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			switch i % 4 {
+			case 0:
+				statuses[i], _, _ = e.Do("POST", "/v1/goods-receipts", e.receipt(t, po, "", 1, "1"), "")
+			case 1:
+				statuses[i], _, _ = e.Do("POST", docs, body(t, "201", e.item("1", "EA", map[string]any{"cost_center_id": e.c1})), "")
+			case 2:
+				statuses[i], _, _ = e.Do("POST", docs, body(t, "501", e.item("1", "EA", map[string]any{"amount": amount("2.50")})), "")
+			default:
+				statuses[i], _, _ = e.Do("POST", "/v1/supplier-invoices/"+invoices[i/4]+":post", mustJSON(t, map[string]any{"posting_date": e.day}), "*")
+			}
+		}()
+	}
+	wg.Wait()
+	for i, s := range statuses {
+		if want := map[bool]int{true: 200, false: 201}[i%4 == 3]; s != want {
+			t.Errorf("posting %d: got %d, want %d", i, s, want)
+		}
+	}
+	if got, want := e.stock(t, e.s1, ""), "84 EA"; got != want {
+		t.Errorf("stock: got %s, want %s", got, want)
+	}
+	if got, want := e.balance(t, "150000"), e.valuationValue(t); got != want {
+		t.Errorf("stock account: got %d, want the valuation's %d", got, want)
+	}
+}
+
+// valuationValue is the bracket's valuation's value in P1, in minor units.
+func (e orderEnv) valuationValue(t *testing.T) int64 {
+	t.Helper()
+	var v int64
+	pgtest.Scan(t, `SELECT value FROM inventory.valuation WHERE tenant_id = $1 AND material_id = $2 AND plant_id = $3`, []any{e.Tenant.ID, e.bracket, e.p1}, &v)
+	return v
 }

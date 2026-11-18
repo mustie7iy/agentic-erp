@@ -442,12 +442,19 @@ func (e *Endpoints) TerminateContract(ctx context.Context, req *gen.ReasonInput,
 
 // --- purchase orders --------------------------------------------------------
 
-func orderOK(o PurchaseOrder) *gen.UpdatePurchaseOrderOKHeaders {
-	return &gen.UpdatePurchaseOrderOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: orderToAPI(o)}
+func (e *Endpoints) orderOK(ctx context.Context, o PurchaseOrder) (*gen.UpdatePurchaseOrderOKHeaders, error) {
+	out := orderToAPI(o)
+	if err := e.located(ctx, out.Items); err != nil {
+		return nil, err
+	}
+	return &gen.UpdatePurchaseOrderOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: out}, nil
 }
 
 func (e *Endpoints) orderOut(ctx context.Context, o PurchaseOrder, expand []string) (gen.PurchaseOrder, error) {
 	out := orderToAPI(o)
+	if err := e.located(ctx, out.Items); err != nil {
+		return gen.PurchaseOrder{}, err
+	}
 	var err error
 	out.Expanded, err = e.expanded(ctx, expand, &o.SupplierID, o.LegalEntityID)
 	return out, err
@@ -462,8 +469,12 @@ func (e *Endpoints) CreatePurchaseOrder(ctx context.Context, req *gen.PurchaseOr
 	if err != nil {
 		return nil, err
 	}
+	out := orderToAPI(o)
+	if err := e.located(ctx, out.Items); err != nil {
+		return nil, err
+	}
 	return &gen.PurchaseOrderHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Location: gen.NewOptString("/v1/purchase-orders/" + o.ID.String()),
-		Response: orderToAPI(o)}, nil
+		Response: out}, nil
 }
 
 // GetPurchaseOrder implements GET /v1/purchase-orders/{id}.
@@ -553,7 +564,11 @@ func (e *Endpoints) UpdatePurchaseOrder(ctx context.Context, req *gen.PurchaseOr
 	if err != nil {
 		return nil, err
 	}
-	return orderOK(o), nil
+	out, err := e.orderOK(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // ReleasePurchaseOrder implements POST /v1/purchase-orders/{id}:release.
@@ -562,7 +577,11 @@ func (e *Endpoints) ReleasePurchaseOrder(ctx context.Context, params gen.Release
 	if err != nil {
 		return nil, err
 	}
-	return orderOK(o), nil
+	out, err := e.orderOK(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // ClosePurchaseOrder implements POST /v1/purchase-orders/{id}:close.
@@ -571,7 +590,11 @@ func (e *Endpoints) ClosePurchaseOrder(ctx context.Context, params gen.ClosePurc
 	if err != nil {
 		return nil, err
 	}
-	return orderOK(o), nil
+	out, err := e.orderOK(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // CancelPurchaseOrder implements POST /v1/purchase-orders/{id}:cancel.
@@ -580,7 +603,11 @@ func (e *Endpoints) CancelPurchaseOrder(ctx context.Context, params gen.CancelPu
 	if err != nil {
 		return nil, err
 	}
-	return orderOK(o), nil
+	out, err := e.orderOK(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // GetPurchaseOrderDocument implements GET /v1/purchase-orders/{id}/document.
@@ -594,8 +621,19 @@ func (e *Endpoints) GetPurchaseOrderDocument(ctx context.Context, params gen.Get
 
 // --- order changes ----------------------------------------------------------
 
-func changeOK(ch PurchaseOrderChange) *gen.UpdatePurchaseOrderChangeOKHeaders {
-	return &gen.UpdatePurchaseOrderChangeOKHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)), Response: changeToAPI(ch)}
+// changeOut is an order change as the API gives it, its stock items
+// located.
+func (e *Endpoints) changeOut(ctx context.Context, ch PurchaseOrderChange) (gen.PurchaseOrderChange, error) {
+	out := changeToAPI(ch)
+	return out, e.located(ctx, out.Items)
+}
+
+func (e *Endpoints) changeOK(ctx context.Context, ch PurchaseOrderChange) (*gen.UpdatePurchaseOrderChangeOKHeaders, error) {
+	out, err := e.changeOut(ctx, ch)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdatePurchaseOrderChangeOKHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)), Response: out}, nil
 }
 
 func changeInput(reason gen.OptString, orderDate gen.OptDate, term gen.OptString, items []gen.PurchaseOrderItem, ext gen.OptExtensions) ChangeInput {
@@ -613,8 +651,12 @@ func (e *Endpoints) CreatePurchaseOrderChange(ctx context.Context, req *gen.Purc
 	if err != nil {
 		return nil, err
 	}
+	out, err := e.changeOut(ctx, ch)
+	if err != nil {
+		return nil, err
+	}
 	return &gen.PurchaseOrderChangeHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)),
-		Location: gen.NewOptString("/v1/purchase-orders/" + params.ID.String() + "/changes/" + ch.ID.String()), Response: changeToAPI(ch)}, nil
+		Location: gen.NewOptString("/v1/purchase-orders/" + params.ID.String() + "/changes/" + ch.ID.String()), Response: out}, nil
 }
 
 // GetPurchaseOrderChange implements GET /v1/purchase-orders/{id}/changes/{change_id}.
@@ -623,7 +665,11 @@ func (e *Endpoints) GetPurchaseOrderChange(ctx context.Context, params gen.GetPu
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetPurchaseOrderChangeOKHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)), Response: changeToAPI(ch)}, nil
+	out, err := e.changeOut(ctx, ch)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.GetPurchaseOrderChangeOKHeaders{ETag: gen.NewOptString(etag.Format(ch.Version)), Response: out}, nil
 }
 
 // changeSort sorts the changes' list, whose select is wrapped: it joins the
@@ -641,6 +687,11 @@ func (e *Endpoints) ListPurchaseOrderChanges(ctx context.Context, params gen.Lis
 	if err != nil {
 		return nil, err
 	}
+	for i := range items {
+		if err := e.located(ctx, items[i].Items); err != nil {
+			return nil, err
+		}
+	}
 	return &gen.PurchaseOrderChangePage{Items: items, NextPageToken: next}, nil
 }
 
@@ -651,7 +702,11 @@ func (e *Endpoints) UpdatePurchaseOrderChange(ctx context.Context, req *gen.Purc
 	if err != nil {
 		return nil, err
 	}
-	return changeOK(ch), nil
+	out, err := e.changeOK(ctx, ch)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // CancelPurchaseOrderChange implements POST /v1/purchase-orders/{id}/changes/{change_id}:cancel.
@@ -660,7 +715,11 @@ func (e *Endpoints) CancelPurchaseOrderChange(ctx context.Context, params gen.Ca
 	if err != nil {
 		return nil, err
 	}
-	return changeOK(ch), nil
+	out, err := e.changeOK(ctx, ch)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // SubmitPurchaseOrderChange implements POST /v1/purchase-orders/{id}/changes/{change_id}:submit.
@@ -669,7 +728,11 @@ func (e *Endpoints) SubmitPurchaseOrderChange(ctx context.Context, params gen.Su
 	if err != nil {
 		return nil, err
 	}
-	return changeOK(ch), nil
+	out, err := e.changeOK(ctx, ch)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // --- goods receipts ---------------------------------------------------------

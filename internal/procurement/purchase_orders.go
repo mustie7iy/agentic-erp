@@ -160,6 +160,11 @@ type orderHeader struct {
 	// neededBy is the need date of the requisition the order was created
 	// from, which an item without a delivery date takes (T53g).
 	neededBy *time.Time
+	// kept is how many of the items are the released order's own, which
+	// an order change keeps (keptItems): their stock items are not judged
+	// again on their material's status or extension, which may have
+	// changed since they were ordered (stockItem).
+	kept int
 }
 
 // orderItems validates order items. Contract items take the contract's
@@ -209,7 +214,7 @@ func (e *Endpoints) orderItem(ctx context.Context, h orderHeader, i int, it Item
 	if err := e.account(ctx, h.le.ID, it.AccountID, field+".account_id"); err != nil {
 		return Item{}, err
 	}
-	if err := e.stockItem(ctx, h, field, item); err != nil {
+	if err := e.stockItem(ctx, h, field, item, i >= h.kept); err != nil {
 		return Item{}, err
 	}
 	if it.TaxCode != nil {

@@ -50474,11 +50474,27 @@ components:
         plant_id:
           type: string
           format: uuid
-          description: "With `storage_location_id`, makes the item a stock item of `material_id` (S1e; ADR-0082 As built): the plant (an org unit of kind `plant` of the order's legal entity) whose storage location its goods are received into. A stock item names its material, plant and storage location together, is assigned to no cost center (`account_assignment` `none`), is ordered in the company's currency, which its stock is valued in, of an active material kept at that storage location, in a unit of the material whose ordered quantity converts exactly to its base unit (422 `procurement.invalid_stock_item` otherwise). Its goods receipt (101) is also a material document (`material_document_id` on the goods receipt) that moves the stock, valued by the material's valuation in the plant (refused, receiving nothing, without one: 422 `inventory.no_valuation`); its WE entry debits the valuation class's stock account rather than `account_id` (at a standard price its quantity at the price, the rest on the class's price difference account), and its invoice's price difference goes to the stock as far as the stock still holds the invoiced quantity at a moving price, to the class's price difference account otherwise. A stock item is not returned to the supplier (122) yet. A released order's item keeps its plant and storage location (422 `procurement.invalid_change`); an order change that sends neither keeps them."
+          description: "With `storage_location_id`, makes the item a stock item of `material_id` (S1e; ADR-0082 As built): the plant (an org unit of kind `plant` of the order's legal entity) whose storage location its goods are received into. A stock item names its material, plant and storage location together, is assigned to no cost center (`account_assignment` `none`), is ordered in the company's currency, which its stock is valued in, of an active material kept at that storage location, in a unit of the material whose ordered quantity converts exactly to its base unit (422 `procurement.invalid_stock_item` otherwise). Its goods receipt (101) is also a material document (`material_document_id` on the goods receipt) that moves the stock, valued by the material's valuation in the plant (refused, receiving nothing, without one: 422 `inventory.no_valuation`); its WE entry debits the valuation class's stock account rather than `account_id` (at a standard price its quantity at the price, the rest on the class's price difference account), and its invoice's price difference goes to the stock as far as the stock still holds the invoiced quantity at a moving price, to the class's price difference account otherwise. A stock item is not returned to the supplier (122) yet. A released order's item keeps its plant and storage location (422 `procurement.invalid_change`); an order change that sends neither keeps them, and a kept item is checked only for its quantity's exact conversion, not again for its material's status or extension, so a change still brings down the open quantity of an item whose material was blocked since."
         storage_location_id:
           type: string
           format: uuid
           description: "The storage location (an org unit of kind `storage_location` under `plant_id`) a stock item is received into; see `plant_id`."
+        plant_code:
+          type: string
+          description: "Derived: `plant_id`'s code (`GET /v1/org-units/{id}`); with it."
+          readOnly: true
+        plant_name:
+          type: string
+          description: "Derived: `plant_id`'s name; with it."
+          readOnly: true
+        storage_location_code:
+          type: string
+          description: "Derived: `storage_location_id`'s code; with it."
+          readOnly: true
+        storage_location_name:
+          type: string
+          description: "Derived: `storage_location_id`'s name; with it."
+          readOnly: true
         delivery_date:
           type: string
           format: date
@@ -62145,7 +62161,7 @@ components:
         journal_entry_id: {type: string, format: uuid, description: "The journal entry that posted its value (`GET /v1/journal-entries/{id}`); absent when it moved none.", readOnly: true}
         journal_entry_year: {type: integer, format: int32, description: "That entry's fiscal year; absent with it.", readOnly: true}
         journal_entry_number: {type: string, description: "That entry's document number; absent with it.", readOnly: true}
-        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts/{id}`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); absent on every other document. Such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here).", readOnly: true}
+        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); absent on every other document. Such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here).", readOnly: true}
         lines:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocumentLine"}

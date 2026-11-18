@@ -8,11 +8,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/inventory"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Stock items (S1e; ADR-0082 §2-§3 and As built S1e): a purchase order
@@ -41,11 +43,16 @@ type Movements interface {
 // stockItem checks an order item that names a plant or a storage
 // location: both named, with its material, assigned to no cost center
 // (its receipts post to the stock), ordered in the company's currency,
-// which its stock is valued in, at an active plant of the company the
-// active material is kept at, at that storage location, in a unit of the
-// material whose ordered quantity converts to its base unit exactly. An
-// item that names neither is no stock item and is not checked here.
-func (e *Endpoints) stockItem(ctx context.Context, h orderHeader, field string, it Item) error {
+// which its stock is valued in, and, when the item is added (ordered, or
+// added by an order change), at an active plant of the company the active
+// material is kept at, at that storage location; in a unit of the
+// material whose quantity converts to its base unit exactly. A released
+// order's item an order change keeps keeps its material and location
+// (keptItems), and is not refused because its material was blocked or its
+// extension removed since: a change may still bring it down to what was
+// received. An item that names neither is no stock item and is not checked
+// here.
+func (e *Endpoints) stockItem(ctx context.Context, h orderHeader, field string, it Item, added bool) error {
 	switch {
 	case it.PlantID == nil && it.StorageLocationID == nil:
 		return nil
@@ -60,23 +67,18 @@ func (e *Endpoints) stockItem(ctx context.Context, h orderHeader, field string, 
 		return problem.Invalid("procurement.invalid_stock_item", field+".storage_location_id", "Stock items are ordered in company "+h.le.Code+
 			"'s currency "+h.le.LocalCurrency+", which their stock is valued in.")
 	}
-	if err := e.orgUnit(ctx, it.PlantID, h.le.ID, "plant", field+".plant_id"); err != nil {
-		return err
-	}
 	ms, err := e.Materials.Materials(ctx, []uuid.UUID{*it.MaterialID})
 	if err != nil {
 		return fmt.Errorf("procurement: material %s of %s: %w", *it.MaterialID, field, err)
 	}
 	m, ok := ms[*it.MaterialID]
-	switch {
-	case !ok:
+	if !ok {
 		return problem.Invalid("procurement.invalid_stock_item", field+".material_id", "No material with this id.")
-	case m.Status != materials.Active || !m.Stocked():
-		return problem.Invalid("procurement.invalid_stock_item", field+".material_id", "Material "+m.Number+" is "+m.Status+" and of type "+m.Type+
-			"; a stock item is of an active material kept in stock.")
-	case !m.KeptAt(*it.PlantID, *it.StorageLocationID):
-		return problem.Invalid("procurement.invalid_stock_item", field+".storage_location_id", "Material "+m.Number+
-			" is not kept at this storage location of the plant.")
+	}
+	if added {
+		if err := e.usableAt(ctx, h, field, it, m); err != nil {
+			return err
+		}
 	}
 	if _, err := m.Convert(money.ParseRat(it.Quantity), it.Unit); err != nil {
 		why := " is no unit of material " + m.Number
@@ -84,6 +86,24 @@ func (e *Endpoints) stockItem(ctx context.Context, h orderHeader, field string, 
 			why = " does not convert exactly to its base unit " + m.BaseUnit + " in six decimals"
 		}
 		return problem.Invalid("procurement.invalid_stock_item", field+".quantity.unit", it.Quantity+" "+it.Unit+why+".")
+	}
+	return nil
+}
+
+// usableAt checks an added stock item's plant, an active one of the
+// company, and that its material is active, kept in stock and kept at its
+// storage location there.
+func (e *Endpoints) usableAt(ctx context.Context, h orderHeader, field string, it Item, m materials.Material) error {
+	if err := e.orgUnit(ctx, it.PlantID, h.le.ID, "plant", field+".plant_id"); err != nil {
+		return err
+	}
+	switch {
+	case m.Status != materials.Active || !m.Stocked():
+		return problem.Invalid("procurement.invalid_stock_item", field+".material_id", "Material "+m.Number+" is "+m.Status+" and of type "+m.Type+
+			"; a stock item is of an active material kept in stock.")
+	case !m.KeptAt(*it.PlantID, *it.StorageLocationID):
+		return problem.Invalid("procurement.invalid_stock_item", field+".storage_location_id", "Material "+m.Number+
+			" is not kept at this storage location of the plant.")
 	}
 	return nil
 }
@@ -187,6 +207,44 @@ func (e *Endpoints) stockValued(ctx context.Context, g GoodsReceipt, current []o
 				"against GR/IR in company %s's currency %s; the order is valued %s in %s.", g.Items[i].POItemNo, oi.documentNumber, le.Code,
 				le.LocalCurrency, oi.valuation, oi.currency))
 		}
+	}
+	return nil
+}
+
+// located gives the stock items among items their plant's and storage
+// location's codes and names (tenancy's org units, each read once), which
+// a reader needs beside their ids (REVIEW.md, API-consumer classes). An
+// org unit is never deleted, so each is found; one not found would leave
+// its codes empty.
+func (e *Endpoints) located(ctx context.Context, items []gen.PurchaseOrderItem) error {
+	units := map[uuid.UUID]tenancy.Unit{}
+	unit := func(id uuid.UUID) (tenancy.Unit, error) {
+		if u, ok := units[id]; ok {
+			return u, nil
+		}
+		u, _, err := e.LegalEntities.OrgUnit(ctx, id)
+		if err != nil {
+			return tenancy.Unit{}, fmt.Errorf("procurement: org unit %s of a stock item: %w", id, err)
+		}
+		units[id] = u
+		return u, nil
+	}
+	for i := range items {
+		it := &items[i]
+		plant, ok := it.PlantID.Get()
+		if !ok {
+			continue
+		}
+		p, err := unit(plant)
+		if err != nil {
+			return err
+		}
+		l, err := unit(it.StorageLocationID.Value) // given with the plant (purchase_order_item_stock)
+		if err != nil {
+			return err
+		}
+		it.PlantCode, it.PlantName = gen.NewOptString(p.Code), gen.NewOptString(p.Name)
+		it.StorageLocationCode, it.StorageLocationName = gen.NewOptString(l.Code), gen.NewOptString(l.Name)
 	}
 	return nil
 }

@@ -13498,7 +13498,7 @@ step_stock_receipt() {
   as ben
   say "Ben orders 100 brackets at 2.50 CAD and 100 bolts at 0.60 CAD from Tyrell as stock items: each names its"
   say "material, the Toronto plant and its main store, the storage location its goods are received into (S1e):"
-  api 201 '"purchase order \(.document_number // .id): \(.status)", (.items[] | "  item \(.item_no): \(.description), \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) \(.unit_price.currency) into storage location \(.storage_location_id)")' createPurchaseOrder \
+  api 201 '"purchase order \(.document_number // .id): \(.status)", (.items[] | "  item \(.item_no): \(.description), \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) \(.unit_price.currency) into \(.plant_code)/\(.storage_location_code) \(.storage_location_name)")' createPurchaseOrder \
     -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"items\": [
       {\"material_id\": \"$MATERIAL\", \"description\": \"Machined bracket M10\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"2.50\", \"currency\": \"CAD\"},
        \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"},

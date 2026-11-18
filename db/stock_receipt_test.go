@@ -43,6 +43,39 @@ func TestStockItemRule(t *testing.T) {
 	}
 }
 
+// TestGoodsMovementDocument (S1e, migration 000390): a goods movement
+// names its material document by id and number together, or neither.
+func TestGoodsMovementDocument(t *testing.T) {
+	need(t)
+	for _, c := range []struct {
+		name   string
+		doc    any
+		number any
+		want   string
+	}{
+		{"both", id(), "MD1", ""},
+		{"neither", nil, nil, ""},
+		{"the id alone", id(), nil, "goods_movement_material_document"},
+		{"the number alone", nil, "MD1", "goods_movement_material_document"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFixture(t)
+			err := asApp(t, f.tenant, func(tx pgx.Tx) error {
+				return exec(tx, `INSERT INTO procurement.goods_movement (tenant_id, id, document_number, legal_entity_id, movement_type, document_date,
+					posting_date, posted_by, material_document_id, material_document_number) VALUES ($1, $2, 'GR1', $3, '101', '2026-11-20', '2026-11-20', $4, $5, $6)`,
+					f.tenant, id(), f.entity, f.actor, c.doc, c.number)
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
 // TestGoodsReceiptDocuments (S1e, migrations 000390 and 000391): a
 // material document of a purchase order's goods receipt (101) or its
 // reversal (102) names the goods movement's number as its reference, of 1

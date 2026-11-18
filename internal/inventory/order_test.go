@@ -120,20 +120,25 @@ type invoiced struct {
 	qty, amount string
 }
 
+// invoiceItems are the request's items of the invoiced ones on the order.
+func invoiceItems(po uuid.UUID, items []invoiced) []map[string]any {
+	list := make([]map[string]any, len(items))
+	for i, it := range items {
+		list[i] = map[string]any{"purchase_order_id": po, "po_item_no": it.no, "quantity": map[string]any{"value": it.qty, "unit": "EA"},
+			"amount": amount(it.amount)}
+	}
+	return list
+}
+
 // invoice enters an invoice of the supplier of kind ("" an invoice),
 // naming the invoice it corrects, if any, on the order's items, gross
 // without tax, matches it clean and posts it on the day; it answers the
 // post's status and body.
 func (e orderEnv) invoice(t *testing.T, kind string, reference any, po uuid.UUID, gross string, items ...invoiced) (int, map[string]any) {
 	t.Helper()
-	list := make([]map[string]any, len(items))
-	for i, it := range items {
-		list[i] = map[string]any{"purchase_order_id": po, "po_item_no": it.no, "quantity": map[string]any{"value": it.qty, "unit": "EA"},
-			"amount": amount(it.amount)}
-	}
 	*e.receiptSeq++
 	b := map[string]any{"legal_entity_id": e.DE, "supplier_id": e.supplier, "supplier_reference": fmt.Sprintf("INV-%d", *e.receiptSeq), "invoice_date": e.day,
-		"gross_amount": amount(gross), "tax_amount": amount("0.00"), "items": list}
+		"gross_amount": amount(gross), "tax_amount": amount("0.00"), "items": invoiceItems(po, items)}
 	if kind != "" {
 		b["kind"] = kind
 	}
@@ -217,8 +222,8 @@ func TestStockReceipt(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("invoice: got %d %v, want 200", code, inv)
 	}
-	if got := e.valuation(t, e.bracket, e.p1); got != "70 EA 177.80 2.54/1" {
-		t.Errorf("after the invoice: got %s, want 70 EA 196.00 2.80/1", got)
+	if got, want := e.valuation(t, e.bracket, e.p1), "70 EA 177.80 2.54/1"; got != want {
+		t.Errorf("after the invoice: got %s, want %s", got, want)
 	}
 	for account, want := range map[string]int64{"150000": 18780, "191000": 0, "517000": 370, "520000": 1000, "590000": 0} {
 		if got := e.balance(t, account); got != want {
@@ -240,15 +245,15 @@ func (e orderEnv) corrections(t *testing.T, po uuid.UUID, invoice string) {
 	}
 	// GR/IR credited 25.00 for 10 EA, the supplier debited 24.00: 1.00 on
 	// the stock, which holds all 10.
-	if got := e.valuation(t, e.bracket, e.p1); got != "70 EA 178.80 2.55/1" {
-		t.Errorf("after the credit memo: got %s, want 70 EA 201.00 2.87/1", got)
+	if got, want := e.valuation(t, e.bracket, e.p1), "70 EA 178.80 2.55/1"; got != want {
+		t.Errorf("after the credit memo: got %s, want %s", got, want)
 	}
 	if code, got := e.invoice(t, "subsequent_debit", invoice, po, "3.00", invoiced{1, "0", "3.00"}); code != 200 {
 		t.Fatalf("subsequent debit: got %d %v, want 200", code, got)
 	}
 	// 70 of the 100 received are in stock: 2.10 on it, 0.90 a price difference.
-	if got := e.valuation(t, e.bracket, e.p1); got != "70 EA 180.90 2.58/1" {
-		t.Errorf("after the subsequent debit: got %s, want 70 EA 205.90 2.94/1", got)
+	if got, want := e.valuation(t, e.bracket, e.p1), "70 EA 180.90 2.58/1"; got != want {
+		t.Errorf("after the subsequent debit: got %s, want %s", got, want)
 	}
 	if got := e.balance(t, "150000"); got != 19090 {
 		t.Errorf("stock account: got %d, want 19090", got)

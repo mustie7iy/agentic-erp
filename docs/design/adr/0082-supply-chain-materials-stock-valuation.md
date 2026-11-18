@@ -518,7 +518,13 @@ follow by type.
   material kept in stock at that storage location of a plant of the
   company, no cost center, a unit of the material whose ordered quantity
   converts to the base unit exactly, ordered in the company's currency
-  (422 `procurement.invalid_stock_item`). Its valuation is not checked
+  (422 `procurement.invalid_stock_item`). An item a change keeps keeps its
+  material and location (`purchase_order_item_identity`) and is checked
+  only for its quantity's exact conversion: a material blocked or a
+  storage location removed since does not refuse the change, so its open
+  quantity can still be brought down to what was received (review round 1).
+  Order items and order changes answer the plant's and storage location's
+  codes and names beside their ids. Its valuation is not checked
   until a receipt (the acceptance: a receipt without one is refused,
   nothing received, 422 `inventory.no_valuation`). Its `account_id` stays
   required, as the contract has it, and is kept, but is not posted: its

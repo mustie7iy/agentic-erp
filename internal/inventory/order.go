@@ -181,15 +181,10 @@ func (e *Endpoints) bookings(ctx context.Context, in posting, vals map[valuation
 	for i := range in.lines {
 		l := &in.lines[i]
 		v := vals[valuationKey{l.MaterialID, l.PlantID}]
-		stock, err := a.of(ctx, config.InventoryStock, v.ValuationClass)
+		b, err := a.stockBooking(ctx, v.ValuationClass)
 		if err != nil {
 			return nil, err
 		}
-		diff, err := a.of(ctx, config.InventoryPriceDifference, v.ValuationClass)
-		if err != nil {
-			return nil, err
-		}
-		b := ledger.GRIRStock{AccountID: stock, DifferenceAccountID: diff}
 		if q := money.ParseRat(l.Quantity); v.PriceControl == Standard || q.Sign() < 0 {
 			if l.Amount, err = v.move(q, l.target); err != nil {
 				return nil, lineErr(err, l, r)
@@ -199,6 +194,20 @@ func (e *Endpoints) bookings(ctx context.Context, in posting, vals map[valuation
 		out[l.ItemNo-1] = b
 	}
 	return out, nil
+}
+
+// stockBooking is a booking on the valuation class's stock and price
+// difference accounts, before what the stock takes is set.
+func (a *accounts) stockBooking(ctx context.Context, class string) (ledger.GRIRStock, error) {
+	stock, err := a.of(ctx, config.InventoryStock, class)
+	if err != nil {
+		return ledger.GRIRStock{}, err
+	}
+	diff, err := a.of(ctx, config.InventoryPriceDifference, class)
+	if err != nil {
+		return ledger.GRIRStock{}, err
+	}
+	return ledger.GRIRStock{AccountID: stock, DifferenceAccountID: diff}, nil
 }
 
 // InvoiceItem is a stock item a supplier invoice invoices: its order
@@ -273,11 +282,7 @@ func (e *Endpoints) invoiceBookings(ctx context.Context, c companyOf, items []In
 	for i, it := range items {
 		k := valuationKey{it.MaterialID, it.PlantID}
 		v := vals[k]
-		stock, err := a.of(ctx, config.InventoryStock, v.ValuationClass)
-		if err != nil {
-			return nil, err
-		}
-		diff, err := a.of(ctx, config.InventoryPriceDifference, v.ValuationClass)
+		b, err := a.stockBooking(ctx, v.ValuationClass)
 		if err != nil {
 			return nil, err
 		}
@@ -288,7 +293,8 @@ func (e *Endpoints) invoiceBookings(ctx context.Context, c companyOf, items []In
 		if err != nil {
 			return nil, err
 		}
-		out[i] = ledger.GRIRStock{AccountID: stock, DifferenceAccountID: diff, Share: share}
+		b.Share = share
+		out[i] = b
 	}
 	return out, nil
 }
