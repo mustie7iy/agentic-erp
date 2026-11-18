@@ -212,8 +212,8 @@ func TestIssuesAtOnce(t *testing.T) {
 	}
 }
 
-// TestTransfersInOppositeOrder: two transfers between S1 and S2 the other
-// way round at once both post: the stock rows are locked in one order.
+// TestTransfersInOppositeOrder: transfers between S1 and S2 either way
+// round at once all post, none waiting on another for good.
 func TestTransfersInOppositeOrder(t *testing.T) {
 	e := setup(t)
 	e.post(t, "561", e.item("10", "EA", nil), e.item("10", "EA", map[string]any{"storage_location_id": e.s2}))
@@ -238,5 +238,28 @@ func TestTransfersInOppositeOrder(t *testing.T) {
 	}
 	if got := e.stock(t, e.s1, "") + " " + e.stock(t, e.s2, ""); got != "10 EA 10 EA" {
 		t.Errorf("stock: got %s, want 10 EA at each", got)
+	}
+}
+
+// TestCircularTransfers: a document whose items move the stock round a
+// circle posts, each location's receipts applied before its issues; and
+// so does the reversal of a chain of transfers.
+func TestCircularTransfers(t *testing.T) {
+	e := setup(t)
+	e.post(t, "561", e.item("10", "EA", map[string]any{"storage_location_id": e.s2}))
+	circle := e.post(t, "311", e.item("10", "EA", map[string]any{"to_storage_location_id": e.s2}),
+		e.item("10", "EA", map[string]any{"storage_location_id": e.s2, "to_storage_location_id": e.s1}))
+	if got := e.stock(t, e.s1, "") + "|" + e.stock(t, e.s2, ""); got != "|10 EA" {
+		t.Errorf("after the circle: got %s, want |10 EA", got)
+	}
+	_, tag := e.Must(200, "GET", docs+"/"+circle["id"].(string), "", "")
+	e.Must(200, "POST", docs+"/"+circle["id"].(string)+":reverse", "", tag)
+	e.post(t, "311", e.item("10", "EA", map[string]any{"storage_location_id": e.s2, "to_storage_location_id": e.s1}))
+	chain := e.post(t, "311", e.item("10", "EA", map[string]any{"to_storage_location_id": e.s2}),
+		e.item("10", "EA", map[string]any{"storage_location_id": e.s2, "to_storage_location_id": e.s1}))
+	_, tag = e.Must(200, "GET", docs+"/"+chain["id"].(string), "", "")
+	e.Must(200, "POST", docs+"/"+chain["id"].(string)+":reverse", "", tag)
+	if got := e.stock(t, e.s1, "") + "|" + e.stock(t, e.s2, ""); got != "10 EA|" {
+		t.Errorf("after the chain's reversal: got %s, want 10 EA|", got)
 	}
 }

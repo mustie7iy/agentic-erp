@@ -353,8 +353,9 @@ create with such a match is refused (409) unless the request confirms it.
   is S2i's. Every plant of a document is of one company, whose range
   numbers it.
 - **Posting date is the company's date today** (`config.DocumentDay`);
-  the request gives none, so the stock as at any earlier day never falls
-  below zero. Posting into an earlier day waits for S1d's periods
+  the request gives none, so a document is never dated before those
+  posted ahead of it (but around midnight, when one dated the day before
+  may wait for one dated today). Posting into an earlier day waits for S1d's periods
   (Later). SAP allows the current and the previous period.
 - **Stock never below zero.** A posting locks the stock rows it moves in
   one order (material, plant, storage location, as PostgreSQL orders
@@ -363,8 +364,15 @@ create with such a match is refused (409) unless the request confirms it.
   the location and both quantities) and the column's 14 integer digits
   (422 `inventory.quantity_too_large`); the database adds each movement to
   its row (`movement_stock`, a security definer, the only writer of the
-  quantity) and refuses one below zero (`stock_not_negative`).
-  `TestIssuesAtOnce` and `TestTransfersInOppositeOrder` hold it.
+  quantity) and refuses any line below zero (`stock_not_negative`,
+  registered as 409 `inventory.insufficient_stock`), so the lines are
+  written each location's receipts first (review round 1: a circle of
+  transfers, or a chain's reversal, went below zero line by line though
+  not in all; `TestCircularTransfers`). `TestIssuesAtOnce` holds the
+  lock; postings of a company also queue on its number range.
+- **The stock list has no totals**: it is a list of locations, each in
+  its material's base unit; a total per material or plant is Later (SAP
+  MMBE's), never across materials, whose units differ.
 - **Reversal** of the whole document, once: a lock named after the
   document serializes reversals (documents are insert-only), as
   procurement's goods receipts do; `If-Match` is the document's

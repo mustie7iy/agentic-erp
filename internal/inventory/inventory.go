@@ -29,6 +29,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -71,6 +72,14 @@ var movementTypes = map[string]movementType{
 	"312": {name: "Reversal of a transfer between storage locations", sign: 1, transfer: betweenStorageLocations, reverses: "311"},
 	"301": {name: "Transfer between plants", sign: -1, transfer: betweenPlants, reversal: "302"},
 	"302": {name: "Reversal of a transfer between plants", sign: 1, transfer: betweenPlants, reverses: "301"},
+}
+
+func init() {
+	// takeStock refuses a shortage first, naming it; this is the
+	// database's answer should one pass it.
+	problem.RegisterConstraint("stock_not_negative", func() *problem.Problem {
+		return problem.Conflict("inventory.insufficient_stock", "A goods movement would take a location's stock below zero.")
+	})
 }
 
 // Org unit kinds goods move between (tenancy.OrgUnitKinds).
