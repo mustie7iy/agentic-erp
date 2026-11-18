@@ -922,7 +922,11 @@ reference), each listed for the product owner's digest.
   2026-11-17 (budget 3 s and 6 s; one scale 1 run at a load of 43 had a
   6.0 s outlier, its median 1.47 s).
 - **Audit, no event.** Audit action `collections.customer_contact.record`
-  with the texts. No event, as a block's. The collections agent never
+  with the ids, `contacted_at`, the outcome and the resubmission date,
+  and `has_contact_name`/`has_note` in place of the texts, which are
+  personal data a deletion run blanks on the contact and could not blank
+  in the insert-only trail (ADR-0026, ADR-0079; batch 79 review). No
+  event, as a block's. The collections agent never
   records a contact (`collectionsagent.Never`).
 - **Walkthrough.** `step_collection_contacts` (step 119): Ruth records a
   call with Lakeshore's clerk with a resubmission date 135 days out; a

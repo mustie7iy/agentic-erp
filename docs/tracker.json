@@ -2898,7 +2898,7 @@
        },
        {
         "s": "T",
-        "t": "The recognition run reads every active contract of the company on each run, ended contracts and contracts whose transaction price is zero included, so the set it reads only grows with the contracts a company ever had and drifts toward revenue.recognition_run_too_large; it should read only the contracts with revenue left to recognize (found in T81e's review)",
+        "t": "The recognition run reads every active contract of the company on each run, ended contracts and contracts whose transaction price is zero included, so the set it reads only grows with the contracts a company ever had and drifts toward revenue.recognition_run_too_large; it should read only the contracts with revenue left to recognize or to reverse, an ended contract until the run that takes its accruals off (found in T81e's review)",
         "r": "internal/revenue run.go activeContracts · revenue.recognition_run_too_large · ADR-0068",
         "src": "review:batch79",
         "c": []
@@ -6257,6 +6257,13 @@
       "r": "internal/platform/audit · ADR-0026",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "The audit guard that refuses personal data in a detail (audit.Personal) reads string values only, never a pointer's: a *string detail value holding an email address or an IBAN (a dispute case's note, an optional text) is written to the insert-only trail unrefused; dereference pointers as it reads maps and lists (found in batch 79's review)",
+      "r": "internal/platform/audit audit.go personal · ADR-0026 · ADR-0011",
+      "src": "review:batch79",
+      "c": []
      }
     ]
    },
@@ -6523,8 +6530,8 @@
        },
        {
         "s": "T",
-        "t": "Free-text personal data is copied into audit details (a dispute case's reason and note, a customer contact's name and note), which a deletion run cannot blank: audit records are insert-only, so the text outlives the erasure of its subject; keep such text out of audit details, or make it erasable (found in batch 79's review)",
-        "r": "internal/collections disputes.go and contacts.go audit details · audit.audit_event · ADR-0079 · ADR-0011",
+        "t": "A dispute case's free-text reason and note are copied into its audit details (opened, changed, closed), which a deletion run cannot blank: audit records are insert-only, so the text outlives the erasure of its subject; keep such text out of audit details, as customer contacts do since batch 79, or make it erasable (found in batch 79's review)",
+        "r": "internal/collections disputes.go audit details (recordCase, changed) · audit.audit_event · audit.audit_event · ADR-0079 · ADR-0011",
         "src": "review:batch79",
         "c": []
        }
@@ -9099,8 +9106,8 @@
        },
        {
         "s": "T",
-        "t": "A problem's field names are prefixed with the request's path (items[n]., a nested object) by rewrites written inline in payables, ledger, closing, web and sales: one shared helper in internal/platform/problem (found in T78e's review)",
-        "r": "internal/platform/problem · the inline field-prefix rewrites in internal/payables, internal/ledger, internal/closing, internal/web and internal/sales · 04 §4.6",
+        "t": "A problem's field names are prefixed with the request's path (items[n]., a nested object) by rewrites written inline in payables, ledger, closing, cash, web and sales: one shared helper in internal/platform/problem (found in T78e's review)",
+        "r": "internal/platform/problem · the inline field-prefix rewrites in ledger itemassign.go and assetreads.go, payables expenses.go, closing accruals.go, cash memo_upload.go, sales order_items.go and web entry_form.go · 04 §4.6",
         "src": "review:batch79",
         "c": []
        }

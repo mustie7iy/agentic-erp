@@ -174,13 +174,17 @@ func (e *Endpoints) resubmission(ctx context.Context, le tenancy.Entity, date *t
 	return nil
 }
 
-// recordContact adds the audit record of a contact recorded (ADR-0011),
-// its texts in the detail. A contact publishes no event: it changes
-// nothing outside the context. Without events audit.Record fails only
-// outside a unit of work, which reqctx.Request refused before.
+// recordContact adds the audit record of a contact recorded (ADR-0011).
+// Its detail says whether the contact names a person and has a note but
+// holds neither: they are personal data (records.Inventory), which a
+// deletion run blanks on the contact (ADR-0079) and could not blank in
+// the insert-only audit trail (ADR-0026: identifiers, not names). A
+// contact publishes no event: it changes nothing outside the context.
+// Without events audit.Record fails only outside a unit of work, which
+// reqctx.Request refused before.
 func recordContact(ctx context.Context, c Contact) error {
 	detail := map[string]any{"legal_entity_id": c.LegalEntityID, "customer_id": c.CustomerID, "contacted_at": c.ContactedAt, "outcome": c.Outcome,
-		"contact_name": c.ContactName, "note": c.Note, "resubmission_date": nil}
+		"has_contact_name": c.ContactName != nil, "has_note": c.Note != nil, "resubmission_date": nil}
 	if c.Resubmission != nil {
 		detail["resubmission_date"] = c.Resubmission.Format(time.DateOnly)
 	}

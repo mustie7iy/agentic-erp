@@ -110,6 +110,18 @@ func TestCustomerContacts(t *testing.T) {
 	if audits != 4 {
 		t.Errorf("audit records: got %d, want 4", audits)
 	}
+	// The texts stay out of the audit trail, which a deletion run cannot
+	// blank (ADR-0079); the detail says only that they were given.
+	var texts, flagged int
+	pgtest.Scan(t, `SELECT count(*) FILTER (WHERE detail ? 'contact_name' OR detail ? 'note' OR detail::text LIKE '%Dana Ortiz%'),
+			count(*) FILTER (WHERE (detail->>'has_contact_name')::boolean AND (detail->>'has_note')::boolean)
+		FROM audit.audit_event WHERE tenant_id = $1 AND action = 'collections.customer_contact.record'`, []any{e.Tenant.ID}, &texts, &flagged)
+	if texts != 0 {
+		t.Errorf("audit records holding a contact's name or note: got %d, want 0", texts)
+	}
+	if flagged == 0 {
+		t.Errorf("audit records saying a name and a note were given: got %d, want at least 1", flagged)
+	}
 }
 
 // TestContactRefusals: a contact after now, an unknown outcome, texts of

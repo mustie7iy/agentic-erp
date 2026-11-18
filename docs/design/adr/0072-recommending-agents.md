@@ -527,8 +527,7 @@ A later slice adds its row here and its section under "As built".
   naming them.
 - Its never list is every write of sourcing: `awardRfq`, `publishRfq`,
   `createSupplierQuotation`, `createRfq`, and T82g's `cancelRfq` and
-  `closeRfq` (added in batch 79's integration; `TestNever` keeps it whole
-  against the contract); `awardRfq` is `x-agent: false`.
+  `closeRfq` (`TestNever` keeps it whole against the contract); `awardRfq` is `x-agent: false`.
 - `evals/bid_comparison`, version 1, replayed to level 2 on a clock
   standing at 2026-11-16 (`cmd/erp` `cellClock`), since its RFQs take
   numbers of fiscal year 2026 and are due on dates of its own: the cheaper

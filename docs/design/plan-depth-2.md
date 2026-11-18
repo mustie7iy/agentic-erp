@@ -7,8 +7,7 @@ named variants of its placeholder into slices in the form of
 `plan-breadth-week3.md` (Adds, Acceptance, Later) and builds them, or,
 where its slice is a tracker leaf already, writes the leaf's section.
 `docs/tracker.json` stays the only plan (07 §7.5); each leaf's `r` names
-its section below. Each lane writes its own `## <lane>` section; batch 79
-merged recv2, coll, rev and rfq2.
+its section below. Each lane writes its own `## <lane>` section.
 
 ## recv2
 
