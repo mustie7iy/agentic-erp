@@ -12724,6 +12724,9 @@ paths:
               - draft
               - published
               - awarded
+              - cancelled
+              - closed
+              - order_cancelled
         - $ref: "#/components/parameters/DocumentNumber"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
