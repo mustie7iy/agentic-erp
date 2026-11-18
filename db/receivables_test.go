@@ -64,7 +64,7 @@ func TestCustomerInvoiceRules(t *testing.T) {
 		{"of another kind", func(tx pgx.Tx, s scene) error {
 			return all(tx, invoice(s, s.doc, "CI1", "write_off", 10000, 1900, 11900, "draft"))
 		}, "customer_invoice_kind_check"},
-		{"a draft debit memo (T75j, migration 000373)", func(tx pgx.Tx, s scene) error {
+		{"a draft debit memo (T75j, migration 000379)", func(tx pgx.Tx, s scene) error {
 			return all(tx, invoice(s, s.doc, "CI1", "debit_memo", 10000, 1900, 11900, "draft"), step(item, s.tenant, s.doc, 1, 10000, &code, 1900))
 		}, ""},
 		{"a gross that is not net and tax", func(tx pgx.Tx, s scene) error {
@@ -823,12 +823,12 @@ func TestSeveralCustomersRevert(t *testing.T) {
 	}
 }
 
-// TestDebitMemoRevert (T75j, migration 000373's down): the revert is
+// TestDebitMemoRevert (T75j, migration 000379's down): the revert is
 // refused while a debit memo exists, the kind check it restores knowing
 // invoices and credit memos alone.
 func TestDebitMemoRevert(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000373_customer_debit_memo").Down
+	down := migrationNamed(t, "000379_customer_debit_memo").Down
 	ctx := context.Background()
 	tx, err := testDB.Begin(ctx)
 	if err != nil {
@@ -844,7 +844,7 @@ func TestDebitMemoRevert(t *testing.T) {
 	failsWith(t, exec(tx, down), "customer_invoice_kind_check")
 }
 
-// TestCustomerMemoReversal (T75k, migration 000375; ADR-0063 As built): a
+// TestCustomerMemoReversal (T75k, migration 000381; ADR-0063 As built): a
 // posted credit or debit memo a person entered moves to reversed once,
 // naming its reversal entry, the date on or after it posted and a reason,
 // all together, and keeping what it posted with; an invoice, a memo
@@ -968,11 +968,11 @@ func TestCustomerMemoReversal(t *testing.T) {
 	}
 }
 
-// TestCustomerMemoReversalRevert (T75k, migration 000375's down): the
+// TestCustomerMemoReversalRevert (T75k, migration 000381's down): the
 // revert is refused while a document was reversed.
 func TestCustomerMemoReversalRevert(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000375_customer_memo_reversal").Down
+	down := migrationNamed(t, "000381_customer_memo_reversal").Down
 	ctx := context.Background()
 	tx, err := testDB.Begin(ctx)
 	if err != nil {
@@ -987,5 +987,5 @@ func TestCustomerMemoReversalRevert(t *testing.T) {
 			2026, gen_random_uuid(), '2026-03-12', 2026, gen_random_uuid(), 'Entered twice')`, tenant)); err != nil {
 		t.Fatal(err)
 	}
-	failsWith(t, exec(tx, down), "000375 cannot be reverted")
+	failsWith(t, exec(tx, down), "000381 cannot be reverted")
 }

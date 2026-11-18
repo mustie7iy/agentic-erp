@@ -11,7 +11,7 @@
 -- previous version neither reads nor writes the new columns and never
 -- writes the new status. The changed and new checks are added NOT VALID,
 -- reading no row under the lock (every row satisfies them: none is
--- reversed), and 000376 validates them.
+-- reversed), and 000382 validates them.
 ALTER TABLE receivables.customer_invoice
   ADD COLUMN reversal_date       date,
   ADD COLUMN reversal_entry_year smallint,

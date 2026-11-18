@@ -1132,7 +1132,7 @@ document (from memory, not checked against a source in the lane). §6's
   `TestIncomingPaymentResetRules`, `TestClearingResetRevert` (db).
   Walkthrough `step_payment_reset` (step 117).
 
-### T75j Customer debit memo (migrations 000373, 000374)
+### T75j Customer debit memo (migrations 000379, 000380)
 A variant of §7 (`plan-depth-3.md` §T75j): a customer debit memo charges
 the customer what an invoice did not (freight, a price correction), as
 SAP's debit memo does (FB70/FB75 in FI, billing type L2 in SD; from
@@ -1157,8 +1157,8 @@ memory, not checked against a source in the lane).
   not counted against any invoice's credit limit, which only credit
   memos count. Events and audit records carry the kind, the amounts
   positive (`signed` turns a credit memo's alone).
-- Migration 000373: `customer_invoice_kind_check` widened to
-  `debit_memo`, added `NOT VALID`; 000374 validates it. The down is
+- Migration 000379: `customer_invoice_kind_check` widened to
+  `debit_memo`, added `NOT VALID`; 000380 validates it. The down is
   refused while a debit memo exists (`TestDebitMemoRevert`); schema
   cases in `TestCustomerInvoiceRules` and `TestCustomerCreditMemoRules`
   (a debit memo naming an invoice, `customer_invoice_reference_on_credit`).
@@ -1179,7 +1179,7 @@ memory, not checked against a source in the lane).
   (numbering-only versions need the product owner's word on the
   sign-off, as 2026.9 and 2026.6 had; listed for the digest).
 
-### T75k Reversing a customer credit memo or debit memo (migrations 000375, 000376)
+### T75k Reversing a customer credit memo or debit memo (migrations 000381, 000382)
 A variant of §7 (`plan-depth-3.md` §T75k): a credit memo or debit memo
 posted in error is reversed, as SAP's FB08 reverses a document (from
 memory, not checked against a source in the lane). §7's "none is
@@ -1240,7 +1240,7 @@ memo (§5, plan default 3).
   (`httpapi.RefusalsAudited`). The ledger's `reverseJournalEntry` now
   names this path for receivables' entries (`requireOwnEntry`), with the
   invoice's correction and T75i's reset.
-- Migration 000375: `reversal_date`, `reversal_entry_year`,
+- Migration 000381: `reversal_date`, `reversal_entry_year`,
   `reversal_entry_id`, `reversal_reason`; the status `reversed`
   (`customer_invoice_status_check`); `customer_invoice_posted` admits a
   reversed document with its entry; `customer_invoice_reversed` (the four
@@ -1250,7 +1250,7 @@ memo (§5, plan default 3).
   `customer_invoice_reversal_once`; the trigger
   `customer_invoice_posted_once` admits posted → reversed keeping what the
   document posted with, and nothing after; the update grant on the four
-  columns. The checks are added `NOT VALID` and 000376 validates them;
+  columns. The checks are added `NOT VALID` and 000382 validates them;
   the down is refused while a document was reversed. Schema tests:
   `TestCustomerMemoReversal`, `TestCustomerMemoReversalRevert`.
 - Tests: `TestReverseDebitMemo`, `TestReverseCreditMemoFreesItsCredit`,

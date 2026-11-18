@@ -4,7 +4,7 @@
 DO $$
 BEGIN
   IF EXISTS (SELECT FROM receivables.customer_invoice WHERE status = 'reversed') THEN
-    RAISE EXCEPTION 'reversed customer credit or debit memos exist: 000375 cannot be reverted' USING ERRCODE = 'check_violation';
+    RAISE EXCEPTION 'reversed customer credit or debit memos exist: 000381 cannot be reverted' USING ERRCODE = 'check_violation';
   END IF;
 END $$;
 REVOKE UPDATE (reversal_date, reversal_entry_year, reversal_entry_id, reversal_reason) ON receivables.customer_invoice FROM erp_app;

@@ -4606,9 +4606,9 @@ erDiagram
   (`customer_invoice_totals`). The number is unique per company
   (`customer_invoice_number_once`). The kind is `invoice` alone
   (`customer_invoice_kind_check`), which T75d widens (`credit_memo`) and
-  T75j (`debit_memo`, migration 000373, validated by 000374); the
+  T75j (`debit_memo`, migration 000379, validated by 000380); the
   status is `draft` or `posted` (`customer_invoice_status_check`), and
-  `reversed` since T75k (migration 000375, validated by 000376). A
+  `reversed` since T75k (migration 000381, validated by 000382). A
   posted invoice names its journal entry with its year, its posting
   date, the payment term it posted with and its net due date, and a
   draft names no entry (`customer_invoice_posted`); an entry is one
@@ -4622,7 +4622,7 @@ erDiagram
   billing document of sales), and a document is invoiced once
   (`customer_invoice_source_once`); the source is written with the
   invoice and not among the columns the application may update. A
-  reversed credit or debit memo (T75k, migration 000375) names the
+  reversed credit or debit memo (T75k, migration 000381) names the
   reversal of its entry by year and id, the date it posted on and a
   reason of 1 to 200 characters, all together exactly when reversed; only
   a credit or debit memo without a source document is reversed, on or
