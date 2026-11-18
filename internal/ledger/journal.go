@@ -1554,22 +1554,22 @@ func requireReversible(ctx context.Context, tx pgx.Tx, orig Entry, cancelling uu
 // entry a context posted for a document that has a reversal of its own:
 // only the owner knows what else the reversal must change (a supplier
 // invoice's status, its permission, the payment runs holding its item), so
-// it reverses the entry through Postings.Reverse. Today that is payables
-// (supplier-invoices/{id}:reverse; an expense report's entry is not
-// reversed, ADR-0074), and procurement, whose goods receipts
-// are reversed by a 102 movement posting its own WE entry
-// (goods-receipts/{id}:reverse, T33), and assets, whose documents are
-// reversed through their own paths (asset-acquisitions/{id}:reverse,
-// ADR-0057 §4), and controlling, whose settlements are reversed by
-// internal-orders/{id}/settlements/{settlement id}:reverse (T60i) and
-// whose allocation runs by allocation-runs/{id}:reverse (T60k), and
-// receivables, whose credit and debit memos are reversed by
-// customer-invoices/{id}:reverse (T75k) and whose applications are undone
-// by incoming-payments/{id}:reset (T75i). Entries
-// of contexts without such a
-// reversal stay the ledger's to reverse: manual ones, those a migration run
-// loaded (their source document is the load run), and payments (whose
-// entries clear their items, so requireReversible refuses them anyway).
+// it reverses the entry through Postings.Reverse. Today these are:
+//   - payables: supplier-invoices/{id}:reverse (an expense report's entry
+//     is not reversed, ADR-0074);
+//   - procurement: goods-receipts/{id}:reverse, a 102 movement posting its
+//     own WE entry (T33);
+//   - assets: their documents' own paths, such as
+//     asset-acquisitions/{id}:reverse (ADR-0057 §4);
+//   - controlling: internal-orders/{id}/settlements/{settlement id}:reverse
+//     (T60i) and allocation-runs/{id}:reverse (T60k);
+//   - receivables: customer-invoices/{id}:reverse for credit and debit
+//     memos (T75k), incoming-payments/{id}:reset for applications (T75i).
+//
+// Entries of contexts without such a reversal stay the ledger's to
+// reverse: manual ones, those a migration run loaded (their source
+// document is the load run), and payments (whose entries clear their
+// items, so requireReversible refuses them anyway).
 //
 // The contexts reversible here are listed, so a context that starts
 // posting is refused until it is decided whether it owns its reversals.
