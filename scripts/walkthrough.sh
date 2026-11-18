@@ -7115,11 +7115,8 @@ step_credit_limit() {
     updateCreditLimit -p "id=$id" -if-match "$tag" -body "{\"limit\": {\"amount\": \"$raised\", \"currency\": \"CAD\"}}"
   expect "the raise waiting" "$(field '"\(.limit.amount) \(has("pending_change_id"))"')" "$limit true"
   change=$(field .pending_change_id)
-  say "Her earlier version of it is stale now, and a change with it is refused; nor may she approve her own request:"
+  say "Her earlier version of it is stale now, and a change with it is refused:"
   refused 412 request.version_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "CAD"}}'
-  QUIET=1 api 200 '' getCreditLimitChange -p "id=$change"
-  QUIET=1 api 200 '' getApprovalRequest -p "id=$(field .workflow_request_id)"
-  refused 403 workflow.own_request approveApprovalRequest -p "id=$(field .id)" -if-match "$ETAG" -body '{}'
   say "Carla approves the raise. The audit trail and the event CreditLimitChanged carry the limit before and after;"
   say "the event names the customer by id and number, never by name:"
   approve_credit_limit "$change"

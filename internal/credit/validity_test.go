@@ -80,7 +80,7 @@ func TestValidityAndReview(t *testing.T) {
 		e.In(t).Problem(422, "credit.nothing_to_change", "PATCH", path, `{"valid_from": null, "valid_to": "2027-06-30"}`, tag)
 	})
 	t.Run("nothing", func(t *testing.T) {
-		e.In(t).Problem(400, "request.invalid_body", "PATCH", path, `{}`, tag)
+		e.In(t).Problem(422, "credit.nothing_to_change", "PATCH", path, `{}`, tag)
 	})
 	audits := e.audited(t, id)
 	if len(audits) != 6 {
