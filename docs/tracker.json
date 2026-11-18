@@ -5005,7 +5005,21 @@
        },
        {
         "s": "T",
-        "t": "later: price determination variants: scales by quantity or value, prices per customer group, price list type or sales organization, surcharges and freight, minimum prices and manual price approval, currency conversion of a price, repricing a document, mass changes and price uploads, prices taken over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "Scales on a condition record: a price or discount's rate by the level an item's quantity or value reaches (basis quantity or value, its unit or currency stated, a \"from\" scale exact in minor units), shown on the item's condition",
+        "r": "T80e · docs/design/plan-depth-3.md §T80e · ADR-0067 §10, §11",
+        "src": "split:T80a · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Prices per customer price group: price groups in configuration, a customer's group on its sales data in a company, price records for a group, and the access sequence customer, price group, general",
+        "r": "T80f · docs/design/plan-depth-3.md §T80f · ADR-0067 §10, §11",
+        "src": "split:T80a · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: price determination variants: prices per price list type or sales organization, surcharges and freight, minimum prices and manual price approval, currency conversion of a price, repricing a document, mass changes and price uploads, prices taken over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T80a, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
