@@ -1,6 +1,6 @@
 -- The one-run rule again: a period run again after a reversal goes with
--- the reversals, which 000375's down drops; their entries stay in the
--- journal. Validation only checked the rows; 000375's down puts the
+-- the reversals, which 000387's down drops; their entries stay in the
+-- journal. Validation only checked the rows; 000387's down puts the
 -- previous checks back.
 DELETE FROM controlling.allocation_run_reversal;
 DELETE FROM controlling.allocation_run WHERE attempt > 1;

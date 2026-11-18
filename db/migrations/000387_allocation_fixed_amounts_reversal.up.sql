@@ -9,8 +9,8 @@
 -- in force at a time. Expand only (06 §6.4): a new table, a nullable
 -- column, a column with a constant default, a trigger about values the
 -- previous version never writes, and wider checks added NOT VALID, which
--- 000377 validates; 000376 builds the new unique index concurrently, and
--- 000377 drops the narrower one-run rule it replaces. The previous
+-- 000389 validates; 000388 builds the new unique index concurrently, and
+-- 000389 drops the narrower one-run rule it replaces. The previous
 -- version writes attempt 1 only, which the trigger accepts while no
 -- reversed run of the period exists, and it reads a reversed run as the
 -- period's run, refusing to run again: nothing it does is wrong.
@@ -27,7 +27,7 @@ ALTER TABLE controlling.allocation_cycle ADD CONSTRAINT allocation_cycle_fixed_a
 ALTER TABLE controlling.allocation_receiver ADD COLUMN amount bigint;
 ALTER TABLE controlling.allocation_receiver ADD CONSTRAINT allocation_receiver_amount CHECK (amount > 0) NOT VALID;
 
--- 000373's rule with fixed amounts: by fixed percentages every receiver
+-- 000385's rule with fixed amounts: by fixed percentages every receiver
 -- has its share and they add up to the whole; by fixed amounts every
 -- receiver has its amount; by a key figure the cycle has receivers. Only
 -- fixed percentages hold shares and only fixed amounts amounts.
@@ -85,7 +85,7 @@ SELECT platform.secure_table('controlling.allocation_run_reversal'::regclass);
 
 -- One run in force per cycle and period: a run's attempt is one more than
 -- the cycle's runs of the period before it, each of them reversed. Two
--- runs of one attempt are refused by the unique index of 000376.
+-- runs of one attempt are refused by the unique index of 000388.
 CREATE FUNCTION controlling.check_allocation_run_attempt() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE

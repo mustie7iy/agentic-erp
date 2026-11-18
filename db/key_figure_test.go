@@ -9,7 +9,7 @@ import (
 )
 
 // Statistical key figures, their postings and cycles whose shares come
-// from them (T60j, migrations 000373-000374; ADR-0064 As built T60j).
+// from them (T60j, migrations 000385-000386; ADR-0064 As built T60j).
 
 const (
 	keyFigureSQL = `INSERT INTO controlling.statistical_key_figure (tenant_id, id, legal_entity_id, code, name, unit, created_by, updated_by)

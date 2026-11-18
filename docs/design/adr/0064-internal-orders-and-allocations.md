@@ -985,14 +985,14 @@ run only once the later ones are reversed.
   order again (CC-1100 shows the CAD 1,500.00 once) and the listing
   shows both settlements, the first reversed; the order is then closed.
 
-### T60j: receiver shares from statistical key figures (migrations 000373-000374)
+### T60j: receiver shares from statistical key figures (migrations 000385-000386)
 The allocation variant of plan-depth-3 §T60j. SAP S/4HANA is the
 reference, stated from memory for the specialist to confirm: statistical
 key figures (KK01) of a controlling area with a unit, their values
 posted per cost center and period (KB31N), totals values adding up
 within a period, and a cycle segment's receiver rule "variable portions"
 taking the receivers' tracing factors from a key figure's actual values.
-- **Tables** (000373): `controlling.statistical_key_figure` (a company's,
+- **Tables** (000385): `controlling.statistical_key_figure` (a company's,
   code unique in it, a name, a unit of measure of `ref.unit_of_measure`;
   it keeps its company, code and unit, `statistical_key_figure_identity`),
   `controlling.statistical_key_figure_posting` (a key figure's posting
@@ -1006,7 +1006,7 @@ taking the receivers' tracing factors from a key figure's actual values.
   a cycle by key figure hold no `share_bp`, and the deferred rule of
   000283 reads the basis (`allocation_receiver_shares_whole` on fixed
   percentages, `allocation_receiver_shares_by_basis` by key figure). The
-  cycle's new constraints are added `NOT VALID` and validated by 000374.
+  cycle's new constraints are added `NOT VALID` and validated by 000386.
   Schema tests: `db/key_figure_test.go` (`TestStatisticalKeyFigureRules`,
   `TestKeyFigureCycleRules`).
 - **API**: `POST /v1/statistical-key-figures`, `GET` (list by `code`,
@@ -1070,14 +1070,14 @@ taking the receivers' tracing factors from a key figure's actual values.
   percentage refused), Alex posts CAD 100.01 to CC-1200 and the run
   splits it CAD 75.01 and 25.00.
 
-### T60k: fixed amounts per receiver, and an allocation run reversed (migrations 000375-000377)
+### T60k: fixed amounts per receiver, and an allocation run reversed (migrations 000387-000389)
 The allocation variants of plan-depth-3 §T60k. SAP S/4HANA is the
 reference, stated from memory for the specialist to confirm: a cycle
 segment's sender rule "fixed amounts" charges the receivers amounts
 entered in the segment whatever the sender's posted costs; a cycle run
 is reversed for its period (KSU5/KSV5, reversal), after which the cycle
 may be run for the period again.
-- **Fixed amounts** (000375): `share_basis` `fixed_amounts`, an
+- **Fixed amounts** (000387): `share_basis` `fixed_amounts`, an
   assessment's alone (`allocation_cycle_fixed_amounts`); each receiver
   holds its `amount` in minor units of the company's local currency,
   above zero (`allocation_receiver_amount`), and no share; the deferred
@@ -1094,13 +1094,13 @@ may be run for the period again.
   with its amount, posted whatever the sender's costs, also when it has
   none; its `account_count` is 0 (the response's minimum lowered from 1,
   accepted in `api/breaking-accepted.txt`).
-- **A run reversed** (000375-000377): `controlling.allocation_run_reversal`
+- **A run reversed** (000387-000389): `controlling.allocation_run_reversal`
   (one per run, its entry once, insert-only); the run's `attempt` within
   its cycle and period, unique (`allocation_run_attempt_once`, built
-  concurrently by 000376) and, by a trigger, the next after runs all
+  concurrently by 000388) and, by a trigger, the next after runs all
   reversed (`allocation_run_in_force_once`), so one run per cycle and
-  period is in force; 000377 drops `allocation_run_once`, which it
-  replaces, and validates 000375's checks. Schema tests:
+  period is in force; 000389 drops `allocation_run_once`, which it
+  replaces, and validates 000387's checks. Schema tests:
   `db/allocation_reversal_test.go`. `POST /v1/allocation-runs/{id}:reverse`
   (`controlling.allocation.run` and `ledger.entry.read`, `x-agent:
   false`, `If-Match` the cycle's version, which it does not move; 200

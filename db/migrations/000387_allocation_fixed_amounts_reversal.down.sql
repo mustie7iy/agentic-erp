@@ -15,7 +15,7 @@ DELETE FROM controlling.allocation_run WHERE account_count = 0;
 ALTER TABLE controlling.allocation_run DROP CONSTRAINT allocation_run_account_count;
 ALTER TABLE controlling.allocation_run ADD CONSTRAINT allocation_run_account_count_check CHECK (account_count > 0);
 
--- 000373's rule.
+-- 000385's rule.
 CREATE OR REPLACE FUNCTION controlling.allocation_shares_whole(tenant uuid, cycle uuid) RETURNS void
 LANGUAGE plpgsql AS $$
 DECLARE

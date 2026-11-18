@@ -3664,14 +3664,14 @@
        {
         "s": "D",
         "t": "A controller posts a statistical key figure's values per cost center and period, and runs a cycle whose receivers' shares are the key figure's values of the period",
-        "r": "T60j · docs/design/plan-depth-3.md §T60j · migrations 000373-000374 · internal/controlling/keyfigures.go, allocation.go, allocationrun.go · AllocationCycleChanged .v2 · ADR-0064 As built T60j · scripts/walkthrough.sh step_distribution (key_figure_shares)",
+        "r": "T60j · docs/design/plan-depth-3.md §T60j · migrations 000385-000386 · internal/controlling/keyfigures.go, allocation.go, allocationrun.go · AllocationCycleChanged .v2 · ADR-0064 As built T60j · scripts/walkthrough.sh step_distribution (key_figure_shares)",
         "src": "split:T60g · adr:ADR-0064",
         "c": []
        },
        {
         "s": "D",
         "t": "A controller charges receivers fixed amounts by an assessment cycle, and reverses an allocation run in its period so the cycle may run for it again",
-        "r": "T60k · docs/design/plan-depth-3.md §T60k · migrations 000375-000377 · internal/controlling/allocationreversal.go, allocation.go, allocationrun.go · POST /v1/allocation-runs/{id}:reverse · AllocationRunReversed · ADR-0064 As built T60k · scripts/walkthrough.sh step_assessment (run_reversed_and_fixed)",
+        "r": "T60k · docs/design/plan-depth-3.md §T60k · migrations 000387-000389 · internal/controlling/allocationreversal.go, allocation.go, allocationrun.go · POST /v1/allocation-runs/{id}:reverse · AllocationRunReversed · ADR-0064 As built T60k · scripts/walkthrough.sh step_assessment (run_reversed_and_fixed)",
         "src": "split:T60g · adr:ADR-0064",
         "c": []
        },

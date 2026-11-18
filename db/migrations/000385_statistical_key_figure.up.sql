@@ -10,7 +10,7 @@
 -- Expand only (06 §6.4): new tables, new columns with a constant default
 -- or nullable, a NOT NULL dropped, and rules about values the previous
 -- version never writes; the foreign key and the checks on the existing
--- table are added NOT VALID and validated by 000374. The previous version
+-- table are added NOT VALID and validated by 000386. The previous version
 -- reads a receiver's share as not null: a cycle by key figure defined
 -- while it still runs is not read there until it is replaced, the minutes
 -- of a rolling update (ADR-0064 As built T60j).

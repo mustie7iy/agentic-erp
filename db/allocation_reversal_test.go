@@ -8,7 +8,7 @@ import (
 )
 
 // Cycles by fixed amounts, runs reversed and run again (T60k, migrations
-// 000375-000377; ADR-0064 As built T60k).
+// 000387-000389; ADR-0064 As built T60k).
 
 const (
 	fixedCycleSQL = `INSERT INTO controlling.allocation_cycle (tenant_id, id, legal_entity_id, code, name, kind, sender_cost_center_id, assessment_account_id,
