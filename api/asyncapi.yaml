@@ -4223,8 +4223,8 @@ components:
       title: Customer invoice changed
       summary: A customer invoice was entered.
       description: |
-        Emitted when a customer invoice or credit memo is entered (ADR-0063
-        §9, T75a, T75d): `draft`, status_before null. Its posting is
+        Emitted when a customer invoice, credit memo or debit memo is entered
+        (ADR-0063 §9, T75a, T75d, T75j): `draft`, status_before null. Its posting is
         CustomerInvoicePosted, which is emitted alone. It carries the
         document's totals, not its items, and names the customer by id and
         number, never by name. A credit memo's amounts are negative.
@@ -4252,7 +4252,9 @@ components:
         account, and that line is the customer's open item with the payment
         term and net due date given here. A credit memo (kind `credit_memo`,
         §7, T75d) credits that account, its amounts here are negative, and
-        its line is the customer's open credit item. It carries the
+        its line is the customer's open credit item; a debit memo (kind
+        `debit_memo`, T75j) posts as an invoice does, its amounts positive.
+        It carries the
         document's totals, not its items, and names the customer by id and
         number, never by name. `GET /v1/customer-invoices/{id}` returns the document at
         `version` or later. Subject is the customer invoice id.
@@ -5744,7 +5746,7 @@ components:
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
-        kind: {type: string, description: 'Open enum: invoice, credit_memo.'}
+        kind: {type: string, description: 'Open enum: invoice, credit_memo, debit_memo.'}
         reference_invoice_id: {type: [string, 'null'], format: uuid, description: "The invoice a credit memo credits: `receivables.customer_invoice.id`; null on an invoice and on a credit memo naming none. Added within v1, so not required (ADR-0041); every event carries it."}
         reference_invoice_number: {type: [string, 'null'], description: "That invoice's document number; null with `reference_invoice_id`. Added within v1, so not required (ADR-0041); every event carries it."}
         invoice_date: {$ref: '#/components/schemas/Date'}
@@ -5764,7 +5766,7 @@ components:
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
-        kind: {type: string, description: 'Open enum: invoice, credit_memo.'}
+        kind: {type: string, description: 'Open enum: invoice, credit_memo, debit_memo.'}
         reference_invoice_id: {type: [string, 'null'], format: uuid, description: "The invoice a credit memo credits: `receivables.customer_invoice.id`; null on an invoice and on a credit memo naming none. Added within v1, so not required (ADR-0041); every event carries it."}
         reference_invoice_number: {type: [string, 'null'], description: "That invoice's document number; null with `reference_invoice_id`. Added within v1, so not required (ADR-0041); every event carries it."}
         invoice_date: {$ref: '#/components/schemas/Date'}

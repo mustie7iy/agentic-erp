@@ -1131,3 +1131,50 @@ document (from memory, not checked against a source in the lane). §6's
   `TestParallelClearing/reset` (ledger); `TestClearingResetRules`,
   `TestIncomingPaymentResetRules`, `TestClearingResetRevert` (db).
   Walkthrough `step_payment_reset` (step 117).
+
+### T75j Customer debit memo (migrations 000373, 000374)
+A variant of §7 (`plan-depth-3.md` §T75j): a customer debit memo charges
+the customer what an invoice did not (freight, a price correction), as
+SAP's debit memo does (FB70/FB75 in FI, billing type L2 in SD; from
+memory, not checked against a source in the lane).
+
+- `internal/receivables/kinds.go`: the kind `debit_memo` on
+  `POST /v1/customer-invoices` and as a filter of
+  `GET /v1/customer-invoices`. A debit memo is entered and checked as an
+  invoice is (items more than zero, each item's tax at its own date) and
+  names no invoice (422 `receivables.reference_not_allowed`, as an
+  invoice); a credit memo naming a debit memo is refused as one naming no
+  posted invoice (422 `receivables.invalid_reference_invoice`). Its
+  number is from the `customer_invoice` range, as a credit memo's.
+- **Posting** (`documentTypes`): as an invoice, Dr the customer's
+  reconciliation account with the gross, Cr each item's account and
+  output tax, at its own date's rates, as journal document type `DD`
+  with the header text "Customer debit memo <number>"; its entries draw
+  their numbers from the range `journal_dd` (422
+  `config.no_number_range` in a company without it, and nothing posts,
+  `TestDebitMemoWithoutRange`). Its open item keeps the term entered
+  with it, else the customer's in the company, from its own date. It is
+  not counted against any invoice's credit limit, which only credit
+  memos count. Events and audit records carry the kind, the amounts
+  positive (`signed` turns a credit memo's alone).
+- Migration 000373: `customer_invoice_kind_check` widened to
+  `debit_memo`, added `NOT VALID`; 000374 validates it. The down is
+  refused while a debit memo exists (`TestDebitMemoRevert`); schema
+  cases in `TestCustomerInvoiceRules` and `TestCustomerCreditMemoRules`
+  (a debit memo naming an invoice, `customer_invoice_reference_on_credit`).
+- Tests: `TestDebitMemo`, `TestDebitMemoWithoutRange`,
+  `TestCreditMemoRefusals` (a debit memo naming an invoice, a credit memo
+  naming a debit memo). Walkthrough `step_debit_memo` (step 122).
+- **Decided by default:** (1) the journal document type is `DD`, the
+  brief's own type and range beside the invoice's `DR` (SAP's standard
+  FI type for a customer debit memo is DR, from memory; a type of its own
+  lets the ledger and reports tell them apart, and `DD` is not a standard
+  SAP type); (2) the document's number is from the `customer_invoice`
+  range, as a credit memo's is; (3) a debit memo names no invoice (a
+  reference is the placeholder's "later"); (4) terms as an invoice's,
+  from its own date; (5) `journal_dd` is in no country pack: the pilot's
+  settings add it (walkthrough step 2, as they add `returns_order` and
+  the other ranges the packs lack), and a company on Canada 2026.9 or UAE
+  2026.6 adds it by a change request until a pack version brings it
+  (numbering-only versions need the product owner's word on the
+  sign-off, as 2026.9 and 2026.6 had; listed for the digest).

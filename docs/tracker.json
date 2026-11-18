@@ -1226,9 +1226,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant enters and posts a debit memo to a customer: posted as an invoice is, Dr the customer and Cr revenue and output tax at its own date, as journal document type DD with its own number range journal_dd; the customer's open item with its terms; it names no invoice",
-        "r": "T75j · docs/design/plan-depth-3.md §T75j · ADR-0063 §7",
+        "r": "T75j · docs/design/plan-depth-3.md §T75j · db/migrations/000373, 000374 · kind debit_memo on POST /v1/customer-invoices and GET /v1/customer-invoices?kind= · internal/receivables/kinds.go documentTypes · TestDebitMemo, TestDebitMemoWithoutRange, TestDebitMemoRevert · walkthrough step_debit_memo · ADR-0063 §7 and As built T75j",
         "src": "split:T75d · adr:ADR-0063",
         "c": []
        },

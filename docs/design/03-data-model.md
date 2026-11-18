@@ -4600,7 +4600,8 @@ erDiagram
   their direction. `gross_amount = net_amount + tax_amount`
   (`customer_invoice_totals`). The number is unique per company
   (`customer_invoice_number_once`). The kind is `invoice` alone
-  (`customer_invoice_kind_check`), which T75d widens (`credit_memo`); the
+  (`customer_invoice_kind_check`), which T75d widens (`credit_memo`) and
+  T75j (`debit_memo`, migration 000373, validated by 000374); the
   status is `draft` or `posted` (`customer_invoice_status_check`). A
   posted invoice names its journal entry with its year, its posting
   date, the payment term it posted with and its net due date, and a

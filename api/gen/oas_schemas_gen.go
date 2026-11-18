@@ -37546,7 +37546,8 @@ type CustomerInvoice struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Principal that made the last change. Absent on resources whose table does not record it.
 	UpdatedBy OptUUID `json:"updated_by"`
-	// The document number, from the company's `customer_invoice` number range.
+	// The document number, from the company's `customer_invoice` number range, which numbers credit and
+	// debit memos too.
 	DocumentNumber string `json:"document_number"`
 	// The company that issued the invoice.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
@@ -37560,10 +37561,10 @@ type CustomerInvoice struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
-	// What the document is: `invoice`, or `credit_memo`, which credits the customer what was invoiced (Cr
-	// customer when posted). Its amounts are never negative; the kind gives their direction. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// What the document is: `invoice`, `credit_memo`, which credits the customer what was invoiced (Cr
+	// customer when posted), or `debit_memo`, which charges the customer more (Dr customer when posted, as
+	// an invoice). Its amounts are never negative; the kind gives their direction. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Kind string `json:"kind"`
 	// The posted invoice a credit memo credits (`GET /v1/customer-invoices/{id}`). Absent on an invoice
 	// and on a credit memo naming none.
@@ -37581,13 +37582,13 @@ type CustomerInvoice struct {
 	NetAmount Money `json:"net_amount"`
 	// The sum of the items' tax.
 	TaxAmount Money `json:"tax_amount"`
-	// `net_amount` and `tax_amount`: what the customer owes for an invoice, what the customer is credited
-	// by a credit memo.
+	// `net_amount` and `tax_amount`: what the customer owes for an invoice or a debit memo, what the
+	// customer is credited by a credit memo.
 	GrossAmount Money `json:"gross_amount"`
 	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its line on
-	// the customer's reconciliation account is the customer's open item, a debit for an invoice and a
-	// credit for a credit memo. Open enumeration: clients must accept and preserve values not listed here;
-	// values may be added within /v1.
+	// the customer's reconciliation account is the customer's open item, a debit for an invoice or a debit
+	// memo and a credit for a credit memo. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// The payment term entered; once posted, the term the invoice posted with (the customer's in the
 	// company when none was entered). Absent on a draft entered without one.
@@ -37929,15 +37930,16 @@ type CustomerInvoiceCreate struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The customer: an active business partner with the customer role.
 	CustomerID uuid.UUID `json:"customer_id"`
-	// What the document is: `invoice` (absent: an invoice) or `credit_memo`, which credits the customer
-	// what was invoiced and posts with the signs turned. Amounts are more than zero whatever the kind,
-	// which gives their direction. Fixed once entered. Open enumeration: values may be added within /v1;
-	// one this version does not know is refused (422 `receivables.unknown_kind`).
+	// What the document is: `invoice` (absent: an invoice), `credit_memo`, which credits the customer what
+	// was invoiced and posts with the signs turned, or `debit_memo`, which charges the customer more and
+	// posts as an invoice does. Amounts are more than zero whatever the kind, which gives their direction.
+	// Fixed once entered. Open enumeration: values may be added within /v1; one this version does not know
+	// is refused (422 `receivables.unknown_kind`).
 	Kind OptString `json:"kind"`
 	// The invoice a credit memo credits: a posted invoice of the same company and customer in the memo's
 	// currency (`GET /v1/customer-invoices`). The posted credit memos naming an invoice may not exceed its
 	// gross amount (`postCustomerInvoice`); absent: the memo names none and has no such limit. Never on an
-	// invoice.
+	// invoice or a debit memo.
 	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
 	// The document's date; the tax date its items' tax codes are rated on (ADR-0049 §4), a credit memo's
 	// own.

@@ -13,16 +13,32 @@ import (
 
 // Kinds of customer invoice (ADR-0063 §2, §7), as payables' kinds are for
 // supplier documents: the kind gives the direction of amounts that are
-// never negative.
+// never negative. A debit memo charges the customer more and posts as an
+// invoice does (T75j).
 const (
 	KindInvoice    = "invoice"
 	KindCreditMemo = "credit_memo" // T75d
+	KindDebitMemo  = "debit_memo"  // T75j
 )
 
 // CreditDocumentType is the journal document type a customer credit memo
 // posts as (SAP's DG, customer credit memo); its entries draw their
 // numbers from the journal_dg number range.
 const CreditDocumentType = "DG"
+
+// DebitDocumentType is the journal document type a customer debit memo
+// posts as, its own beside the invoice's DR so the ledger tells the two
+// apart (ADR-0063 As built, T75j); its entries draw their numbers from the
+// journal_dd number range.
+const DebitDocumentType = "DD"
+
+// documentTypes are the journal document type and header text each kind
+// posts with.
+var documentTypes = map[string]struct{ journal, text string }{
+	KindInvoice:    {DocumentType, "Customer invoice "},
+	KindCreditMemo: {CreditDocumentType, "Customer credit memo "},
+	KindDebitMemo:  {DebitDocumentType, "Customer debit memo "},
+}
 
 // signed is an amount of a document with its kind's direction, as what
 // the customer owes: negative for a credit memo. Events carry amounts so,
@@ -36,7 +52,7 @@ func signed(v Invoice, amount money.Minor) money.Minor {
 
 // documentKind checks the kind entered ("": an invoice) and the invoice a
 // credit memo names: a known kind (422 receivables.unknown_kind); a
-// reference only on a credit memo (422 receivables.reference_not_allowed),
+// reference only on a credit memo, never on an invoice or a debit memo (422 receivables.reference_not_allowed),
 // to a posted invoice of the same company and customer in the memo's
 // currency (422 receivables.invalid_reference_invoice), each naming the
 // request's field. An invoice of a company the caller may not act in is
@@ -47,14 +63,15 @@ func documentKind(ctx context.Context, tx pgx.Tx, in Input) (string, error) {
 	if kind == "" {
 		kind = KindInvoice
 	}
-	if kind != KindInvoice && kind != KindCreditMemo {
-		return "", problem.Invalid("receivables.unknown_kind", "kind", "The kind is invoice or credit_memo.")
+	if _, ok := documentTypes[kind]; !ok {
+		return "", problem.Invalid("receivables.unknown_kind", "kind", "The kind is invoice, credit_memo or debit_memo.")
 	}
 	if in.ReferenceInvoiceID == nil {
 		return kind, nil
 	}
-	if kind == KindInvoice {
-		return "", problem.Invalid("receivables.reference_not_allowed", "reference_invoice_id", "An invoice credits none; a credit memo names the invoice it credits.")
+	if kind != KindCreditMemo {
+		return "", problem.Invalid("receivables.reference_not_allowed", "reference_invoice_id",
+			"An invoice or a debit memo credits none; a credit memo names the invoice it credits.")
 	}
 	ref, err := load(ctx, tx, *in.ReferenceInvoiceID, false)
 	var p *problem.Problem

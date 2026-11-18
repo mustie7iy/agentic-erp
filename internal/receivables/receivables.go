@@ -16,8 +16,9 @@
 // ledger's reset of its clearing (T75i, reset.go). A credit memo is the
 // same document with the kind credit_memo, posted with the signs turned;
 // one naming an invoice may not, with the other posted memos naming it,
-// exceed that invoice's gross amount (T75d, ADR-0063 §7; kinds.go). The
-// AR aging is computed on read from the ledger's customer open items
+// exceed that invoice's gross amount (T75d, ADR-0063 §7; kinds.go). A
+// debit memo charges the customer more and posts as an invoice does, as
+// its own journal document type (T75j). The AR aging is computed on read from the ledger's customer open items
 // (T75e, ADR-0063 §10; aging.go). A document's amounts are never
 // negative: the kind gives their direction.
 //

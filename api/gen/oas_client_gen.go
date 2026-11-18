@@ -1563,7 +1563,10 @@ type Invoker interface {
 	// than zero, its tax at its own date's rates, and posted with the signs turned. A credit memo may name
 	// the invoice it credits (`reference_invoice_id`): a posted invoice of the same company and customer
 	// in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field otherwise); an
-	// invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither is refused (422
+	// invoice names none (422 `receivables.reference_not_allowed`). With `kind` `debit_memo` the document
+	// is a customer debit memo (ADR-0063 §7 As built, T75j), charging the customer what an invoice did
+	// not: entered as an invoice is and posted as one, as its own journal document type; it names no
+	// invoice (422 `receivables.reference_not_allowed`). A kind that is none of these is refused (422
 	// `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the invoice entered.
 	// Human-only (`x-agent: false`).
 	//
@@ -5254,11 +5257,11 @@ type Invoker interface {
 	ListCustomerContacts(ctx context.Context, params ListCustomerContactsParams) (ListCustomerContactsRes, error)
 	// ListCustomerInvoices invokes listCustomerInvoices operation.
 	//
-	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
-	// memos (§7, T75d), each as `getCustomerInvoice` gives it: with its company's code and name, its
-	// customer's number and name, its totals and its items. Filtered by company, customer, kind, the
-	// invoice a credit memo names, status, document number and invoice date. Sortable by: `invoice_date`,
-	// `document_number`.
+	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), the credit memos
+	// (§7, T75d) and the debit memos (§7 As built, T75j), each as `getCustomerInvoice` gives it: with
+	// its company's code and name, its customer's number and name, its totals and its items. Filtered by
+	// company, customer, kind, the invoice a credit memo names, status, document number and invoice date.
+	// Sortable by: `invoice_date`, `document_number`.
 	//
 	// GET /v1/customer-invoices
 	ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error)
@@ -6604,7 +6607,11 @@ type Invoker interface {
 	// amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid
 	// invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a
 	// lock on the named invoice, so of two credit memos posted at once that together exceed it one is
-	// refused. Human-only (`x-agent: false`).
+	// refused. A debit memo (`kind` `debit_memo`, T75j) posts as an invoice does, debiting the customer
+	// and crediting its items' accounts and output tax at its own date's rates, with the entry's document
+	// type `DD` (number range `journal_dd`; 422 `config.no_number_range` in a company without it): its
+	// debit line is the customer's open item, with the term entered with it, else the customer's in the
+	// company, counted from its own date. Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices/{id}:post
 	PostCustomerInvoice(ctx context.Context, request OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error)
@@ -22432,7 +22439,10 @@ func (c *Client) sendCreateCustomerContact(ctx context.Context, request *Custome
 // than zero, its tax at its own date's rates, and posted with the signs turned. A credit memo may name
 // the invoice it credits (`reference_invoice_id`): a posted invoice of the same company and customer
 // in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field otherwise); an
-// invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither is refused (422
+// invoice names none (422 `receivables.reference_not_allowed`). With `kind` `debit_memo` the document
+// is a customer debit memo (ADR-0063 §7 As built, T75j), charging the customer what an invoice did
+// not: entered as an invoice is and posted as one, as its own journal document type; it names no
+// invoice (422 `receivables.reference_not_allowed`). A kind that is none of these is refused (422
 // `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the invoice entered.
 // Human-only (`x-agent: false`).
 //
@@ -68754,11 +68764,11 @@ func (c *Client) sendListCustomerContacts(ctx context.Context, params ListCustom
 
 // ListCustomerInvoices invokes listCustomerInvoices operation.
 //
-// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
-// memos (§7, T75d), each as `getCustomerInvoice` gives it: with its company's code and name, its
-// customer's number and name, its totals and its items. Filtered by company, customer, kind, the
-// invoice a credit memo names, status, document number and invoice date. Sortable by: `invoice_date`,
-// `document_number`.
+// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), the credit memos
+// (§7, T75d) and the debit memos (§7 As built, T75j), each as `getCustomerInvoice` gives it: with
+// its company's code and name, its customer's number and name, its totals and its items. Filtered by
+// company, customer, kind, the invoice a credit memo names, status, document number and invoice date.
+// Sortable by: `invoice_date`, `document_number`.
 //
 // GET /v1/customer-invoices
 func (c *Client) ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error) {
@@ -95376,7 +95386,11 @@ func (c *Client) sendPostCreditMemoRequest(ctx context.Context, request OptCredi
 // amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid
 // invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a
 // lock on the named invoice, so of two credit memos posted at once that together exceed it one is
-// refused. Human-only (`x-agent: false`).
+// refused. A debit memo (`kind` `debit_memo`, T75j) posts as an invoice does, debiting the customer
+// and crediting its items' accounts and output tax at its own date's rates, with the entry's document
+// type `DD` (number range `journal_dd`; 422 `config.no_number_range` in a company without it): its
+// debit line is the customer's open item, with the term entered with it, else the customer's in the
+// company, counted from its own date. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices/{id}:post
 func (c *Client) PostCustomerInvoice(ctx context.Context, request OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error) {

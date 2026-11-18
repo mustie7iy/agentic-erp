@@ -62,8 +62,11 @@ func TestCustomerInvoiceRules(t *testing.T) {
 			return all(tx, invoice(s, s.doc, "CI1", "invoice", 10000, 1900, 11900, "posted"))
 		}, "customer_invoice_posted"},
 		{"of another kind", func(tx pgx.Tx, s scene) error {
-			return all(tx, invoice(s, s.doc, "CI1", "debit_memo", 10000, 1900, 11900, "draft"))
+			return all(tx, invoice(s, s.doc, "CI1", "write_off", 10000, 1900, 11900, "draft"))
 		}, "customer_invoice_kind_check"},
+		{"a draft debit memo (T75j, migration 000373)", func(tx pgx.Tx, s scene) error {
+			return all(tx, invoice(s, s.doc, "CI1", "debit_memo", 10000, 1900, 11900, "draft"), step(item, s.tenant, s.doc, 1, 10000, &code, 1900))
+		}, ""},
 		{"a gross that is not net and tax", func(tx pgx.Tx, s scene) error {
 			return all(tx, invoice(s, s.doc, "CI1", "invoice", 10000, 1900, 11901, "draft"))
 		}, "customer_invoice_totals"},
@@ -286,6 +289,9 @@ func TestCustomerCreditMemoRules(t *testing.T) {
 		}, ""},
 		{"an invoice naming an invoice", func(tx pgx.Tx, s scene) error {
 			return all(tx, invoice(s), step(doc, s.tenant, s.memo, "CI2", s.company, "invoice", &s.invoice))
+		}, "customer_invoice_reference_on_credit"},
+		{"a debit memo naming an invoice (T75j)", func(tx pgx.Tx, s scene) error {
+			return all(tx, invoice(s), step(doc, s.tenant, s.memo, "CI2", s.company, "debit_memo", &s.invoice))
 		}, "customer_invoice_reference_on_credit"},
 		{"a credit memo naming no document of the tenant", func(tx pgx.Tx, s scene) error {
 			unknown := id()
@@ -815,4 +821,25 @@ func TestSeveralCustomersRevert(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDebitMemoRevert (T75j, migration 000373's down): the revert is
+// refused while a debit memo exists, the kind check it restores knowing
+// invoices and credit memos alone.
+func TestDebitMemoRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000373_customer_debit_memo").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+			currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by)
+			VALUES ($1, $1, 'CI1', $1, $1, 'debit_memo', '2026-03-10', 'EUR', 100, 0, 100, 'draft', $1, $1)`, tenant)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "customer_invoice_kind_check")
 }

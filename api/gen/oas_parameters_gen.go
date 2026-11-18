@@ -63944,7 +63944,7 @@ type ListCustomerInvoicesParams struct {
 	CustomerID OptUUID `json:",omitempty,omitzero"`
 	// Only invoices in this status.
 	Status OptString `json:",omitempty,omitzero"`
-	// Only documents of this kind: `invoice` or `credit_memo`.
+	// Only documents of this kind: `invoice`, `credit_memo` or `debit_memo`.
 	Kind OptString `json:",omitempty,omitzero"`
 	// Only the credit memos naming this invoice (`reference_invoice_id`).
 	ReferenceInvoiceID OptUUID `json:",omitempty,omitzero"`
