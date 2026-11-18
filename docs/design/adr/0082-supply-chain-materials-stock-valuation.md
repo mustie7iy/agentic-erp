@@ -408,7 +408,8 @@ create with such a match is refused (409) unless the request confirms it.
   name the valuation, so the detail names the material by its number (the
   entry's reference) and the reads that find its plant's valuation
   (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`)
-  before `POST /v1/material-valuations/{id}:changePrice` (review round 1). Before, the refusal said no reversal path existed.
+  before `POST /v1/material-valuations/{id}:changePrice` (review round
+  1). Before, the refusal said no reversal path existed.
   `TestReversalBelongsToTheOwner`.
 
 ### S1d (2026-11-18)

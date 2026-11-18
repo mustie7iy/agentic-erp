@@ -281,13 +281,13 @@ func TestAccountBalances(t *testing.T) {
 func TestReversalBelongsToTheOwner(t *testing.T) {
 	e := setup(t)
 	expense, ap := uuid.MustParse(e.account(t, "2000", "520000")), uuid.MustParse(e.account(t, "2000", "211000"))
-	postAs := func(source, docType string) ledger.Entry {
-		material := "MA0000001" // a price change's entry names its material (inventory's revalue)
+	material := "MA0000001" // a price change's entry names its material (inventory's revalue)
+	postAs := func(source, docType string, reference *string) ledger.Entry {
 		t.Helper()
 		var entry ledger.Entry
 		if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
 			entry, err = postings().Post(ctx, ledger.Posting{LegalEntityID: e.de, DocumentType: docType, DocumentDate: date("2026-03-01"),
-				PostingDate: date("2026-03-02"), Currency: "EUR", Reference: &material, SourceContext: source, SourceDocumentID: uuid.New(),
+				PostingDate: date("2026-03-02"), Currency: "EUR", Reference: reference, SourceContext: source, SourceDocumentID: uuid.New(),
 				Lines: []ledger.PostingLine{{AccountID: expense, Amount: 100}, {AccountID: ap, Amount: -100, PartnerID: &e.supplier}}})
 			return err
 		}); err != nil {
@@ -295,7 +295,7 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 		}
 		return entry
 	}
-	post := func(source string) ledger.Entry { t.Helper(); return postAs(source, "SA") }
+	post := func(source string) ledger.Entry { t.Helper(); return postAs(source, "SA", &material) }
 	for _, c := range []struct{ source, docType, endpoint string }{
 		{"payables", "SA", "/v1/supplier-invoices/"},
 		{"procurement", "SA", "/v1/goods-receipts/"},
@@ -306,7 +306,7 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 		{"inventory", "PR", "/v1/material-valuations/"},
 	} {
 		t.Run(c.source+" "+c.docType, func(t *testing.T) {
-			entry := postAs(c.source, c.docType)
+			entry := postAs(c.source, c.docType, &material)
 			_, tag := e.Must(200, "GET", "/v1/journal-entries/"+entry.ID.String(), "", "")
 			refused := e.Problem(409, "ledger.entry_owned_elsewhere", "POST", "/v1/journal-entries/"+entry.ID.String()+":reverse", "", tag)
 			detail, _ := refused["detail"].(string)
@@ -329,6 +329,15 @@ func TestReversalBelongsToTheOwner(t *testing.T) {
 			}
 		})
 	}
+	t.Run("inventory PR without a reference", func(t *testing.T) {
+		entry := postAs("inventory", "PR", nil)
+		_, tag := e.Must(200, "GET", "/v1/journal-entries/"+entry.ID.String(), "", "")
+		refused := e.Problem(409, "ledger.entry_owned_elsewhere", "POST", "/v1/journal-entries/"+entry.ID.String()+":reverse", "", tag)
+		want := "The journal entry was posted for inventory price change " + entry.SourceDocumentID.String() + "; a price change is not reversed"
+		if detail, _ := refused["detail"].(string); !strings.HasPrefix(detail, want) {
+			t.Errorf("detail: got %q, want it to start %q, naming no material", detail, want)
+		}
+	})
 	// Entries of contexts without a reversal of their own (a migration run's load) stay the ledger's to reverse.
 	for _, source := range []string{"integration", "payments"} {
 		entry := post(source)

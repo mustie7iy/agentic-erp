@@ -2090,10 +2090,12 @@ overruled.
   that held `sales.price.write`, pricing roles included: a role's purpose
   is not recorded, so the migration cannot tell a pricing role from a
   master data one, and taking access away on the day of a release is
-  what expand → contract avoids; a tenant takes the write from its
-  pricing roles itself, or adds the segregation-of-duties rule
-  `sales.customer_sales_data.write` / `sales.price.write`, which no
-  migration seeds (rules are the tenant's, ADR-0010). (2) The copied
+  what expand → contract avoids. The contract half is the tenant's:
+  it ends the write on its pricing roles (`endRolePermission`), or adds
+  the segregation-of-duties rule `sales.customer_sales_data.write` /
+  `sales.price.write` (`createSodRule`), which no migration seeds (rules
+  are the tenant's, ADR-0010); a new tenant's roles are its own from the
+  start. Listed for the product owner's digest. (2) The copied
   grants write no audit record and publish no event, as no permission
   seed has: they repeat grants already audited, and the migration runs
   outside any request. (3) Read stays with every role that read prices,

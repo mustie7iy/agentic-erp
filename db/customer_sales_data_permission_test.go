@@ -35,7 +35,8 @@ func TestCustomerSalesDataPermission(t *testing.T) {
 // step copies every grant of sales.price.read or .write in force today or
 // from a later day to the new permission, in every tenant, for the same
 // days from today at the earliest and in the name of whoever made the
-// grant; an ended grant and other permissions are not copied. Its down
+// grant, each permission from its own grant; a grant ended today or
+// before and other permissions are not copied. Its down
 // removes the new permissions, their grants and the rules naming them.
 func TestCustomerSalesDataPermissionExpand(t *testing.T) {
 	conn := emptyDatabase(t)
@@ -61,6 +62,9 @@ func TestCustomerSalesDataPermissionExpand(t *testing.T) {
 		{tenants[0], "former", "sales.price.write", -30, days(0), true},
 		{tenants[0], "next_month", "sales.price.read", 10, never, true},
 		{tenants[0], "orders", "sales.order.write", -30, never, true},
+		{tenants[0], "mixed", "sales.price.read", -30, never, true},
+		{tenants[0], "mixed", "sales.price.write", 5, days(40), true},
+		{tenants[0], "long_gone", "sales.price.read", -30, days(-1), true},
 		{tenants[1], "pricing", "sales.price.read", -5, never, true},
 	} {
 		key := g.tenant.String() + "/" + g.code
@@ -93,7 +97,7 @@ func TestCustomerSalesDataPermissionExpand(t *testing.T) {
 	if err := conn.QueryRow(ctx, copied, tenants, actor).Scan(&got); err != nil {
 		t.Fatal(err)
 	}
-	if want := "1/next_month:read 10.. actor, 1/pricing:read 0.. actor, 1/pricing:write 0.. actor, 1/sales_admin:write 0..20 tenant, 2/pricing:read 0.. actor"; got != want {
+	if want := "1/mixed:read 0.. actor, 1/mixed:write 5..40 actor, 1/next_month:read 10.. actor, 1/pricing:read 0.. actor, 1/pricing:write 0.. actor, 1/sales_admin:write 0..20 tenant, 2/pricing:read 0.. actor"; got != want {
 		t.Errorf("the grants copied: got %q, want %q", got, want)
 	}
 	tx, err := conn.Begin(ctx)
@@ -101,20 +105,27 @@ func TestCustomerSalesDataPermissionExpand(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
+	// The new permissions on either side of a rule (permission_a < permission_b).
 	if _, err := tx.Exec(ctx, `INSERT INTO identity.sod_rule (tenant_id, id, permission_a, permission_b, description, valid_from, created_by)
-		VALUES ($1, gen_random_uuid(), 'sales.customer_sales_data.write', 'sales.price.write', 'Prices apart from price groups', current_date, $2)`, tenants[0], actor); err != nil {
+		VALUES ($1, gen_random_uuid(), 'sales.customer_sales_data.write', 'sales.price.write', 'Prices apart from price groups', current_date, $2),
+		($1, gen_random_uuid(), 'sales.credit_memo_request.read', 'sales.customer_sales_data.read', 'Credits apart from price groups', current_date, $2)`,
+		tenants[0], actor); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.Exec(ctx, migrationNamed(t, "000390_customer_sales_data_permission").Down); err != nil {
 		t.Fatalf("down: %v", err)
 	}
-	var grants, rules, perms int
-	if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM identity.role_permission WHERE permission_code LIKE 'sales.customer_sales_data.%'),
-		(SELECT count(*) FROM identity.sod_rule WHERE permission_a LIKE 'sales.customer_sales_data.%'),
-		(SELECT count(*) FROM ref.permission WHERE code LIKE 'sales.customer_sales_data.%')`).Scan(&grants, &rules, &perms); err != nil {
-		t.Fatal(err)
-	}
-	if grants+rules+perms != 0 {
-		t.Errorf("after the down: got %d grants, %d rules and %d permissions, want none", grants, rules, perms)
+	for what, sql := range map[string]string{
+		"grants":      `SELECT count(*) FROM identity.role_permission WHERE permission_code LIKE 'sales.customer_sales_data.%'`,
+		"rules":       `SELECT count(*) FROM identity.sod_rule WHERE permission_a LIKE 'sales.customer_sales_data.%' OR permission_b LIKE 'sales.customer_sales_data.%'`,
+		"permissions": `SELECT count(*) FROM ref.permission WHERE code LIKE 'sales.customer_sales_data.%'`,
+	} {
+		var n int
+		if err := tx.QueryRow(ctx, sql).Scan(&n); err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		if n != 0 {
+			t.Errorf("%s after the down: got %d, want 0", what, n)
+		}
 	}
 }

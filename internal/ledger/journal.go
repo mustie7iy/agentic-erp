@@ -1622,19 +1622,25 @@ func requireOwnEntry(orig Entry) error {
 // valuation, which the entry does not name; it names the material by its
 // number (the entry's reference, inventory's revalue), from which the
 // consumer finds the valuation.
+//
+// "PR" is the document type inventory's revalue posts (inventory/price.go)
+// and its valuation tests assert; the ledger cannot import it (inventory
+// imports the ledger), and the types WE, WA and PR are S1c's contract.
 func inventoryOwned(orig Entry) error {
+	doc := orig.SourceDocumentID.String()
 	if orig.DocumentType == "PR" {
 		material := ""
 		if orig.Reference != nil {
 			material = " of material " + *orig.Reference
 		}
-		return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for inventory price change "+orig.SourceDocumentID.String()+material+
-			"; a price change is not reversed but corrected by another: find the material with GET /v1/materials?number=, its plant's valuation with "+
-			"GET /v1/material-valuations?material_id=, and change its price with POST /v1/material-valuations/{id}:changePrice.")
+		return problem.Conflict("ledger.entry_owned_elsewhere", fmt.Sprintf(
+			"The journal entry was posted for inventory price change %s%s; a price change is not reversed but corrected by another: "+
+				"find the material with GET /v1/materials?number=, its plant's valuation with GET /v1/material-valuations?material_id=, "+
+				"and change its price with POST /v1/material-valuations/{id}:changePrice.", doc, material))
 	}
-	return problem.Conflict("ledger.entry_owned_elsewhere", "The journal entry was posted for material document "+orig.SourceDocumentID.String()+
-		"; a material document is reversed with POST /v1/material-documents/"+orig.SourceDocumentID.String()+
-		":reverse, which posts its own entry (a reversal document is not reversed again).")
+	return problem.Conflict("ledger.entry_owned_elsewhere", fmt.Sprintf(
+		"The journal entry was posted for material document %s; a material document is reversed with "+
+			"POST /v1/material-documents/%s:reverse, which posts its own entry (a reversal document is not reversed again).", doc, doc))
 }
 
 // reversalLines are the entry's lines with every amount and quantity

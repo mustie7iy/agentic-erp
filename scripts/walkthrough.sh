@@ -13678,7 +13678,7 @@ step_price_scales() {
 # and its next item takes the general price; an unknown group and a stale
 # version are refused.
 step_price_groups() {
-  heading "Step 129 — Prices per customer price group: price groups through a governed change, a customer's group in its sales data under its own permission, a group's price before the general one and after the customer's own, each condition naming its access; a changed group holding for items priced after it"
+  heading "Step 129 — Prices per customer price group: price groups through a governed change; a customer's group in its sales data, under its own permission; the access customer, group, general"
   local customer=$CUSTOMER contoso sales until base cr bracket conditions data tag role sally
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as ada

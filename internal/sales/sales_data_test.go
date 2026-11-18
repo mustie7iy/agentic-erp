@@ -169,10 +169,12 @@ func TestSalesDataRefusals(t *testing.T) {
 // sales.customer_sales_data.read and set up and changed with .write
 // (product owner, 2026-11-18): the price permissions, which the caller
 // keeps, give neither, so price maintenance and price group assignment
-// are held apart.
+// are held apart. Pricing a quotation item reads the customer's group
+// itself, so order entry needs neither.
 func TestSalesDataPermissions(t *testing.T) {
-	e := setupGroups(t)
+	e := setupGroups(t, "PR00")
 	path := "/v1/customer-sales-data/" + e.inGroup(t, e.customer, "01")
+	e.Must(201, "POST", "/v1/sales-prices", e.record(t, map[string]any{"price_group": "01", "unit": "EA", "unit_price": eur("9.00")}), "")
 	other := e.salesData(e.partner(t, "BP70000002", "Contoso", "active", "customer"), "02")
 	revoke := func(code string) {
 		pgtest.Exec(t, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND permission_code = $2`, e.Tenant.ID, code)
@@ -190,6 +192,11 @@ func TestSalesDataPermissions(t *testing.T) {
 	t.Run("not read without the read", func(t *testing.T) {
 		e.In(t).Problem(403, "identity.permission_missing", "GET", path, "", "")
 		e.In(t).Problem(403, "identity.permission_missing", "GET", "/v1/customer-sales-data", "", "")
+	})
+	t.Run("a quotation item priced by the group without either", func(t *testing.T) {
+		if got, want := accessed(t, e.quotedItem(t, e.customer, e.unpriced(line{}))), "PR00 9.00 EUR price_group 01 Wholesale"; got != want {
+			t.Errorf("conditions: got %s, want %s", got, want)
+		}
 	})
 	var prices int
 	pgtest.Scan(t, `SELECT count(*) FROM identity.role_permission WHERE tenant_id = $1 AND permission_code LIKE 'sales.price.%'`, []any{e.Tenant.ID}, &prices)
