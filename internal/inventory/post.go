@@ -341,12 +341,10 @@ func (e *Endpoints) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in
 	return load(ctx, tx, id)
 }
 
-// writeLines writes a document's movements, each location's receipts
-// before its issues and otherwise in line order, so the lowest stock a
-// location reaches in the document is what it holds after it, which
-// takeStock checked: movement_stock applies each line on its own and
-// stock_not_negative refuses any line that would take a location below
-// zero.
+// writeLines writes a document's movements in line order, the order
+// takeStock checked them in: movement_stock applies each line on its own
+// and stock_not_negative refuses any line that would take a location
+// below zero.
 func writeLines(ctx context.Context, tx pgx.Tx, p reqctx.Principal, document uuid.UUID, lines []Line) error {
 	n := len(lines)
 	lineNo, itemNo := make([]int16, n), make([]int16, n)
@@ -363,7 +361,7 @@ func writeLines(ctx context.Context, tx pgx.Tx, p reqctx.Principal, document uui
 			storage_location_id, quantity, entry_quantity, entry_uom_code, cost_center_id)
 		SELECT $1, $2, x.l, x.i, x.m, x.p, x.s, x.q::numeric, x.e::numeric, x.u, nullif(x.c, '')::uuid
 		FROM unnest($3::smallint[], $4::smallint[], $5::uuid[], $6::uuid[], $7::uuid[], $8::text[], $9::text[], $10::text[], $11::text[])
-			AS x (l, i, m, p, s, q, e, u, c) ORDER BY (x.q::numeric > 0) DESC, x.l`,
+			AS x (l, i, m, p, s, q, e, u, c) ORDER BY x.l`,
 		p.TenantID, document, lineNo, itemNo, ms, plants, locations, qty, entry, units, centers); err != nil {
 		return fmt.Errorf("inventory: movements of material document %s: %w", document, err)
 	}

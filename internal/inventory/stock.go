@@ -35,38 +35,40 @@ var maxStock = new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(m
 
 // takeStock locks the stock rows the lines move, writing a row with no
 // quantity for a location moved the first time, in stockKey order, so
-// two postings never wait on each other in a cycle; then it refuses
-// lines that would take a location's stock below zero (409
+// two postings never wait on each other in a cycle; then it walks the
+// lines in their order, as movement_stock applies them one by one, and
+// refuses a line that takes a location's stock below zero (409
 // inventory.insufficient_stock) or beyond a quantity column (422
 // inventory.quantity_too_large). The check follows the lock, so two
 // issues of the last quantity at once post one (ADR-0008).
 func takeStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.UUID, lines []Line, r refs) error {
-	moves := map[stockKey]*big.Rat{}
 	var keys []stockKey
 	for _, l := range lines {
-		k := stockKey{l.MaterialID, l.PlantID, l.StorageLocationID}
-		if moves[k] == nil {
-			moves[k], keys = new(big.Rat), append(keys, k)
+		if k := keyOf(l); !slices.Contains(keys, k) {
+			keys = append(keys, k)
 		}
-		moves[k].Add(moves[k], money.ParseRat(l.Quantity))
 	}
 	slices.SortFunc(keys, stockKey.compare)
 	current, err := lockStock(ctx, tx, p, company, keys)
 	if err != nil {
 		return err
 	}
-	for _, k := range keys {
-		after := new(big.Rat).Add(current[k], moves[k])
+	for _, l := range lines {
+		k, move := keyOf(l), money.ParseRat(l.Quantity)
+		after := new(big.Rat).Add(current[k], move)
 		switch {
 		case after.Sign() < 0:
-			return r.shortage(k, current[k], moves[k])
+			return r.shortage(k, current[k], move)
 		case after.Cmp(maxStock) >= 0:
 			return problem.Unprocessable("inventory.quantity_too_large", fmt.Sprintf("The stock of material %s at %s would have more than %d "+
 				"integer digits.", r.materials[k.material].Number, r.where(k), money.QuantityIntDigits))
 		}
+		current[k] = after
 	}
 	return nil
 }
+
+func keyOf(l Line) stockKey { return stockKey{l.MaterialID, l.PlantID, l.StorageLocationID} }
 
 // lockStock writes the stock rows of the keys a posting moves the first
 // time, with no quantity, and locks every one, in the keys' order; it
@@ -104,7 +106,8 @@ func lockStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.
 func (r refs) shortage(k stockKey, have, move *big.Rat) error {
 	m := r.materials[k.material]
 	takes := new(big.Rat).Neg(move)
-	return problem.Conflict("inventory.insufficient_stock", fmt.Sprintf("Material %s %s has %s %s at %s; the document takes %s, more than that.",
+	return problem.Conflict("inventory.insufficient_stock", fmt.Sprintf("Material %s %s has %s %s at %s when the document's line takes %s, "+
+		"more than that.",
 		m.Number, m.Description, money.PlainQuantity(have), m.BaseUnit, r.where(k), money.PlainQuantity(takes)))
 }
 

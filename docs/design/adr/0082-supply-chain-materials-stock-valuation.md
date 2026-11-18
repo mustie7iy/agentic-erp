@@ -365,10 +365,11 @@ create with such a match is refused (409) unless the request confirms it.
   (422 `inventory.quantity_too_large`); the database adds each movement to
   its row (`movement_stock`, a security definer, the only writer of the
   quantity) and refuses any line below zero (`stock_not_negative`,
-  registered as 409 `inventory.insufficient_stock`), so the lines are
-  written each location's receipts first (review round 1: a circle of
-  transfers, or a chain's reversal, went below zero line by line though
-  not in all; `TestCircularTransfers`). `TestIssuesAtOnce` holds the
+  registered as 409 `inventory.insufficient_stock`), so the check walks
+  the lines in their order as the database applies them, and a reversal
+  takes the original's lines last first, back through the states the
+  original went through (review round 1: a chain's reversal went below
+  zero line by line; `TestCircularTransfers`). `TestIssuesAtOnce` holds the
   lock; postings of a company also queue on its number range.
 - **The stock list has no totals**: it is a list of locations, each in
   its material's base unit; a total per material or plant is Later (SAP

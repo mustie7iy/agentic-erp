@@ -241,25 +241,25 @@ func TestTransfersInOppositeOrder(t *testing.T) {
 	}
 }
 
-// TestCircularTransfers: a document whose items move the stock round a
-// circle posts, each location's receipts applied before its issues; and
-// so does the reversal of a chain of transfers.
+// TestCircularTransfers: a document whose items would take a location
+// below zero line by line is refused, though its net change is none;
+// the reversal of a chain of transfers posts, its lines last first.
 func TestCircularTransfers(t *testing.T) {
 	e := setup(t)
 	e.post(t, "561", e.item("10", "EA", map[string]any{"storage_location_id": e.s2}))
-	circle := e.post(t, "311", e.item("10", "EA", map[string]any{"to_storage_location_id": e.s2}),
-		e.item("10", "EA", map[string]any{"storage_location_id": e.s2, "to_storage_location_id": e.s1}))
-	if got := e.stock(t, e.s1, "") + "|" + e.stock(t, e.s2, ""); got != "|10 EA" {
-		t.Errorf("after the circle: got %s, want |10 EA", got)
+	status, got, _ := e.Do("POST", docs, body(t, "311", e.item("10", "EA", map[string]any{"to_storage_location_id": e.s2}),
+		e.item("10", "EA", map[string]any{"storage_location_id": e.s2, "to_storage_location_id": e.s1})), "")
+	if status != 409 || got["code"] != "inventory.insufficient_stock" {
+		t.Errorf("a circle from an empty location: got %d %v, want 409 inventory.insufficient_stock", status, got)
 	}
-	_, tag := e.Must(200, "GET", docs+"/"+circle["id"].(string), "", "")
-	e.Must(200, "POST", docs+"/"+circle["id"].(string)+":reverse", "", tag)
-	e.post(t, "311", e.item("10", "EA", map[string]any{"storage_location_id": e.s2, "to_storage_location_id": e.s1}))
-	chain := e.post(t, "311", e.item("10", "EA", map[string]any{"to_storage_location_id": e.s2}),
-		e.item("10", "EA", map[string]any{"storage_location_id": e.s2, "to_storage_location_id": e.s1}))
-	_, tag = e.Must(200, "GET", docs+"/"+chain["id"].(string), "", "")
-	e.Must(200, "POST", docs+"/"+chain["id"].(string)+":reverse", "", tag)
-	if got := e.stock(t, e.s1, "") + "|" + e.stock(t, e.s2, ""); got != "10 EA|" {
-		t.Errorf("after the chain's reversal: got %s, want 10 EA|", got)
+	chain := e.post(t, "311", e.item("10", "EA", map[string]any{"storage_location_id": e.s2, "to_storage_location_id": e.s1}),
+		e.item("10", "EA", map[string]any{"to_storage_location_id": e.s2}))
+	_, tag := e.Must(200, "GET", docs+"/"+chain["id"].(string), "", "")
+	rev, _ := e.Must(200, "POST", docs+"/"+chain["id"].(string)+":reverse", "", tag)
+	if got := e.lines(t, rev); got != "P1:S2 -10 EA (10 EA); P1:S1 10 EA (10 EA); P1:S1 -10 EA (10 EA); P1:S2 10 EA (10 EA)" {
+		t.Errorf("the reversal's lines: got %s, want the original's last first", got)
+	}
+	if got := e.stock(t, e.s1, "") + "|" + e.stock(t, e.s2, ""); got != "|10 EA" {
+		t.Errorf("after the chain's reversal: got %s, want |10 EA", got)
 	}
 }

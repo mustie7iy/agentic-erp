@@ -19,7 +19,7 @@ func TestReverse(t *testing.T) {
 	orig, _ := e.Must(200, "GET", docs+"/"+id, "", "")
 	for _, w := range []struct{ name, got, want string }{
 		{"movement type", fmt.Sprint(rev["movement_type"]), "312"},
-		{"lines", e.lines(t, rev), "P1:S1 4 EA (4 EA); P1:S2 -4 EA (4 EA)"},
+		{"lines", e.lines(t, rev), "P1:S2 -4 EA (4 EA); P1:S1 4 EA (4 EA)"},
 		{"reversal of", fmt.Sprint(rev["reversal_of_number"]), fmt.Sprint(transfer["number"])},
 		{"reversed by", fmt.Sprint(orig["reversed_by_id"]), fmt.Sprint(rev["id"])},
 		{"S1", e.stock(t, e.s1, ""), "10 EA"},
