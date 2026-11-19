@@ -24,9 +24,10 @@
 # numbers are unique in the tenant (config.NumberedPerTenant, ADR-0082
 # §6), so one prefix for every company would have a second company's
 # adoption refused (config.RangeRepeats); each company sets its own.
-# Added by 2026.12 (product owner, 2026-11-19): the ranges of physical
-# inventory documents (PI, S2c) and outbound deliveries (OD, S2a), which
-# the pilot's settings added themselves until this version, 1 to 9999999,
+# Added by 2026.12 (review of batch 83; the sign-off carried under the
+# product owner's rule of 2026-11-18): the ranges of physical inventory
+# documents (PI, S2c) and outbound deliveries (OD, S2a), which the
+# pilot's settings added themselves until this version, 1 to 9999999,
 # neither gapless, the pilot's prefixes and limits.
 number_ranges:
   - {document_type: requisition, prefix: PR, first: 1, last: 9999999}

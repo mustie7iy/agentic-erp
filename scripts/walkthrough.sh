@@ -1721,8 +1721,8 @@ migrated_down_payment() {
 # 2196 receipts without an order, 3996 initial entries, 5116 consumption,
 # 5126 scrapping, 5196 price differences, 5197 revaluation, 5198
 # inventory differences, S2d, 5016 cost of goods sold, S2b1; no pack ships
-# them), the inventory difference tolerance of CAD 50.00 (S2d), and two codes of tax alone for the return's adjustments (kind adjustment,
-# rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
+# them), the inventory difference tolerance of CAD 50.00 (S2d), and two
+# codes of tax alone for the return's adjustments (kind adjustment, rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
 # instalment paid (line 110) on 2300.
 # The code's rate starts a year back; the registration's first period,
@@ -1819,9 +1819,9 @@ step_pack() {
   say "ranges the pilot's settings added themselves: returns orders, credit memo requests, lease contracts, expense reports,"
   say "material documents and the WA and PR journals of valued goods movements, under the same sign-off (product"
   say "owner, 2026-11-19). 2026.12 is 2026.11 plus the ranges of count documents (step 141) and outbound deliveries"
-  say "(step 142), under it too (product owner, 2026-11-18): the latest signed-off version. The pilot's settings add only"
-  say "Maple's material range: material"
-  say "numbers are unique in the tenant, so no pack ships one prefix for every company."
+  say "(step 142), under it too (the batch 83 review; product owner's rule of 2026-11-18): the latest signed-off version."
+  say "The pilot's settings add only Maple's material range: material numbers are unique in the tenant, so no pack ships"
+  say "one prefix for every company."
   expect "Canada 2026.9" "$(field '.items[] | select(.country == "CA" and .version == "2026.9") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
     "22 number ranges, signed off: true"
   expect "Canada 2026.10" "$(field '.items[] | select(.country == "CA" and .version == "2026.10") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \

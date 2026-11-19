@@ -1,7 +1,7 @@
 # United Arab Emirates (ADR-0048). 2026.9 is 2026.8 plus the number
 # ranges of physical inventory documents (PI) and outbound deliveries
-# (OD), which the pilot's settings added themselves (product owner,
-# 2026-11-19) and a company activated from 2026.8 lacks (422
+# (OD), which the pilot's settings added themselves (review of batch
+# 83) and a company activated from 2026.8 lacks (422
 # config.no_number_range for a count or a delivery). Only numbering.yaml
 # and this file differ: tax.yaml and returns.yaml, the VAT codes, rates,
 # tax settings and the VAT 201, and every other file are 2026.8's byte for
