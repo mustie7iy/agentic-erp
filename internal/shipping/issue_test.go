@@ -173,3 +173,30 @@ func TestGoodsIssueRefusals(t *testing.T) {
 		t.Errorf("goods issues posted: got %d, want none", n)
 	}
 }
+
+// TestGoodsIssueBlockedByCount (S2c beside S2b1): while an open physical
+// inventory count document counts the delivery's material at its storage
+// location, the goods issue is refused naming the document, and nothing is
+// posted; the delivery stays as it was.
+func TestGoodsIssueBlockedByCount(t *testing.T) {
+	e := setup(t)
+	order := e.order(t, false, e.ofMaterial(e.bracket, "2 BOX"))
+	d, tag := e.Must(201, "POST", deliveries, e.create(order), "")
+	id := d["id"].(string)
+	_, tag = e.Must(200, "POST", deliveries+"/"+id+":pick", pick("1 2 BOX"), tag)
+	count, _ := e.Must(201, "POST", "/v1/physical-inventory-documents", mustJSON(t, map[string]any{"plant_id": e.p1, "storage_location_id": e.s1,
+		"items": []any{map[string]any{"material_id": e.bracket}}}), "")
+	status, got, _ := e.Do("POST", deliveries+"/"+id+":postGoodsIssue", "", tag)
+	if status != 409 || got["code"] != "inventory.posting_blocked" || !strings.Contains(fmt.Sprint(got["detail"]), fmt.Sprint(count["number"])) {
+		t.Errorf("the goods issue during the count: got %d %v, want 409 inventory.posting_blocked naming %v", status, got, count["number"])
+	}
+	after, afterTag := e.Must(200, "GET", deliveries+"/"+id, "", "")
+	if after["status"] != "created" || afterTag != tag {
+		t.Errorf("the delivery after the refusal: got %v %s, want created %s", after["status"], afterTag, tag)
+	}
+	var n int
+	pgtest.Scan(t, `SELECT count(*) FROM inventory.material_document WHERE tenant_id = $1 AND movement_type = '601'`, []any{e.Tenant.ID}, &n)
+	if n != 0 {
+		t.Errorf("goods issues posted: got %d, want none", n)
+	}
+}

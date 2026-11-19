@@ -24,7 +24,8 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"materials.material.read", "materials.material.write", "tenancy.org.manage", "inventory.movement.post", "inventory.stock.read",
 	"inventory.valuation.read", "inventory.valuation.write", "ledger.entry.read", "sales.order.read", "sales.order.write", "sales.order.confirm",
-	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write", "shipping.delivery.read", "shipping.delivery.write", "shipping.goods_issue.post"}
+	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write", "shipping.delivery.read", "shipping.delivery.write", "shipping.goods_issue.post",
+	"inventory.count.write"}
 
 const deliveries = "/v1/outbound-deliveries"
 

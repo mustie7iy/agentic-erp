@@ -233,20 +233,11 @@ func summaryOf(res any) (*ui.ObjectSummary, bool) {
 	case *gen.GetRequisitionOKHeaders:
 		return requisitionSummary(v.Response), true
 	case *gen.MaterialChangeHeaders:
-		c := v.Response
-		return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(c.Number)}, {Key: i18n.SummaryKind, Value: ui.Code(c.Kind)},
-			{Key: i18n.SummaryTitle, Value: ui.Data(c.MaterialNumber + " " + c.MaterialDescription)}, {Key: i18n.SummaryStatus, Value: ui.Code(c.Status)},
-			{Key: i18n.SummaryReason, Value: ui.Data(c.Reason)}}}, true
+		return materialChangeSummary(v.Response), true
 	case *gen.CreditLimitChangeHeaders:
 		return creditLimitSummary(v.Response), true
 	case *gen.GetPhysicalInventoryDocumentOKHeaders:
-		d := v.Response
-		rows := []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(d.Number)},
-			{Key: i18n.SummaryTitle, Value: ui.Data(d.CompanyCode + " " + d.PlantCode + "/" + d.StorageLocationCode)}, {Key: i18n.SummaryStatus, Value: ui.Code(d.Status)}}
-		if value, ok := d.DifferenceValue.Get(); ok {
-			rows = append(rows, ui.Row{Key: i18n.SummaryTotal, Value: ui.Amount(moneyOf(value))})
-		}
-		return &ui.ObjectSummary{Rows: rows}, true
+		return countSummary(v.Response), true
 	case *gen.GetPartnerChangeOKHeaders:
 		c := v.Response
 		return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(c.Number)}, {Key: i18n.SummaryKind, Value: ui.Code(c.Kind)},
@@ -289,6 +280,24 @@ func summaryOf(res any) (*ui.ObjectSummary, bool) {
 		return clearingSummary(*v), true
 	}
 	return nil, false
+}
+
+// materialChangeSummary is a material change's summary.
+func materialChangeSummary(c gen.MaterialChange) *ui.ObjectSummary {
+	return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(c.Number)}, {Key: i18n.SummaryKind, Value: ui.Code(c.Kind)},
+		{Key: i18n.SummaryTitle, Value: ui.Data(c.MaterialNumber + " " + c.MaterialDescription)}, {Key: i18n.SummaryStatus, Value: ui.Code(c.Status)},
+		{Key: i18n.SummaryReason, Value: ui.Data(c.Reason)}}}
+}
+
+// countSummary is a physical inventory count document's summary, with the
+// value of its differences once they wait for approval.
+func countSummary(d gen.PhysicalInventoryDocument) *ui.ObjectSummary {
+	rows := []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(d.Number)},
+		{Key: i18n.SummaryTitle, Value: ui.Data(d.CompanyCode + " " + d.PlantCode + "/" + d.StorageLocationCode)}, {Key: i18n.SummaryStatus, Value: ui.Code(d.Status)}}
+	if value, ok := d.DifferenceValue.Get(); ok {
+		rows = append(rows, ui.Row{Key: i18n.SummaryTotal, Value: ui.Amount(moneyOf(value))})
+	}
+	return &ui.ObjectSummary{Rows: rows}
 }
 
 // requisitionSummary is a requisition's summary.

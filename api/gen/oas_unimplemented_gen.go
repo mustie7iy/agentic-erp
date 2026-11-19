@@ -8835,19 +8835,21 @@ func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEn
 // today in its time zone and numbered from its `material_document` range, its `reference` the
 // delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued
 // (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`:
-// picking reserves none). Each line takes the stock's value as an issue does (at a standard price the
-// stock left at the price, at a moving price the value in proportion): the item's `cost`, its cost of
-// goods sold, posted in one WA journal entry from the valuation class's stock account to its cost of
-// goods sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's
-// refusals, such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back
-// to the order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names
-// the outbound delivery and the material document, each item with its cost, the order item's
-// `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was
-// not picked is open again on the order. An order blocked for credit since the delivery was made is
-// refused until its block is released (409 `sales.order_credit_blocked`). The delivery is
-// `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged,
-// MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
-// delivery as it left it. Human-only (`x-agent: false`).
+// picking reserves none), and no open physical inventory count document counting the material there
+// (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an
+// issue does (at a standard price the stock left at the price, at a moving price the value in
+// proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the
+// valuation class's stock account to its cost of goods sold account (422
+// `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422
+// `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and
+// what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound
+// delivery and the material document, each item with its cost, the order item's `delivered_quantity`
+// rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open
+// again on the order. An order blocked for credit since the delivery was made is refused until its
+// block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
+// more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
+// SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/outbound-deliveries/{id}:postGoodsIssue
 func (UnimplementedHandler) PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (r PostOutboundDeliveryGoodsIssueRes, _ error) {

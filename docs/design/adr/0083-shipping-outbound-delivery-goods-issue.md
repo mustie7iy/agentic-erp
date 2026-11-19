@@ -252,6 +252,14 @@ deliveries and partial goods issue: all Later in the plan.
 - **The delivery's cost** is each item's and their sum
   (`cost_of_goods_sold`), in the currency the delivery keeps with its goods
   issue.
+- **A count blocks the goods issue** (batch 83's integration with S2c):
+  the 601 is posted through inventory's `takeStock`, so while an open
+  physical inventory count document counts a delivery's material at its
+  storage location the goods issue is refused (409
+  `inventory.posting_blocked`, naming the document) and nothing is posted
+  (`TestGoodsIssueBlockedByCount`). Picking moves no stock and is not
+  blocked. The database's checks list 601 and 602 beside S2d's 701 and
+  702, and both key patterns (000410; `TestMovementTypesOfCountAndShipping`).
 
 **S2b2**: `sales.Orders.Segments` adds each segment's goods issues' cost
 (`Segment.Cost`, `Margin`); the report's rows and totals carry

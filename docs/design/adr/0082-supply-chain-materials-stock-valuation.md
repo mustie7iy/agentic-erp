@@ -752,6 +752,9 @@ migration: the external references are `integration.external_ref`'s.
   numbers last, so it never waits for a material or a range while holding
   them. It holds the change numbers until it commits, so a material
   request in the tenant waits for the load (a cutover window).
+  `TestMaterialLoadAndRequestDoNotDeadlock` (batch 83's integration)
+  forces a request holding the range to wait while the run starts: the
+  run waits for the request, and both finish.
 - **Numbers** come from the `material` range of the company of the
   material's first plant (by WERKS) in the scope; SAP's MATNR is kept as
   the external reference `MARA/<MATNR>` (external numbering stays Later,
