@@ -1472,10 +1472,13 @@ longer holds.
   company when the payment is applied (422 `receivables.no_write_off_account`
   should the company's accounts no longer have it), and the ledger checks
   it can be posted (its refusal names it as "item i's write-off account").
-  What reasons write off and the payment difference together are held to
-  the tolerance of their direction (with what is left on account, the
-  write-offs alone), the base being the items applied net of their
-  residual items, as T75f's; beyond it, 422 `ledger.clearing_not_balanced`.
+  Each direction is held to its own tolerance, so that one never nets
+  the other away: what reasons write off, with an underpayment the items
+  leave, to the underpayment tolerance; an overpayment not left on
+  account to the overpayment tolerance; the base being the items applied
+  net of their residual items, as T75f's; beyond either, 422
+  `ledger.clearing_not_balanced`. A write-off line takes its item's
+  trading partner, as a clearing's difference lines do (ADR-0059 §4).
 - **The payment** shows the item's `write_off` (amount, reason, text,
   account by id, number and name, its line in the clearing entry) in place
   of a residual; `difference` stays the payment difference alone, and the

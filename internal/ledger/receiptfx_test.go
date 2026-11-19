@@ -1,9 +1,11 @@
 package ledger_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -81,6 +83,13 @@ func TestApplyReceiptInAnotherCurrency(t *testing.T) {
 	if open := receivable(t, r.env, north); len(open) != 1 || open[0].Amount != 4000 || open[0].Currency != "GBP" {
 		t.Errorf("the customer's open items: got %+v, want the residual of GBP 40.00 alone", open)
 	}
+	t.Run("failing statements", func(t *testing.T) {
+		in := r.application(r.received(t, 10000, "GBP", "2026-03-20"), north, "GBP", "2026-03-21", r.owed(t, north, 12000, "EUR", "2026-03-10"))
+		apitest.EveryFailure(t, r.ten, r.ten.Human, "apply a receipt to an item in another currency", func(ctx context.Context) error {
+			_, err := postings().ApplyReceipt(ctx, in)
+			return err
+		})
+	})
 }
 
 // TestApplyReceiptInAnotherCurrencyRefusals: an item whose currency has no

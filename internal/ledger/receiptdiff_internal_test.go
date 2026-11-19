@@ -36,6 +36,13 @@ func TestApplicationAmountsOutOfRange(t *testing.T) {
 			}
 		})
 	}
+	t.Run("residuals: a write-off at the receipt's rate", func(t *testing.T) {
+		a := application{residualLines: make([]int32, 1), writeOffLines: make([]int32, 1)}
+		in := ReceiptApplication{Residuals: []Residual{{Amount: 3, WriteOff: uuid.New()}}}
+		if err := a.residuals(in, item{tc: -1, lc: -math.MaxInt64 / 2}, []item{{tc: 10}}); err == nil {
+			t.Error("got no error, want the write-off's local amount too large")
+		}
+	})
 	t.Run("residuals: what is written off", func(t *testing.T) {
 		a := application{residualLines: make([]int32, 2), writeOffLines: make([]int32, 2)}
 		in := ReceiptApplication{Residuals: []Residual{{Amount: math.MaxInt64 - 1, WriteOff: uuid.New()}, {Amount: math.MaxInt64 - 1, WriteOff: uuid.New()}}}

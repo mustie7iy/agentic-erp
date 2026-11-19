@@ -1080,7 +1080,7 @@ func TestIncomingPaymentWriteOffRules(t *testing.T) {
 	var noAccount *uuid.UUID
 	amount, line, account, reason, text, zeroLine, zero := int64(400), int32(3), id(), "bank_charges", "Charged by the customer's bank", int32(0), int64(0)
 	residual, residualLine, residualReason := int64(100), int32(4), "disputed"
-	long, longText := strings.Repeat("r", 41), strings.Repeat("t", 201)
+	long, longText, empty := strings.Repeat("r", 41), strings.Repeat("t", 201), ""
 	cases := []struct {
 		name string
 		args []any // amount; write-off amount, line, account, reason, text; residual amount, line, reason
@@ -1099,6 +1099,8 @@ func TestIncomingPaymentWriteOffRules(t *testing.T) {
 		{"a write-off beside a residual", []any{int64(10000), &amount, &line, &account, &reason, noText, &residual, &residualLine, &residualReason},
 			"incoming_payment_item_write_off"},
 		{"a reason of 41 characters", []any{int64(10000), &amount, &line, &account, &long, noText, none, noLine, noText}, "incoming_payment_item_write_off_reason_length"},
+		{"an empty reason", []any{int64(10000), &amount, &line, &account, &empty, noText, none, noLine, noText}, "incoming_payment_item_write_off_reason_length"},
+		{"an empty text", []any{int64(10000), &amount, &line, &account, &reason, &empty, none, noLine, noText}, "incoming_payment_item_write_off_text_length"},
 		{"a text of 201 characters", []any{int64(10000), &amount, &line, &account, &reason, &longText, none, noLine, noText},
 			"incoming_payment_item_write_off_text_length"},
 	}

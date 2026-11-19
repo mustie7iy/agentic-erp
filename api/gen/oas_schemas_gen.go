@@ -55501,8 +55501,8 @@ type IncomingPayment struct {
 	Amount Money `json:"amount"`
 	// The payment difference written off within the company's payment tolerance
 	// (`companies[].receivables.payment_tolerance`): what the items applied with the receipt, net of their
-	// residuals, exceed it by. Positive: an underpayment, posted to the company's
-	// `payment_difference_expense` account; negative: an overpayment, kept on its
+	// residuals and of what their reasons wrote off, exceed it by. Positive: an underpayment, posted to
+	// the company's `payment_difference_expense` account; negative: an overpayment, kept on its
 	// `payment_difference_revenue` account; zero when the items equal the receipt.
 	Difference Money `json:"difference"`
 	// What the payment left on the customer's account and what of it is still open; absent when it left
@@ -55901,10 +55901,10 @@ type IncomingPaymentApplication struct {
 	// The credit on account it applied, as it stood.
 	Amount Money `json:"amount"`
 	// The payment difference it wrote off within the company's payment tolerance: what the items, net of
-	// their residuals, exceed the credit by; zero for none.
+	// their residuals and of what their reasons wrote off, exceed the credit by; zero for none.
 	Difference Money `json:"difference"`
-	// What it left on account: the credit less the items, net of their residuals; zero when the items took
-	// it all.
+	// What it left on account: the credit less the items, net of their residuals and of what their reasons
+	// wrote off; zero when the items took it all.
 	OnAccountAmount Money `json:"on_account_amount"`
 	// Its clearing entry (`GET /v1/journal-entries/{id}`).
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
@@ -56037,8 +56037,9 @@ type IncomingPaymentApplicationCreate struct {
 	// The posting date of the clearing entry; absent: today, the company's date in its time zone.
 	PostingDate OptDate `json:"posting_date"`
 	// The customer's open items the credit is applied to, invoices and credits, each with a residual item
-	// if it is paid in part; together, net of their residuals, at most the credit, but for an underpayment
-	// within the company's payment tolerance. What they leave stays on account.
+	// if it is paid in part; together, net of their residuals and of what their reasons wrote off, at most
+	// the credit, but for an underpayment within the company's payment tolerance. What they leave stays on
+	// account.
 	Items []IncomingPaymentItemRef `json:"items"`
 }
 
@@ -56084,8 +56085,9 @@ type IncomingPaymentCreate struct {
 	PostingDate OptDate `json:"posting_date"`
 	// The open items the payment is applied to (`GET /v1/open-items`), the payer's and the other
 	// customers', invoices and credits, each with a residual item if it is paid in part; together, net of
-	// their residuals, they equal the receipt, in its currency, but for a difference within the company's
-	// payment tolerance and, with `on_account`, what is left on account. Empty only with `on_account`.
+	// their residuals and of what their reasons wrote off, they equal the receipt, in its currency, but
+	// for a difference within the company's payment tolerance and, with `on_account`, what is left on
+	// account. Empty only with `on_account`.
 	Items []IncomingPaymentItemRef `json:"items"`
 	// Leave what the receipt has left after the items, the whole receipt when there are none, on the
 	// customer's account as a credit of the customer's (T75g): an open item that
@@ -56173,8 +56175,8 @@ type IncomingPaymentCustomer struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
-	// Its part of the receipt: its items applied with the receipt, net of their residuals, in the
-	// payment's currency; negative when its credits exceed its invoices.
+	// Its part of the receipt: its items applied with the receipt, net of their residuals and of what
+	// their reasons wrote off, in the payment's currency; negative when its credits exceed its invoices.
 	Amount Money `json:"amount"`
 }
 

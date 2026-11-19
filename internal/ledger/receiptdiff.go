@@ -187,10 +187,13 @@ func (a *application) residuals(in ReceiptApplication, receipt item, items []ite
 			text = in.HeaderText
 		}
 		if r.WriteOff != uuid.Nil {
-			// Less than an item in range: the share of the receipt is in range.
-			lc, gc, _ := receiptRate(receipt, r.Amount)
+			lc, gc, err := receiptRate(receipt, r.Amount)
+			if err != nil {
+				return err
+			}
 			off = append(off, r.Amount)
-			a.writeOffLines[i] = a.add(Line{AccountID: r.WriteOff, TC: r.Amount, LC: lc, GC: gc, Text: text},
+			// A difference line takes the cleared item's trading partner (ADR-0059 §4).
+			a.writeOffLines[i] = a.add(Line{AccountID: r.WriteOff, TC: r.Amount, LC: lc, GC: gc, Text: text, TradingPartnerID: it.tradingPartner},
 				"Item "+fmt.Sprint(i+1)+"'s write-off account, its reason's")
 			continue
 		}
@@ -208,29 +211,27 @@ func (a *application) residuals(in ReceiptApplication, receipt item, items []ite
 	return nil
 }
 
-// withinTolerance refuses a payment difference beyond the tolerance of
-// its direction: what the items, net of their residual items, differ from
-// the receipt by, d and what their reasons wrote off together (T75o),
-// less d when it is left on account (onAccount). The difference is within
-// it when its local amount is at most the limit's amount and it is at most
-// the limit's percent of the items applied, net of their residual items
-// (the lower binds, SAP OBA3); none is always within it. Anything more is
-// refused, 422 ledger.clearing_not_balanced, as an application that does
-// not balance always was.
+// withinTolerance refuses payment differences beyond the tolerance of
+// their direction, each direction held on its own so that one never nets
+// the other away: the underpayment is what the items' reasons wrote off
+// (T75o) and d when the items, net of their residual items and write-offs,
+// exceed the receipt; the overpayment is -d when the receipt exceeds them
+// and the rest is not left on account (onAccount). A direction is within
+// its limit when its local amount is at most the limit's amount and it is
+// at most the limit's percent of the items applied, net of their residual
+// items (the lower binds, SAP OBA3); none is always within it. Anything
+// more is refused, 422 ledger.clearing_not_balanced, as an application
+// that does not balance always was.
 func (a *application) withinTolerance(ctx context.Context, tx pgx.Tx, in ReceiptApplication, receipt item, d money.Minor, onAccount bool) error {
-	total := a.writtenOff
+	under, over := a.writtenOff, money.Minor(0)
 	var err error
-	if !onAccount {
-		if total, err = money.Sum(d, a.writtenOff); err != nil {
+	switch {
+	case d > 0:
+		if under, err = money.Sum(d, a.writtenOff); err != nil {
 			return errTotalTooLarge("items")
 		}
-	}
-	if total == 0 {
-		return nil
-	}
-	limit, what := in.Under, "an underpayment"
-	if total < 0 {
-		limit, what = in.Over, "an overpayment"
+	case d < 0 && !onAccount:
+		over = d
 	}
 	// The items applied, net of their residual items: the receipt, the
 	// difference and what was written off.
@@ -238,13 +239,28 @@ func (a *application) withinTolerance(ctx context.Context, tx pgx.Tx, in Receipt
 	if err != nil {
 		return errTotalTooLarge("items")
 	}
-	lc, _, err := receiptRate(receipt, total)
-	if err != nil {
-		return err
+	for _, c := range []struct {
+		amount money.Minor
+		limit  config.ToleranceLimit
+		what   string
+	}{{under, in.Under, "an underpayment"}, {over, in.Over, "an overpayment"}} {
+		if c.amount == 0 {
+			continue
+		}
+		lc, _, err := receiptRate(receipt, c.amount)
+		if err != nil {
+			return err
+		}
+		if !withinLimit(c.limit, c.amount, lc, base) {
+			return beyondTolerance(ctx, tx, in, receipt, c.amount, c.what)
+		}
 	}
-	if withinLimit(limit, total, lc, base) {
-		return nil
-	}
+	return nil
+}
+
+// beyondTolerance is the refusal of a difference of amount, in the
+// receipt's currency, beyond the tolerance of its direction (what).
+func beyondTolerance(ctx context.Context, tx pgx.Tx, in ReceiptApplication, receipt item, amount money.Minor, what string) error {
 	exps, err := exponents(ctx, tx, in.Currency)
 	if err != nil {
 		return err
@@ -252,7 +268,7 @@ func (a *application) withinTolerance(ctx context.Context, tx pgx.Tx, in Receipt
 	exp := exps[in.Currency]
 	return problem.Unprocessable("ledger.clearing_not_balanced", fmt.Sprintf("The items applied, net of their residual items, differ from the receipt of %s %s by %s: "+
 		"%s beyond the company's payment tolerance (companies[].receivables.payment_tolerance). Leave a residual item, apply other items or leave the rest on the customer's account.",
-		(-receipt.tc).Plain(exp), in.Currency, total.Plain(exp), what),
+		(-receipt.tc).Plain(exp), in.Currency, amount.Plain(exp), what),
 		problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that total the receipt, within the payment tolerance"})
 }
 

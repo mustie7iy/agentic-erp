@@ -115,6 +115,15 @@ func TestReasonRefusals(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a write-off an overpayment would cancel", func(t *testing.T) {
+		// 4.00 written off and 4.00 over: the company allows no overpayment,
+		// and neither direction nets the other away.
+		p := e.In(t).Problem(422, "ledger.clearing_not_balanced", "POST", "/v1/incoming-payments",
+			e.payment(e.customer, e.receipt(t, 10000, "2026-03-20").ID, "2026-03-21", withResidual(invoice, "4.00", "bank_charges", "")), "")
+		if !strings.Contains(fmt.Sprint(p["detail"]), "by -4.00: an overpayment beyond") {
+			t.Errorf("detail: got %v, want the overpayment beyond the tolerance", p["detail"])
+		}
+	})
 	t.Run("a write-off account the company no longer has", func(t *testing.T) {
 		pgtest.Exec(t, `DELETE FROM ledger.company_account WHERE tenant_id = $1 AND account_id = $2`, e.Tenant.ID, e.Account(t, "2000", "690000"))
 		p := e.In(t).Problem(422, "receivables.no_write_off_account", "POST", "/v1/incoming-payments",
