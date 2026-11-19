@@ -276,7 +276,10 @@ func TestMigratedValuationWithoutStock(t *testing.T) {
 	x.MBEW[0].VPRSV = "X"
 	write(t, e.dir, "stock.json", x)
 	_, got = e.act(t, got, "reconcile")
-	if issues := fmt.Sprint(report(got)["issues"]); got["status"] == "reconciled" || !strings.Contains(issues, "MBEW") {
-		t.Errorf("reconciled with a refused valuation: got %v with issues %s, want it failed naming the MBEW row", got["status"], issues)
+	if got["status"] == "reconciled" {
+		t.Errorf("status with a refused valuation: got %v, want not reconciled", got["status"])
+	}
+	if issues := fmt.Sprint(report(got)["issues"]); !strings.Contains(issues, "MBEW") {
+		t.Errorf("issues: got %s, want the MBEW row refused", issues)
 	}
 }
