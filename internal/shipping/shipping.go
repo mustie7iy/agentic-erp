@@ -26,6 +26,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/inventory"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -76,6 +77,12 @@ type Materials interface {
 	Materials(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]materials.Material, error)
 }
 
+// Partners names customers (partner.Payees): a delivery shows its
+// customer's name as it is now, as a sales document does.
+type Partners interface {
+	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.Named, error)
+}
+
 // LegalEntities reads tenancy's companies and org units.
 type LegalEntities interface {
 	Entity(ctx context.Context, id uuid.UUID) (tenancy.Entity, bool, error)
@@ -104,6 +111,7 @@ type Endpoints struct {
 	Shipments     Shipments
 	Stock         Stock
 	Materials     Materials
+	Partners      Partners
 	LegalEntities LegalEntities
 	Numbers       Numbers
 	Calendar      Calendar

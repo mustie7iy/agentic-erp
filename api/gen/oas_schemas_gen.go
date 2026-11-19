@@ -81626,6 +81626,8 @@ type OutboundDelivery struct {
 	CustomerID uuid.UUID `json:"customer_id"`
 	// The customer's business partner number.
 	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
 	// The plant it ships from.
 	PlantID uuid.UUID `json:"plant_id"`
 	// The plant's code.
@@ -81711,6 +81713,11 @@ func (s *OutboundDelivery) GetCustomerID() uuid.UUID {
 // GetCustomerNumber returns the value of CustomerNumber.
 func (s *OutboundDelivery) GetCustomerNumber() string {
 	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *OutboundDelivery) GetCustomerName() string {
+	return s.CustomerName
 }
 
 // GetPlantID returns the value of PlantID.
@@ -81846,6 +81853,11 @@ func (s *OutboundDelivery) SetCustomerID(val uuid.UUID) {
 // SetCustomerNumber sets the value of CustomerNumber.
 func (s *OutboundDelivery) SetCustomerNumber(val string) {
 	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *OutboundDelivery) SetCustomerName(val string) {
+	s.CustomerName = val
 }
 
 // SetPlantID sets the value of PlantID.

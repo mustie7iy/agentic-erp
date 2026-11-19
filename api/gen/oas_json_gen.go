@@ -201858,6 +201858,10 @@ func (s *OutboundDelivery) encodeFields(e *jx.Encoder) {
 		e.Str(s.CustomerNumber)
 	}
 	{
+		e.FieldStart("customer_name")
+		e.Str(s.CustomerName)
+	}
+	{
 		e.FieldStart("plant_id")
 		json.EncodeUUID(e, s.PlantID)
 	}
@@ -201943,7 +201947,7 @@ func (s *OutboundDelivery) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfOutboundDelivery = [27]string{
+var jsonFieldsNameOfOutboundDelivery = [28]string{
 	0:  "id",
 	1:  "number",
 	2:  "legal_entity_id",
@@ -201953,24 +201957,25 @@ var jsonFieldsNameOfOutboundDelivery = [27]string{
 	6:  "sales_order_number",
 	7:  "customer_id",
 	8:  "customer_number",
-	9:  "plant_id",
-	10: "plant_code",
-	11: "plant_name",
-	12: "storage_location_id",
-	13: "storage_location_code",
-	14: "storage_location_name",
-	15: "goods_issue_date",
-	16: "material_document_id",
-	17: "material_document_number",
-	18: "cost_of_goods_sold",
-	19: "status",
-	20: "picking_status",
-	21: "items",
-	22: "version",
-	23: "created_at",
-	24: "created_by",
-	25: "updated_at",
-	26: "updated_by",
+	9:  "customer_name",
+	10: "plant_id",
+	11: "plant_code",
+	12: "plant_name",
+	13: "storage_location_id",
+	14: "storage_location_code",
+	15: "storage_location_name",
+	16: "goods_issue_date",
+	17: "material_document_id",
+	18: "material_document_number",
+	19: "cost_of_goods_sold",
+	20: "status",
+	21: "picking_status",
+	22: "items",
+	23: "version",
+	24: "created_at",
+	25: "created_by",
+	26: "updated_at",
+	27: "updated_by",
 }
 
 // Decode decodes OutboundDelivery from json.
@@ -202090,8 +202095,20 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"customer_number\"")
 			}
-		case "plant_id":
+		case "customer_name":
 			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.CustomerName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_name\"")
+			}
+		case "plant_id":
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.PlantID = v
@@ -202103,7 +202120,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plant_id\"")
 			}
 		case "plant_code":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.PlantCode = string(v)
@@ -202115,7 +202132,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plant_code\"")
 			}
 		case "plant_name":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.PlantName = string(v)
@@ -202127,7 +202144,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"plant_name\"")
 			}
 		case "storage_location_id":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.StorageLocationID = v
@@ -202139,7 +202156,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"storage_location_id\"")
 			}
 		case "storage_location_code":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.StorageLocationCode = string(v)
@@ -202151,7 +202168,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"storage_location_code\"")
 			}
 		case "storage_location_name":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.StorageLocationName = string(v)
@@ -202203,7 +202220,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"cost_of_goods_sold\"")
 			}
 		case "status":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -202215,7 +202232,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
 		case "picking_status":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.PickingStatus = string(v)
@@ -202227,7 +202244,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"picking_status\"")
 			}
 		case "items":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				s.Items = make([]OutboundDeliveryItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -202245,7 +202262,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "version":
-			requiredBitSet[2] |= 1 << 6
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -202257,7 +202274,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"version\"")
 			}
 		case "created_at":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -202269,7 +202286,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[3] |= 1 << 0
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -202281,7 +202298,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_by\"")
 			}
 		case "updated_at":
-			requiredBitSet[3] |= 1 << 1
+			requiredBitSet[3] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -202293,7 +202310,7 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"updated_at\"")
 			}
 		case "updated_by":
-			requiredBitSet[3] |= 1 << 2
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.UpdatedBy = v
@@ -202315,9 +202332,9 @@ func (s *OutboundDelivery) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [4]uint8{
 		0b11111111,
-		0b01111111,
-		0b11111000,
-		0b00000111,
+		0b11111111,
+		0b11110000,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

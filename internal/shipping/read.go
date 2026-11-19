@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -95,19 +96,20 @@ func (d Delivery) PickingStatus() string {
 // refs is what deliveries name by id, as their consumer reads them
 // (REVIEW.md, API-consumer classes): their companies by code, their
 // plants and storage locations by code and name and their materials by
-// number.
+// number and their customers by name.
 type refs struct {
 	companies map[uuid.UUID]tenancy.Entity
 	units     map[uuid.UUID]tenancy.Unit
 	materials map[uuid.UUID]materials.Material
+	customers map[uuid.UUID]partner.Named
 }
 
 // refs reads what the deliveries name, each once.
 func (e *Endpoints) refs(ctx context.Context, ds []Delivery) (refs, error) {
 	r := refs{companies: map[uuid.UUID]tenancy.Entity{}}
-	var units, ms []uuid.UUID
+	var units, ms, customers []uuid.UUID
 	for _, d := range ds {
-		units = append(units, d.PlantID, d.StorageLocationID)
+		units, customers = append(units, d.PlantID, d.StorageLocationID), append(customers, d.CustomerID)
 		for _, it := range d.Items {
 			ms = append(ms, it.MaterialID)
 		}
@@ -126,6 +128,9 @@ func (e *Endpoints) refs(ctx context.Context, ds []Delivery) (refs, error) {
 	}
 	if r.materials, err = e.Materials.Materials(ctx, ms); err != nil {
 		return refs{}, fmt.Errorf("shipping: %d materials: %w", len(ms), err)
+	}
+	if r.customers, err = e.Partners.Names(ctx, customers); err != nil {
+		return refs{}, fmt.Errorf("shipping: %d customers: %w", len(customers), err)
 	}
 	return r, nil
 }

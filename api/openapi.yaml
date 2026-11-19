@@ -63515,7 +63515,7 @@ components:
     OutboundDelivery:
       type: object
       description: "An outbound delivery (SAP LIKP with its LIPS items): what of a sales order ships from a plant's storage location, its picking and its goods issue. Never deleted; it changes only until its goods issue is posted."
-      required: [id, number, legal_entity_id, company_code, fiscal_year, sales_order_id, sales_order_number, customer_id, customer_number, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, status, picking_status, items, version, created_at, created_by, updated_at, updated_by]
+      required: [id, number, legal_entity_id, company_code, fiscal_year, sales_order_id, sales_order_number, customer_id, customer_number, customer_name, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, status, picking_status, items, version, created_at, created_by, updated_at, updated_by]
       properties:
         id: {type: string, format: uuid, readOnly: true, description: "The delivery's id."}
         number: {type: string, description: "Its number in its company's `outbound_delivery` range of its fiscal year.", readOnly: true}
@@ -63526,6 +63526,7 @@ components:
         sales_order_number: {type: string, description: "That order's document number.", readOnly: true}
         customer_id: {type: string, format: uuid, description: "The order's customer (`GET /v1/business-partners/{id}`).", readOnly: true}
         customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
         plant_id: {type: string, format: uuid, description: "The plant it ships from.", readOnly: true}
         plant_code: {type: string, description: "The plant's code.", readOnly: true}
         plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
@@ -63566,6 +63567,7 @@ components:
           sales_order_number: SO000012
           customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d31"
           customer_number: "100001"
+          customer_name: Northwind Traders
           plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
           plant_code: P100
           plant_name: Toronto plant

@@ -32,8 +32,9 @@ func TestShipmentConstraints(t *testing.T) {
 
 // TestDeliveryByGoodsIssue: an item of a material kept in stock is not
 // confirmed as delivered by hand: it is delivered by an outbound
-// delivery's goods issue (ADR-0083 §5), and nothing is delivered; the
-// materials are read in the request's transaction.
+// delivery's goods issue (ADR-0083 §5), and nothing is delivered; an item
+// the order lacks is refused as before; the materials are read in the
+// request's transaction.
 func TestDeliveryByGoodsIssue(t *testing.T) {
 	e := setup(t)
 	stocked := uuid.Must(uuid.NewV7())
@@ -45,6 +46,7 @@ func TestDeliveryByGoodsIssue(t *testing.T) {
 	if f := field(m); f != "items[0].item_no" {
 		t.Errorf("the field: got %v, want items[0].item_no", f)
 	}
+	e.Problem(422, "sales.unknown_order_item", "POST", deliveries(id), delivered(today, "9 1 EA"), "")
 	h := endpoints(t, time.Now())
 	order := uuid.MustParse(id)
 	call := func(ctx context.Context) error {

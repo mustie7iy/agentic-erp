@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 	"github.com/mustie7iy/agentic-erp/internal/shipping"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -16,5 +17,5 @@ import (
 // ranges and company dates through its ports.
 func Shipping(cfg Config) *shipping.Endpoints {
 	return &shipping.Endpoints{Pages: cfg.Pages, Orders: sales.Orders{}, Shipments: Sales(cfg), Stock: Inventory(cfg), Materials: materials.Materials{},
-		LegalEntities: tenancy.Directory{}, Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
+		Partners: partner.Payees{}, LegalEntities: tenancy.Directory{}, Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
 }

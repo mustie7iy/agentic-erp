@@ -20,7 +20,7 @@
 -- Expand only (06 §6.4): a new schema, a new table, a column with a
 -- default the previous version neither reads nor writes (it stays 0
 -- there, so its checks always hold), a cancel rule its orders always pass
--- and three permissions.
+-- and two permissions.
 CREATE SCHEMA shipping;
 GRANT USAGE ON SCHEMA shipping TO erp_app, erp_readonly, erp_owner;
 SELECT platform.create_event_tables('shipping');

@@ -1,11 +1,17 @@
 package shipping_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/sales"
+	"github.com/mustie7iy/agentic-erp/internal/shipping"
 )
 
 // TestCreate: a delivery without items takes what is open of every item
@@ -21,7 +27,8 @@ func TestCreate(t *testing.T) {
 	d, tag := e.Must(201, "POST", deliveries, e.create(order), "")
 	id := d["id"].(string)
 	for k, want := range map[string]any{"status": "created", "picking_status": "not_picked", "sales_order_id": order, "customer_number": "BP70000001",
-		"plant_code": "P1", "storage_location_code": "S1", "storage_location_name": "Unit S1", "company_code": "2000", "version": float64(1)} {
+		"customer_name": "Northwind Traders",
+		"plant_code":    "P1", "storage_location_code": "S1", "storage_location_name": "Unit S1", "company_code": "2000", "version": float64(1)} {
 		if d[k] != want {
 			t.Errorf("%s: got %v, want %v", k, d[k], want)
 		}
@@ -131,5 +138,42 @@ func TestCreateRefusals(t *testing.T) {
 	}
 	if got := e.inDelivery(t, order); got != "0 BOX, 0 EA, 0 EA" {
 		t.Errorf("in delivery: got %s, want nothing", got)
+	}
+}
+
+// staleOrders answers the order as it was before a change, as a read
+// without the order's lock may.
+type staleOrders struct{ order sales.Order }
+
+func (s staleOrders) Order(context.Context, uuid.UUID) (sales.Order, bool, error) {
+	return s.order, true, nil
+}
+
+// TestCreateJudgedUnderTheLock: an item an order change adds after the
+// delivery's first read of the order is judged on the order as sales
+// locked it: a free-text item added since is refused, not written.
+func TestCreateJudgedUnderTheLock(t *testing.T) {
+	e := setup(t)
+	order := e.order(t, false, e.ofMaterial(e.bracket, "5 BOX"))
+	id := uuid.MustParse(order)
+	var before sales.Order
+	if err := e.inRequest(t, func(ctx context.Context) error {
+		var err error
+		before, _, err = sales.Orders{}.Order(ctx, id)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, tag := e.Must(200, "GET", "/v1/sales-orders/"+order, "", "")
+	e.Must(200, "POST", "/v1/sales-orders/"+order+":change", `{"reason": "Installation added", "new_items": [`+e.freeText()+`]}`, tag)
+	h := endpoints(t)
+	h.Orders = staleOrders{order: before}
+	err := e.inRequest(t, func(ctx context.Context) error {
+		_, err := h.Create(ctx, shipping.Input{OrderID: id, PlantID: e.p1, StorageLocationID: e.s1,
+			Items: []sales.ItemQuantity{{ItemNo: 2, Quantity: "1", Unit: "EA"}}})
+		return err
+	})
+	if p := problem.From(err); p.Code != "shipping.item_not_stocked" {
+		t.Errorf("got %v, want shipping.item_not_stocked", err)
 	}
 }

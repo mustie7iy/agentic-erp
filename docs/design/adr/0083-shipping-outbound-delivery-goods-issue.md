@@ -118,10 +118,11 @@ lock the order `FOR UPDATE` as T78c's confirmation does.
   sales order's items are delivered by it: sales writes its delivery
   (T78c's record) naming the outbound delivery and the material document,
   with each item's issued quantity and cost, and billing, unchanged, bills
-  what is delivered and not billed. What was not picked goes back to the
-  order (the delivery quantity adopts the picked one, as SAP's
-  "adopt picked quantity" before goods issue, from memory); a delivery
-  with nothing picked is refused. It posts once: the delivery's row lock
+  what is delivered and not billed. The goods issue issues what is
+  picked; the delivery keeps its delivery quantity, and what was not
+  picked goes back to the order, open for another delivery (where SAP
+  would have the delivery quantity changed to the picked one before the
+  goods issue, from memory); a delivery with nothing picked is refused. It posts once: the delivery's row lock
   and status.
 - **T78c for stock**: a person no longer confirms the delivery of an
   item of a material kept in stock (422 `sales.delivery_by_goods_issue`):
@@ -146,10 +147,13 @@ company's is left out and counted, as its revenue is (ADR-0075 §6).
 Followed (from memory): the delivery as its own document after the
 order, with picking and a goods issue that posts movement 601 against the
 cost of goods sold; billing from the goods-issued delivery; the picking
-status A/B/C; the delivery quantity adopting the picked quantity.
+status A/B/C.
 
-Not followed: shipping points, routes, delivery split and grouping,
-packing and handling units, proof of delivery and delivery notes;
+Not followed: the delivery quantity is not changed to the picked one
+before the goods issue (SAP VL02N, from memory): the delivery keeps it,
+issues what is picked and gives the rest back to the order. Nor are
+shipping points, routes, delivery split and grouping, packing and
+handling units, proof of delivery and delivery notes;
 deliveries from several plants in one document; an availability check or
 reservation of stock (S2j); goods issue reversal (602), returns
 deliveries and partial goods issue: all Later in the plan.
@@ -184,13 +188,17 @@ deliveries and partial goods issue: all Later in the plan.
 `step_outbound_delivery`). Decided by default while building:
 
 - **Ports.** `shipping` imports `config`, `inventory` (from S2b1, for its
-  goods issue's types), `materials`, `sales` and `tenancy`
+  goods issue's types), `materials`, `partner` (its customers' names, read
+  at the response as a sales document's are, through `partner.Payees`),
+  `sales` and `tenancy`
   (`internal/layout`, a leaf); the ledger's fiscal calendar and the
   configuration's ranges and company dates are ports in its own types.
   Sales' published API is `sales.Orders` (the order, read without a lock
   to find its company and items' materials) and `Endpoints.Ship`, which
   takes the quantities under the order's row lock and answers the order
-  as read with its customer's number.
+  as read with its customer's number. Each item a request names is judged
+  eligible on that locked order, so an item an order change added after
+  the first read is checked as any other.
 - **Customer and order by number.** The delivery stores the order's and
   customer's numbers, which never change; plants, storage locations and
   materials are named at the read.

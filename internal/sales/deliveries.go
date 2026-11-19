@@ -146,10 +146,10 @@ func (e *Endpoints) ConfirmDelivery(ctx context.Context, orderID uuid.UUID, in D
 	if err := e.notAfterToday(ctx, le.Code, in.Date); err != nil {
 		return Delivery{}, err
 	}
-	if err := deliverable(o, in.Items); err != nil {
+	if err := e.byHand(ctx, o, in.Items); err != nil {
 		return Delivery{}, err
 	}
-	if err := e.byHand(ctx, o, in.Items); err != nil {
+	if err := deliverable(o, in.Items); err != nil {
 		return Delivery{}, err
 	}
 	names, err := e.Partners.Names(ctx, []uuid.UUID{o.CustomerID})
@@ -245,8 +245,9 @@ func takeable(o Order, in []ItemQuantity, document, noField string) error {
 }
 
 // byHand refuses confirming the delivery of an item of a material kept in
-// stock (422 sales.delivery_by_goods_issue naming items[i].item_no): its
-// delivery is an outbound delivery's goods issue (ADR-0083 §5). A
+// stock (422 sales.delivery_by_goods_issue naming items[i].item_no), what
+// is open of it or not: its delivery is an outbound delivery's goods issue
+// (ADR-0083 §5). A
 // service or free-text item, and one of a material kept in no stock, is
 // confirmed by hand.
 func (e *Endpoints) byHand(ctx context.Context, o Order, in []DeliveryItemInput) error {
@@ -264,7 +265,10 @@ func (e *Endpoints) byHand(ctx context.Context, o Order, in []DeliveryItemInput)
 		return fmt.Errorf("sales: materials of sales order %s: %w", o.DocumentNumber, err)
 	}
 	for i, d := range in {
-		it := o.Items[d.ItemNo-1] // deliverable found each item; items are numbered from 1 in order (insertItems)
+		if d.ItemNo < 1 || int(d.ItemNo) > len(o.Items) {
+			continue // no item of the order: deliverable refuses it
+		}
+		it := o.Items[d.ItemNo-1] // items are numbered from 1 in order (insertItems)
 		if it.MaterialID == nil || !ms[*it.MaterialID].Stocked() {
 			continue
 		}

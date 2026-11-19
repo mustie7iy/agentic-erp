@@ -22,7 +22,7 @@ func deliveryAPI(d Delivery, r refs) gen.OutboundDelivery {
 	plant, loc := r.units[d.PlantID], r.units[d.StorageLocationID]
 	out := gen.OutboundDelivery{ID: d.ID, Number: d.Number, LegalEntityID: d.LegalEntityID, CompanyCode: r.companies[d.LegalEntityID].Code,
 		FiscalYear: int32(d.FiscalYear), SalesOrderID: d.OrderID, SalesOrderNumber: d.OrderNumber, CustomerID: d.CustomerID,
-		CustomerNumber: d.CustomerNumber, PlantID: d.PlantID, PlantCode: plant.Code, PlantName: plant.Name, StorageLocationID: d.StorageLocationID,
+		CustomerNumber: d.CustomerNumber, CustomerName: r.customers[d.CustomerID].Name, PlantID: d.PlantID, PlantCode: plant.Code, PlantName: plant.Name, StorageLocationID: d.StorageLocationID,
 		StorageLocationCode: loc.Code, StorageLocationName: loc.Name, Status: d.Status, PickingStatus: d.PickingStatus(),
 		Items: make([]gen.OutboundDeliveryItem, len(d.Items)), Version: d.Version, CreatedAt: d.CreatedAt, CreatedBy: d.CreatedBy,
 		UpdatedAt: d.UpdatedAt, UpdatedBy: d.UpdatedBy}
@@ -33,7 +33,7 @@ func deliveryAPI(d Delivery, r refs) gen.OutboundDelivery {
 			PickedQuantity: gen.Quantity{Value: it.Picked, Unit: it.Unit}}
 		if it.Cost != nil {
 			out.Items[i].Cost = gen.NewOptMoney(apitypes.Money(*it.Cost, d.Currency, d.Exponent))
-			total += *it.Cost // each a part of one stock's value, at most 2^63 minor units together (inventory.valuation.value is a bigint)
+			total += *it.Cost // their sum was posted in one WA entry, whose amounts the ledger keeps within an amount's range
 		}
 	}
 	if d.Status == GoodsIssued {

@@ -493,8 +493,9 @@ the sales order's items are delivered by it, and billing bills them.
   in stock (422 `sales.delivery_by_goods_issue`), which a service or
   free-text item, or a material kept in no stock, keeps.
 - **Decided by default:** the goods issue issues each item's picked
-  quantity and gives the rest back to the order (SAP's "adopt picked
-  quantity" before goods issue, from memory); an item picked at nothing
+  quantity and gives the rest back to the order, the delivery keeping its
+  delivery quantity (SAP would change it to the picked one before the
+  goods issue, from memory); an item picked at nothing
   issues nothing; a delivery with nothing picked is refused. It is posted
   on the company's date today, once (the delivery's status and row lock),
   for an order not blocked for credit. Billing is unchanged: it bills
@@ -698,8 +699,8 @@ S2a–S2d, S2o and S2p (twelve).
   701, 702) are stated from memory, without a primary source in the
   repository; so are the delivery tables LIKP and LIPS, the picking
   status KOSTK (A, B, C), the account modifier VAX of GBB for a goods
-  issue's cost of goods sold, and the delivery quantity adopting the
-  picked one before goods issue (ADR-0083).
+  issue's cost of goods sold, and SAP changing the delivery quantity to
+  the picked one before goods issue, which ADR-0083 does not follow.
 - SAP's account determination for inventory (transaction keys BSX, WRX,
   PRD, GBB with its account modifiers, UMB) is from memory; ADR-0082 §8
   maps it onto this ERP's account determination keys and is confirmed by

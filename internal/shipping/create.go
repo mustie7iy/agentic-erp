@@ -41,10 +41,12 @@ type origin struct {
 
 // Create creates an outbound delivery (ADR-0083 §3): the order one of a
 // company the caller may act in, the plant an active one of the order's
-// company and the storage location an active one under it, each item an
-// order item of an active material kept in stock there (eligible). Sales then takes the quantities under the order's row lock
-// (Ship: confirmed, not blocked for credit, at most what is open, or what
-// is open of every eligible item), the delivery is numbered from its
+// company and the storage location an active one under it. Sales takes the
+// quantities under the order's row lock (Ship: confirmed, not blocked for
+// credit, at most what is open, or what is open of every eligible item of
+// the order as first read), and each item named is then checked, on the
+// order as Ship read it, to be an order item of an active material kept
+// in stock there (eligible), the delivery is numbered from its
 // company's outbound_delivery range of the fiscal year of the company's
 // date today, and written created with nothing picked; its audit record
 // and OutboundDeliveryChanged are written in the request's transaction.
@@ -60,8 +62,6 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Delivery, error) {
 	ship := sales.ShipInput{OrderID: in.OrderID, DeliveryID: uuid.Must(uuid.NewV7()), Items: in.Items}
 	if in.Items == nil {
 		ship.Open = src.eligibleItems()
-	} else if err := src.eligibleNamed(in.Items); err != nil {
-		return Delivery{}, err
 	}
 	day, err := config.DocumentDay(ctx, e.Settings, src.le.Code, clock.Now(e.Now))
 	if err != nil {
@@ -77,6 +77,16 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Delivery, error) {
 	shipped, err := e.Shipments.Ship(ctx, ship)
 	if err != nil {
 		return Delivery{}, err
+	}
+	if in.Items != nil {
+		// Judged on the order as Ship read it under its lock: an item added
+		// since the read above is checked as any other.
+		if src.order, src.materials, err = e.orderMaterials(ctx, shipped.Order); err != nil {
+			return Delivery{}, err
+		}
+		if err := src.eligibleNamed(in.Items); err != nil {
+			return Delivery{}, err
+		}
 	}
 	d, err := insert(ctx, tx, p, src, ship, year, shipped)
 	if err != nil {
@@ -112,16 +122,25 @@ func (e *Endpoints) origin(ctx context.Context, in Input) (origin, error) {
 	if src.plant, src.location, err = shipFrom(units, in, src.le); err != nil {
 		return origin{}, err
 	}
+	if src.order, src.materials, err = e.orderMaterials(ctx, o); err != nil {
+		return origin{}, err
+	}
+	return src, nil
+}
+
+// orderMaterials is the order with the materials its standing items name.
+func (e *Endpoints) orderMaterials(ctx context.Context, o sales.Order) (sales.Order, map[uuid.UUID]materials.Material, error) {
 	var ids []uuid.UUID
 	for _, it := range o.Standing() {
 		if it.MaterialID != nil {
 			ids = append(ids, *it.MaterialID)
 		}
 	}
-	if src.materials, err = e.Materials.Materials(ctx, ids); err != nil {
-		return origin{}, fmt.Errorf("shipping: materials of sales order %s: %w", o.DocumentNumber, err)
+	ms, err := e.Materials.Materials(ctx, ids)
+	if err != nil {
+		return sales.Order{}, nil, fmt.Errorf("shipping: materials of sales order %s: %w", o.DocumentNumber, err)
 	}
-	return src, nil
+	return o, ms, nil
 }
 
 // shipFrom checks where a delivery ships from: an active plant of the
