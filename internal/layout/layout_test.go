@@ -97,10 +97,10 @@ var allowed = map[string][]string{
 	"assets":                  {"config"},                                       // a leaf (ADR-0057 §2): configuration and tenancy through ports the composition root wires
 	"audit":                   {"approvals", "ledger", "operations", "tenancy"}, // evidence exports (T101a): tenancy's legal entities, the ledger's journal and the approval requests on its entries' source documents through its ports, by the types their published APIs give
 	"capture":                 {"llm"},
-	"cash":                    {"config"},                                 // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
-	"changedraft":             {"apitools", "config", "recommend"},        // a configuration change request drafted by a recommending agent (ADR-0072 As built, T107b, T108c), shared by the agents that draft
-	"closeagent":              {"apitools", "llm", "recommend"},           // recommend: its default bound on model requests (Iterations; ADR-0072 As built, hardening 3)
-	"closing":                 {"config"},                                 // a leaf (ADR-0058 §2): configuration, tenancy, the ledger and controlling through ports the composition root wires
+	"cash":                    {"config"},                                                // a leaf (ADR-0051 §2): the ledger, payments, payables and procurement through ports the composition root wires
+	"changedraft":             {"apitools", "config", "recommend"},                       // a configuration change request drafted by a recommending agent (ADR-0072 As built, T107b, T108c), shared by the agents that draft
+	"closeagent":              {"apitools", "llm", "recommend"},                          // recommend: its default bound on model requests (Iterations; ADR-0072 As built, hardening 3)
+	"closing":                 {"config"},                                                // a leaf (ADR-0058 §2): configuration, tenancy, the ledger and controlling through ports the composition root wires
 	"collections":             {"config", "ledger", "partner", "receivables", "tenancy"}, // a leaf (ADR-0065 §1): the ledger's customer open items, partners' names, tenancy and configuration through its ports, by the types their published APIs give; receivables' published API for a dispute case's credit memos (ADR-0065 As built T86d), as sales posts its credit memos
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
