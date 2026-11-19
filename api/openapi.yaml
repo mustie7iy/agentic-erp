@@ -36255,6 +36255,16 @@ paths:
         - ledger.unknown_unit
         - ledger.zero_amount
         - ledger.zero_tax_base
+        - materials.base_unit_conversion
+        - materials.change_pending
+        - materials.duplicate_plant
+        - materials.duplicate_storage_location
+        - materials.duplicate_unit
+        - materials.number_taken
+        - materials.plant_invalid
+        - materials.storage_location_invalid
+        - materials.unknown_material_type
+        - materials.unknown_unit
         - partner.address_overlap
         - partner.backdated_address
         - partner.backdated_bank_account
@@ -36369,6 +36379,10 @@ paths:
         - request.rule_unevaluable
         - request.validation_failed
         - request.version_mismatch
+        - tenancy.invalid_parent
+        - tenancy.invalid_status
+        - tenancy.org_unit_code_taken
+        - tenancy.unknown_org_unit_kind
         - workflow.no_policy
         - workflow.request_pending
         - workflow.unknown_role
@@ -71023,6 +71037,13 @@ components:
         - setheadert
         - setnode
         - setleaf
+        - mara
+        - makt
+        - marm
+        - marc
+        - mard
+        - t001w
+        - t001l
       properties:
         t001:
           type: integer
@@ -71156,6 +71177,34 @@ components:
           type: integer
           minimum: 0
           description: "Rows of SAP table SETLEAF (the groups' values, single centers or ranges; ADR-0050 §10, T56h2)."
+        mara:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table MARA (general material data: the materials of the scope's plants; S2o)."
+        makt:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table MAKT (the materials' descriptions; S2o)."
+        marm:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table MARM (the materials' units of measure and their conversions; S2o)."
+        marc:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table MARC (the materials' plant data at the scope's plants; S2o)."
+        mard:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table MARD (the materials' storage location data at the scope's plants, the assignment only; S2o)."
+        t001w:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table T001W (the plants of the scope's company codes; S2o)."
+        t001l:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table T001L (the storage locations of those plants; S2o)."
     MigrationLoadedCounts:
       type: object
       description: "What a migration run's load created, by kind; a kind it created none of is absent. A rehearsal, and a load with an `error` refusal, are rolled back: their counts are what the load created before the rollback, and nothing of it stays. A kept load counts only what no earlier kept run loaded, so a run of the same extract again counts nothing."
@@ -71236,6 +71285,22 @@ components:
           type: integer
           minimum: 1
           description: "Centers this run created placed at a group of SAP's, in the standard or an alternative hierarchy, their values (SETLEAF) expanded against the extract's centers (ADR-0050 §10, T56h2)."
+        plants:
+          type: integer
+          minimum: 1
+          description: "SAP plants (T001W) recorded as the company's plants: an active plant of the company with the plant's code, or one created active (S2o)."
+        storage_locations:
+          type: integer
+          minimum: 1
+          description: "SAP storage locations (T001L) recorded as storage locations under their plant: an active one of the company with the code under that plant, or one created active (S2o)."
+        materials:
+          type: integer
+          minimum: 1
+          description: "Materials created from SAP's material master (MARA, MAKT, MARM, MARC, MARD), active at once with their create change applied, numbered from the material range of their first plant's company, each SAP material number kept as an external reference: the run is their approval (S2o). A material the platform cannot hold (a unit that is none of the platform's, a conversion that is not exact, a type with no counterpart) is held back, a quality warning saying why."
+        materials_extended:
+          type: integer
+          minimum: 1
+          description: "Materials an earlier run created that this run extended to more plants or storage locations, each by an update change applied at once (S2o)."
     MigrationIssue:
       type: object
       description: A finding of the quality gate, the load or the reconciliation on a row of the extract.
@@ -71299,7 +71364,7 @@ components:
           description: SAP company code (T001 BUKRS).
         key:
           type: string
-          description: "What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>` or `open items of partner <id> (<name>)` (the number of open payable items), `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items in a foreign document currency, in it), `trading partner <company code>` or `trading partner <id>` (the open payables per trading partner: by the SAP company code the vendors' trading partner, LFA1-VBUND, is, or by the id alone of a legal entity the extract does not name; ADR-0059), `account <number> trading partner <company code>` or `account <number> trading partner <id>` (the balance by trading partner of an account that is no supplier reconciliation account: the lines posted without a supplier, each under the trading partner it names itself, ACDOCA-RASSC, or else its document's vendor lines'), `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10), or `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center reports', documents mode), or `payment method <method> items of vendor <LIFNR>` or `payment method <method> items of partner <id> (<name>)` (the open items that fix that payment method, SAP ZLSCH: their number and total, as `2 items, -1250.00 EUR`)."
+          description: "What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>` or `open items of partner <id> (<name>)` (the number of open payable items), `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items in a foreign document currency, in it), `trading partner <company code>` or `trading partner <id>` (the open payables per trading partner: by the SAP company code the vendors' trading partner, LFA1-VBUND, is, or by the id alone of a legal entity the extract does not name; ADR-0059), `account <number> trading partner <company code>` or `account <number> trading partner <id>` (the balance by trading partner of an account that is no supplier reconciliation account: the lines posted without a supplier, each under the trading partner it names itself, ACDOCA-RASSC, or else its document's vendor lines'), `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10), `plant <WERKS>`, `storage location <WERKS>/<LGORT>` (its code under its plant's) or `material <MATNR>` (its type, group, base unit, status, description, plants and storage locations in the company, and alternative units; S2o), or `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center reports', documents mode), or `payment method <method> items of vendor <LIFNR>` or `payment method <method> items of partner <id> (<name>)` (the open items that fix that payment method, SAP ZLSCH: their number and total, as `2 items, -1250.00 EUR`)."
         sap:
           type: string
           description: "SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, the open items fixing a payment method as their number and total (`2 items, -1250.00 EUR`), a GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load writes it, or a center's periods (`2020-01-01 to 2026-06-30: ADMIN, profit center P3100; from 2026-07-01: ADMIN, profit center P3200`, a profit center's with its segment; `none` for a center one side lacks, `unreadable` for SAP's slices that do not read)."

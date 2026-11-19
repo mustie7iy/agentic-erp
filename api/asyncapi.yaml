@@ -8083,6 +8083,10 @@ components:
         hierarchies: {type: integer, minimum: 1, description: 'Alternative hierarchies created from SAP''s center groups (sets 0101, 0106).'}
         hierarchy_nodes: {type: integer, minimum: 1, description: 'SAP center groups loaded as hierarchy nodes, the run their approval, alternative hierarchies'' roots included.'}
         hierarchy_places: {type: integer, minimum: 1, description: 'Centers this run created placed at a leaf of SAP''s groups.'}
+        plants: {type: integer, minimum: 1, description: 'SAP plants (T001W) recorded as the company''s plants: found by their code or created active (S2o).'}
+        storage_locations: {type: integer, minimum: 1, description: 'SAP storage locations (T001L) recorded under their plant: found by their code or created active (S2o).'}
+        materials: {type: integer, minimum: 1, description: 'Materials created from SAP''s material master, active at once (S2o).'}
+        materials_extended: {type: integer, minimum: 1, description: 'Materials an earlier run created that this run extended to more plants or storage locations (S2o).'}
 
     # --------------------------------------------------------------- agents
     RecommendationMadeV1:

@@ -95,14 +95,15 @@ func (rc *reconciler) centers(ctx context.Context, s companyScope) (*centerState
 			platformProfit[key] = profitCenterText(fromLedger(c.Periods, func(a ledger.ProfitCenterAttrs) pcAttr { return pcAttr{locked: a.Locked} }), segment)
 		}
 	}
-	rc.compareCenters(s.cc, "Cost centers", "cost center ", sapCost, platformCost)
-	rc.compareCenters(s.cc, "Profit centers", "profit center ", sapProfit, platformProfit)
+	rc.compareKeyed(s.cc, "Cost centers", "centers", "cost center ", sapCost, platformCost)
+	rc.compareKeyed(s.cc, "Profit centers", "centers", "profit center ", sapProfit, platformProfit)
 	return st, nil
 }
 
-// compareCenters adds the count and the differences of one kind of center,
-// where either side has any.
-func (rc *reconciler) compareCenters(cc, name, prefix string, sapSide, platform map[string]string) {
+// compareKeyed adds the count and the differences of one kind of master
+// data by SAP key (centers, plants, materials), where either side has
+// any: the check name, and the name+": "+what+" with differences".
+func (rc *reconciler) compareKeyed(cc, name, what, prefix string, sapSide, platform map[string]string) {
 	if len(sapSide) == 0 && len(platform) == 0 {
 		return
 	}
@@ -114,7 +115,7 @@ func (rc *reconciler) compareCenters(cc, name, prefix string, sapSide, platform 
 			n++
 		}
 	}
-	rc.add(cc, name+": centers with differences", "0", strconv.Itoa(n), n == 0)
+	rc.add(cc, name+": "+what+" with differences", "0", strconv.Itoa(n), n == 0)
 }
 
 func orNone(s string) string {

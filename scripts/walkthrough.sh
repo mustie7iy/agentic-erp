@@ -964,7 +964,9 @@ step_migrate() {
     'Account balances by trading partner total' 'Account balances by trading partner: balances with differences' \
     'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences' \
     'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences' \
-    'Cost center totals: centers with differences' 'Profit center totals: centers with differences' 'Segment totals: segments with differences'; do
+    'Cost center totals: centers with differences' 'Profit center totals: centers with differences' 'Segment totals: segments with differences' \
+    'Plants' 'Plants: plants with differences' 'Storage locations' 'Storage locations: storage locations with differences' \
+    'Materials' 'Materials: materials with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
@@ -1014,6 +1016,7 @@ step_migrate() {
   done
   migrated_trading_partner
   migrated_centers
+  migrated_materials
   migrated_default_assignment
   migrated_line_centers
   migrated_down_payment
@@ -1224,6 +1227,49 @@ migrated_centers() {
   expect "the migrated cost center's change" "$(field '.items[0] | "\(.kind) \(.status) \(.workflow_request_id // "none")"')" "create applied none"
   migrated_groups "$cc3120" "$pc3200" "$cc3100"
   as ada
+}
+
+# migrated_materials is S2o (plan-supply-chain.md §S2o, ADR-0082 As built
+# S2o): the run loaded company 3000's plants and storage locations (T001W,
+# T001L) as Maple's org units, active, and SAP's material master (MARA,
+# MAKT, MARM, MARC, MARD) as materials, active at once and numbered from
+# Maple's material range, each create change applied by the run without
+# an approval request and naming the SAP material number, kept as an
+# external reference. The washer whose base unit is SAP's internal key ST
+# and the spacer sold by the carton (CAR) are none of the platform's units
+# and were held back with their reason; the gasket flagged for deletion
+# was left out. The reconciliation compared the plants, storage locations
+# and materials by SAP key (step_migrate's checks).
+migrated_materials() {
+  say "SAP's plants and storage locations came over as Maple's org units, active (T001W, T001L; S2o):"
+  jq -r --arg cc "$CC" '.T001W[] | select(.BUKRS == $cc) | "     T001W \(.WERKS) \(.NAME1), company \(.BUKRS)"' "$WORK/data/extract.json"
+  as ada
+  api 200 '.items[] | select(.code | test("^(3[12]00|000[1-3])$")) | "\(.kind) \(.code) \(.name): \(.status)"' listOrgUnits -p page_size=100
+  expect "the migrated plants and storage locations" \
+    "$(field '[.items[] | select(.code | test("^(3[12]00|000[1-3])$")) | "\(.kind) \(.code) \(.status)"] | sort | join(", ")')" \
+    "plant 3100 active, plant 3200 active, storage_location 0001 active, storage_location 0002 active, storage_location 0003 active"
+  say "And SAP's material master as materials (MARA, MAKT, MARM, MARC, MARD), active at once and numbered from Maple's"
+  say "material range; SAP's conversions are exact (MARM: one alternative unit is UMREZ / UMREN base units):"
+  jq -r '.MARM[] | select(.UMREZ != "1" or .UMREN != "1") | "     MARM \(.MATNR) \(.MEINH): \(.UMREZ)/\(.UMREN)"' "$WORK/data/extract.json"
+  api 200 '.items[] | "material \(.number) \(.description): \(.material_type), group \(.material_group), base unit \(.base_unit), \(.status); \([.plants[] | "plant \(.plant_code) (\([.storage_locations[].code] | join(", ")))"] | join(", "))\([.alternative_units[] | "; \(.unit) = \(.numerator)/\(.denominator)"] | join(""))"' \
+    listMaterials -p page_size=50
+  expect "the migrated materials" \
+    "$(field '[.items[] | "\(.description): \(.material_type) \(.base_unit) \(.status) \([.plants[] | "\(.plant_code)/\([.storage_locations[].code] | join("+"))"] | join(" ")) \([.alternative_units[] | "\(.unit)=\(.numerator)/\(.denominator)"] | join(" "))"] | sort | join("; ")')" \
+    "Hex bolt M8: trading_good PC active 3200/0003 ; Shelving unit, 5 tiers: finished_good EA active 3100/0002 3200/0003 BOX=4/1; Steel sheet 2 mm: raw_material KG active 3100/0001 T=1000/1"
+  local steel
+  steel=$(field '.items[] | select(.description == "Steel sheet 2 mm") | .id')
+  say "Each one's creation is a material change the run applied, with no approval request of its own; its reason names"
+  say "SAP's material number, which the run keeps as the material's external reference:"
+  api 200 '.items[] | "material change \(.number) \(.kind): \(.status), approval request \(.workflow_request_id // "none"); \(.reason)"' \
+    listMaterialChanges -p "material_id=$steel"
+  expect "the migrated material's change" "$(field '.items[0] | "\(.kind) \(.status) \(.workflow_request_id // "none") \(.reason | test("SAP material 000000000000100001$"))"')" \
+    "create applied none true"
+  say "What the platform cannot hold is held back with its reason, a warning, and the rest loads: SAP's internal unit key"
+  say "ST and the carton are no units of the platform's; the gasket SAP flags for deletion is not migrated:"
+  grep -E '\[warning\] (MARA|MAKT|MARC|MARD) ' "$WORK/migrate.out" | sed 's/^/     /'
+  expect "the materials held back" "$(grep -c '\[warning\] MARA .*: held back:' "$WORK/migrate.out" || true)" 2
+  expect "the materials flagged for deletion" "$(grep -c '\[warning\] MARA .*: flagged for deletion' "$WORK/migrate.out" || true)" 1
+  grep -E 'Plants|Storage locations|Materials' "$WORK/migrate.out" | sed 's/^/     /'
 }
 
 # migrated_line_centers shows SAP's account assignment on the migrated

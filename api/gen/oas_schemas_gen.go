@@ -72775,10 +72775,12 @@ type MigrationDiff struct {
 	// balance by trading partner of an account that is no supplier reconciliation account: the lines
 	// posted without a supplier, each under the trading partner it names itself, ACDOCA-RASSC, or else its
 	// document's vendor lines'), `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a
-	// center's periods, ADR-0050 §10), or `cost center total <KOKRS>/<KOSTL>`,
-	// `profit center total <KOKRS>/<PRCTR>` or `segment total <SEGMENT>` (the migrated lines' total on
-	// profit and loss accounts against the center reports', documents mode), or
-	// `payment method <method> items of vendor <LIFNR>` or
+	// center's periods, ADR-0050 §10), `plant <WERKS>`, `storage location <WERKS>/<LGORT>` (its code
+	// under its plant's) or `material <MATNR>` (its type, group, base unit, status, description, plants
+	// and storage locations in the company, and alternative units; S2o), or
+	// `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or
+	// `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center
+	// reports', documents mode), or `payment method <method> items of vendor <LIFNR>` or
 	// `payment method <method> items of partner <id> (<name>)` (the open items that fix that payment
 	// method, SAP ZLSCH: their number and total, as `2 items, -1250.00 EUR`).
 	Key string `json:"key"`
@@ -72906,6 +72908,21 @@ type MigrationExtractCounts struct {
 	Setnode int `json:"setnode"`
 	// Rows of SAP table SETLEAF (the groups' values, single centers or ranges; ADR-0050 §10, T56h2).
 	Setleaf int `json:"setleaf"`
+	// Rows of SAP table MARA (general material data: the materials of the scope's plants; S2o).
+	Mara int `json:"mara"`
+	// Rows of SAP table MAKT (the materials' descriptions; S2o).
+	Makt int `json:"makt"`
+	// Rows of SAP table MARM (the materials' units of measure and their conversions; S2o).
+	Marm int `json:"marm"`
+	// Rows of SAP table MARC (the materials' plant data at the scope's plants; S2o).
+	Marc int `json:"marc"`
+	// Rows of SAP table MARD (the materials' storage location data at the scope's plants, the assignment
+	// only; S2o).
+	Mard int `json:"mard"`
+	// Rows of SAP table T001W (the plants of the scope's company codes; S2o).
+	T001w int `json:"t001w"`
+	// Rows of SAP table T001L (the storage locations of those plants; S2o).
+	T001l int `json:"t001l"`
 }
 
 // GetT001 returns the value of T001.
@@ -73073,6 +73090,41 @@ func (s *MigrationExtractCounts) GetSetleaf() int {
 	return s.Setleaf
 }
 
+// GetMara returns the value of Mara.
+func (s *MigrationExtractCounts) GetMara() int {
+	return s.Mara
+}
+
+// GetMakt returns the value of Makt.
+func (s *MigrationExtractCounts) GetMakt() int {
+	return s.Makt
+}
+
+// GetMarm returns the value of Marm.
+func (s *MigrationExtractCounts) GetMarm() int {
+	return s.Marm
+}
+
+// GetMarc returns the value of Marc.
+func (s *MigrationExtractCounts) GetMarc() int {
+	return s.Marc
+}
+
+// GetMard returns the value of Mard.
+func (s *MigrationExtractCounts) GetMard() int {
+	return s.Mard
+}
+
+// GetT001w returns the value of T001w.
+func (s *MigrationExtractCounts) GetT001w() int {
+	return s.T001w
+}
+
+// GetT001l returns the value of T001l.
+func (s *MigrationExtractCounts) GetT001l() int {
+	return s.T001l
+}
+
 // SetT001 sets the value of T001.
 func (s *MigrationExtractCounts) SetT001(val int) {
 	s.T001 = val
@@ -73238,6 +73290,41 @@ func (s *MigrationExtractCounts) SetSetleaf(val int) {
 	s.Setleaf = val
 }
 
+// SetMara sets the value of Mara.
+func (s *MigrationExtractCounts) SetMara(val int) {
+	s.Mara = val
+}
+
+// SetMakt sets the value of Makt.
+func (s *MigrationExtractCounts) SetMakt(val int) {
+	s.Makt = val
+}
+
+// SetMarm sets the value of Marm.
+func (s *MigrationExtractCounts) SetMarm(val int) {
+	s.Marm = val
+}
+
+// SetMarc sets the value of Marc.
+func (s *MigrationExtractCounts) SetMarc(val int) {
+	s.Marc = val
+}
+
+// SetMard sets the value of Mard.
+func (s *MigrationExtractCounts) SetMard(val int) {
+	s.Mard = val
+}
+
+// SetT001w sets the value of T001w.
+func (s *MigrationExtractCounts) SetT001w(val int) {
+	s.T001w = val
+}
+
+// SetT001l sets the value of T001l.
+func (s *MigrationExtractCounts) SetT001l(val int) {
+	s.T001l = val
+}
+
 // A finding of the quality gate, the load or the reconciliation on a row of the extract.
 // Ref: #/components/schemas/MigrationIssue
 type MigrationIssue struct {
@@ -73353,6 +73440,21 @@ type MigrationLoadedCounts struct {
 	// Centers this run created placed at a group of SAP's, in the standard or an alternative hierarchy,
 	// their values (SETLEAF) expanded against the extract's centers (ADR-0050 §10, T56h2).
 	HierarchyPlaces OptInt `json:"hierarchy_places"`
+	// SAP plants (T001W) recorded as the company's plants: an active plant of the company with the plant's
+	// code, or one created active (S2o).
+	Plants OptInt `json:"plants"`
+	// SAP storage locations (T001L) recorded as storage locations under their plant: an active one of the
+	// company with the code under that plant, or one created active (S2o).
+	StorageLocations OptInt `json:"storage_locations"`
+	// Materials created from SAP's material master (MARA, MAKT, MARM, MARC, MARD), active at once with
+	// their create change applied, numbered from the material range of their first plant's company, each
+	// SAP material number kept as an external reference: the run is their approval (S2o). A material the
+	// platform cannot hold (a unit that is none of the platform's, a conversion that is not exact, a type
+	// with no counterpart) is held back, a quality warning saying why.
+	Materials OptInt `json:"materials"`
+	// Materials an earlier run created that this run extended to more plants or storage locations, each by
+	// an update change applied at once (S2o).
+	MaterialsExtended OptInt `json:"materials_extended"`
 }
 
 // GetSuppliers returns the value of Suppliers.
@@ -73450,6 +73552,26 @@ func (s *MigrationLoadedCounts) GetHierarchyPlaces() OptInt {
 	return s.HierarchyPlaces
 }
 
+// GetPlants returns the value of Plants.
+func (s *MigrationLoadedCounts) GetPlants() OptInt {
+	return s.Plants
+}
+
+// GetStorageLocations returns the value of StorageLocations.
+func (s *MigrationLoadedCounts) GetStorageLocations() OptInt {
+	return s.StorageLocations
+}
+
+// GetMaterials returns the value of Materials.
+func (s *MigrationLoadedCounts) GetMaterials() OptInt {
+	return s.Materials
+}
+
+// GetMaterialsExtended returns the value of MaterialsExtended.
+func (s *MigrationLoadedCounts) GetMaterialsExtended() OptInt {
+	return s.MaterialsExtended
+}
+
 // SetSuppliers sets the value of Suppliers.
 func (s *MigrationLoadedCounts) SetSuppliers(val OptInt) {
 	s.Suppliers = val
@@ -73543,6 +73665,26 @@ func (s *MigrationLoadedCounts) SetHierarchyNodes(val OptInt) {
 // SetHierarchyPlaces sets the value of HierarchyPlaces.
 func (s *MigrationLoadedCounts) SetHierarchyPlaces(val OptInt) {
 	s.HierarchyPlaces = val
+}
+
+// SetPlants sets the value of Plants.
+func (s *MigrationLoadedCounts) SetPlants(val OptInt) {
+	s.Plants = val
+}
+
+// SetStorageLocations sets the value of StorageLocations.
+func (s *MigrationLoadedCounts) SetStorageLocations(val OptInt) {
+	s.StorageLocations = val
+}
+
+// SetMaterials sets the value of Materials.
+func (s *MigrationLoadedCounts) SetMaterials(val OptInt) {
+	s.Materials = val
+}
+
+// SetMaterialsExtended sets the value of MaterialsExtended.
+func (s *MigrationLoadedCounts) SetMaterialsExtended(val OptInt) {
+	s.MaterialsExtended = val
 }
 
 // Merged schema.

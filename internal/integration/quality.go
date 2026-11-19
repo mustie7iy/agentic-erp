@@ -73,6 +73,9 @@ type target struct {
 	// partners are what the trading partners the extract's vendors name
 	// (LFA1-VBUND) are on the platform, by company ID (tradingpartner.go).
 	partners map[string]groupCompany
+	// units are the platform's units of measure (ref.unit_of_measure),
+	// which a migrated material's units must be (materials.go).
+	units map[string]bool
 }
 
 func (t target) hasRange(company, documentType string) bool {
@@ -133,6 +136,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.companies()
 	q.accounts()
 	q.centers()
+	q.materialMaster()
 	q.vendors()
 	q.tradingPartners()
 	q.vendorCompanies()
