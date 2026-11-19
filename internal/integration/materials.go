@@ -85,9 +85,9 @@ func knownUnits(ctx context.Context, tx pgx.Tx) (map[string]bool, error) {
 
 // plantsOf are the extract's plants in code order, each with its storage
 // locations, and the errors that refuse them: a key that is no org unit
-// code, no name, a row twice, a storage location of no plant, and a
-// storage location's code at two plants of one company code, which
-// tenancy keeps unique in a company where SAP keys it by its plant.
+// code, no name, a row twice and a storage location of no plant. A
+// storage location's code may be at two plants of a company code, as
+// tenancy keys it by its plant as SAP does.
 func plantsOf(e *sap.Extract) ([]sapPlant, []Issue) {
 	var issues []Issue
 	add := func(table, key, format string, args ...any) {
@@ -109,7 +109,6 @@ func plantsOf(e *sap.Extract) ([]sapPlant, []Issue) {
 		byCode[plants[i].werks] = &plants[i]
 	}
 	locations := slices.SortedFunc(slices.Values(e.T001L), func(a, b sap.T001L) int { return cmp.Compare(a.WERKS+"/"+a.LGORT, b.WERKS+"/"+b.LGORT) })
-	at := map[string]string{} // company/LGORT -> the first plant with it
 	for _, r := range locations {
 		key := r.WERKS + "/" + r.LGORT
 		p := byCode[r.WERKS]
@@ -120,12 +119,8 @@ func plantsOf(e *sap.Extract) ([]sapPlant, []Issue) {
 		case slices.ContainsFunc(p.locations, func(l sapLocation) bool { return l.lgort == r.LGORT }):
 			add("T001L", key, "the storage location is listed twice")
 			continue
-		case at[p.company+"/"+r.LGORT] != "":
-			add("T001L", key, "storage location %s is also at plant %s of company code %s; the platform keeps a storage location's code unique "+
-				"in its company, where SAP keys it by its plant", r.LGORT, at[p.company+"/"+r.LGORT], p.company)
 		}
 		orgUnitIssues("T001L", key, r.LGORT, r.LGOBE, "storage location", add)
-		at[p.company+"/"+r.LGORT] = r.WERKS
 		p.locations = append(p.locations, sapLocation{lgort: r.LGORT, name: r.LGOBE})
 	}
 	return plants, issues

@@ -764,15 +764,12 @@ migration: the external references are `integration.external_ref`'s.
   and LGORT, a plant in the company code T001W names (BUKRS flattened in
   from T001K by BWKEY), a storage location under its plant; an active one
   the company already has with that code (under that plant) is taken
-  instead of created, one that is not active or under another plant
-  refuses its key. Tenancy keeps a storage location's code unique in its
-  company where SAP keys it by its plant, so one LGORT at two plants of a
-  company code refuses the run, the quality error naming the LGORT, both
-  plants and the company code. Coordinator decision (batch 83): storage
-  locations are to be keyed by their plant, as SAP keys LGORT within its
-  WERKS; that change needs tenancy and inventory and is a slice of its own
-  (tracker leaf "storage location codes unique per plant"), so S2o keeps
-  the refusal until it lands.
+  instead of created, one that is not active refuses its key. Since
+  batch 84 a storage location's code is unique under its plant, as SAP
+  keys LGORT within its WERKS (below, "Storage location codes"), so one
+  LGORT at two plants of a company code loads as two storage locations;
+  until then tenancy kept it unique in the company and the run refused it
+  (coordinator decision, batch 83).
 - **Held back, not refused:** a material whose base or alternative unit is
   none of `ref.unit_of_measure`'s, whose conversion (MARM UMREZ/UMREN) is
   not whole numbers from 1 to 1,000,000 (a value with decimals of zero
@@ -800,6 +797,34 @@ migration: the external references are `integration.external_ref`'s.
   leaf split from S2o).
 - Walkthrough: `migrated_materials` in step 3, `step_migrate`, with the six
   checks among the run's.
+
+### Storage location codes (2026-11-19)
+
+Tracker leaf "Storage location codes unique per plant" (review:batch83):
+a storage location's code is unique under its plant (its parent org
+unit), as SAP keys LGORT within its WERKS (T001L, from memory), not
+within its company; every other org unit's code stays unique in its
+legal entity and kind.
+
+- **Expand, contract** (06 §6.4): migrations 000412 and 000413 build
+  `org_unit_code_once` (legal entity, kind, code; every kind but storage
+  locations) and `storage_location_code_once` (legal entity, parent,
+  code; `NULLS NOT DISTINCT`, so a storage location without a plant stays
+  unique in its legal entity) concurrently; 000414 then drops 000002's
+  key. No row migrates: the company key held every storage location the
+  plant key holds. Both map to 409 `tenancy.org_unit_code_taken`, a
+  storage location's naming the plant; a move under a plant that has the
+  code is refused the same way (`PATCH /v1/org-units/{id}`).
+- **Reads by code.** `tenancy.OrgUnitMigration.OrgUnitByCode` takes the
+  parent: a storage location is found under the plant SAP names it at.
+  Inventory and materials read org units by id only, and every response
+  naming a storage location's code names its plant's code beside it, so
+  nothing else reads by code (decided by default: no change there).
+- **The SAP migration** (S2o) no longer refuses one LGORT at two plants
+  of a company code, and no longer refuses a storage location the company
+  has under another plant: SAP's is created under its own plant. The
+  mock's Laval plant 3200 has a raw materials store 0001, as Mississauga's
+  3100 has (`migrated_materials`, step 3).
 
 ### S2c (2026-11-19)
 

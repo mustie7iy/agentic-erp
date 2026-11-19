@@ -751,8 +751,8 @@ specialist's to confirm (from memory here).
 **Later for the material master's migration:** the OData mapping (the
 product and plant APIs; a tracker leaf); descriptions in further
 languages; SAP's internal unit keys mapped onto the platform's (T006);
-MARA's views beyond the basic data; plant-scoped storage location codes
-(tenancy keeps them unique per company).
+MARA's views beyond the basic data. (Plant-scoped storage location codes,
+listed here first, were built in batch 84.)
 
 ### S2p SAP migration of stock and values (pilot)
 

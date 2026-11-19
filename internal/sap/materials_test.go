@@ -18,7 +18,7 @@ func TestFilterScopeKeepsTheScopesMaterials(t *testing.T) {
 		company string
 		want    map[string]int
 	}{
-		{"3000", map[string]int{"T001W": 2, "T001L": 3, "MARA": 6, "MAKT": 7, "MARM": 9, "MARC": 7, "MARD": 7}},
+		{"3000", map[string]int{"T001W": 2, "T001L": 4, "MARA": 6, "MAKT": 7, "MARM": 9, "MARC": 7, "MARD": 8}},
 		{"1000", map[string]int{"T001W": 1, "T001L": 1, "MARA": 1, "MAKT": 2, "MARM": 2, "MARC": 1, "MARD": 1}},
 		{"2000", map[string]int{"T001W": 0, "T001L": 0, "MARA": 0, "MAKT": 0, "MARM": 0, "MARC": 0, "MARD": 0}},
 	}

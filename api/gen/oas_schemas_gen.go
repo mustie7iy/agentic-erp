@@ -81551,7 +81551,8 @@ type OrgUnit struct {
 	// Kind of unit. Immutable. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Kind string `json:"kind"`
-	// Code, unique per legal entity and kind. Immutable.
+	// Code, unique per legal entity and kind, a storage location's under its plant (its parent), as SAP
+	// keys a storage location by its plant. Immutable.
 	Code string `json:"code"`
 	// Name.
 	Name string `json:"name"`
@@ -81691,7 +81692,8 @@ type OrgUnitCreate struct {
 	// Kind of unit. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
 	Kind string `json:"kind"`
-	// Code, unique per legal entity and kind.
+	// Code, unique per legal entity and kind, a storage location's under its plant (its parent), as SAP
+	// keys a storage location by its plant.
 	Code string `json:"code"`
 	// Name.
 	Name string `json:"name"`

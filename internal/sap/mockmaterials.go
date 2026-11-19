@@ -13,7 +13,8 @@ type mockMaterial struct {
 // mockMaterials are company 3000's materials (S2o): steel sheet bought by
 // the kilogram and the tonne, with a German description beside its
 // English one; a shelving unit the company makes, kept at both plants
-// and sold by the box of 4; a hex bolt it trades by the piece; a washer
+// and sold by the box of 4; a hex bolt it trades by the piece, kept in
+// Laval's main and raw materials stores; a washer
 // whose base unit is SAP's internal key for a piece (ST), which is no
 // unit of the platform, and a spacer sold by the carton (CAR), no unit
 // of the platform either, both held back with their reason; and a gasket
@@ -24,7 +25,7 @@ var mockMaterials = []mockMaterial{
 	{MARA{MATNR: "000000000000200001", MTART: MaterialTypeFinished, MATKL: "SHELVING", MEINS: "EA"},
 		[][2]string{{"E", "Shelving unit, 5 tiers"}}, [][3]string{{"BOX", "4", "1"}}, map[string][]string{"3100": {"0002"}, "3200": {"0003"}}},
 	{MARA{MATNR: "000000000000300001", MTART: MaterialTypeTrading, MATKL: "FASTENERS", MEINS: "PC"},
-		[][2]string{{"E", "Hex bolt M8"}}, nil, map[string][]string{"3200": {"0003"}}},
+		[][2]string{{"E", "Hex bolt M8"}}, nil, map[string][]string{"3200": {"0001", "0003"}}},
 	{MARA{MATNR: "000000000000300002", MTART: MaterialTypeTrading, MATKL: "FASTENERS", MEINS: "ST"},
 		[][2]string{{"E", "Washer M8"}}, nil, map[string][]string{"3200": {"0003"}}},
 	{MARA{MATNR: "000000000000300003", MTART: MaterialTypeTrading, MATKL: "FASTENERS", MEINS: "EA"},
@@ -36,14 +37,17 @@ var mockMaterials = []mockMaterial{
 // materials adds the company's plants and storage locations (T001W,
 // T001L) and its material master (MARA, MAKT, MARM, MARC, MARD; S2o): the
 // Mississauga plant 3100 with its raw materials and finished goods
-// stores, the Laval plant 3200 with its main store, and mockMaterials.
+// stores, the Laval plant 3200 with its main store and a raw materials
+// store of the same code as Mississauga's, 0001 (SAP keys a storage
+// location by its plant), and mockMaterials.
 // It draws nothing from the generator, so the rest of the extract is the
 // same as without it.
 func (g *mockGen) materials(cc string) {
 	g.e.T001W = append(g.e.T001W, T001W{WERKS: "3100", NAME1: "Mississauga plant", BWKEY: "3100", BUKRS: cc},
 		T001W{WERKS: "3200", NAME1: "Laval plant", BWKEY: "3200", BUKRS: cc})
 	g.e.T001L = append(g.e.T001L, T001L{WERKS: "3100", LGORT: "0001", LGOBE: "Raw materials"},
-		T001L{WERKS: "3100", LGORT: "0002", LGOBE: "Finished goods"}, T001L{WERKS: "3200", LGORT: "0003", LGOBE: "Main store"})
+		T001L{WERKS: "3100", LGORT: "0002", LGOBE: "Finished goods"}, T001L{WERKS: "3200", LGORT: "0001", LGOBE: "Raw materials"},
+		T001L{WERKS: "3200", LGORT: "0003", LGOBE: "Main store"})
 	for _, m := range mockMaterials {
 		g.e.MARA = append(g.e.MARA, m.mara)
 		for _, t := range m.texts {

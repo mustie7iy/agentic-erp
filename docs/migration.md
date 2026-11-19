@@ -549,8 +549,9 @@ material with a pending change is refused until the change is decided). The
 load holds the tenant's material change numbers until it commits, so a
 material request made meanwhile waits for it. An
 active plant or storage location the company already has with SAP's code
-(under SAP's plant) is taken rather than created; one not active, or under
-another plant, refuses its key and fails the run.
+(a storage location under SAP's plant, as SAP keys LGORT within its WERKS)
+is taken rather than created; one not active refuses its key and fails
+the run.
 
 | SAP | Platform |
 |---|---|
@@ -576,9 +577,9 @@ held-back materials out on SAP's side. **Errors** refuse the run: a row
 listed twice, plant data of a material not in MARA, storage location data
 without plant data or of a storage location not in T001L, a plant or
 storage location code that is no org unit code (1 to 10 capitals, digits
-or `_`) or without a name, and one storage location code at two plants of
-a company code: SAP keys a storage location by its plant, tenancy keeps
-its code unique in the company (a question for the product owner).
+or `_`) or without a name. One storage location code at two plants of a
+company code loads as two storage locations, each under its plant: the
+platform keys a storage location's code by its plant, as SAP does.
 
 The reconciliation compares per company code the plants, the storage
 locations and the materials by SAP key: a material by its type, group,

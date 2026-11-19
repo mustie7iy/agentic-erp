@@ -39800,7 +39800,7 @@ components:
               readOnly: true
             code:
               type: string
-              description: Code, unique per legal entity and kind. Immutable.
+              description: "Code, unique per legal entity and kind, a storage location's under its plant (its parent), as SAP keys a storage location by its plant. Immutable."
               pattern: "^[A-Z0-9_]{1,10}$"
               readOnly: true
             name:
@@ -39854,7 +39854,7 @@ components:
             - sales_org
         code:
           type: string
-          description: Code, unique per legal entity and kind.
+          description: "Code, unique per legal entity and kind, a storage location's under its plant (its parent), as SAP keys a storage location by its plant."
           pattern: "^[A-Z0-9_]{1,10}$"
         name:
           type: string

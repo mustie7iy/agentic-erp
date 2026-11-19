@@ -123,9 +123,15 @@ erDiagram
     uuid id PK
     uuid legal_entity_id
     text kind "purchasing_org | plant | storage_location | sales_org"
-    text code
+    text code "unique per legal entity and kind; a storage location's under its plant"
   }
 ```
+
+An org unit's code is unique in its legal entity and kind
+(`org_unit_code_once`), a storage location's under its plant, its parent
+(`storage_location_code_once`, `NULLS NOT DISTINCT`: one without a plant
+is unique in its legal entity), as SAP keys LGORT within its WERKS
+(migrations 000412-000414, ADR-0082 As built "Storage location codes").
 
 `tenant` is the only table without `tenant_id` (it *is* the tenant); it carries
 the tenant's region and group currency, and once offboarded what became of

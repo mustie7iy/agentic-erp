@@ -1241,13 +1241,15 @@ migrated_centers() {
 # was left out. The reconciliation compared the plants, storage locations
 # and materials by SAP key (step_migrate's checks).
 migrated_materials() {
-  say "SAP's plants and storage locations came over as Maple's org units, active (T001W, T001L; S2o):"
+  say "SAP's plants and storage locations came over as Maple's org units, active (T001W, T001L; S2o). A storage location"
+  say "is keyed by its plant, as SAP keys LGORT within its WERKS: both plants have a raw materials store 0001."
   jq -r --arg cc "$CC" '.T001W[] | select(.BUKRS == $cc) | "     T001W \(.WERKS) \(.NAME1), company \(.BUKRS)"' "$WORK/data/extract.json"
+  jq -r '.T001L[] | "     T001L \(.WERKS)/\(.LGORT) \(.LGOBE)"' "$WORK/data/extract.json"
   as ada
   api 200 '.items[] | select(.code | test("^(3[12]00|000[1-3])$")) | "\(.kind) \(.code) \(.name): \(.status)"' listOrgUnits -p page_size=100
   expect "the migrated plants and storage locations" \
     "$(field '[.items[] | select(.code | test("^(3[12]00|000[1-3])$")) | "\(.kind) \(.code) \(.status)"] | sort | join(", ")')" \
-    "plant 3100 active, plant 3200 active, storage_location 0001 active, storage_location 0002 active, storage_location 0003 active"
+    "plant 3100 active, plant 3200 active, storage_location 0001 active, storage_location 0001 active, storage_location 0002 active, storage_location 0003 active"
   say "And SAP's material master as materials (MARA, MAKT, MARM, MARC, MARD), active at once and numbered from Maple's"
   say "material range; SAP's conversions are exact (MARM: one alternative unit is UMREZ / UMREN base units):"
   jq -r '.MARM[] | select(.UMREZ != "1" or .UMREN != "1") | "     MARM \(.MATNR) \(.MEINH): \(.UMREZ)/\(.UMREN)"' "$WORK/data/extract.json"
@@ -1255,7 +1257,7 @@ migrated_materials() {
     listMaterials -p page_size=50
   expect "the migrated materials" \
     "$(field '[.items[] | "\(.description): \(.material_type) \(.base_unit) \(.status) \([.plants[] | "\(.plant_code)/\([.storage_locations[].code] | join("+"))"] | join(" ")) \([.alternative_units[] | "\(.unit)=\(.numerator)/\(.denominator)"] | join(" "))"] | sort | join("; ")')" \
-    "Hex bolt M8: trading_good PC active 3200/0003 ; Shelving unit, 5 tiers: finished_good EA active 3100/0002 3200/0003 BOX=4/1; Steel sheet 2 mm: raw_material KG active 3100/0001 T=1000/1"
+    "Hex bolt M8: trading_good PC active 3200/0001+0003 ; Shelving unit, 5 tiers: finished_good EA active 3100/0002 3200/0003 BOX=4/1; Steel sheet 2 mm: raw_material KG active 3100/0001 T=1000/1"
   local steel
   steel=$(field '.items[] | select(.description == "Steel sheet 2 mm") | .id')
   say "Each one's creation is a material change the run applied, with no approval request of its own; its reason names"
