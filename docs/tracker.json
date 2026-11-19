@@ -3135,8 +3135,22 @@
        },
        {
         "s": "T",
-        "t": "later: dispute case variants: a case over several invoices or on a short payment at the incoming payment, the credit memo or write-off created from an accepted case, correspondence and attachments, escalation and deadlines, dunning the undisputed part of an invoice, disputed amounts in the credit exposure and the cash forecast, cases opened by the customer (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week3.md §T86b, Later",
+        "t": "A collections specialist opens one dispute case over several of a customer's open invoices, each with its own disputed amount; a dunning run leaves each out while the case is open, and the worklist counts the case once",
+        "r": "T86c · docs/design/plan-depth-3.md §T86c · ADR-0065 As built",
+        "src": "split:T86b · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An AR accountant resolves an accepted dispute case, in full or in part, by a customer credit memo per accepted invoice through receivables or by a write-off to the payment differences account; the case closes as accepted naming the documents",
+        "r": "T86d · docs/design/plan-depth-3.md §T86d · ADR-0065 As built",
+        "src": "split:T86b · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: dispute case variants: a case on a short payment at the incoming payment, correspondence and attachments, escalation and deadlines, dunning the undisputed part of an invoice, disputed amounts in the credit exposure and the cash forecast, cases opened by the customer, clearing the credit against the invoice in the resolution, write-off reason codes with their own accounts (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T86b, Later · docs/design/plan-depth-3.md §disp, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
