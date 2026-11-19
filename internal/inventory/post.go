@@ -260,7 +260,21 @@ func baseQuantity(field string, m materials.Material, quantity, unit string) (*b
 		return nil, problem.Invalid("inventory.invalid_quantity", field+".value", fmt.Sprintf("a positive plain decimal quantity of at most %d "+
 			"integer digits and %d decimals", money.QuantityIntDigits, money.QuantityDecimals))
 	}
-	base, err := m.Convert(money.ParseRat(quantity), unit)
+	return converted(field, m, money.ParseRat(quantity), quantity, unit)
+}
+
+// converted is a quantity q of a material, entered as quantity in unit,
+// converted exactly to its base unit (ADR-0082 §5). Zero, a count of
+// nothing (S2c), is zero in every unit of the material; Convert takes
+// positive quantities only.
+func converted(field string, m materials.Material, q *big.Rat, quantity, unit string) (*big.Rat, error) {
+	base, err := m.Convert(q, unit)
+	if q.Sign() == 0 {
+		base, err = q, nil
+		if _, ferr := m.Factor(unit); ferr != nil {
+			err = ferr
+		}
+	}
 	switch {
 	case errors.Is(err, materials.ErrUnknownUnit):
 		return nil, problem.Invalid("inventory.unknown_unit", field+".unit", unit+" is neither the base unit "+m.BaseUnit+" of material "+m.Number+

@@ -715,3 +715,58 @@ catalog's keys mapped), plan-supply-chain.md §S1f.
   part (S1f1), then a requisition item by material and the catalog mapped
   (S1f2).
 
+### S2c (2026-11-19)
+
+- Migration 000406: `inventory.count_document` (SAP IKPF) and
+  `inventory.count_item` (ISEG), the rules of 03 §3.35 under schema tests
+  (`db/physical_inventory_test.go`, the triggers also as the owner); the
+  permission `inventory.count.write` (reads under `inventory.stock.read`).
+  Fixture companies number count documents `PI`; the walkthrough's pilot
+  settings add Maple's `PI` range (`physical_inventory`; no pack ships it).
+- `POST /v1/physical-inventory-documents` (SAP MI01), `GET` (plant,
+  storage location, material, status; the latest first) and `/{id}`,
+  `:enterCount` (MI04, `If-Match`). Writes are human-only
+  (`x-agent: false`); no agent's never-list names them, as no agent counts.
+- **One storage location per document**, up to 100 items, one per
+  material: a stocked material of the tenant, `active` or `blocked` (a
+  blocked material's stock is still counted, as a blocked material's
+  document is still reversed, S1c), never `pending`; extended to the
+  plant, kept at the storage location and valued in the plant, so its
+  difference can be posted (422 `inventory.no_valuation` at creation, not
+  at posting). Decided by default.
+- **The book quantity is frozen** as the document is created: the
+  valuations and then the stock rows of its materials are locked in the
+  order every posting takes them (S1d's Locks; a row with no quantity
+  written for a material never moved there), and each item's book
+  quantity is the stock row's quantity under that lock.
+- **The posting block is always set** (SAP's MI01 indicator, optional
+  there; here the safer default): while an item is `open` no goods
+  movement of any kind moves its material at that storage location.
+  `takeStock`, which every posting passes (a person's, a reversal, a goods
+  receipt, the migration's initial entries, S2b's goods issue), refuses it
+  under the stock rows' locks, naming the material, the location and the
+  document (409 `inventory.posting_blocked`); the database's
+  `count_posting_block` refuses what passes it. A count takes the same
+  stock rows' locks before it writes its items, so a posting and a count
+  of one location serialize: the posting that came first is in the book
+  quantity, one that comes after is refused (`TestCountAndIssueAtOnce`).
+  The book quantity frozen is therefore the book quantity when the
+  differences are posted (S2d). Counting while goods move, and a book
+  quantity frozen at a past date, are Later.
+- **One open count per material and storage location** (409
+  `inventory.count_open`, naming the open document, checked under the
+  same locks; `count_item_one_open`): a recount is a new document once
+  the first is closed (posted, rejected or withdrawn, S2d).
+- **Counts** are entered by item number, in the material's base unit or
+  an alternative unit, converted exactly (`inventory.inexact_quantity`),
+  zero included: a zero count is entered as `0`, in any unit of the
+  material. An item is counted once (409 `inventory.item_counted`;
+  `count_item_once`); entries may come in several calls under the
+  document's row lock and `If-Match`; the document is `counted` once every
+  item is. A document no longer `counting` takes no count (409
+  `inventory.count_invalid_status`).
+- **Audited at each step** (`inventory.count_document.create`, `.count`),
+  naming its items' materials and quantities; no event, as for credit
+  limit changes: the stock moves only by the material documents of S2d,
+  which publish `MaterialDocumentPosted`.
+- Walkthrough step 141, `step_count`.

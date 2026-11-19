@@ -461,6 +461,10 @@ type CreatePersonalDataDeletionRunRes interface {
 	createPersonalDataDeletionRunRes()
 }
 
+type CreatePhysicalInventoryDocumentRes interface {
+	createPhysicalInventoryDocumentRes()
+}
+
 type CreatePlanCategoryRes interface {
 	createPlanCategoryRes()
 }
@@ -655,6 +659,10 @@ type EndRolePermissionRes interface {
 
 type EndSodRuleRes interface {
 	endSodRuleRes()
+}
+
+type EnterPhysicalInventoryCountRes interface {
+	enterPhysicalInventoryCountRes()
 }
 
 type EvaluateMetricWatcherRes interface {
@@ -1107,6 +1115,10 @@ type GetPersonalDataInventoryRes interface {
 
 type GetPersonalDataSubjectRes interface {
 	getPersonalDataSubjectRes()
+}
+
+type GetPhysicalInventoryDocumentRes interface {
+	getPhysicalInventoryDocumentRes()
 }
 
 type GetPlanCategoryRes interface {
@@ -1747,6 +1759,10 @@ type ListPeriodClosesRes interface {
 
 type ListPersonalDataDeletionSubjectsRes interface {
 	listPersonalDataDeletionSubjectsRes()
+}
+
+type ListPhysicalInventoryDocumentsRes interface {
+	listPhysicalInventoryDocumentsRes()
 }
 
 type ListPlanCategoriesRes interface {

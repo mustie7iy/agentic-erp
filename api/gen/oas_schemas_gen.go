@@ -27866,6 +27866,7 @@ func (*ConflictHeaders) createOrgUnitRes()                         {}
 func (*ConflictHeaders) createPartnerChangeRes()                   {}
 func (*ConflictHeaders) createPeriodCloseRes()                     {}
 func (*ConflictHeaders) createPersonalDataDeletionRunRes()         {}
+func (*ConflictHeaders) createPhysicalInventoryDocumentRes()       {}
 func (*ConflictHeaders) createPlanCategoryRes()                    {}
 func (*ConflictHeaders) createPrincipalRes()                       {}
 func (*ConflictHeaders) createProfitCenterRes()                    {}
@@ -27911,6 +27912,7 @@ func (*ConflictHeaders) endReportShareRes()                        {}
 func (*ConflictHeaders) endRoleAssignmentRes()                     {}
 func (*ConflictHeaders) endRolePermissionRes()                     {}
 func (*ConflictHeaders) endSodRuleRes()                            {}
+func (*ConflictHeaders) enterPhysicalInventoryCountRes()           {}
 func (*ConflictHeaders) evaluateMetricWatcherRes()                 {}
 func (*ConflictHeaders) excludeBankStatementLineRes()              {}
 func (*ConflictHeaders) fetchEInvoicesRes()                        {}
@@ -35400,6 +35402,18 @@ func (*CreatePersonalDataDeletionRunPreconditionRequired) createPersonalDataDele
 type CreatePersonalDataDeletionRunUnprocessableEntity Problem
 
 func (*CreatePersonalDataDeletionRunUnprocessableEntity) createPersonalDataDeletionRunRes() {}
+
+type CreatePhysicalInventoryDocumentBadRequest Problem
+
+func (*CreatePhysicalInventoryDocumentBadRequest) createPhysicalInventoryDocumentRes() {}
+
+type CreatePhysicalInventoryDocumentForbidden Problem
+
+func (*CreatePhysicalInventoryDocumentForbidden) createPhysicalInventoryDocumentRes() {}
+
+type CreatePhysicalInventoryDocumentUnprocessableEntity Problem
+
+func (*CreatePhysicalInventoryDocumentUnprocessableEntity) createPhysicalInventoryDocumentRes() {}
 
 type CreatePlanCategoryBadRequest Problem
 
@@ -45841,6 +45855,69 @@ type EndSodRuleUnprocessableEntity Problem
 
 func (*EndSodRuleUnprocessableEntity) endSodRuleRes() {}
 
+type EnterPhysicalInventoryCountBadRequest Problem
+
+func (*EnterPhysicalInventoryCountBadRequest) enterPhysicalInventoryCountRes() {}
+
+type EnterPhysicalInventoryCountForbidden Problem
+
+func (*EnterPhysicalInventoryCountForbidden) enterPhysicalInventoryCountRes() {}
+
+type EnterPhysicalInventoryCountNotFound Problem
+
+func (*EnterPhysicalInventoryCountNotFound) enterPhysicalInventoryCountRes() {}
+
+// EnterPhysicalInventoryCountOKHeaders wraps PhysicalInventoryDocument with response headers.
+type EnterPhysicalInventoryCountOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           PhysicalInventoryDocument
+}
+
+// GetETag returns the value of ETag.
+func (s *EnterPhysicalInventoryCountOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *EnterPhysicalInventoryCountOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *EnterPhysicalInventoryCountOKHeaders) GetResponse() PhysicalInventoryDocument {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *EnterPhysicalInventoryCountOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *EnterPhysicalInventoryCountOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *EnterPhysicalInventoryCountOKHeaders) SetResponse(val PhysicalInventoryDocument) {
+	s.Response = val
+}
+
+func (*EnterPhysicalInventoryCountOKHeaders) enterPhysicalInventoryCountRes() {}
+
+type EnterPhysicalInventoryCountPreconditionFailed Problem
+
+func (*EnterPhysicalInventoryCountPreconditionFailed) enterPhysicalInventoryCountRes() {}
+
+type EnterPhysicalInventoryCountPreconditionRequired Problem
+
+func (*EnterPhysicalInventoryCountPreconditionRequired) enterPhysicalInventoryCountRes() {}
+
+type EnterPhysicalInventoryCountUnprocessableEntity Problem
+
+func (*EnterPhysicalInventoryCountUnprocessableEntity) enterPhysicalInventoryCountRes() {}
+
 // When a template's entry recurs (ADR-0056): every month, quarter or year on `day_of_month`, the
 // month's last day when it is shorter, from `starts_on` on (the first date in `starts_on`'s month, or
 // the next period's when that date is before it); until `ends_on`, for `occurrences` dates, or without
@@ -51924,6 +52001,46 @@ func (*GetPersonalDataSubjectNotFound) getPersonalDataSubjectRes() {}
 type GetPersonalDataSubjectUnprocessableEntity Problem
 
 func (*GetPersonalDataSubjectUnprocessableEntity) getPersonalDataSubjectRes() {}
+
+type GetPhysicalInventoryDocumentBadRequest Problem
+
+func (*GetPhysicalInventoryDocumentBadRequest) getPhysicalInventoryDocumentRes() {}
+
+type GetPhysicalInventoryDocumentForbidden Problem
+
+func (*GetPhysicalInventoryDocumentForbidden) getPhysicalInventoryDocumentRes() {}
+
+type GetPhysicalInventoryDocumentNotFound Problem
+
+func (*GetPhysicalInventoryDocumentNotFound) getPhysicalInventoryDocumentRes() {}
+
+// GetPhysicalInventoryDocumentOKHeaders wraps PhysicalInventoryDocument with response headers.
+type GetPhysicalInventoryDocumentOKHeaders struct {
+	ETag     OptString
+	Response PhysicalInventoryDocument
+}
+
+// GetETag returns the value of ETag.
+func (s *GetPhysicalInventoryDocumentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetPhysicalInventoryDocumentOKHeaders) GetResponse() PhysicalInventoryDocument {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetPhysicalInventoryDocumentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetPhysicalInventoryDocumentOKHeaders) SetResponse(val PhysicalInventoryDocument) {
+	s.Response = val
+}
+
+func (*GetPhysicalInventoryDocumentOKHeaders) getPhysicalInventoryDocumentRes() {}
 
 type GetPlanCategoryBadRequest Problem
 
@@ -66675,6 +66792,14 @@ func (*ListPersonalDataDeletionSubjectsForbidden) listPersonalDataDeletionSubjec
 type ListPersonalDataDeletionSubjectsNotFound Problem
 
 func (*ListPersonalDataDeletionSubjectsNotFound) listPersonalDataDeletionSubjectsRes() {}
+
+type ListPhysicalInventoryDocumentsBadRequest Problem
+
+func (*ListPhysicalInventoryDocumentsBadRequest) listPhysicalInventoryDocumentsRes() {}
+
+type ListPhysicalInventoryDocumentsForbidden Problem
+
+func (*ListPhysicalInventoryDocumentsForbidden) listPhysicalInventoryDocumentsRes() {}
 
 type ListPlanCategoriesBadRequest Problem
 
@@ -86609,6 +86734,544 @@ func (s *PersonalDataSubjectEntry) SetCategory(val string) {
 // SetRows sets the value of Rows.
 func (s *PersonalDataSubjectEntry) SetRows(val int64) {
 	s.Rows = val
+}
+
+// Quantities counted, by item.
+// Ref: #/components/schemas/PhysicalInventoryCountEntry
+type PhysicalInventoryCountEntry struct {
+	// The items counted, each once.
+	Items []PhysicalInventoryCountInput `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *PhysicalInventoryCountEntry) GetItems() []PhysicalInventoryCountInput {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *PhysicalInventoryCountEntry) SetItems(val []PhysicalInventoryCountInput) {
+	s.Items = val
+}
+
+// The quantity counted of an item.
+// Ref: #/components/schemas/PhysicalInventoryCountInput
+type PhysicalInventoryCountInput struct {
+	// The item's number in the document.
+	ItemNo int32 `json:"item_no"`
+	// The quantity counted, zero or more, in the material's base unit or one of its alternative units.
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *PhysicalInventoryCountInput) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *PhysicalInventoryCountInput) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *PhysicalInventoryCountInput) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *PhysicalInventoryCountInput) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/PhysicalInventoryDocument
+type PhysicalInventoryDocument struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The document's number in its company's `physical_inventory` range of its fiscal year.
+	Number string `json:"number"`
+	// The plant's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The fiscal year of its date, which its number is of.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The plant.
+	PlantID uuid.UUID `json:"plant_id"`
+	// The plant's code.
+	PlantCode string `json:"plant_code"`
+	// The plant's name, as it is now.
+	PlantName string `json:"plant_name"`
+	// The storage location counted.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+	// The storage location's code.
+	StorageLocationCode string `json:"storage_location_code"`
+	// The storage location's name, as it is now.
+	StorageLocationName string `json:"storage_location_name"`
+	// The company's date it was created on.
+	DocumentDate time.Time `json:"document_date"`
+	// `counting` until every item is counted, then `counted`; `pending_approval` while its differences
+	// wait for approval; `posted` once they are posted; `rejected` or `withdrawn` when their approval was
+	// refused or withdrawn, nothing posted. The posting block holds until it is `posted`, `rejected` or
+	// `withdrawn`. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Status string `json:"status"`
+	// Its items, in item order.
+	Items []PhysicalInventoryItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *PhysicalInventoryDocument) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *PhysicalInventoryDocument) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *PhysicalInventoryDocument) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *PhysicalInventoryDocument) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *PhysicalInventoryDocument) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *PhysicalInventoryDocument) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetNumber returns the value of Number.
+func (s *PhysicalInventoryDocument) GetNumber() string {
+	return s.Number
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *PhysicalInventoryDocument) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *PhysicalInventoryDocument) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *PhysicalInventoryDocument) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *PhysicalInventoryDocument) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *PhysicalInventoryDocument) GetPlantCode() string {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *PhysicalInventoryDocument) GetPlantName() string {
+	return s.PlantName
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *PhysicalInventoryDocument) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *PhysicalInventoryDocument) GetStorageLocationCode() string {
+	return s.StorageLocationCode
+}
+
+// GetStorageLocationName returns the value of StorageLocationName.
+func (s *PhysicalInventoryDocument) GetStorageLocationName() string {
+	return s.StorageLocationName
+}
+
+// GetDocumentDate returns the value of DocumentDate.
+func (s *PhysicalInventoryDocument) GetDocumentDate() time.Time {
+	return s.DocumentDate
+}
+
+// GetStatus returns the value of Status.
+func (s *PhysicalInventoryDocument) GetStatus() string {
+	return s.Status
+}
+
+// GetItems returns the value of Items.
+func (s *PhysicalInventoryDocument) GetItems() []PhysicalInventoryItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *PhysicalInventoryDocument) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *PhysicalInventoryDocument) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *PhysicalInventoryDocument) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *PhysicalInventoryDocument) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *PhysicalInventoryDocument) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *PhysicalInventoryDocument) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetNumber sets the value of Number.
+func (s *PhysicalInventoryDocument) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *PhysicalInventoryDocument) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *PhysicalInventoryDocument) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *PhysicalInventoryDocument) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *PhysicalInventoryDocument) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *PhysicalInventoryDocument) SetPlantCode(val string) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *PhysicalInventoryDocument) SetPlantName(val string) {
+	s.PlantName = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *PhysicalInventoryDocument) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *PhysicalInventoryDocument) SetStorageLocationCode(val string) {
+	s.StorageLocationCode = val
+}
+
+// SetStorageLocationName sets the value of StorageLocationName.
+func (s *PhysicalInventoryDocument) SetStorageLocationName(val string) {
+	s.StorageLocationName = val
+}
+
+// SetDocumentDate sets the value of DocumentDate.
+func (s *PhysicalInventoryDocument) SetDocumentDate(val time.Time) {
+	s.DocumentDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *PhysicalInventoryDocument) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetItems sets the value of Items.
+func (s *PhysicalInventoryDocument) SetItems(val []PhysicalInventoryItem) {
+	s.Items = val
+}
+
+// A count document to create: a plant's storage location and the materials counted there.
+// Ref: #/components/schemas/PhysicalInventoryDocumentCreate
+type PhysicalInventoryDocumentCreate struct {
+	// The plant (an org unit of kind `plant`).
+	PlantID uuid.UUID `json:"plant_id"`
+	// The storage location under the plant whose stock is counted.
+	StorageLocationID uuid.UUID `json:"storage_location_id"`
+	// The materials counted, each once.
+	Items []PhysicalInventoryItemInput `json:"items"`
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *PhysicalInventoryDocumentCreate) GetPlantID() uuid.UUID {
+	return s.PlantID
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *PhysicalInventoryDocumentCreate) GetStorageLocationID() uuid.UUID {
+	return s.StorageLocationID
+}
+
+// GetItems returns the value of Items.
+func (s *PhysicalInventoryDocumentCreate) GetItems() []PhysicalInventoryItemInput {
+	return s.Items
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *PhysicalInventoryDocumentCreate) SetPlantID(val uuid.UUID) {
+	s.PlantID = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *PhysicalInventoryDocumentCreate) SetStorageLocationID(val uuid.UUID) {
+	s.StorageLocationID = val
+}
+
+// SetItems sets the value of Items.
+func (s *PhysicalInventoryDocumentCreate) SetItems(val []PhysicalInventoryItemInput) {
+	s.Items = val
+}
+
+// PhysicalInventoryDocumentHeaders wraps PhysicalInventoryDocument with response headers.
+type PhysicalInventoryDocumentHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           PhysicalInventoryDocument
+}
+
+// GetETag returns the value of ETag.
+func (s *PhysicalInventoryDocumentHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PhysicalInventoryDocumentHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *PhysicalInventoryDocumentHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *PhysicalInventoryDocumentHeaders) GetResponse() PhysicalInventoryDocument {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PhysicalInventoryDocumentHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PhysicalInventoryDocumentHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *PhysicalInventoryDocumentHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PhysicalInventoryDocumentHeaders) SetResponse(val PhysicalInventoryDocument) {
+	s.Response = val
+}
+
+func (*PhysicalInventoryDocumentHeaders) createPhysicalInventoryDocumentRes() {}
+
+// One page of count documents.
+// Ref: #/components/schemas/PhysicalInventoryDocumentPage
+type PhysicalInventoryDocumentPage struct {
+	// The count documents on this page.
+	Items []PhysicalInventoryDocument `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *PhysicalInventoryDocumentPage) GetItems() []PhysicalInventoryDocument {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *PhysicalInventoryDocumentPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *PhysicalInventoryDocumentPage) SetItems(val []PhysicalInventoryDocument) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *PhysicalInventoryDocumentPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*PhysicalInventoryDocumentPage) listPhysicalInventoryDocumentsRes() {}
+
+// An item of a count document (SAP ISEG): a material, its book quantity frozen as the document was
+// created and, once counted, the quantity counted.
+// Ref: #/components/schemas/PhysicalInventoryItem
+type PhysicalInventoryItem struct {
+	// The item's number in the document, from 1.
+	ItemNo int32 `json:"item_no"`
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The stock at the storage location as the document was created, in the material's base unit: frozen,
+	// as the posting block keeps it.
+	BookQuantity Quantity `json:"book_quantity"`
+	// The quantity counted, in the base unit; absent until the item is counted.
+	CountedQuantity OptQuantity `json:"counted_quantity"`
+	// The quantity counted as it was entered, in the unit it was entered in; absent with
+	// `counted_quantity`.
+	EntryQuantity OptQuantity `json:"entry_quantity"`
+	// When the count was entered; absent with it.
+	CountedAt OptDateTime `json:"counted_at"`
+	// Who entered it; absent with it.
+	CountedBy OptUUID `json:"counted_by"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *PhysicalInventoryItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *PhysicalInventoryItem) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *PhysicalInventoryItem) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *PhysicalInventoryItem) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetBookQuantity returns the value of BookQuantity.
+func (s *PhysicalInventoryItem) GetBookQuantity() Quantity {
+	return s.BookQuantity
+}
+
+// GetCountedQuantity returns the value of CountedQuantity.
+func (s *PhysicalInventoryItem) GetCountedQuantity() OptQuantity {
+	return s.CountedQuantity
+}
+
+// GetEntryQuantity returns the value of EntryQuantity.
+func (s *PhysicalInventoryItem) GetEntryQuantity() OptQuantity {
+	return s.EntryQuantity
+}
+
+// GetCountedAt returns the value of CountedAt.
+func (s *PhysicalInventoryItem) GetCountedAt() OptDateTime {
+	return s.CountedAt
+}
+
+// GetCountedBy returns the value of CountedBy.
+func (s *PhysicalInventoryItem) GetCountedBy() OptUUID {
+	return s.CountedBy
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *PhysicalInventoryItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *PhysicalInventoryItem) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *PhysicalInventoryItem) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *PhysicalInventoryItem) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetBookQuantity sets the value of BookQuantity.
+func (s *PhysicalInventoryItem) SetBookQuantity(val Quantity) {
+	s.BookQuantity = val
+}
+
+// SetCountedQuantity sets the value of CountedQuantity.
+func (s *PhysicalInventoryItem) SetCountedQuantity(val OptQuantity) {
+	s.CountedQuantity = val
+}
+
+// SetEntryQuantity sets the value of EntryQuantity.
+func (s *PhysicalInventoryItem) SetEntryQuantity(val OptQuantity) {
+	s.EntryQuantity = val
+}
+
+// SetCountedAt sets the value of CountedAt.
+func (s *PhysicalInventoryItem) SetCountedAt(val OptDateTime) {
+	s.CountedAt = val
+}
+
+// SetCountedBy sets the value of CountedBy.
+func (s *PhysicalInventoryItem) SetCountedBy(val OptUUID) {
+	s.CountedBy = val
+}
+
+// A material to count.
+// Ref: #/components/schemas/PhysicalInventoryItemInput
+type PhysicalInventoryItemInput struct {
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *PhysicalInventoryItemInput) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *PhysicalInventoryItemInput) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
 }
 
 type PingWebhookSubscriptionBadRequest Problem
@@ -114896,6 +115559,7 @@ func (*TooManyRequestsHeaders) createOrgUnitRes()                         {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()                   {}
 func (*TooManyRequestsHeaders) createPeriodCloseRes()                     {}
 func (*TooManyRequestsHeaders) createPersonalDataDeletionRunRes()         {}
+func (*TooManyRequestsHeaders) createPhysicalInventoryDocumentRes()       {}
 func (*TooManyRequestsHeaders) createPlanCategoryRes()                    {}
 func (*TooManyRequestsHeaders) createPrincipalRes()                       {}
 func (*TooManyRequestsHeaders) createProfitCenterRes()                    {}
@@ -114945,6 +115609,7 @@ func (*TooManyRequestsHeaders) endReportShareRes()                        {}
 func (*TooManyRequestsHeaders) endRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
+func (*TooManyRequestsHeaders) enterPhysicalInventoryCountRes()           {}
 func (*TooManyRequestsHeaders) evaluateMetricWatcherRes()                 {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
 func (*TooManyRequestsHeaders) fetchEInvoicesRes()                        {}
@@ -115058,6 +115723,7 @@ func (*TooManyRequestsHeaders) getPersonalDataDeletionPreviewRes()        {}
 func (*TooManyRequestsHeaders) getPersonalDataDeletionRunRes()            {}
 func (*TooManyRequestsHeaders) getPersonalDataInventoryRes()              {}
 func (*TooManyRequestsHeaders) getPersonalDataSubjectRes()                {}
+func (*TooManyRequestsHeaders) getPhysicalInventoryDocumentRes()          {}
 func (*TooManyRequestsHeaders) getPlanCategoryRes()                       {}
 func (*TooManyRequestsHeaders) getPrincipalRes()                          {}
 func (*TooManyRequestsHeaders) getProcessEventLogRes()                    {}
@@ -115218,6 +115884,7 @@ func (*TooManyRequestsHeaders) listPaymentsRes()                          {}
 func (*TooManyRequestsHeaders) listPeriodCloseVariancesRes()              {}
 func (*TooManyRequestsHeaders) listPeriodClosesRes()                      {}
 func (*TooManyRequestsHeaders) listPersonalDataDeletionSubjectsRes()      {}
+func (*TooManyRequestsHeaders) listPhysicalInventoryDocumentsRes()        {}
 func (*TooManyRequestsHeaders) listPlanCategoriesRes()                    {}
 func (*TooManyRequestsHeaders) listPlanLinesRes()                         {}
 func (*TooManyRequestsHeaders) listPrincipalNamesRes()                    {}
@@ -115838,6 +116505,7 @@ func (*UnauthorizedHeaders) createOrgUnitRes()                         {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()                   {}
 func (*UnauthorizedHeaders) createPeriodCloseRes()                     {}
 func (*UnauthorizedHeaders) createPersonalDataDeletionRunRes()         {}
+func (*UnauthorizedHeaders) createPhysicalInventoryDocumentRes()       {}
 func (*UnauthorizedHeaders) createPlanCategoryRes()                    {}
 func (*UnauthorizedHeaders) createPrincipalRes()                       {}
 func (*UnauthorizedHeaders) createProfitCenterRes()                    {}
@@ -115887,6 +116555,7 @@ func (*UnauthorizedHeaders) endReportShareRes()                        {}
 func (*UnauthorizedHeaders) endRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) endSodRuleRes()                            {}
+func (*UnauthorizedHeaders) enterPhysicalInventoryCountRes()           {}
 func (*UnauthorizedHeaders) evaluateMetricWatcherRes()                 {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
 func (*UnauthorizedHeaders) fetchEInvoicesRes()                        {}
@@ -116000,6 +116669,7 @@ func (*UnauthorizedHeaders) getPersonalDataDeletionPreviewRes()        {}
 func (*UnauthorizedHeaders) getPersonalDataDeletionRunRes()            {}
 func (*UnauthorizedHeaders) getPersonalDataInventoryRes()              {}
 func (*UnauthorizedHeaders) getPersonalDataSubjectRes()                {}
+func (*UnauthorizedHeaders) getPhysicalInventoryDocumentRes()          {}
 func (*UnauthorizedHeaders) getPlanCategoryRes()                       {}
 func (*UnauthorizedHeaders) getPrincipalRes()                          {}
 func (*UnauthorizedHeaders) getProcessEventLogRes()                    {}
@@ -116160,6 +116830,7 @@ func (*UnauthorizedHeaders) listPaymentsRes()                          {}
 func (*UnauthorizedHeaders) listPeriodCloseVariancesRes()              {}
 func (*UnauthorizedHeaders) listPeriodClosesRes()                      {}
 func (*UnauthorizedHeaders) listPersonalDataDeletionSubjectsRes()      {}
+func (*UnauthorizedHeaders) listPhysicalInventoryDocumentsRes()        {}
 func (*UnauthorizedHeaders) listPlanCategoriesRes()                    {}
 func (*UnauthorizedHeaders) listPlanLinesRes()                         {}
 func (*UnauthorizedHeaders) listPrincipalNamesRes()                    {}

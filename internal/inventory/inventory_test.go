@@ -41,7 +41,13 @@ type env struct {
 
 func setup(t *testing.T) env {
 	t.Helper()
-	e := env{Env: fixture.NewWith(t, nil, valued, perms...)}
+	return setupWith(t, perms...)
+}
+
+// setupWith is setup with the tenant holding the permissions.
+func setupWith(t *testing.T, permissions ...string) env {
+	t.Helper()
+	e := env{Env: fixture.NewWith(t, nil, valued, permissions...)}
 	e.p1 = e.orgUnit(t, e.DE, "plant", "P1", nil)
 	e.s1 = e.orgUnit(t, e.DE, "storage_location", "S1", &e.p1)
 	e.s2 = e.orgUnit(t, e.DE, "storage_location", "S2", &e.p1)

@@ -1414,6 +1414,20 @@ func encodeCreatePersonalDataDeletionRunRequest(
 	return nil
 }
 
+func encodeCreatePhysicalInventoryDocumentRequest(
+	req *PhysicalInventoryDocumentCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreatePlanCategoryRequest(
 	req *PlanCategoryCreate,
 	r *http.Request,
@@ -2004,6 +2018,20 @@ func encodeEndRolePermissionRequest(
 
 func encodeEndSodRuleRequest(
 	req *EndInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeEnterPhysicalInventoryCountRequest(
+	req *PhysicalInventoryCountEntry,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

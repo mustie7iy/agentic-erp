@@ -5536,9 +5536,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "An inventory controller creates a count document for a storage location's materials, freezing the book quantity, and enters the counted quantities",
-      "r": "S2c · docs/design/plan-supply-chain.md §S2c · ADR-0082",
+      "r": "S2c · docs/design/plan-supply-chain.md §S2c · ADR-0082 As built S2c · db/migrations/000406 · inventory.count_document, .count_item · count_posting_block · POST /v1/physical-inventory-documents · GET /v1/physical-inventory-documents · GET /v1/physical-inventory-documents/{id} · POST /v1/physical-inventory-documents/{id}:enterCount · inventory.count.write · walkthrough step_count",
       "src": "po:2026-11-17",
       "c": []
      },

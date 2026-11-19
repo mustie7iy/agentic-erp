@@ -2271,6 +2271,28 @@ type Invoker interface {
 	//
 	// POST /v1/personal-data-deletion-runs
 	CreatePersonalDataDeletionRun(ctx context.Context, request *ReasonInput, params CreatePersonalDataDeletionRunParams) (CreatePersonalDataDeletionRunRes, error)
+	// CreatePhysicalInventoryDocument invokes createPhysicalInventoryDocument operation.
+	//
+	// Creates a count document (ADR-0082 As built S2c; SAP MI01) for materials of one storage location of
+	// a plant, freezing each one's book quantity: the stock there as the document is created, in the
+	// material's base unit. The plant is an active plant of a company the caller may act in (422
+	// `inventory.plant_invalid`), the storage location an active one under it (422
+	// `inventory.storage_location_invalid`); each material one of the tenant's (422
+	// `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`; a blocked
+	// material's stock is still counted), kept in stock (422 `inventory.material_not_stocked`), extended
+	// to the plant (422 `inventory.plant_not_extended`) and kept at the storage location (422
+	// `inventory.storage_location_not_extended`), valued in the plant so its difference can be posted (422
+	// `inventory.no_valuation`), and named once (422 `inventory.duplicate_material`). A material has one
+	// open count per storage location (409 `inventory.count_open`, naming the open document). The posting
+	// block is set: until the document is posted, rejected or withdrawn no goods movement moves its
+	// materials at that storage location (409 `inventory.posting_blocked` on every movement, whatever
+	// posts it). The document is dated the company's date today in its time zone and numbered from its
+	// `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
+	// `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
+	// answers the document created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/physical-inventory-documents
+	CreatePhysicalInventoryDocument(ctx context.Context, request *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (CreatePhysicalInventoryDocumentRes, error)
 	// CreatePlanCategory invokes createPlanCategory operation.
 	//
 	// Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
@@ -2995,6 +3017,22 @@ type Invoker interface {
 	//
 	// POST /v1/sod-rules/{id}:end
 	EndSodRule(ctx context.Context, request *EndInput, params EndSodRuleParams) (EndSodRuleRes, error)
+	// EnterPhysicalInventoryCount invokes enterPhysicalInventoryCount operation.
+	//
+	// Enters the quantities counted of a `counting` document's items at the caller's version (`If-Match`;
+	// ADR-0082 As built S2c; SAP MI04), by item number (422 `inventory.unknown_item`, each once in the
+	// request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422
+	// `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its
+	// alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded
+	// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a
+	// recount is a new document, once this one is closed. A material blocked since is still counted. Items
+	// may be entered in several calls; once every item is counted the document is `counted`, its
+	// differences ready to post (S2d). A document no longer `counting` takes no count (409
+	// `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404).
+	// Audited. Human-only (`x-agent: false`).
+	//
+	// POST /v1/physical-inventory-documents/{id}:enterCount
+	EnterPhysicalInventoryCount(ctx context.Context, request *PhysicalInventoryCountEntry, params EnterPhysicalInventoryCountParams) (EnterPhysicalInventoryCountRes, error)
 	// EvaluateMetricWatcher invokes evaluateMetricWatcher operation.
 	//
 	// Evaluates one of the caller's active watchers now, at the version read (`If-Match`), as
@@ -4498,6 +4536,15 @@ type Invoker interface {
 	//
 	// GET /v1/personal-data-inventory/subjects/{kind}/{id}
 	GetPersonalDataSubject(ctx context.Context, params GetPersonalDataSubjectParams) (GetPersonalDataSubjectRes, error)
+	// GetPhysicalInventoryDocument invokes getPhysicalInventoryDocument operation.
+	//
+	// One count document (ADR-0082 As built S2c) with its company, plant and storage location by code and
+	// name, its status and its items, each naming its material by number and description with its book
+	// quantity and, once counted, the quantity counted and as it was entered. A document of a company the
+	// caller may not act in is not found (404).
+	//
+	// GET /v1/physical-inventory-documents/{id}
+	GetPhysicalInventoryDocument(ctx context.Context, params GetPhysicalInventoryDocumentParams) (GetPhysicalInventoryDocumentRes, error)
 	// GetPlanCategory invokes getPlanCategory operation.
 	//
 	// Returns one plan category.
@@ -6223,6 +6270,15 @@ type Invoker interface {
 	//
 	// GET /v1/personal-data-deletion-runs/{id}/subjects
 	ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (ListPersonalDataDeletionSubjectsRes, error)
+	// ListPhysicalInventoryDocuments invokes listPhysicalInventoryDocuments operation.
+	//
+	// The count documents of the companies the caller may act in (ADR-0082 As built S2c), each as
+	// `getPhysicalInventoryDocument` gives it, the latest first. Filtered by plant, storage location,
+	// status and material (a document matches a material when one of its items counts it). Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/physical-inventory-documents
+	ListPhysicalInventoryDocuments(ctx context.Context, params ListPhysicalInventoryDocumentsParams) (ListPhysicalInventoryDocumentsRes, error)
 	// ListPlanCategories invokes listPlanCategories operation.
 	//
 	// The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
@@ -27636,6 +27692,152 @@ func (c *Client) sendCreatePersonalDataDeletionRun(ctx context.Context, request 
 	return result, nil
 }
 
+// CreatePhysicalInventoryDocument invokes createPhysicalInventoryDocument operation.
+//
+// Creates a count document (ADR-0082 As built S2c; SAP MI01) for materials of one storage location of
+// a plant, freezing each one's book quantity: the stock there as the document is created, in the
+// material's base unit. The plant is an active plant of a company the caller may act in (422
+// `inventory.plant_invalid`), the storage location an active one under it (422
+// `inventory.storage_location_invalid`); each material one of the tenant's (422
+// `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`; a blocked
+// material's stock is still counted), kept in stock (422 `inventory.material_not_stocked`), extended
+// to the plant (422 `inventory.plant_not_extended`) and kept at the storage location (422
+// `inventory.storage_location_not_extended`), valued in the plant so its difference can be posted (422
+// `inventory.no_valuation`), and named once (422 `inventory.duplicate_material`). A material has one
+// open count per storage location (409 `inventory.count_open`, naming the open document). The posting
+// block is set: until the document is posted, rejected or withdrawn no goods movement moves its
+// materials at that storage location (409 `inventory.posting_blocked` on every movement, whatever
+// posts it). The document is dated the company's date today in its time zone and numbered from its
+// `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
+// `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
+// answers the document created. Human-only (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents
+func (c *Client) CreatePhysicalInventoryDocument(ctx context.Context, request *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (CreatePhysicalInventoryDocumentRes, error) {
+	res, err := c.sendCreatePhysicalInventoryDocument(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreatePhysicalInventoryDocument(ctx context.Context, request *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (res CreatePhysicalInventoryDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createPhysicalInventoryDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/physical-inventory-documents"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreatePhysicalInventoryDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/physical-inventory-documents"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreatePhysicalInventoryDocumentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreatePhysicalInventoryDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreatePhysicalInventoryDocumentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreatePlanCategory invokes createPlanCategory operation.
 //
 // Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
@@ -34991,6 +35193,176 @@ func (c *Client) sendEndSodRule(ctx context.Context, request *EndInput, params E
 
 	stage = "DecodeResponse"
 	result, err := decodeEndSodRuleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// EnterPhysicalInventoryCount invokes enterPhysicalInventoryCount operation.
+//
+// Enters the quantities counted of a `counting` document's items at the caller's version (`If-Match`;
+// ADR-0082 As built S2c; SAP MI04), by item number (422 `inventory.unknown_item`, each once in the
+// request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422
+// `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its
+// alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded
+// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a
+// recount is a new document, once this one is closed. A material blocked since is still counted. Items
+// may be entered in several calls; once every item is counted the document is `counted`, its
+// differences ready to post (S2d). A document no longer `counting` takes no count (409
+// `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404).
+// Audited. Human-only (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents/{id}:enterCount
+func (c *Client) EnterPhysicalInventoryCount(ctx context.Context, request *PhysicalInventoryCountEntry, params EnterPhysicalInventoryCountParams) (EnterPhysicalInventoryCountRes, error) {
+	res, err := c.sendEnterPhysicalInventoryCount(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendEnterPhysicalInventoryCount(ctx context.Context, request *PhysicalInventoryCountEntry, params EnterPhysicalInventoryCountParams) (res EnterPhysicalInventoryCountRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("enterPhysicalInventoryCount"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/physical-inventory-documents/{id}:enterCount"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, EnterPhysicalInventoryCountOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/physical-inventory-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":enterCount"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeEnterPhysicalInventoryCountRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, EnterPhysicalInventoryCountOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeEnterPhysicalInventoryCountResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -51809,6 +52181,140 @@ func (c *Client) sendGetPersonalDataSubject(ctx context.Context, params GetPerso
 
 	stage = "DecodeResponse"
 	result, err := decodeGetPersonalDataSubjectResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetPhysicalInventoryDocument invokes getPhysicalInventoryDocument operation.
+//
+// One count document (ADR-0082 As built S2c) with its company, plant and storage location by code and
+// name, its status and its items, each naming its material by number and description with its book
+// quantity and, once counted, the quantity counted and as it was entered. A document of a company the
+// caller may not act in is not found (404).
+//
+// GET /v1/physical-inventory-documents/{id}
+func (c *Client) GetPhysicalInventoryDocument(ctx context.Context, params GetPhysicalInventoryDocumentParams) (GetPhysicalInventoryDocumentRes, error) {
+	res, err := c.sendGetPhysicalInventoryDocument(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetPhysicalInventoryDocument(ctx context.Context, params GetPhysicalInventoryDocumentParams) (res GetPhysicalInventoryDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPhysicalInventoryDocument"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/physical-inventory-documents/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetPhysicalInventoryDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/physical-inventory-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetPhysicalInventoryDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetPhysicalInventoryDocumentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -85718,6 +86224,245 @@ func (c *Client) sendListPersonalDataDeletionSubjects(ctx context.Context, param
 
 	stage = "DecodeResponse"
 	result, err := decodeListPersonalDataDeletionSubjectsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListPhysicalInventoryDocuments invokes listPhysicalInventoryDocuments operation.
+//
+// The count documents of the companies the caller may act in (ADR-0082 As built S2c), each as
+// `getPhysicalInventoryDocument` gives it, the latest first. Filtered by plant, storage location,
+// status and material (a document matches a material when one of its items counts it). Sortable by:
+// `created_at`.
+//
+// GET /v1/physical-inventory-documents
+func (c *Client) ListPhysicalInventoryDocuments(ctx context.Context, params ListPhysicalInventoryDocumentsParams) (ListPhysicalInventoryDocumentsRes, error) {
+	res, err := c.sendListPhysicalInventoryDocuments(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListPhysicalInventoryDocuments(ctx context.Context, params ListPhysicalInventoryDocumentsParams) (res ListPhysicalInventoryDocumentsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPhysicalInventoryDocuments"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/physical-inventory-documents"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListPhysicalInventoryDocumentsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/physical-inventory-documents"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "storage_location_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "storage_location_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.StorageLocationID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListPhysicalInventoryDocumentsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListPhysicalInventoryDocumentsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -2250,6 +2250,28 @@ type Handler interface {
 	//
 	// POST /v1/personal-data-deletion-runs
 	CreatePersonalDataDeletionRun(ctx context.Context, req *ReasonInput, params CreatePersonalDataDeletionRunParams) (CreatePersonalDataDeletionRunRes, error)
+	// CreatePhysicalInventoryDocument implements createPhysicalInventoryDocument operation.
+	//
+	// Creates a count document (ADR-0082 As built S2c; SAP MI01) for materials of one storage location of
+	// a plant, freezing each one's book quantity: the stock there as the document is created, in the
+	// material's base unit. The plant is an active plant of a company the caller may act in (422
+	// `inventory.plant_invalid`), the storage location an active one under it (422
+	// `inventory.storage_location_invalid`); each material one of the tenant's (422
+	// `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`; a blocked
+	// material's stock is still counted), kept in stock (422 `inventory.material_not_stocked`), extended
+	// to the plant (422 `inventory.plant_not_extended`) and kept at the storage location (422
+	// `inventory.storage_location_not_extended`), valued in the plant so its difference can be posted (422
+	// `inventory.no_valuation`), and named once (422 `inventory.duplicate_material`). A material has one
+	// open count per storage location (409 `inventory.count_open`, naming the open document). The posting
+	// block is set: until the document is posted, rejected or withdrawn no goods movement moves its
+	// materials at that storage location (409 `inventory.posting_blocked` on every movement, whatever
+	// posts it). The document is dated the company's date today in its time zone and numbered from its
+	// `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
+	// `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
+	// answers the document created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/physical-inventory-documents
+	CreatePhysicalInventoryDocument(ctx context.Context, req *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (CreatePhysicalInventoryDocumentRes, error)
 	// CreatePlanCategory implements createPlanCategory operation.
 	//
 	// Creates an open plan category (ADR-0050 §8). A code is unique in the tenant (409
@@ -2974,6 +2996,22 @@ type Handler interface {
 	//
 	// POST /v1/sod-rules/{id}:end
 	EndSodRule(ctx context.Context, req *EndInput, params EndSodRuleParams) (EndSodRuleRes, error)
+	// EnterPhysicalInventoryCount implements enterPhysicalInventoryCount operation.
+	//
+	// Enters the quantities counted of a `counting` document's items at the caller's version (`If-Match`;
+	// ADR-0082 As built S2c; SAP MI04), by item number (422 `inventory.unknown_item`, each once in the
+	// request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422
+	// `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its
+	// alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded
+	// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a
+	// recount is a new document, once this one is closed. A material blocked since is still counted. Items
+	// may be entered in several calls; once every item is counted the document is `counted`, its
+	// differences ready to post (S2d). A document no longer `counting` takes no count (409
+	// `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404).
+	// Audited. Human-only (`x-agent: false`).
+	//
+	// POST /v1/physical-inventory-documents/{id}:enterCount
+	EnterPhysicalInventoryCount(ctx context.Context, req *PhysicalInventoryCountEntry, params EnterPhysicalInventoryCountParams) (EnterPhysicalInventoryCountRes, error)
 	// EvaluateMetricWatcher implements evaluateMetricWatcher operation.
 	//
 	// Evaluates one of the caller's active watchers now, at the version read (`If-Match`), as
@@ -4477,6 +4515,15 @@ type Handler interface {
 	//
 	// GET /v1/personal-data-inventory/subjects/{kind}/{id}
 	GetPersonalDataSubject(ctx context.Context, params GetPersonalDataSubjectParams) (GetPersonalDataSubjectRes, error)
+	// GetPhysicalInventoryDocument implements getPhysicalInventoryDocument operation.
+	//
+	// One count document (ADR-0082 As built S2c) with its company, plant and storage location by code and
+	// name, its status and its items, each naming its material by number and description with its book
+	// quantity and, once counted, the quantity counted and as it was entered. A document of a company the
+	// caller may not act in is not found (404).
+	//
+	// GET /v1/physical-inventory-documents/{id}
+	GetPhysicalInventoryDocument(ctx context.Context, params GetPhysicalInventoryDocumentParams) (GetPhysicalInventoryDocumentRes, error)
 	// GetPlanCategory implements getPlanCategory operation.
 	//
 	// Returns one plan category.
@@ -6202,6 +6249,15 @@ type Handler interface {
 	//
 	// GET /v1/personal-data-deletion-runs/{id}/subjects
 	ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (ListPersonalDataDeletionSubjectsRes, error)
+	// ListPhysicalInventoryDocuments implements listPhysicalInventoryDocuments operation.
+	//
+	// The count documents of the companies the caller may act in (ADR-0082 As built S2c), each as
+	// `getPhysicalInventoryDocument` gives it, the latest first. Filtered by plant, storage location,
+	// status and material (a document matches a material when one of its items counts it). Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/physical-inventory-documents
+	ListPhysicalInventoryDocuments(ctx context.Context, params ListPhysicalInventoryDocumentsParams) (ListPhysicalInventoryDocumentsRes, error)
 	// ListPlanCategories implements listPlanCategories operation.
 	//
 	// The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
