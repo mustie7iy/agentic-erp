@@ -3171,7 +3171,7 @@
        {
         "s": "D",
         "t": "An AR accountant resolves an accepted dispute case, in full or in part, by a customer credit memo per accepted invoice through receivables or by a write-off to the payment differences account; the case closes as accepted naming the documents",
-        "r": "T86d · docs/design/plan-depth-3.md §T86d · db/migrations/000404, 000405 · dispute_case resolution columns · dispute_case_item accepted amounts and credit memo · POST /v1/dispute-cases/{id}:resolve · collections.dispute.resolve · DisputeCaseChanged resolved · receivables credit memo per item (source the case's item) · write-off SA entry, source_context collections, to payment_difference_expense · collectionsagent.Never · walkthrough step_dispute_resolution · ADR-0065 As built",
+        "r": "T86d · docs/design/plan-depth-3.md §T86d · db/migrations/000404, 000405 · dispute_case resolution columns · dispute_case_item accepted amounts and credit memo · POST /v1/dispute-cases/{id}:resolve · collections.dispute.resolve · DisputeCaseChanged resolved · receivables credit memo per item (source the case's item) · write-off SA entry, source_context collections, to payment_difference_expense, an item of a dunning charge's debit memo refused (422 collections.dunning_charge_write_off, TestWriteOffOfADunningCharge) · collectionsagent.Never · walkthrough step_dispute_resolution · ADR-0065 As built",
         "src": "split:T86b · po:2026-11-17",
         "c": []
        },

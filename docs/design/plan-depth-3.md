@@ -951,7 +951,9 @@ as accepted, naming the documents.
   limit on credits per invoice holds; the write-off balances per item in
   every currency; a company without `payment_difference_expense` is
   refused for a write-off (422 `collections.no_write_off_account`) and
-  nothing posts; refusals by receivables or the ledger (a closed period)
+  nothing posts; an item of a dunning charge's debit memo (T76h) is not
+  written off (422 `collections.dunning_charge_write_off`, batch 82
+  integration: cancelling its run reverses the memo); refusals by receivables or the ledger (a closed period)
   leave the case open; the items are dunned again once the case is
   closed; schema tests for every rule.
 - **Depends on:** T86c.

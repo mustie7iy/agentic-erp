@@ -358,9 +358,9 @@ func creditedItems(inv receivables.Invoice, accepted money.Minor) []receivables.
 // its local amount), so each pair balances in every currency and the
 // credit clears against the item without an exchange difference. A
 // company without the account is refused, 422
-// collections.no_write_off_account, and so is an item of a dunning
-// charge's debit memo (dunningCharge); a refusal by the ledger names the
-// resolution (asResolution).
+// collections.no_write_off_account; an item of a dunning charge's debit
+// memo, 422 collections.dunning_charge_write_off (dunningCharge); a
+// refusal by the ledger names the resolution (asResolution).
 func (e *Endpoints) writeOff(ctx context.Context, tx pgx.Tx, le tenancy.Entity, c Case, r resolved) (*ledger.Entry, error) {
 	if err := dunningCharge(ctx, tx, c, r); err != nil {
 		return nil, err
