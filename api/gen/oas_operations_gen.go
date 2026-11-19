@@ -444,6 +444,7 @@ const (
 	ListOperationsOperation                        OperationName = "ListOperations"
 	ListOrgUnitsOperation                          OperationName = "ListOrgUnits"
 	ListOutboundDeliveriesOperation                OperationName = "ListOutboundDeliveries"
+	ListOutgoingEInvoicesOperation                 OperationName = "ListOutgoingEInvoices"
 	ListParkedJournalEntriesOperation              OperationName = "ListParkedJournalEntries"
 	ListPartnerChangesOperation                    OperationName = "ListPartnerChanges"
 	ListPaymentExclusionsOperation                 OperationName = "ListPaymentExclusions"

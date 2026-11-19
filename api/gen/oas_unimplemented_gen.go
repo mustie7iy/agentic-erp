@@ -7589,6 +7589,18 @@ func (UnimplementedHandler) ListOutboundDeliveries(ctx context.Context, params L
 	return r, ht.ErrNotImplemented
 }
 
+// ListOutgoingEInvoices implements listOutgoingEInvoices operation.
+//
+// The e-invoices rendered from the posted customer documents of the companies the caller may act in
+// (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
+// by company, by the customer document it renders (at most one), and by status, so the invalid ones to
+// correct are found.
+//
+// GET /v1/outgoing-e-invoices
+func (UnimplementedHandler) ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (r ListOutgoingEInvoicesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListParkedJournalEntries implements listParkedJournalEntries operation.
 //
 // Manual journal entries parked before they are posted, newest first: entries people or agents

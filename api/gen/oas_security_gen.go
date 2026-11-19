@@ -490,6 +490,7 @@ var operationRolesOidc = map[string][]string{
 	ListOperationsOperation:                        []string{},
 	ListOrgUnitsOperation:                          []string{},
 	ListOutboundDeliveriesOperation:                []string{},
+	ListOutgoingEInvoicesOperation:                 []string{},
 	ListParkedJournalEntriesOperation:              []string{},
 	ListPartnerChangesOperation:                    []string{},
 	ListPaymentExclusionsOperation:                 []string{},

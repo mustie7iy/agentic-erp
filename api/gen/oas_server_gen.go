@@ -6270,6 +6270,15 @@ type Handler interface {
 	//
 	// GET /v1/outbound-deliveries
 	ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error)
+	// ListOutgoingEInvoices implements listOutgoingEInvoices operation.
+	//
+	// The e-invoices rendered from the posted customer documents of the companies the caller may act in
+	// (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
+	// by company, by the customer document it renders (at most one), and by status, so the invalid ones to
+	// correct are found.
+	//
+	// GET /v1/outgoing-e-invoices
+	ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (ListOutgoingEInvoicesRes, error)
 	// ListParkedJournalEntries implements listParkedJournalEntries operation.
 	//
 	// Manual journal entries parked before they are posted, newest first: entries people or agents

@@ -1753,6 +1753,10 @@ type ListOutboundDeliveriesRes interface {
 	listOutboundDeliveriesRes()
 }
 
+type ListOutgoingEInvoicesRes interface {
+	listOutgoingEInvoicesRes()
+}
+
 type ListParkedJournalEntriesRes interface {
 	listParkedJournalEntriesRes()
 }

@@ -57,6 +57,8 @@ CREATE TABLE einvoicing.outgoing_einvoice (
     OR (status = 'invalid' AND sha256 IS NULL AND size IS NULL AND content_ref IS NULL AND problems <> '[]'::jsonb))
 );
 CREATE TRIGGER outgoing_einvoice_touch BEFORE UPDATE ON einvoicing.outgoing_einvoice FOR EACH ROW EXECUTE FUNCTION platform.touch();
+-- The list, newest rendered first.
+CREATE INDEX outgoing_einvoice_by_rendered ON einvoicing.outgoing_einvoice (tenant_id, rendered_at, id);
 SELECT platform.secure_table('einvoicing.outgoing_einvoice'::regclass);
 
 -- A valid e-invoice is the legal document and never changes; an invalid

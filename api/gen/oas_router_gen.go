@@ -1054,6 +1054,7 @@ var (
 		"POST": "Authorization,Idempotency-Key,If-Match",
 	}
 	rn262AllowedHeaders = map[string]string{
+		"GET":  "Authorization",
 		"POST": "Authorization,Content-Type,Idempotency-Key",
 	}
 	rn499AllowedHeaders = map[string]string{
@@ -12803,11 +12804,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 						if len(elem) == 0 {
 							switch r.Method {
+							case "GET":
+								s.handleListOutgoingEInvoicesRequest([0]string{}, elemIsEscaped, w, r)
 							case "POST":
 								s.handleCreateOutgoingEInvoiceRequest([0]string{}, elemIsEscaped, w, r)
 							default:
 								s.notAllowed(w, r, notAllowedParams{
-									allowedMethods: "POST",
+									allowedMethods: "GET,POST",
 									allowedHeaders: rn262AllowedHeaders,
 									acceptPost:     "application/json",
 									acceptPatch:    "",
@@ -30978,6 +30981,15 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 
 						if len(elem) == 0 {
 							switch method {
+							case "GET":
+								r.name = ListOutgoingEInvoicesOperation
+								r.summary = "List outgoing e-invoices"
+								r.operationID = "listOutgoingEInvoices"
+								r.operationGroup = ""
+								r.pathPattern = "/v1/outgoing-e-invoices"
+								r.args = args
+								r.count = 0
+								return r, true
 							case "POST":
 								r.name = CreateOutgoingEInvoiceOperation
 								r.summary = "Render a posted customer invoice or credit memo as a PINT AE e-invoice"

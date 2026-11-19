@@ -27595,6 +27595,57 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
   /v1/outgoing-e-invoices:
+    get:
+      operationId: listOutgoingEInvoices
+      tags:
+        - einvoicing
+      summary: List outgoing e-invoices
+      description: "The e-invoices rendered from the posted customer documents of the companies the caller may act in (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered by company, by the customer document it renders (at most one), and by status, so the invalid ones to correct are found."
+      x-permission: einvoicing.outgoing.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the e-invoices of this company.
+          schema:
+            type: string
+            format: uuid
+        - name: customer_invoice_id
+          in: query
+          required: false
+          description: Only the e-invoice of this customer invoice or credit memo.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only e-invoices in this status.
+          schema:
+            type: string
+            description: "Outgoing e-invoice status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [valid, invalid]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of outgoing e-invoices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutgoingEInvoicePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
     post:
       operationId: createOutgoingEInvoice
       tags:
@@ -65451,6 +65502,16 @@ components:
         rule: {type: string, description: "The ERP's rule (`einvoicing.pint_ae.*`). Open enumeration: rules may be added within /v1."}
         term: {type: string, description: "The PINT AE business term it checks (IBT-031, BTAE-03, ...)."}
         message: {type: string, description: "What is missing or wrong, and what to correct."}
+    OutgoingEInvoicePage:
+      type: object
+      description: One page of outgoing e-invoices, newest rendered first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/OutgoingEInvoice"}
+          description: The outgoing e-invoices on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     OutgoingEInvoice:
       type: object
       description: "A posted customer document rendered as a PINT AE e-invoice (ADR-0061 §9, As built E2): once per customer document, valid with its XML kept or invalid with the problems of its last render."

@@ -21,7 +21,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/packs"
 )
 
@@ -233,6 +235,29 @@ func TestRenderTaxInvoice(t *testing.T) {
 	check(t, "events and audit records", words(events, audits), "1 1")
 	read, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+got["id"].(string), "", "")
 	check(t, "read back", words(read["status"], read["customer_invoice_number"], read["sha256"]), words("valid", got["customer_invoice_number"], got["sha256"]))
+	other := s.posted(t, s.customer, "", "AED", s.item("10.00", "AED", "Z0"))
+	second := s.render(t, 201, fmt.Sprintf(`{"customer_invoice_id": %q}`, other))
+	list := func(query string) string {
+		t.Helper()
+		page, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices?"+query, "", "")
+		var ids []string
+		for _, it := range page["items"].([]any) {
+			ids = append(ids, it.(map[string]any)["id"].(string))
+		}
+		if next, ok := page["next_page_token"].(string); ok {
+			ids = append(ids, "next:"+fmt.Sprint(next != ""))
+		}
+		return strings.Join(ids, " ")
+	}
+	for _, c := range []struct{ name, query, want string }{
+		{"newest first", "", words(second["id"], got["id"])},
+		{"by customer document", "customer_invoice_id=" + invoice, words(got["id"])},
+		{"by company and status", "legal_entity_id=" + s.le.String() + "&status=valid&page_size=1", words(second["id"], "next:true")},
+		{"another company's", "legal_entity_id=" + s.f.US.String(), ""},
+		{"by status invalid", "status=invalid", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) { check(t, c.name, list(c.query), c.want) })
+	}
 }
 
 // TestRenderTaxCreditNote: a posted credit memo naming the invoice is a
@@ -433,7 +458,11 @@ func TestRenderMasterData(t *testing.T) {
 // fails cleanly (CLAUDE.md: FailingTx on every database path).
 func TestOutgoingDatabaseFailures(t *testing.T) {
 	s := uaeSetup(t, dubai)
-	h := app.EInvoicing(app.Config{Objects: s.store, FieldKeys: apitest.FieldKeys()})
+	pages, err := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := app.EInvoicing(app.Config{Objects: s.store, FieldKeys: apitest.FieldKeys(), Pages: pages})
 	invoice := uuid.MustParse(s.posted(t, s.customer, "", "USD", s.item("10.00", "USD", "S5@AE-DU")))
 	memo := uuid.MustParse(s.posted(t, s.customer, fmt.Sprintf(`"kind": "credit_memo", "reference_invoice_id": %q, `, invoice), "USD",
 		s.item("1.00", "USD", "S5@AE-DU")))
@@ -453,6 +482,10 @@ func TestOutgoingDatabaseFailures(t *testing.T) {
 			_, err := h.GetOutgoingEInvoice(ctx, gen.GetOutgoingEInvoiceParams{ID: id})
 			return err
 		},
+		"list": func(ctx context.Context) error {
+			_, err := h.ListOutgoingEInvoices(ctx, gen.ListOutgoingEInvoicesParams{})
+			return err
+		},
 		"content": func(ctx context.Context) error {
 			_, err := h.GetOutgoingEInvoiceContent(ctx, gen.GetOutgoingEInvoiceContentParams{ID: id})
 			return err
@@ -465,5 +498,12 @@ func TestOutgoingDatabaseFailures(t *testing.T) {
 			}
 			apitest.EveryFailure(t, s.f.Tenant, s.f.Tenant.Human, name, call)
 		})
+	}
+	err = apitest.InRequest(t, s.f.Tenant, s.f.Tenant.Human, func(ctx context.Context) error {
+		_, err := h.ListOutgoingEInvoices(ctx, gen.ListOutgoingEInvoicesParams{PageSize: gen.NewOptInt32(0)})
+		return err
+	})
+	if p := problem.From(err); p.Code != "request.invalid_page_size" {
+		t.Errorf("a page of none: got %v, want request.invalid_page_size", p)
 	}
 }

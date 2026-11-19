@@ -19,7 +19,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -283,17 +285,32 @@ func (e *Endpoints) GetOutgoingEInvoiceContent(ctx context.Context, params gen.G
 	return &gen.GetOutgoingEInvoiceContentOK{Data: bytes.NewReader(content)}, nil
 }
 
+// outgoingNames are the companies and customers of a page of e-invoices,
+// read once each (REVIEW.md: an identifier with the name its consumer
+// needs).
+type outgoingNames struct {
+	companies map[uuid.UUID]Company
+	customers map[uuid.UUID]CustomerName
+}
+
+func (e *Endpoints) outgoingNames(ctx context.Context, docs []OutgoingEInvoice) (outgoingNames, error) {
+	var n outgoingNames
+	var err error
+	if n.companies, err = e.Companies.Named(ctx, idref.Of(docs, func(o OutgoingEInvoice) *uuid.UUID { return &o.LegalEntityID })); err != nil {
+		return n, err
+	}
+	n.customers, err = e.Sales.Customers(ctx, idref.Of(docs, func(o OutgoingEInvoice) *uuid.UUID { return &o.CustomerID }))
+	return n, err
+}
+
 // outgoingAPI is the e-invoice with its company's and customer's names.
 func (e *Endpoints) outgoingAPI(ctx context.Context, o OutgoingEInvoice) (gen.OutgoingEInvoice, error) {
-	companies, err := e.Companies.Named(ctx, []uuid.UUID{o.LegalEntityID})
-	if err != nil {
-		return gen.OutgoingEInvoice{}, err
-	}
-	customers, err := e.Sales.Customers(ctx, []uuid.UUID{o.CustomerID})
-	if err != nil {
-		return gen.OutgoingEInvoice{}, err
-	}
-	co, cu := companies[o.LegalEntityID], customers[o.CustomerID]
+	n, err := e.outgoingNames(ctx, []OutgoingEInvoice{o})
+	return n.toAPI(o), err
+}
+
+func (n outgoingNames) toAPI(o OutgoingEInvoice) gen.OutgoingEInvoice {
+	co, cu := n.companies[o.LegalEntityID], n.customers[o.CustomerID]
 	out := gen.OutgoingEInvoice{ID: o.ID, CustomerInvoiceID: o.CustomerInvoiceID, CustomerInvoiceNumber: o.CustomerInvoiceNumber,
 		LegalEntityID: o.LegalEntityID, CompanyCode: co.Code, CompanyName: co.Name, CustomerID: o.CustomerID, CustomerNumber: cu.Number,
 		CustomerName: cu.Name, Kind: o.Kind, TypeCode: o.TypeCode, IssueDate: o.IssueDate, Currency: o.Currency,
@@ -319,7 +336,54 @@ func (e *Endpoints) outgoingAPI(ctx context.Context, o OutgoingEInvoice) (gen.Ou
 	} else {
 		out.Size.SetToNull()
 	}
-	return out, nil
+	return out
+}
+
+var outgoingSort = pagination.Sort{Default: "rendered_at", DefaultDesc: true,
+	Fields: []pagination.Field{{Name: "rendered_at", Column: "o.rendered_at", Type: "timestamptz"}}}
+
+// ListOutgoingEInvoices implements GET /v1/outgoing-e-invoices: the
+// e-invoices of the companies the caller may act in, newest rendered
+// first, cursor-paged.
+func (e *Endpoints) ListOutgoingEInvoices(ctx context.Context, params gen.ListOutgoingEInvoicesParams) (gen.ListOutgoingEInvoicesRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope := fmt.Sprintf("listOutgoingEInvoices|%s|%s|%s", optUUID(params.LegalEntityID), optUUID(params.CustomerInvoiceID), params.Status.Value)
+	ks, err := e.Pages.Keyset(outgoingSort, scope, apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	q, args := ks.SQL(`SELECT `+outgoingColumns+outgoingFrom+`
+		WHERE ($1::uuid IS NULL OR o.legal_entity_id = $1) AND ($2::uuid IS NULL OR o.customer_invoice_id = $2) AND ($3 = '' OR o.status = $3)
+		  AND ($4 OR o.legal_entity_id = ANY($5))`,
+		[]any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerInvoiceID), params.Status.Value, access.All, access.IDs})
+	rows, _ := tx.Query(ctx, q, args...)
+	docs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OutgoingEInvoice, error) {
+		var o OutgoingEInvoice
+		return o, r.Scan(o.fields()...)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("einvoicing: list outgoing e-invoices: %w", err)
+	}
+	docs, next := pagination.Page(ks, docs, func(o OutgoingEInvoice) (string, uuid.UUID) { return pagination.Instant(o.RenderedAt), o.ID })
+	n, err := e.outgoingNames(ctx, docs)
+	if err != nil {
+		return nil, err
+	}
+	page := &gen.OutgoingEInvoicePage{Items: make([]gen.OutgoingEInvoice, len(docs))}
+	for i, o := range docs {
+		page.Items[i] = n.toAPI(o)
+	}
+	if next != "" {
+		page.NextPageToken.SetTo(next)
+	}
+	return page, nil
 }
 
 func nilUUID(v *uuid.UUID) gen.NilUUID {

@@ -66942,6 +66942,14 @@ type ListOutboundDeliveriesForbidden Problem
 
 func (*ListOutboundDeliveriesForbidden) listOutboundDeliveriesRes() {}
 
+type ListOutgoingEInvoicesBadRequest Problem
+
+func (*ListOutgoingEInvoicesBadRequest) listOutgoingEInvoicesRes() {}
+
+type ListOutgoingEInvoicesForbidden Problem
+
+func (*ListOutgoingEInvoicesForbidden) listOutgoingEInvoicesRes() {}
+
 type ListParkedJournalEntriesBadRequest Problem
 
 func (*ListParkedJournalEntriesBadRequest) listParkedJournalEntriesRes() {}
@@ -83114,6 +83122,37 @@ func (s *OutgoingEInvoiceHeaders) SetResponse(val OutgoingEInvoice) {
 }
 
 func (*OutgoingEInvoiceHeaders) createOutgoingEInvoiceRes() {}
+
+// One page of outgoing e-invoices, newest rendered first.
+// Ref: #/components/schemas/OutgoingEInvoicePage
+type OutgoingEInvoicePage struct {
+	// The outgoing e-invoices on this page.
+	Items []OutgoingEInvoice `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *OutgoingEInvoicePage) GetItems() []OutgoingEInvoice {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *OutgoingEInvoicePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *OutgoingEInvoicePage) SetItems(val []OutgoingEInvoice) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *OutgoingEInvoicePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*OutgoingEInvoicePage) listOutgoingEInvoicesRes() {}
 
 // A mandatory field of PINT AE that a render found missing or malformed: the rule, the business term
 // it checks and what is wrong.
@@ -117723,6 +117762,7 @@ func (*TooManyRequestsHeaders) listOpenItemsRes()                         {}
 func (*TooManyRequestsHeaders) listOperationsRes()                        {}
 func (*TooManyRequestsHeaders) listOrgUnitsRes()                          {}
 func (*TooManyRequestsHeaders) listOutboundDeliveriesRes()                {}
+func (*TooManyRequestsHeaders) listOutgoingEInvoicesRes()                 {}
 func (*TooManyRequestsHeaders) listParkedJournalEntriesRes()              {}
 func (*TooManyRequestsHeaders) listPartnerChangesRes()                    {}
 func (*TooManyRequestsHeaders) listPaymentExclusionsRes()                 {}
@@ -118678,6 +118718,7 @@ func (*UnauthorizedHeaders) listOpenItemsRes()                         {}
 func (*UnauthorizedHeaders) listOperationsRes()                        {}
 func (*UnauthorizedHeaders) listOrgUnitsRes()                          {}
 func (*UnauthorizedHeaders) listOutboundDeliveriesRes()                {}
+func (*UnauthorizedHeaders) listOutgoingEInvoicesRes()                 {}
 func (*UnauthorizedHeaders) listParkedJournalEntriesRes()              {}
 func (*UnauthorizedHeaders) listPartnerChangesRes()                    {}
 func (*UnauthorizedHeaders) listPaymentExclusionsRes()                 {}
