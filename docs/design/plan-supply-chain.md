@@ -567,6 +567,42 @@ reference; a material whose base unit or conversion is not exact is held
 back with its reason. Which MARA fields carry which meaning is the SAP
 specialist's to confirm (from memory here).
 
+- **Reuses:** the migration run (`internal/integration`: extract, quality
+  gate, load in savepoints, external references, reconciliation, report),
+  the file extract and the mock (`internal/sap`), materials' checks and
+  numbering, tenancy's org units.
+- **Adds:** the tables MARA, MAKT, MARM, MARC, MARD, T001W (with T001K's
+  company code) and T001L in the extract, kept for the scope's plants;
+  `materials.Migration` (create a material active with its create change
+  applied, extend one to more plants, both without an approval request:
+  the run is their approval, as for centers) and
+  `tenancy.OrgUnitMigration` (an org unit created active, one found by
+  code); quality findings (errors refusing the run, warnings holding a
+  material back with its reasons); reconciliation checks `Plants`,
+  `Storage locations` and `Materials` with differences by SAP key; report
+  counts `plants`, `storage_locations`, `materials`, `materials_extended`
+  and the seven tables' rows; the mock's company 3000 with two plants,
+  three storage locations, three materials that load, two held back and
+  one flagged for deletion; ADR-0082 As built S2o.
+- **Walkthrough:** `migrated_materials` in step 3, `step_migrate`: the
+  plants and storage locations as org units, the materials active with
+  their numbers from Maple's range and their units, the create change
+  naming SAP's number without an approval request, the two held back with
+  their reasons, the checks passing.
+- **Acceptance (as built):** the SAP number is the external reference
+  `MARA/<MATNR>`, named in the create change's reason; a unit that is none
+  of the platform's or a conversion that is not whole numbers from 1 to
+  1,000,000 holds the material back with its reason while the rest loads;
+  a later run extends a loaded material to the plants it adds and creates
+  nothing twice; the reconciliation agrees per company code.
+- **Depends on:** S1a, S1b.
+
+**Later for the material master's migration:** the OData mapping (the
+product and plant APIs; a tracker leaf); descriptions in further
+languages; SAP's internal unit keys mapped onto the platform's (T006);
+MARA's views beyond the basic data; plant-scoped storage location codes
+(tenancy keeps them unique per company).
+
 ### S2p SAP migration of stock and values (pilot)
 
 **Capability.** The cutover loads stock by storage location (MARD) and
