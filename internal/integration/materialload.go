@@ -78,7 +78,9 @@ func (l *loader) materialMaster(ctx context.Context) error {
 
 // materialNumbers draws the number of each material the run creates from
 // the material range of its first plant's company; a material whose
-// number is refused is reported and created by no one.
+// number is refused is reported and created by no one. A number drawn for
+// a material that a refused plant later stops leaves no gap: any refusal
+// fails the load, which rolls back.
 func (l *loader) materialNumbers(ctx context.Context, mats []sapMaterial, company map[string]string) (map[string]string, error) {
 	out := map[string]string{}
 	for _, m := range mats {

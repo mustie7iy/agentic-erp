@@ -1267,8 +1267,8 @@ migrated_materials() {
   say "What the platform cannot hold is held back with its reason, a warning, and the rest loads: SAP's internal unit key"
   say "ST and the carton are no units of the platform's; the gasket SAP flags for deletion is not migrated:"
   grep -E '\[warning\] (MARA|MAKT|MARC|MARD) ' "$WORK/migrate.out" | sed 's/^/     /'
-  expect "the materials held back" "$(grep -c '\[warning\] MARA .*: held back:' "$WORK/migrate.out")" 2
-  expect "the materials flagged for deletion" "$(grep -c '\[warning\] MARA .*: flagged for deletion' "$WORK/migrate.out")" 1
+  expect "the materials held back" "$(grep -c '\[warning\] MARA .*: held back:' "$WORK/migrate.out" || true)" 2
+  expect "the materials flagged for deletion" "$(grep -c '\[warning\] MARA .*: flagged for deletion' "$WORK/migrate.out" || true)" 1
   grep -E 'Plants|Storage locations|Materials' "$WORK/migrate.out" | sed 's/^/     /'
 }
 
