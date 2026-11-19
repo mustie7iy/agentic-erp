@@ -124,10 +124,7 @@ func (e *Endpoints) render(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s
 	if err != nil {
 		return OutgoingEInvoice{}, false, err
 	}
-	d, found, err := buildDocument(s, seller, buyer, reason)
-	if err != nil {
-		return OutgoingEInvoice{}, false, err
-	}
+	d, found := buildDocument(s, seller, buyer, reason)
 	o := OutgoingEInvoice{ID: uuid.Must(uuid.NewV7()), LegalEntityID: s.CompanyID, CustomerInvoiceID: s.ID, CustomerInvoiceNumber: s.Number,
 		SourceDocumentID: s.SourceID, SourceDocumentNumber: s.SourceNumber, CustomerID: s.CustomerID, Kind: d.Kind, TypeCode: d.TypeCode,
 		IssueDate: s.IssueDate, Currency: s.Currency, Exponent: s.Exponent, Net: s.Net, Tax: s.Tax, Gross: s.Gross,
@@ -171,12 +168,8 @@ func (e *Endpoints) keep(ctx context.Context, tenant uuid.UUID, d Document, o *O
 // OutgoingEInvoiceRendered. A row another request made valid meanwhile is
 // answered as it is.
 func (e *Endpoints) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o OutgoingEInvoice, company Company, customerNumber string) (OutgoingEInvoice, bool, error) {
-	problems, err := problemsJSON(o.Problems)
-	if err != nil {
-		return OutgoingEInvoice{}, false, err
-	}
 	var inserted bool
-	err = tx.QueryRow(ctx, `INSERT INTO einvoicing.outgoing_einvoice AS o (tenant_id, id, legal_entity_id, customer_invoice_id,
+	err := tx.QueryRow(ctx, `INSERT INTO einvoicing.outgoing_einvoice AS o (tenant_id, id, legal_entity_id, customer_invoice_id,
 			customer_invoice_number, source_document_id, source_document_number, customer_id, kind, type_code, issue_date, currency,
 			net_amount, tax_amount, gross_amount, reference_invoice_number, credit_reason_code, credit_reason_text, specification, status,
 			problems, sha256, size, content_ref, created_by, updated_by)
@@ -191,7 +184,7 @@ func (e *Endpoints) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o 
 		WHERE o.status = 'invalid' RETURNING o.id, o.rendered_at, o.version, o.xmax = 0`,
 		p.TenantID, o.ID, o.LegalEntityID, o.CustomerInvoiceID, o.CustomerInvoiceNumber, o.SourceDocumentID, o.SourceDocumentNumber, o.CustomerID,
 		o.Kind, o.TypeCode, o.IssueDate, o.Currency, o.Net, o.Tax, o.Gross, o.ReferenceNumber, o.ReasonCode, o.ReasonText, o.Specification,
-		o.Status, problems, o.SHA256, o.Size, o.ContentRef, p.ID).Scan(&o.ID, &o.RenderedAt, &o.Version, &inserted)
+		o.Status, problemsJSON(o.Problems), o.SHA256, o.Size, o.ContentRef, p.ID).Scan(&o.ID, &o.RenderedAt, &o.Version, &inserted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		kept, _, err := outgoingOf(ctx, tx, o.CustomerInvoiceID) // valid meanwhile: the row exists
 		return kept, false, err

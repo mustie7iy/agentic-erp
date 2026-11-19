@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -90,23 +89,17 @@ func saleLines(ctx context.Context, v receivables.Invoice) ([]einvoicing.SaleLin
 }
 
 // localTax is the VAT the entry's output tax items carry in the company's
-// currency, as the posting converted it.
+// currency, as the posting converted it: bounded, as the entry's tax lines
+// in that currency balance against its receivable line, a bigint.
 func localTax(ctx context.Context, entry uuid.UUID) (money.Minor, error) {
 	items, err := (ledger.TaxItems{}).Of(ctx, entry)
-	if err != nil {
-		return 0, err
-	}
-	var lc []money.Minor
+	var lc money.Minor
 	for _, t := range items {
 		if t.Direction == "output" {
-			lc = append(lc, t.TaxLC)
+			lc += t.TaxLC // bounded by the entry's receivable line (above)
 		}
 	}
-	sum, err := money.Sum(lc...)
-	if err != nil {
-		return 0, fmt.Errorf("app: VAT of entry %s in the company's currency: %w", entry, err)
-	}
-	return sum, nil
+	return lc, err
 }
 
 func (s einvoiceSales) Seller(ctx context.Context, company uuid.UUID, day time.Time) (einvoicing.Seller, error) {

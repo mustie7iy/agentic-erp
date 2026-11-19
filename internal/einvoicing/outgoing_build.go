@@ -1,11 +1,8 @@
 package einvoicing
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/mustie7iy/agentic-erp/internal/money"
 )
 
 // The values E2 renders that no ERP field supplies (ADR-0061 As built
@@ -43,7 +40,7 @@ func emirate(region string) string {
 // buildDocument is the PINT AE document of a posted customer document
 // (ADR-0061 §9: from its items and tax codes, no second mapping), and
 // what the seller or buyer lacks that the Document cannot show.
-func buildDocument(s Sale, seller Seller, buyer Buyer, reason *Reason) (Document, []Finding, error) {
+func buildDocument(s Sale, seller Seller, buyer Buyer, reason *Reason) (Document, []Finding) {
 	d := Document{Kind: KindTaxInvoice, TypeCode: TypeTaxInvoice, Number: s.Number, IssueDate: s.IssueDate, DueDate: s.DueDate,
 		Currency: s.Currency, Customization: PINTAECustomization, Profile: PINTAEProfile, TransactionType: noTransactionFlags,
 		Reason: reason, PaymentMeans: creditTransfer, Tax: s.Tax, LineTotal: s.Net, TaxExclusive: s.Net, TaxInclusive: s.Gross,
@@ -71,9 +68,8 @@ func buildDocument(s Sale, seller Seller, buyer Buyer, reason *Reason) (Document
 	if buyer.Blocked {
 		found = append(found, Finding{Rule: "einvoicing.pint_ae.buyer", Term: "IBG-07", Message: "the customer's personal data is blocked"})
 	}
-	var err error
-	d.Lines, d.Subtotals, err = linesOf(s)
-	return d, found, err
+	d.Lines, d.Subtotals = linesOf(s)
+	return d, found
 }
 
 // tin is the first ten digits of a TRN, the TIN of the electronic address
@@ -98,8 +94,11 @@ func address(a *Address) Address {
 
 // linesOf is the document's lines, one per item at its net amount, and
 // its VAT per category and rate in the order the lines first name them,
-// each the items' net amounts and the tax receivables gave them.
-func linesOf(s Sale) ([]Line, []Subtotal, error) {
+// each the items' net amounts and the tax receivables gave them. The sums
+// are bounded: a posted document's items add up to its net and its tax
+// (receivables' totals, customer_invoice's bigint columns), so a part of
+// them cannot overflow.
+func linesOf(s Sale) ([]Line, []Subtotal) {
 	lines := make([]Line, len(s.Lines))
 	var subtotals []Subtotal
 	at := map[[2]string]int{}
@@ -114,15 +113,10 @@ func linesOf(s Sale) ([]Line, []Subtotal, error) {
 			at[k] = j
 			subtotals = append(subtotals, Subtotal{Category: it.Category, Percent: percent})
 		}
-		var err error
-		if subtotals[j].Taxable, err = money.Sum(subtotals[j].Taxable, it.Net); err != nil {
-			return nil, nil, fmt.Errorf("einvoicing: VAT of category %s: %w", it.Category, err)
-		}
-		if subtotals[j].Tax, err = money.Sum(subtotals[j].Tax, it.Tax); err != nil {
-			return nil, nil, fmt.Errorf("einvoicing: VAT of category %s: %w", it.Category, err)
-		}
+		subtotals[j].Taxable += it.Net // bounded by the document's net (above)
+		subtotals[j].Tax += it.Tax     // bounded by the document's tax
 	}
-	return lines, subtotals, nil
+	return lines, subtotals
 }
 
 // plainPercent writes a rate without trailing zeros: "5.000000" is "5",

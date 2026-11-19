@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -167,13 +166,10 @@ func (o OutgoingEInvoice) event(company Company, customerNumber string, before *
 
 // problemsJSON is the findings as the problems column keeps them: an
 // empty array for none.
-func problemsJSON(f []Finding) ([]byte, error) {
+func problemsJSON(f []Finding) []byte {
 	if f == nil {
 		f = []Finding{}
 	}
-	b, err := json.Marshal(f)
-	if err != nil {
-		return nil, fmt.Errorf("einvoicing: problems: %w", err)
-	}
-	return b, nil
+	b, _ := json.Marshal(f) // a list of structs of strings always encodes
+	return b
 }
