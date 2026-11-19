@@ -967,12 +967,15 @@ listed for the product owner's digest. It changes §1 and T76d's
   posts. Collections resolves the numbers through the ledger's account
   reads (`ledger.AssetReads.Accounts`), not the ledger's account
   determination rows, which keep a removed key's account.
-- **The memo.** The notice's customer, the company's currency, the run's
-  key date as its date (the date the notice is dated), the customer's
-  payment term in the company, the company's today as its posting date
-  (receivables' default), an item "Dunning charge, level n" on the charge
-  account and one "Interest on overdue items to <key date>" on the
-  interest account, each only when above zero, without a tax code.
+- **The memo.** The notice's customer, the company's currency, the
+  company's today in its time zone (`clock`, `CompanyDay`) as its date
+  and posting date: the day the charge is raised, in whose fiscal year it
+  is numbered and due by the customer's payment term in the company. Not
+  the run's key date, which may lie in a fiscal year without a
+  `customer_invoice` range yet (the walkthrough's future key dates found
+  it). An item "Dunning charge, level n" on the charge account and one
+  "Interest on overdue items to <key date>" on the interest account, each
+  only when above zero, without a tax code.
 - **Refusals.** What receivables or the ledger refuses refuses the whole
   confirmation, nothing recorded or posted, with their code and the
   customer's number leading the detail and without their field errors,

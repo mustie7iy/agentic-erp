@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/receivables"
@@ -82,12 +83,16 @@ func (e *Endpoints) postCharges(ctx context.Context, tx pgx.Tx, p reqctx.Princip
 	if err != nil {
 		return nil, err
 	}
+	day, err := doc.CompanyDay(le.Code, clock.Now(e.Now))
+	if err != nil {
+		return nil, fmt.Errorf("collections: today of company %s: %w", le.Code, err)
+	}
 	out := map[uuid.UUID]Charge{}
 	for _, n := range notices {
 		if n.ChargeAmount == 0 && n.InterestAmount == 0 {
 			continue
 		}
-		c, err := e.postCharge(ctx, run, n, accounts)
+		c, err := e.postCharge(ctx, run, n, accounts, day.Date)
 		if err != nil {
 			return nil, err
 		}
@@ -119,19 +124,21 @@ func (e *Endpoints) chargeAccounts(ctx context.Context, le tenancy.Entity, ad co
 }
 
 // postCharge enters and posts the notice's debit memo: the customer, the
-// run's currency, the company's, and its key date as the memo's date, an
-// item for the charge on the charge account and one for the interest on
-// the interest account, each only when above zero and without a tax code
-// (whether a country taxes them is a specialist's question, ADR-0065 As
-// built), the customer's payment term, and the company's today as its
-// posting date (receivables.PostInvoice). A charge or interest the
+// run's currency, the company's, an item for the charge on the charge
+// account and one for the interest to the run's key date on the interest
+// account, each only when above zero and without a tax code (whether a
+// country taxes them is a specialist's question, ADR-0065 As built), the
+// customer's payment term, and today, the company's day the run is
+// confirmed in its time zone, as the memo's date and posting date: the
+// charge is raised then, and the memo is numbered in that day's fiscal
+// year, whatever year the key date is in. A charge or interest the
 // configuration no longer names an account for, since the run was
 // proposed, is refused, 422 collections.no_charge_account. An amount goes
 // as the decimal string of its minor units, which receivables reads back
 // exactly. The memo posts at the version it was entered at: no one else
 // can have read it, it being of this transaction.
-func (e *Endpoints) postCharge(ctx context.Context, run Run, n Notice, accounts chargeAccounts) (Charge, error) {
-	in := receivables.Input{LegalEntityID: run.LegalEntityID, CustomerID: n.CustomerID, Kind: receivables.KindDebitMemo, InvoiceDate: run.KeyDate,
+func (e *Endpoints) postCharge(ctx context.Context, run Run, n Notice, accounts chargeAccounts, today time.Time) (Charge, error) {
+	in := receivables.Input{LegalEntityID: run.LegalEntityID, CustomerID: n.CustomerID, Kind: receivables.KindDebitMemo, InvoiceDate: today, PostingDate: &today,
 		Currency: run.Currency, Source: &receivables.Source{ID: n.ID, Number: n.ID.String()}}
 	for _, it := range []struct {
 		amount  money.Minor

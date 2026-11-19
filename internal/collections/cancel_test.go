@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -324,8 +325,16 @@ func TestCancelSupersededByAMemoDunned(t *testing.T) {
 		e.companyData(t, c)
 	}
 	entries := e.story(t)
-	first, tag := e.start(t, keyDate) // Southwind's CI-USD, charged 5.00: a memo dated 30 June, due 30 July
-	e.confirm(t, first, tag)
+	first, tag := e.start(t, keyDate)
+	// Confirmed on 1 July: Southwind's CI-USD charged 5.00, a memo dated that day, the company's today, due 31 July.
+	h := endpoints(t)
+	h.Now = func() time.Time { return time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC) }
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := h.ConfirmDunningRun(ctx, gen.ConfirmDunningRunParams{ID: uuid.MustParse(first), IfMatch: tag})
+		return err
+	}); err != nil {
+		t.Fatalf("the first run: got %v, want it confirmed", err)
+	}
 	// Southwind pays CI-USD, so the later run shares no item with the first.
 	paid := e.post(t, item{customer: e.south, amount: -20000, currency: "USD", day: "2026-07-01", noTerms: true, ref: "PAID-USD"})[0]
 	e.Must(201, "POST", "/v1/clearings", fmt.Sprintf(`{"legal_entity_id": %q, "clearing_date": "2026-07-01", "items": [
@@ -335,7 +344,14 @@ func TestCancelSupersededByAMemoDunned(t *testing.T) {
 	e.Must(201, "POST", "/v1/dunning-blocks", blockOf(e.DE, e.north, nil, lastHeld), "")
 	later, laterTag := e.start(t, "2026-08-10")
 	firstPage, _ := e.Must(200, "GET", "/v1/dunning-runs/"+first+"/notices", "", "")
-	memo := apitest.String(t, apitest.Object(t, objects(t, firstPage, "items")[0], "charge_document"), "customer_invoice_number")
+	doc := apitest.Object(t, objects(t, firstPage, "items")[0], "charge_document")
+	memo := apitest.String(t, doc, "customer_invoice_number")
+	var dated string
+	pgtest.Scan(t, `SELECT invoice_date::text || ' ' || posting_date::text FROM receivables.customer_invoice WHERE tenant_id = $1 AND id = $2`,
+		[]any{e.Tenant.ID, doc["customer_invoice_id"]}, &dated)
+	if dated != "2026-07-01 2026-07-01" {
+		t.Errorf("the memo's date and posting date: got %s, want the company's day of the confirmation", dated)
+	}
 	// Its items: the memo, and Eastwind's CI-E, which the first run did not dun.
 	if got, want := e.proposed(t, later), memo+" 0->1, CI-E 0->1"; got != want {
 		t.Fatalf("the later run: got %q, want %q", got, want)

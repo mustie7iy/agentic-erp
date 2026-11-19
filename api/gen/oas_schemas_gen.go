@@ -42892,7 +42892,7 @@ type DunningChargeDocument struct {
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
 	// The entry's fiscal year.
 	JournalEntryYear int32 `json:"journal_entry_year"`
-	// The date the memo posted on: the company's today when the run was confirmed.
+	// The date the memo posted on, also its date: the company's today when the run was confirmed.
 	PostingDate time.Time `json:"posting_date"`
 	// `posted`: the memo stands. `reversed`: the run was cancelled (`cancelDunningRun`, T76i) and the memo
 	// reversed; the reversal is named beside. Open enumeration: clients must accept and preserve values

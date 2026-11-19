@@ -910,8 +910,9 @@ type Invoker interface {
 	// (`companies[].account_determination.dunning_charges` and `.dunning_interest`, T76h), each notice
 	// charged a charge or interest is posted to its customer, in the same transaction: a customer debit
 	// memo (`kind` `debit_memo`, `GET /v1/customer-invoices/{id}`) is entered and posted in accounts
-	// receivable with the notice as its source (`source_document_id`), the run's key date as its date, the
-	// customer's payment term, the company's today as its posting date and an item for the charge on the
+	// receivable with the notice as its source (`source_document_id`), the company's today in its time
+	// zone as its date and posting date (the day the charge is raised, in whose fiscal year it is
+	// numbered, whatever the key date), the customer's payment term and an item for the charge on the
 	// charge account and one for the interest on the interest account, each only when above zero and
 	// without a tax code; its entry (document type `DD`) debits the customer's reconciliation account with
 	// the two, the customer's open item, and credits the accounts. The notice names its memo
@@ -18731,8 +18732,9 @@ func (c *Client) sendCompleteYearCloseTask(ctx context.Context, request OptClose
 // (`companies[].account_determination.dunning_charges` and `.dunning_interest`, T76h), each notice
 // charged a charge or interest is posted to its customer, in the same transaction: a customer debit
 // memo (`kind` `debit_memo`, `GET /v1/customer-invoices/{id}`) is entered and posted in accounts
-// receivable with the notice as its source (`source_document_id`), the run's key date as its date, the
-// customer's payment term, the company's today as its posting date and an item for the charge on the
+// receivable with the notice as its source (`source_document_id`), the company's today in its time
+// zone as its date and posting date (the day the charge is raised, in whose fiscal year it is
+// numbered, whatever the key date), the customer's payment term and an item for the charge on the
 // charge account and one for the interest on the interest account, each only when above zero and
 // without a tax code; its entry (document type `DD`) debits the customer's reconciliation account with
 // the two, the customer's open item, and credits the accounts. The notice names its memo

@@ -664,9 +664,8 @@ interest revenue accounts, in the confirmation's transaction.
   level's interest); one that names neither posts nothing, as before.
   Table `collections.dunning_charge`: per notice the debit memo (id,
   number), its journal entry and posting date. The debit memo: the
-  notice's customer, the company's currency, the run's key date as its
-  invoice date, the company's today as its posting date, the customer's
-  payment term, an item for the charge and one for the interest (each
+  notice's customer, the company's currency, the company's today as its
+  date and posting date, the customer's payment term, an item for the charge and one for the interest (each
   only when above zero), no tax code (specialist question). `DunningRun`
   `charge_document_count`; `DunningNotice` `charge_document` (the memo's
   id and number, its posting date and status); `DunningNoticeIssued`

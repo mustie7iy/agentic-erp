@@ -2,6 +2,7 @@ package collections_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -97,7 +98,7 @@ func TestChargesPosted(t *testing.T) {
 	pgtest.Scan(t, `SELECT concat_ws(' ', kind, status, document_number, invoice_date, gross_amount, tax_amount, source_document_id, source_document_number,
 			posting_date, journal_entry_id) FROM receivables.customer_invoice WHERE tenant_id = $1 AND id = $2`,
 		[]any{e.Tenant.ID, apitest.String(t, doc, "customer_invoice_id")}, &memo)
-	if want := strings.Join([]string{"debit_memo posted", apitest.String(t, doc, "customer_invoice_number"), keyDate, "500 0", apitest.String(t, south, "id"),
+	if want := strings.Join([]string{"debit_memo posted", apitest.String(t, doc, "customer_invoice_number"), apitest.String(t, doc, "posting_date"), "500 0", apitest.String(t, south, "id"),
 		apitest.String(t, south, "id"), apitest.String(t, doc, "posting_date"), apitest.String(t, doc, "journal_entry_id")}, " "); memo != want {
 		t.Errorf("the memo: got %s, want %s", memo, want)
 	}
@@ -125,7 +126,7 @@ func TestChargesPosted(t *testing.T) {
 	if got := e.memos(t); got != want {
 		t.Errorf("the debit memos: got %s, want %s", got, want)
 	}
-	// The first memo, dated 30 June on NT30, is an open item of Southwind's, due on 30 July: not overdue on the key date.
+	// The first memo, dated today on NT30, is an open item of Southwind's.
 	if !strings.Contains(e.openItems(t), apitest.String(t, doc, "journal_entry_id")) {
 		t.Error("the first memo: not among the open items, want the customer's open item")
 	}
@@ -188,6 +189,21 @@ func (s withoutInterest) Document(ctx context.Context) (*config.Config, int32, e
 	return &changed, v, nil
 }
 
+// zoneless is the configuration with company 2000's time zone one no
+// binary loads: its today cannot be told.
+type zoneless struct{ collections.Settings }
+
+func (s zoneless) Document(ctx context.Context) (*config.Config, int32, error) {
+	doc, v, err := s.Settings.Document(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	changed := *doc
+	changed.Companies = append([]config.Company(nil), doc.Companies...)
+	changed.Company("2000").TimeZone = "Mars/Olympus_Mons"
+	return &changed, v, nil
+}
+
 // TestChargeRefusals: what receivables refuses refuses the confirmation
 // with its code, the customer's number leading the detail and no field of
 // the memo's, and nothing is recorded or posted; so is interest whose
@@ -207,6 +223,21 @@ func TestChargeRefusals(t *testing.T) {
 		run, _ := e.Must(200, "GET", "/v1/dunning-runs/"+id, "", "")
 		if got := fields(t, run, "status", "charge_document_count") + " " + e.dunned(t) + e.memos(t); got != "status proposed, charge_document_count 0 " {
 			t.Errorf("after the refusal: got %q, want the run proposed and nothing recorded or posted", got)
+		}
+	})
+	t.Run("a company whose today cannot be told", func(t *testing.T) {
+		e := postingEnv(t)
+		e.story(t)
+		id, tag := e.start(t, keyDate)
+		h := endpoints(t)
+		h.Settings = zoneless{h.Settings}
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ConfirmDunningRun(ctx, gen.ConfirmDunningRunParams{ID: uuid.MustParse(id), IfMatch: tag})
+			return err
+		})
+		var p *problem.Problem
+		if err == nil || errors.As(err, &p) || !strings.Contains(err.Error(), "today of company 2000") {
+			t.Errorf("got %v, want an error that is no refusal, naming the company's today", err)
 		}
 	})
 	t.Run("interest whose account is no longer named", func(t *testing.T) {

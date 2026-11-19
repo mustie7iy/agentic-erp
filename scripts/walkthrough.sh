@@ -14205,7 +14205,7 @@ step_dunning_postings() {
   notice=$(field '.items[0].id') memo=$(field '.items[0].charge_document.customer_invoice_id') entry=$(field '.items[0].charge_document.journal_entry_id')
   api 200 '"customer \(.kind | sub("_"; " ")) \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), dated \(.invoice_date), due \(.net_due_date)", (.items[] | "  \(.description): \(.net_amount.amount) on \(.account_number)")' \
     getCustomerInvoice -p "id=$memo"
-  expect "the debit memo" "$(field '"\(.kind) \(.status) \(.gross_amount.amount) \(.tax_amount.amount) \(.invoice_date) \(.source_document_id)"')" "debit_memo posted 17.96 0.00 $k2 $notice"
+  expect "the debit memo" "$(field '"\(.kind) \(.status) \(.gross_amount.amount) \(.tax_amount.amount) \(.invoice_date) \(.source_document_id)"')" "debit_memo posted 17.96 0.00 $TODAY $notice"
   expect "the memo's accounts" "$(field '[.items[] | "\(.account_number) \(.net_amount.amount)"] | join(", ")')" "4810 15.00, 4820 2.96"
   say "The memo is Bayview's open item beside its invoice:"
   api 200 '.items[] | "open item \(.document_number) (\(.reference)): \(.amount.amount) \(.amount.currency), due \(.net_due_date)"' \
