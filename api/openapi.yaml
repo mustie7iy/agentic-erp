@@ -21648,7 +21648,7 @@ paths:
       tags:
         - sales
       summary: Create a quotation
-      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
+      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422 `request.reference_not_found` naming `items[i].material_id`) that is `active` (422 `sales.material_not_usable`), whose number is then the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the material's base unit or one of its alternative units and converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
       x-permission: sales.quotation.write
       x-agent: false
       x-problem-codes:
@@ -21663,9 +21663,12 @@ paths:
         - sales.amount_too_large
         - sales.currency_mismatch
         - sales.customer_not_usable
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
         - sales.invalid_validity
+        - sales.item_key_not_material
         - sales.items_required
+        - sales.material_not_usable
         - sales.no_price
         - sales.tax_jurisdiction_not_supported
         - sales.unknown_currency
@@ -21939,9 +21942,12 @@ paths:
         - sales.amount_too_large
         - sales.currency_mismatch
         - sales.customer_not_usable
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
         - sales.invalid_requested_delivery_date
+        - sales.item_key_not_material
         - sales.items_required
+        - sales.material_not_usable
         - sales.no_price
         - sales.quotation_not_accepted
         - sales.quotation_or_items
@@ -22040,8 +22046,11 @@ paths:
         - sales.capture_customer_unknown
         - sales.currency_mismatch
         - sales.customer_not_usable
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
+        - sales.item_key_not_material
         - sales.items_required
+        - sales.material_not_usable
         - sales.no_price
         - sales.quotation_not_accepted
         - sales.quotation_or_items
@@ -22730,10 +22739,13 @@ paths:
         - sales.amount_not_positive
         - sales.amount_too_large
         - sales.currency_mismatch
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
         - sales.invalid_requested_delivery_date
         - sales.invalid_status
+        - sales.item_key_not_material
         - sales.item_repeated
+        - sales.material_not_usable
         - sales.no_price
         - sales.nothing_changed
         - sales.order_billed
@@ -60228,11 +60240,12 @@ components:
     SalesItemCreate:
       type: object
       description: "An item of a quotation or a sales order to create (ADR-0067 §3): a quantity of what is sold at a unit price, entered with it or taken from the company's price records by its item key (§10), with the revenue account and output tax code its billing posts with."
-      required: [description, quantity, account_id]
+      required: [quantity, account_id]
       additionalProperties: false
       properties:
-        item_key: {type: string, minLength: 1, maxLength: 40, description: "A free-text key naming what is sold, as the company calls it; there is no material master. An item without a `unit_price` is priced by it (`createSalesPrice`)."}
-        description: {type: string, minLength: 1, maxLength: 200, description: "What is sold."}
+        item_key: {type: string, minLength: 1, maxLength: 40, description: "A free-text key naming what is sold, as the company calls it. An item without a `unit_price` is priced by it (`createSalesPrice`). An item of a material has the material's number as its key: absent, it is taken; another is refused (422 `sales.item_key_not_material`)."}
+        material_id: {type: string, format: uuid, description: "The material sold (S1f1, `GET /v1/materials/{id}`): an `active` material of the tenant. Its number is the item's `item_key`, so the price records find it by that number, and its description the item's when `description` is absent; `quantity` is in its base unit or one of its alternative units, converting to the base unit exactly. Absent: the item is described by `description` and `item_key` alone."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What is sold. Required for an item without `material_id` (422 `request.validation_failed`); for an item of a material it is the material's description when absent."}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity, more than zero, in a unit of measure of the reference data."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`, in the document's currency; it stays as entered, whatever the price records say (`price_source` `manual`), and is the item's final net price: the pricing procedure takes no discount off it. Absent: the item takes the price recorded for its `item_key`, valid on the document's date, in the item's unit and the document's currency: the customer's before the general one, then the latest `valid_from` (`price_source` `price_list`); an item with neither is refused (422 `sales.no_price`)."}
         price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the unit price refers to; 1 when absent. It is sent with `unit_price` alone: a price from the price records comes with its own, so an item that sends `price_unit` without `unit_price` is refused (422 `request.validation_failed` naming `items[i].price_unit`)."}
@@ -60244,7 +60257,8 @@ components:
       required: [item_no, description, quantity, unit_price, price_unit, price_source, conditions, net_amount, account_id, account_number, account_name]
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the document.", readOnly: true}
-        item_key: {type: string, description: "The free-text key naming what is sold; absent when none was given.", readOnly: true}
+        item_key: {type: string, description: "The free-text key naming what is sold, the material's number for an item of a material; absent when none was given.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material sold (S1f1, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item without one. A billing document's item has its order item's.", readOnly: true}
         description: {type: string, description: "What is sold.", readOnly: true}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity and its unit of measure."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`."}
@@ -60451,7 +60465,7 @@ components:
       additionalProperties: false
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The order's item that changes."}
-        quantity: {$ref: "#/components/schemas/Quantity", description: "The new quantity, more than zero, in the item's own unit, and not below what is delivered of it. Absent: the quantity stays."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The new quantity, more than zero, in the item's own unit, and not below what is delivered of it. An item of a material keeps its material, whatever its status since, and its new quantity converts to the material's base unit exactly (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). Absent: the quantity stays."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The new net price per `price_unit`, in the order's currency, entered (`price_source` `manual`) and final, as an entered price is (`SalesItemCreate`). Absent: an entered price stays, and a price from the price records is taken again on the order's date."}
         price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the new unit price refers to; 1 when absent. It is sent with `unit_price` alone (422 `request.validation_failed` naming `items[i].price_unit`)."}
     SalesOrderChange:

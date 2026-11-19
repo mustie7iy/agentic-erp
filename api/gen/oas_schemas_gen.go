@@ -17242,8 +17242,12 @@ func (*BillingDocumentHeaders) createBillingDocumentRes() {}
 type BillingDocumentItem struct {
 	// The item's number in the document.
 	ItemNo int32 `json:"item_no"`
-	// The free-text key naming what is sold; absent when none was given.
+	// The free-text key naming what is sold, the material's number for an item of a material; absent when
+	// none was given.
 	ItemKey OptString `json:"item_key"`
+	// The material sold (S1f1, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item
+	// without one. A billing document's item has its order item's.
+	MaterialID OptUUID `json:"material_id"`
 	// What is sold.
 	Description string `json:"description"`
 	// The quantity and its unit of measure.
@@ -17289,6 +17293,11 @@ func (s *BillingDocumentItem) GetItemNo() int32 {
 // GetItemKey returns the value of ItemKey.
 func (s *BillingDocumentItem) GetItemKey() OptString {
 	return s.ItemKey
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *BillingDocumentItem) GetMaterialID() OptUUID {
+	return s.MaterialID
 }
 
 // GetDescription returns the value of Description.
@@ -17364,6 +17373,11 @@ func (s *BillingDocumentItem) SetItemNo(val int32) {
 // SetItemKey sets the value of ItemKey.
 func (s *BillingDocumentItem) SetItemKey(val OptString) {
 	s.ItemKey = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *BillingDocumentItem) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
 }
 
 // SetDescription sets the value of Description.
@@ -104269,8 +104283,12 @@ func (*SalesDeliveryPage) listSalesDeliveriesRes() {}
 type SalesItem struct {
 	// The item's number in the document.
 	ItemNo int32 `json:"item_no"`
-	// The free-text key naming what is sold; absent when none was given.
+	// The free-text key naming what is sold, the material's number for an item of a material; absent when
+	// none was given.
 	ItemKey OptString `json:"item_key"`
+	// The material sold (S1f1, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item
+	// without one. A billing document's item has its order item's.
+	MaterialID OptUUID `json:"material_id"`
 	// What is sold.
 	Description string `json:"description"`
 	// The quantity and its unit of measure.
@@ -104311,6 +104329,11 @@ func (s *SalesItem) GetItemNo() int32 {
 // GetItemKey returns the value of ItemKey.
 func (s *SalesItem) GetItemKey() OptString {
 	return s.ItemKey
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *SalesItem) GetMaterialID() OptUUID {
+	return s.MaterialID
 }
 
 // GetDescription returns the value of Description.
@@ -104378,6 +104401,11 @@ func (s *SalesItem) SetItemKey(val OptString) {
 	s.ItemKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *SalesItem) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
 func (s *SalesItem) SetDescription(val string) {
 	s.Description = val
@@ -104438,11 +104466,19 @@ func (s *SalesItem) SetTaxCode(val OptString) {
 // the revenue account and output tax code its billing posts with.
 // Ref: #/components/schemas/SalesItemCreate
 type SalesItemCreate struct {
-	// A free-text key naming what is sold, as the company calls it; there is no material master. An item
-	// without a `unit_price` is priced by it (`createSalesPrice`).
+	// A free-text key naming what is sold, as the company calls it. An item without a `unit_price` is
+	// priced by it (`createSalesPrice`). An item of a material has the material's number as its key:
+	// absent, it is taken; another is refused (422 `sales.item_key_not_material`).
 	ItemKey OptString `json:"item_key"`
-	// What is sold.
-	Description string `json:"description"`
+	// The material sold (S1f1, `GET /v1/materials/{id}`): an `active` material of the tenant. Its number
+	// is the item's `item_key`, so the price records find it by that number, and its description the
+	// item's when `description` is absent; `quantity` is in its base unit or one of its alternative units,
+	// converting to the base unit exactly. Absent: the item is described by `description` and `item_key`
+	// alone.
+	MaterialID OptUUID `json:"material_id"`
+	// What is sold. Required for an item without `material_id` (422 `request.validation_failed`); for an
+	// item of a material it is the material's description when absent.
+	Description OptString `json:"description"`
 	// The quantity, more than zero, in a unit of measure of the reference data.
 	Quantity Quantity `json:"quantity"`
 	// The net price per `price_unit`, in the document's currency; it stays as entered, whatever the price
@@ -104469,8 +104505,13 @@ func (s *SalesItemCreate) GetItemKey() OptString {
 	return s.ItemKey
 }
 
+// GetMaterialID returns the value of MaterialID.
+func (s *SalesItemCreate) GetMaterialID() OptUUID {
+	return s.MaterialID
+}
+
 // GetDescription returns the value of Description.
-func (s *SalesItemCreate) GetDescription() string {
+func (s *SalesItemCreate) GetDescription() OptString {
 	return s.Description
 }
 
@@ -104504,8 +104545,13 @@ func (s *SalesItemCreate) SetItemKey(val OptString) {
 	s.ItemKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *SalesItemCreate) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
-func (s *SalesItemCreate) SetDescription(val string) {
+func (s *SalesItemCreate) SetDescription(val OptString) {
 	s.Description = val
 }
 
@@ -105752,8 +105798,12 @@ func (*SalesOrderHeaders) createSalesOrderRes() {}
 type SalesOrderItem struct {
 	// The item's number in the document.
 	ItemNo int32 `json:"item_no"`
-	// The free-text key naming what is sold; absent when none was given.
+	// The free-text key naming what is sold, the material's number for an item of a material; absent when
+	// none was given.
 	ItemKey OptString `json:"item_key"`
+	// The material sold (S1f1, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item
+	// without one. A billing document's item has its order item's.
+	MaterialID OptUUID `json:"material_id"`
 	// What is sold.
 	Description string `json:"description"`
 	// The quantity and its unit of measure.
@@ -105807,6 +105857,11 @@ func (s *SalesOrderItem) GetItemNo() int32 {
 // GetItemKey returns the value of ItemKey.
 func (s *SalesOrderItem) GetItemKey() OptString {
 	return s.ItemKey
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *SalesOrderItem) GetMaterialID() OptUUID {
+	return s.MaterialID
 }
 
 // GetDescription returns the value of Description.
@@ -105894,6 +105949,11 @@ func (s *SalesOrderItem) SetItemKey(val OptString) {
 	s.ItemKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *SalesOrderItem) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
 func (s *SalesOrderItem) SetDescription(val string) {
 	s.Description = val
@@ -105974,8 +106034,10 @@ func (s *SalesOrderItem) SetRemovedInChange(val OptInt32) {
 type SalesOrderItemChange struct {
 	// The order's item that changes.
 	ItemNo int32 `json:"item_no"`
-	// The new quantity, more than zero, in the item's own unit, and not below what is delivered of it.
-	// Absent: the quantity stays.
+	// The new quantity, more than zero, in the item's own unit, and not below what is delivered of it. An
+	// item of a material keeps its material, whatever its status since, and its new quantity converts to
+	// the material's base unit exactly (422 `sales.invalid_material_quantity` naming
+	// `items[i].quantity.unit`). Absent: the quantity stays.
 	Quantity OptQuantity `json:"quantity"`
 	// The new net price per `price_unit`, in the order's currency, entered (`price_source` `manual`) and
 	// final, as an entered price is (`SalesItemCreate`). Absent: an entered price stays, and a price from

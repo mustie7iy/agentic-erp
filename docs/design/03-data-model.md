@@ -5144,10 +5144,13 @@ T85b (migration 000307) the receipt of its quantities, a confirmation
 as the delivery's is, and T85c (migration 000313) the credit memo
 request, which T85d (migration 000314) posts as a customer credit
 memo.
-There is no material
-master (§3.16's shared `material` joins the items when it is built): an
-item names what is sold by a description and an optional free-text
-`item_key`.
+An item names what is
+sold by a description and an optional free-text `item_key`, or, from S1f1
+(migrations 000395 and 000396, ADR-0082 As built S1f), by the materials
+context's `material_id` (by id, no foreign key out of the schema), whose
+number is then its `item_key` (`quotation_item_material_key`,
+`sales_order_item_material_key`: a material item has a key). An order
+item keeps its material: the application may not update the column.
 
 ```mermaid
 erDiagram
@@ -5165,7 +5168,8 @@ erDiagram
   }
   quotation_item { uuid quotation_id PK
     int item_no PK
-    text item_key "optional, free text"
+    text item_key "optional, free text; the material's number"
+    uuid material_id "materials, optional (S1f1)"
     text description
     numeric quantity "(20,6), above zero"
     text uom_code "ref.unit_of_measure"

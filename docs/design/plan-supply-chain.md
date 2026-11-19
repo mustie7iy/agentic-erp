@@ -361,6 +361,7 @@ billing documents, name the material.
 - **Acceptance:** a blocked or pending material is refused on a new item;
   an item without a material behaves as before; a quotation's material is
   carried to its order and its order's billing.
+- **As built** (2026-11-19): ADR-0082 As built S1f, walkthrough step 135.
 
 #### S1f2 Purchasing items by material and the catalog's keys mapped (pilot)
 

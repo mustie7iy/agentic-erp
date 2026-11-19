@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -20,7 +21,11 @@ type Amount struct{ Value, Currency string }
 // ItemInput is an item of a quotation or a sales order as a client sends
 // it: one shape for both documents (ADR-0067 §3).
 type ItemInput struct {
-	ItemKey     *string
+	ItemKey *string
+	// MaterialID is the material sold (S1f1, material): the item key is
+	// then its number and the description, when the item gives none, its
+	// own.
+	MaterialID  *uuid.UUID
 	Description string
 	// Quantity is a plain decimal string in the unit of measure Unit.
 	Quantity, Unit string
@@ -34,6 +39,9 @@ type ItemInput struct {
 	PriceUnit int32
 	AccountID uuid.UUID
 	TaxCode   *string
+	// Kept is an order item an order change keeps (changedInput): its
+	// material stays, whatever its status since.
+	Kept bool
 }
 
 // Item is an item of a sales document as it is stored: what is sold, its
@@ -44,6 +52,7 @@ type ItemInput struct {
 type Item struct {
 	ItemNo      int32       `json:"item_no"`
 	ItemKey     *string     `json:"item_key"`
+	MaterialID  *uuid.UUID  `json:"material_id"`
 	Description string      `json:"description"`
 	Quantity    string      `json:"quantity"`
 	Unit        string      `json:"unit"`
@@ -100,7 +109,11 @@ func (e *Endpoints) items(ctx context.Context, tx pgx.Tx, doc document, in []Ite
 	if err != nil {
 		return nil, 0, err
 	}
-	check := itemCheck{e: e, tx: tx, doc: doc, units: units, accounts: map[uuid.UUID]bool{}, codes: map[string]bool{}}
+	ms, err := e.itemMaterials(ctx, in)
+	if err != nil {
+		return nil, 0, err
+	}
+	check := itemCheck{e: e, tx: tx, doc: doc, units: units, materials: ms, accounts: map[uuid.UUID]bool{}, codes: map[string]bool{}}
 	items, nets := make([]Item, len(in)), make([]money.Minor, len(in))
 	for i, it := range in {
 		if items[i], err = check.item(ctx, i, it); err != nil {
@@ -131,19 +144,24 @@ func knownUnits(ctx context.Context, tx pgx.Tx, named []string) (map[string]bool
 }
 
 // itemCheck checks the items of one document, asking the ledger about
-// each account and tax code once.
+// each account and tax code once, with the materials they name.
 type itemCheck struct {
-	e        *Endpoints
-	tx       pgx.Tx
-	doc      document
-	units    map[string]bool
-	accounts map[uuid.UUID]bool // postable in the company
-	codes    map[string]bool    // output tax codes in force on the document's date
+	e         *Endpoints
+	tx        pgx.Tx
+	doc       document
+	units     map[string]bool
+	materials map[uuid.UUID]materials.Material
+	accounts  map[uuid.UUID]bool // postable in the company
+	codes     map[string]bool    // output tax codes in force on the document's date
 }
 
 // item checks and prices item i.
 func (c itemCheck) item(ctx context.Context, i int, it ItemInput) (Item, error) {
 	field := fmt.Sprintf("items[%d]", i)
+	it, err := c.material(field, it)
+	if err != nil {
+		return Item{}, err
+	}
 	if err := namesWhatIsSold(field, it); err != nil {
 		return Item{}, err
 	}
@@ -166,7 +184,7 @@ func (c itemCheck) item(ctx context.Context, i int, it ItemInput) (Item, error) 
 			return Item{}, err
 		}
 	}
-	return Item{ItemNo: int32(i + 1), ItemKey: it.ItemKey, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
+	return Item{ItemNo: int32(i + 1), ItemKey: it.ItemKey, MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
 		UnitPrice: p.UnitPrice, PriceUnit: p.PriceUnit, PriceSource: p.Source, Conditions: p.Conditions, Net: p.Net, AccountID: it.AccountID, TaxCode: it.TaxCode}, nil
 }
 
@@ -243,19 +261,20 @@ func (c itemCheck) outputCode(ctx context.Context, i int, code string) error {
 func insertItems(ctx context.Context, tx pgx.Tx, table, column string, tenant, doc uuid.UUID, items []Item) error {
 	n := len(items)
 	nos, keys, descriptions, quantities, units := make([]int32, n), make([]*string, n), make([]string, n), make([]string, n), make([]string, n)
+	mats := make([]*uuid.UUID, n)
 	prices, priceUnits, nets, accounts, codes := make([]money.Minor, n), make([]int32, n), make([]money.Minor, n), make([]uuid.UUID, n), make([]*string, n)
 	sources, conditions := make([]string, n), make([][]Condition, n)
 	for i, it := range items {
 		nos[i], keys[i], descriptions[i], quantities[i], units[i] = it.ItemNo, it.ItemKey, it.Description, it.Quantity, it.Unit
 		prices[i], priceUnits[i], nets[i], accounts[i], codes[i] = it.UnitPrice, it.PriceUnit, it.Net, it.AccountID, it.TaxCode
-		sources[i], conditions[i] = it.PriceSource, it.Conditions
+		sources[i], conditions[i], mats[i] = it.PriceSource, it.Conditions, it.MaterialID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO `+pgx.Identifier{"sales", table}.Sanitize()+` (tenant_id, `+pgx.Identifier{column}.Sanitize()+`, item_no, item_key,
-			description, quantity, uom_code, unit_price, price_unit, net_amount, account_id, tax_code, price_source, conditions)
-		SELECT $1, $2, n, k, d, q::numeric, u, p, pu, na, ac, tc, ps, coalesce(nullif($14::jsonb -> (ord::int - 1), 'null'), '[]')
+			description, quantity, uom_code, unit_price, price_unit, net_amount, account_id, tax_code, price_source, conditions, material_id)
+		SELECT $1, $2, n, k, d, q::numeric, u, p, pu, na, ac, tc, ps, coalesce(nullif($14::jsonb -> (ord::int - 1), 'null'), '[]'), m
 		FROM unnest($3::int[], $4::text[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::bigint[], $11::uuid[], $12::text[],
-			$13::text[]) WITH ORDINALITY AS x(n, k, d, q, u, p, pu, na, ac, tc, ps, ord)`,
-		tenant, doc, nos, keys, descriptions, quantities, units, prices, priceUnits, nets, accounts, codes, sources, conditions); err != nil {
+			$13::text[], $15::uuid[]) WITH ORDINALITY AS x(n, k, d, q, u, p, pu, na, ac, tc, ps, m, ord)`,
+		tenant, doc, nos, keys, descriptions, quantities, units, prices, priceUnits, nets, accounts, codes, sources, conditions, mats); err != nil {
 		return fmt.Errorf("sales: write items of sales.%s %s: %w", table, doc, err)
 	}
 	return nil
@@ -267,7 +286,7 @@ func insertItems(ctx context.Context, tx pgx.Tx, table, column string, tenant, d
 // the document's row and extra further key and value pairs of the item
 // (an order item's delivered and billed quantities), led by a comma.
 func itemsJSON(table, column, doc, extra string) string {
-	return `coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'item_key', t.item_key, 'description', t.description,
+	return `coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'item_key', t.item_key, 'material_id', t.material_id, 'description', t.description,
 			'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'unit_price', t.unit_price, 'price_unit', t.price_unit,
 			'price_source', t.price_source, 'conditions', t.conditions, 'net_amount', t.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code` + extra + `) ORDER BY t.item_no)
 		 FROM ` + pgx.Identifier{"sales", table}.Sanitize() + ` t WHERE t.tenant_id = ` + doc + `.tenant_id AND t.` + pgx.Identifier{column}.Sanitize() + ` = ` + doc + `.id), '[]')`

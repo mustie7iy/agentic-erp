@@ -5368,9 +5368,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A sales clerk enters a quotation's or sales order's item (or one an order change adds) by its material: the material's description unless one is given, its number as the item key (so prices by key find it), a unit of the material converting exactly to its base unit; the order and its billing documents name the material",
-      "r": "S1f1 · docs/design/plan-supply-chain.md §S1f1 · ADR-0082",
+      "r": "S1f1 · docs/design/plan-supply-chain.md §S1f1 · ADR-0082 As built S1f · ADR-0067 As built S1f1 · db/migrations/000395, 000396 · sales.quotation_item.material_id, sales.sales_order_item.material_id · SalesItemCreate.material_id · SalesItem.material_id · sales.material_not_usable, sales.item_key_not_material, sales.invalid_material_quantity · walkthrough step_material_items",
       "src": "po:2026-11-17",
       "c": []
      },

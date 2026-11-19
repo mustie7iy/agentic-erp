@@ -609,3 +609,47 @@ follow by type.
   difference to the company's price difference account, not to the stock
   (for the specialist).
 - Walkthrough step 130, `step_stock_receipt`, after step 125.
+
+### S1f (2026-11-19)
+
+Split into S1f1 (sales items) and S1f2 (purchasing items and the
+catalog's keys mapped), plan-supply-chain.md §S1f.
+
+- **S1f1, migrations 000395 and 000396:** `sales.quotation_item` and
+  `sales.sales_order_item` gain `material_id` (expand: nullable; a material
+  item has an item key, `quotation_item_material_key` and
+  `sales_order_item_material_key`, added `NOT VALID` and validated by
+  000396; schema test `db/sales_material_items_test.go`). Sales imports
+  `materials`' published API (§3, as decided).
+- **The item key is the material's number** (SAP's item names its material
+  by MATNR, from memory): absent, it is taken; another is refused (422
+  `sales.item_key_not_material`). So the price records, discounts and
+  scales (ADR-0067 §10-§12), the revenue obligations, the profitability
+  segments and the sales analytics find a material item by key as they
+  find any other: "sales prices found by material as well as by key" is
+  met without a material on the price record (decided by default; the
+  lane owns no pricing beyond the key lookup).
+- **The material** is one of the tenant's (422 `request.reference_not_found`
+  naming `items[i].material_id`), `active` on a new item (422
+  `sales.material_not_usable` for `pending` or `blocked`), of any type: a
+  sales view per sales organisation (MVKE) is Later, so a material needs no
+  extension to a plant to be sold. Its description is the item's when the
+  item sends none; one sent is the item's own (SAP's item text, from
+  memory).
+- **The quantity** is in the material's base unit or one of its
+  alternative units and converts exactly in six decimals (422
+  `sales.invalid_material_quantity` naming `items[i].quantity.unit`). The
+  converted quantity is not stored, as S1e's order item does not store it:
+  it is taken where stock moves (S2b's goods issue).
+- **An item an order change keeps** keeps its material: the column is not
+  among the application's grants on `sales.sales_order_item` (000355), and
+  a quotation's items are immutable. Its new quantity must still convert
+  exactly; a material blocked since does not refuse the change, as S1e's
+  kept stock item. An added item is checked as a new one, its refusals
+  naming `new_items[i]`.
+- **Reads:** every sales item (`SalesItem`: quotation, order and billing
+  items) answers `material_id`, its number being `item_key`; a billing
+  document's item has its order item's. Delivery confirmations, returns
+  and credit memo requests keep naming the item by its key.
+- Walkthrough step 135, `step_material_items` (sales part), after step 134.
+

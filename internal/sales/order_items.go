@@ -78,8 +78,8 @@ func (e *Endpoints) changedTerm(ctx context.Context, tx pgx.Tx, o Order, given *
 }
 
 // changeCheck is the item check a change prices its items with: the
-// order's document on the order's date, with the units of the order's
-// items and of the items added known.
+// order's document on the order's date, with the units and materials of
+// the order's items and of the items added known.
 func (e *Endpoints) changeCheck(ctx context.Context, tx pgx.Tx, o Order, le tenancy.Entity, added []ItemInput) (itemCheck, error) {
 	doc, err := e.document(ctx, tx, le, o.CustomerID, o.Currency)
 	if err != nil {
@@ -96,10 +96,16 @@ func (e *Endpoints) changeCheck(ctx context.Context, tx pgx.Tx, o Order, le tena
 			return itemCheck{}, err
 		}
 	}
+	named := append([]ItemInput(nil), added...)
 	for _, it := range o.Items {
 		units[it.Unit] = true
+		named = append(named, ItemInput{MaterialID: it.MaterialID})
 	}
-	return itemCheck{e: e, tx: tx, doc: doc, units: units, accounts: map[uuid.UUID]bool{}, codes: map[string]bool{}}, nil
+	ms, err := e.itemMaterials(ctx, named)
+	if err != nil {
+		return itemCheck{}, err
+	}
+	return itemCheck{e: e, tx: tx, doc: doc, units: units, materials: ms, accounts: map[uuid.UUID]bool{}, codes: map[string]bool{}}, nil
 }
 
 // removeItems removes the items the request names (T78e), each once and

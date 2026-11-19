@@ -362,7 +362,7 @@ func TestScaleDatabaseFailures(t *testing.T) {
 		},
 		"a quotation priced from scales": func(ctx context.Context) error {
 			_, err := h.CreateQuotation(ctx, &gen.QuotationCreate{LegalEntityID: e.DE, CustomerID: e.customer, ValidUntil: instant(t, far+"T00:00:00Z"),
-				Currency: "EUR", Items: []gen.SalesItemCreate{{ItemKey: gen.NewOptString("BOLT-M10"), Description: "Bolt",
+				Currency: "EUR", Items: []gen.SalesItemCreate{{ItemKey: gen.NewOptString("BOLT-M10"), Description: gen.NewOptString("Bolt"),
 					Quantity: gen.Quantity{Value: "6000", Unit: "EA"}, AccountID: e.revenue}}}, gen.CreateQuotationParams{})
 			return err
 		},
