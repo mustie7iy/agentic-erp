@@ -1277,7 +1277,9 @@ quantity; no stock, no posting.
   order 20 returned at a new version; 101 more and an unknown reason
   are refused naming their fields; she confirms it, once; Northwind's
   open items and credit exposure are as they were. The pilot's settings
-  (step 2) add the `returns_order` number range.
+  (step 2) add the `returns_order` number range; since batch 83 Canada
+  2026.11 brings it, and the `credit_memo_request` range (ADR-0048 As
+  built, the pilot's ranges).
 - **Decided by default:** (1) every returns order of a billing
   document takes its quantity when it is created, a draft included,
   since a returns order is not changed or cancelled in the first
@@ -2117,3 +2119,12 @@ materials, an order change keeps a kept item's (the column is not among
 the application's grants), and a billing document's item answers its
 order item's. Delivery confirmations, returns and credit memo requests
 name the item by its key, as before.
+
+**S2a, S2b1** (ADR-0083, lane ship, 2026-11-19): an order item of a material
+kept in stock is delivered by an outbound delivery's goods issue, not
+confirmed by hand (422 `sales.delivery_by_goods_issue`); the goods issue
+writes the order's delivery, naming the outbound delivery and its material
+document, each item with its cost. What outbound deliveries hold of an
+item (`in_delivery_quantity`) is open to no other delivery, and an order
+change, an item's removal and the order's cancellation are refused below
+or while it holds it.

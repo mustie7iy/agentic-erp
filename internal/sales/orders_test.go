@@ -96,9 +96,12 @@ func TestOrderFromQuotation(t *testing.T) {
 			if r := quantity(t, its[i], "returned_quantity"); r != want.none {
 				t.Errorf("returned: got %s, want %s", r, want.none)
 			}
+			if d := quantity(t, its[i], "in_delivery_quantity"); d != want.none {
+				t.Errorf("in delivery: got %s, want %s", d, want.none)
+			}
 			copied := map[string]any{}
 			for k, v := range its[i] {
-				if k != "delivered_quantity" && k != "billed_quantity" && k != "returned_quantity" {
+				if k != "delivered_quantity" && k != "billed_quantity" && k != "returned_quantity" && k != "in_delivery_quantity" {
 					copied[k] = v
 				}
 			}

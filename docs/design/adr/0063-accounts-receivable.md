@@ -1181,7 +1181,9 @@ memory, not checked against a source in the lane).
   sign-off, as 2026.9 and 2026.6 had; listed for the digest). Since
   batch 81 Canada 2026.10 and UAE 2026.7 bring it, under the sign-off of
   2026-11-09 (product owner, 2026-11-18; ADR-0048 As built), and the
-  pilot's settings no longer add it.
+  pilot's settings no longer add it. Since batch 83 Canada 2026.11 and
+  UAE 2026.8 bring the other ranges the pilot added too, the material
+  range aside (ADR-0048 As built, the pilot's ranges).
 
 ### T75k Reversing a customer credit memo or debit memo (migrations 000381, 000382)
 A variant of §7 (`plan-depth-3.md` §T75k): a credit memo or debit memo

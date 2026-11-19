@@ -74,6 +74,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/revenue"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
+	"github.com/mustie7iy/agentic-erp/internal/shipping"
 	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/packs"
@@ -106,6 +107,7 @@ type (
 	leasesAPI      = leases.Endpoints
 	materialsAPI   = materials.Endpoints
 	inventoryAPI   = inventory.Endpoints
+	shippingAPI    = shipping.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -145,6 +147,7 @@ type handler struct {
 	*leasesAPI
 	*materialsAPI
 	*inventoryAPI
+	*shippingAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -432,7 +435,7 @@ func Payments(cfg Config) *payments.Endpoints {
 
 // laterContexts sets the handler's contexts of the later phases, each wired
 // from the configuration alone (receivables, revenue, collections, GRC,
-// records, process mining, leases, materials, inventory), so New lists only those it
+// records, process mining, leases, materials, inventory, shipping), so New lists only those it
 // builds from what it has set up.
 func (h *handler) laterContexts(cfg Config) {
 	h.receivablesAPI = Receivables(cfg)
@@ -444,6 +447,7 @@ func (h *handler) laterContexts(cfg Config) {
 	h.leasesAPI = Leases(cfg)
 	h.materialsAPI = Materials(cfg)
 	h.inventoryAPI = Inventory(cfg)
+	h.shippingAPI = Shipping(cfg)
 }
 
 // approvalHandlers are the contexts that own each approval object type:
@@ -451,21 +455,22 @@ func (h *handler) laterContexts(cfg Config) {
 // API reads them (approvals.Locator).
 func approvalHandlers(cfg Config) map[string]approvals.Handler {
 	return map[string]approvals.Handler{
-		approvals.Requisition:       procurement.Approvals{Endpoints: Procurement(cfg)},
-		approvals.PartnerChange:     partner.Approvals{Schemas: configuration.Settings{}},
-		approvals.ConfigChange:      configuration.Approvals{},
-		approvals.InvoiceException:  payables.Approvals{},
-		approvals.PeriodUnlock:      ledger.PeriodUnlocks{},
-		approvals.ManualEntry:       ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, TaxReturns: taxfiling.Holds{}},
-		approvals.PurchaseOrder:     procurement.OrderReleases{Endpoints: Procurement(cfg)},
-		approvals.OrderChange:       procurement.OrderChanges{Endpoints: Procurement(cfg)},
-		approvals.BankClearing:      payments.BankClearings{Endpoints: Payments(cfg)},
-		approvals.CenterChange:      ledger.CenterChanges{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now},
-		approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
-		approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: Procurement(cfg)},
-		approvals.TaxReturn:         taxfiling.TaxReturns{Endpoints: &taxfiling.Endpoints{Items: ledger.TaxItems{}}},
-		approvals.MaterialChange:    materials.Approvals{Endpoints: Materials(cfg)},
-		approvals.CreditLimitChange: credit.Approvals{Endpoints: Credit(cfg)},
+		approvals.Requisition:         procurement.Approvals{Endpoints: Procurement(cfg)},
+		approvals.PartnerChange:       partner.Approvals{Schemas: configuration.Settings{}},
+		approvals.ConfigChange:        configuration.Approvals{},
+		approvals.InvoiceException:    payables.Approvals{},
+		approvals.PeriodUnlock:        ledger.PeriodUnlocks{},
+		approvals.ManualEntry:         ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, TaxReturns: taxfiling.Holds{}},
+		approvals.PurchaseOrder:       procurement.OrderReleases{Endpoints: Procurement(cfg)},
+		approvals.OrderChange:         procurement.OrderChanges{Endpoints: Procurement(cfg)},
+		approvals.BankClearing:        payments.BankClearings{Endpoints: Payments(cfg)},
+		approvals.CenterChange:        ledger.CenterChanges{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now},
+		approvals.PaymentRunRelease:   payments.ReleaseApprovals{Endpoints: Payments(cfg)},
+		approvals.GRIRClearing:        procurement.GRIRClearings{Endpoints: Procurement(cfg)},
+		approvals.TaxReturn:           taxfiling.TaxReturns{Endpoints: &taxfiling.Endpoints{Items: ledger.TaxItems{}}},
+		approvals.MaterialChange:      materials.Approvals{Endpoints: Materials(cfg)},
+		approvals.CreditLimitChange:   credit.Approvals{Endpoints: Credit(cfg)},
+		approvals.InventoryDifference: inventory.Approvals{Endpoints: Inventory(cfg)},
 	}
 }
 
@@ -477,6 +482,7 @@ func Integration(cfg Config) *integration.Endpoints {
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Orders: Procurement(cfg), OrderLocks: procurement.Orders{}, OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Invoiced: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{}, Centers: ledger.CenterMigration{}, Actuals: ledger.AssignmentBalances{},
+		Materials: materials.Migration{Endpoints: Materials(cfg)}, OrgUnits: tenancy.OrgUnitMigration{},
 		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, Receiver: cfg.WebhookReceiver, ExtractDir: cfg.ExtractDir, SAP: sapClient(cfg.SAP), Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS,
 		Now: cfg.Now} // the clock a migration run's day is read from (the company's date, review:batch63)
 }

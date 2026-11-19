@@ -48,7 +48,8 @@ import (
 // received and not yet invoiced, an open GR/IR position in that currency
 // (receivedInUSD). Its other orders' receipts post nothing to SAP's
 // journal, as 1000's and 2000's do. It alone has controlling master data
-// (centers): cost and profit centers and a segment. One of its vendors,
+// (centers): cost and profit centers and a segment, and alone plants and
+// a material master (materials, S2o). One of its vendors,
 // Muskoka Office Supply, is a company of the group (intercompanyVendor): its
 // master names company 2000's company ID as its trading partner, and its
 // vendor lines carry it; so does the revenue line of its sales document of
@@ -81,6 +82,7 @@ func GenerateMockThrough(seed uint64, fiscalYear string, throughMonth int) *Extr
 	g.foreignInvoice("3000")
 	g.receivedInUSD("3000")
 	g.centers("3000")
+	g.materials("3000")
 	g.customizing()
 	g.tradingPartner()
 	return g.e

@@ -62,7 +62,7 @@ func (e *Endpoints) Post(ctx context.Context, in Input) (Document, error) {
 		return Document{}, err
 	}
 	mt, ok := movementTypes[in.MovementType]
-	if !ok || mt.reverses != "" || mt.order {
+	if !ok || mt.reverses != "" || mt.order || mt.count || mt.delivery {
 		return Document{}, problem.Invalid("inventory.unknown_movement_type", "movement_type", fmt.Sprintf("%q is not a movement type that is posted; "+
 			"they are 501, 561, 201, 551, 311 and 301, and a reversal is posted by reversing its document.", in.MovementType))
 	}
@@ -260,7 +260,21 @@ func baseQuantity(field string, m materials.Material, quantity, unit string) (*b
 		return nil, problem.Invalid("inventory.invalid_quantity", field+".value", fmt.Sprintf("a positive plain decimal quantity of at most %d "+
 			"integer digits and %d decimals", money.QuantityIntDigits, money.QuantityDecimals))
 	}
-	base, err := m.Convert(money.ParseRat(quantity), unit)
+	return converted(field, m, money.ParseRat(quantity), quantity, unit)
+}
+
+// converted is a quantity q of a material, entered as quantity in unit,
+// converted exactly to its base unit (ADR-0082 §5). Zero, a count of
+// nothing (S2c), is zero in every unit of the material; Convert takes
+// positive quantities only.
+func converted(field string, m materials.Material, q *big.Rat, quantity, unit string) (*big.Rat, error) {
+	base, err := m.Convert(q, unit)
+	if q.Sign() == 0 {
+		base, err = q, nil
+		if _, ferr := m.Factor(unit); ferr != nil {
+			err = ferr
+		}
+	}
 	switch {
 	case errors.Is(err, materials.ErrUnknownUnit):
 		return nil, problem.Invalid("inventory.unknown_unit", field+".unit", unit+" is neither the base unit "+m.BaseUnit+" of material "+m.Number+
@@ -346,7 +360,7 @@ type posting struct {
 	day          time.Time
 	headerText   *string
 	reversalOf   *uuid.UUID
-	reference    *string // a purchase order's goods receipt's number (101, 102)
+	reference    *string // a purchase order's goods receipt's number (101, 102), an outbound delivery's (601)
 	lines        []Line
 	items        []ItemInput
 }

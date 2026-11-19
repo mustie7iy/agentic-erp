@@ -1159,14 +1159,16 @@ func (UnimplementedHandler) ConfirmReturnsOrder(ctx context.Context, params Conf
 // `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a
 // quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422
 // `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier
-// deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the
-// item and its open quantity in the message): of two confirmations racing for an item's last quantity,
-// one is recorded. The delivery is numbered within its order and written once; it is not changed or
-// reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered
-// and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open.
-// Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
-// delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only
-// (`x-agent: false`).
+// deliveries confirmed and what outbound deliveries hold (422 `sales.exceeds_open_quantity` naming
+// `items[i].quantity.value`, with the item and its open quantity in the message). An item of a
+// material kept in stock is delivered by an outbound delivery's goods issue, not confirmed here (422
+// `sales.delivery_by_goods_issue` naming `items[i].item_no`; ADR-0083 §5, S2b1): of two confirmations
+// racing for an item's last quantity, one is recorded. The delivery is numbered within its order and
+// written once; it is not changed or reversed in the first version. Each order item's
+// `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder`
+// shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry
+// with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by
+// `listSalesDeliveries`. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}/deliveries
 func (UnimplementedHandler) ConfirmSalesDelivery(ctx context.Context, req *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (r ConfirmSalesDeliveryRes, _ error) {
@@ -2421,32 +2423,36 @@ func (UnimplementedHandler) CreateMaterial(ctx context.Context, req *MaterialCre
 // `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422
 // `inventory.transfer_target_required`, `inventory.same_location`); another movement type names
 // neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
-// `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`).
-// The document is posted on the company's date today in its time zone and numbered from its
-// `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is
-// in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue
-// of more than a storage location holds is refused naming the material, the location and both
-// quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post
-// one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`).
-// Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
-// item is two, the issue and the receipt. The lines are applied in order, and each leaves its
-// location's stock at zero or more, so items that move stock round a circle out of an empty location
-// are refused though they change nothing in all. Every line is valued (S1d): its material is valued in
-// its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the
-// stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the
-// value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is
-// worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's
-// currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422
-// `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the
-// receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted
-// through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or
-// initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock
-// account against the account its movement type posts to (receipt, initial entry, consumption with the
-// item's cost center, scrapping), and price differences on its price difference account (422
-// `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
-// 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
-// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
-// Human-only (`x-agent: false`).
+// `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`)
+// by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by
+// `postOutboundDeliveryGoodsIssue` and a count's differences (`701`, `702`) by
+// `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted
+// on the company's date today in its time zone and numbered from its `material_document` range of that
+// date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range`
+// when the range is missing). Stock never goes below zero: an issue of more than a storage location
+// holds is refused naming the material, the location and both quantities (409
+// `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that
+// would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one
+// line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the
+// issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero
+// or more, so items that move stock round a circle out of an empty location are refused though they
+// change nothing in all. A material at a storage location an open physical inventory count document
+// counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is
+// valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`;
+// `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest
+// is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole
+// stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`,
+// 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`;
+// else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard
+// price what the stock is worth at it after the receipt, the rest a price difference), a transfer's
+// receipt what its issue took. The value is posted through the ledger in one journal entry dated the
+// posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the
+// document moves no value): the valuation class's stock account against the account its movement type
+// posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price
+// differences on its price difference account (422 `inventory.no_inventory_account` when the class
+// lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused
+// posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same
+// `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`).
 //
 // POST /v1/material-documents
 func (UnimplementedHandler) CreateMaterialDocument(ctx context.Context, req *MaterialDocumentCreate, params CreateMaterialDocumentParams) (r CreateMaterialDocumentRes, _ error) {
@@ -2545,6 +2551,35 @@ func (UnimplementedHandler) CreateOrgUnit(ctx context.Context, req *OrgUnitCreat
 	return r, ht.ErrNotImplemented
 }
 
+// CreateOutboundDelivery implements createOutboundDelivery operation.
+//
+// Creates an outbound delivery (ADR-0083 §3, S2a; SAP VL01N) of a sales order's items from a plant
+// and a storage location. The order is one of a company the caller may act in (422
+// `request.reference_not_found` on `sales_order_id`), `confirmed` (409 `sales.order_not_confirmed`)
+// and not blocked for credit (409 `sales.order_credit_blocked`). The plant is an active plant of the
+// order's company (422 `shipping.plant_invalid`) and the storage location an active one under it (422
+// `shipping.storage_location_invalid`). Each item names an order item (`order_item_no`, once, 422
+// `sales.item_repeated`; one the order has, 422 `sales.unknown_order_item`; not removed, 422
+// `sales.order_item_removed`) of a material kept in stock (422 `shipping.item_not_stocked`: a service
+// or free-text item, or a material of type `non_stock` or `service`, is confirmed by
+// `confirmSalesDelivery`) that is extended to the plant and kept at the storage location (422
+// `shipping.material_not_at_location`), with a positive quantity (422 `sales.invalid_quantity`) in the
+// order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered less
+// what is delivered and what other deliveries not yet issued hold (422 `sales.exceeds_open_quantity`).
+// Without `items` the delivery takes what is open of every order item of a material kept in stock at
+// the location (422 `sales.nothing_to_deliver` when that is nothing). The quantities are held for the
+// delivery on the order (`in_delivery_quantity` of its items), so the order's items are not changed
+// below them, removed or cancelled while the delivery holds them. The delivery is created `created`,
+// `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of
+// the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and
+// published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/outbound-deliveries
+func (UnimplementedHandler) CreateOutboundDelivery(ctx context.Context, req *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (r CreateOutboundDeliveryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreatePartnerChange implements createPartnerChange operation.
 //
 // Opens a pending partner change of kind `update`. At most one pending change of each kind per partner
@@ -2597,6 +2632,31 @@ func (UnimplementedHandler) CreatePeriodClose(ctx context.Context, req *PeriodCl
 //
 // POST /v1/personal-data-deletion-runs
 func (UnimplementedHandler) CreatePersonalDataDeletionRun(ctx context.Context, req *ReasonInput, params CreatePersonalDataDeletionRunParams) (r CreatePersonalDataDeletionRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreatePhysicalInventoryDocument implements createPhysicalInventoryDocument operation.
+//
+// Creates a count document (ADR-0082 As built S2c; SAP MI01) for materials of one storage location of
+// a plant, freezing each one's book quantity: the stock there as the document is created, in the
+// material's base unit. The plant is an active plant of a company the caller may act in (422
+// `inventory.plant_invalid`), the storage location an active one under it (422
+// `inventory.storage_location_invalid`); each material one of the tenant's (422
+// `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`; a blocked
+// material's stock is still counted), kept in stock (422 `inventory.material_not_stocked`), extended
+// to the plant (422 `inventory.plant_not_extended`) and kept at the storage location (422
+// `inventory.storage_location_not_extended`), valued in the plant so its difference can be posted (422
+// `inventory.no_valuation`), and named once (422 `inventory.duplicate_material`). A material has one
+// open count per storage location (409 `inventory.count_open`, naming the open document). The posting
+// block is set: until the document is posted, rejected or withdrawn no goods movement moves its
+// materials at that storage location (409 `inventory.posting_blocked` on every movement, whatever
+// posts it). The document is dated the company's date today in its time zone and numbered from its
+// `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
+// `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
+// answers the document created. Human-only (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents
+func (UnimplementedHandler) CreatePhysicalInventoryDocument(ctx context.Context, req *PhysicalInventoryDocumentCreate, params CreatePhysicalInventoryDocumentParams) (r CreatePhysicalInventoryDocumentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3468,6 +3528,25 @@ func (UnimplementedHandler) EndRolePermission(ctx context.Context, req *EndInput
 //
 // POST /v1/sod-rules/{id}:end
 func (UnimplementedHandler) EndSodRule(ctx context.Context, req *EndInput, params EndSodRuleParams) (r EndSodRuleRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// EnterPhysicalInventoryCount implements enterPhysicalInventoryCount operation.
+//
+// Enters the quantities counted of a `counting` document's items at the caller's version (`If-Match`;
+// ADR-0082 As built S2c; SAP MI04), by item number (422 `inventory.unknown_item`, each once in the
+// request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422
+// `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its
+// alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded
+// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a
+// recount is a new document, once this one is closed. A material blocked since is still counted. Items
+// may be entered in several calls; once every item is counted the document is `counted`, its
+// differences ready to post (S2d). A document no longer `counting` takes no count (409
+// `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404).
+// Audited. Human-only (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents/{id}:enterCount
+func (UnimplementedHandler) EnterPhysicalInventoryCount(ctx context.Context, req *PhysicalInventoryCountEntry, params EnterPhysicalInventoryCountParams) (r EnterPhysicalInventoryCountRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -5202,6 +5281,18 @@ func (UnimplementedHandler) GetOrgUnit(ctx context.Context, params GetOrgUnitPar
 	return r, ht.ErrNotImplemented
 }
 
+// GetOutboundDelivery implements getOutboundDelivery operation.
+//
+// One outbound delivery (ADR-0083, S2a) with its company, sales order and customer by number, plant
+// and storage location by code and name, status, picking status and items, each naming its order item,
+// its material by number and its delivery and picked quantities. A delivery of a company the caller
+// may not act in is not found (404).
+//
+// GET /v1/outbound-deliveries/{id}
+func (UnimplementedHandler) GetOutboundDelivery(ctx context.Context, params GetOutboundDeliveryParams) (r GetOutboundDeliveryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetParkedJournalEntry implements getParkedJournalEntry operation.
 //
 // Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
@@ -5313,6 +5404,18 @@ func (UnimplementedHandler) GetPersonalDataSubject(ctx context.Context, params G
 	return r, ht.ErrNotImplemented
 }
 
+// GetPhysicalInventoryDocument implements getPhysicalInventoryDocument operation.
+//
+// One count document (ADR-0082 As built S2c) with its company, plant and storage location by code and
+// name, its status and its items, each naming its material by number and description with its book
+// quantity and, once counted, the quantity counted and as it was entered. A document of a company the
+// caller may not act in is not found (404).
+//
+// GET /v1/physical-inventory-documents/{id}
+func (UnimplementedHandler) GetPhysicalInventoryDocument(ctx context.Context, params GetPhysicalInventoryDocumentParams) (r GetPhysicalInventoryDocumentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetPlanCategory implements getPlanCategory operation.
 //
 // Returns one plan category.
@@ -5403,14 +5506,17 @@ func (UnimplementedHandler) GetProfitCenter(ctx context.Context, params GetProfi
 // rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item
 // without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal
 // entity's local currency: documents in another currency are not converted and are left out, and
-// `foreign_currency_documents` counts them. No cost is shown (`includes_cost` is false): no cost of
-// goods sold is posted per item, and the margin report (`getMarginReport`) has the ledger's cost of
-// sales. Rows are by the customer's number, then the item key, the row without one first; `totals` are
-// the whole selection's, on every page, and the rows of every page add up to them over the pages. A
-// legal entity that does not exist or that the caller cannot act in is answered as missing (422
-// `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so
-// besides `controlling.profitability.read` the caller needs `sales.billing.read`
-// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+// `foreign_currency_documents` counts them. Each segment shows its cost of sales, the cost of goods
+// sold of the goods issues of its order items posted in the selection (ADR-0083 §6, S2b2: an outbound
+// delivery's goods issue counts on its posting date, for an order in the local currency; one of an
+// order in another currency is left out and counted in `foreign_currency_documents`), and its margin,
+// net revenue less cost of sales (`includes_cost` is true); cost a person posts by journal entry is
+// the margin report's (`getMarginReport`). Rows are by the customer's number, then the item key, the
+// row without one first; `totals` are the whole selection's, on every page, and the rows of every page
+// add up to them over the pages. A legal entity that does not exist or that the caller cannot act in
+// is answered as missing (422 `request.reference_not_found` on `legal_entity_id`). The figures are
+// billing documents' amounts, so besides `controlling.profitability.read` the caller needs
+// `sales.billing.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 //
 // GET /v1/profitability-report
 func (UnimplementedHandler) GetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (r GetProfitabilityReportRes, _ error) {
@@ -7407,6 +7513,17 @@ func (UnimplementedHandler) ListOrgUnits(ctx context.Context, params ListOrgUnit
 	return r, ht.ErrNotImplemented
 }
 
+// ListOutboundDeliveries implements listOutboundDeliveries operation.
+//
+// The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
+// `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status.
+// Sortable by: `created_at`.
+//
+// GET /v1/outbound-deliveries
+func (UnimplementedHandler) ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (r ListOutboundDeliveriesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListParkedJournalEntries implements listParkedJournalEntries operation.
 //
 // Manual journal entries parked before they are posted, newest first: entries people or agents
@@ -7515,6 +7632,18 @@ func (UnimplementedHandler) ListPeriodCloses(ctx context.Context, params ListPer
 //
 // GET /v1/personal-data-deletion-runs/{id}/subjects
 func (UnimplementedHandler) ListPersonalDataDeletionSubjects(ctx context.Context, params ListPersonalDataDeletionSubjectsParams) (r ListPersonalDataDeletionSubjectsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListPhysicalInventoryDocuments implements listPhysicalInventoryDocuments operation.
+//
+// The count documents of the companies the caller may act in (ADR-0082 As built S2c), each as
+// `getPhysicalInventoryDocument` gives it, the latest first. Filtered by plant, storage location,
+// status and material (a document matches a material when one of its items counts it). Sortable by:
+// `created_at`.
+//
+// GET /v1/physical-inventory-documents
+func (UnimplementedHandler) ListPhysicalInventoryDocuments(ctx context.Context, params ListPhysicalInventoryDocumentsParams) (r ListPhysicalInventoryDocumentsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -8386,6 +8515,26 @@ func (UnimplementedHandler) PauseWebhookSubscription(ctx context.Context, params
 	return r, ht.ErrNotImplemented
 }
 
+// PickOutboundDelivery implements pickOutboundDelivery operation.
+//
+// Records what is picked of an outbound delivery's items (ADR-0083 §5, S2a), at the version read
+// (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409
+// `shipping.goods_issued`). Each item named (`item_no`, once, 422 `shipping.item_repeated`; one the
+// delivery has, 422 `shipping.unknown_item`) takes the quantity picked of it, which replaces what was
+// recorded before: zero or more (422 `shipping.invalid_quantity`), in the item's unit (422
+// `shipping.unit_mismatch`), at most its delivery quantity (422 `shipping.exceeds_delivery_quantity`)
+// and, with what the delivery's other items picked of the material, at most what the storage location
+// holds of it now in the material's base unit (422 `shipping.insufficient_stock`, naming both
+// quantities). Picking reserves no stock: the goods issue takes it. The picking status follows:
+// `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked`
+// between. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key`
+// answers the delivery as it left it. Human-only (`x-agent: false`).
+//
+// POST /v1/outbound-deliveries/{id}:pick
+func (UnimplementedHandler) PickOutboundDelivery(ctx context.Context, req *OutboundDeliveryPick, params PickOutboundDeliveryParams) (r PickOutboundDeliveryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // PingWebhookSubscription implements pingWebhookSubscription operation.
 //
 // Queues a synthetic `webhook.ping` CloudEvent (data: the subscription's `subscription_id`), signed
@@ -8676,6 +8825,37 @@ func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEn
 	return r, ht.ErrNotImplemented
 }
 
+// PostOutboundDeliveryGoodsIssue implements postOutboundDeliveryGoodsIssue operation.
+//
+// Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once,
+// at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is
+// refused (409 `shipping.goods_issued`), as is one with nothing picked (409
+// `shipping.nothing_picked`). Each item's picked quantity leaves the delivery's storage location as
+// one material document of movement type `601` (`material_document_id`), posted on the company's date
+// today in its time zone and numbered from its `material_document` range, its `reference` the
+// delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued
+// (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`:
+// picking reserves none), and no open physical inventory count document counting the material there
+// (409 `inventory.posting_blocked`, naming the document; S2c). Each line takes the stock's value as an
+// issue does (at a standard price the stock left at the price, at a moving price the value in
+// proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the
+// valuation class's stock account to its cost of goods sold account (422
+// `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422
+// `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and
+// what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound
+// delivery and the material document, each item with its cost, the order item's `delivered_quantity`
+// rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open
+// again on the order. An order blocked for credit since the delivery was made is refused until its
+// block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no
+// more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and
+// SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/outbound-deliveries/{id}:postGoodsIssue
+func (UnimplementedHandler) PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (r PostOutboundDeliveryGoodsIssueRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // PostParkedJournalEntry implements postParkedJournalEntry operation.
 //
 // Posts a parked journal entry, or asks for its approval. Its debits, converted exactly into the legal
@@ -8692,6 +8872,33 @@ func (UnimplementedHandler) PostJournalEntry(ctx context.Context, req *JournalEn
 //
 // POST /v1/parked-journal-entries/{id}:post
 func (UnimplementedHandler) PostParkedJournalEntry(ctx context.Context, params PostParkedJournalEntryParams) (r PostParkedJournalEntryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PostPhysicalInventoryDifferences implements postPhysicalInventoryDifferences operation.
+//
+// Posts the differences of a `counted` document at the caller's version (`If-Match`; ADR-0082 As built
+// S2d; SAP MI07): each item's counted quantity less its book quantity, the gains as one material
+// document of movement type `701`, the losses as one of `702` (none for an item without a difference),
+// each valued as any receipt or issue (a gain at the moving or standard price, 422
+// `inventory.no_price` while a moving price is zero; a loss at the value it takes from the stock) and
+// posted (document type `WA`) between the valuation class's stock and `difference` accounts (422
+// `inventory.no_inventory_account`; the ledger's refusals, such as 422 `ledger.period_not_open`). When
+// the value of the differences, gains and losses alike, is more than the company's
+// `inventory_difference_tolerance` (none: zero), nothing is posted: the document is
+// `pending_approval`, naming the approval request (`workflow_request_id`, object type
+// `inventory_difference`, the controller's, never the requester's) and the value asked for
+// (`difference_value`); approval posts the differences as valued then, rejection (`rejected`) or
+// withdrawal (`withdrawn`) closes the document with nothing posted, and its materials are recounted by
+// a new document. Posted, the document is `posted` and its posting block lifted: each item names its
+// difference, its value and its material document, and the book quantity is the count. A document not
+// `counted` is 409 `inventory.count_invalid_status`; one of a company the caller may not act in is not
+// found (404). Audited; each material document is published as MaterialDocumentPosted. Such a material
+// document is not reversed (409 `inventory.reverse_count`): a new count corrects the stock. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents/{id}:postDifferences
+func (UnimplementedHandler) PostPhysicalInventoryDifferences(ctx context.Context, params PostPhysicalInventoryDifferencesParams) (r PostPhysicalInventoryDifferencesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -9853,14 +10060,17 @@ func (UnimplementedHandler) ReverseJournalEntry(ctx context.Context, req OptJour
 // (each keeping its original item's `item_no`), posted on the company's date today and numbered from
 // its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
 // it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
-// nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The
-// reversal moves the stock back, so it is refused when the stock the original received has gone (409
-// `inventory.insufficient_stock`, naming the material, the location and both quantities). The material
-// may have been blocked since; the reversal is still posted. Each line is valued at what its original
-// line was, given back: what the stock does not take of it at its price now is a price difference, and
-// the value is posted through the ledger as the original's was, reversed. A document of a company the
-// caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted.
-// Human-only (`x-agent: false`).
+// nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet
+// (409 `inventory.reverse_goods_issue`), nor a count's differences (409 `inventory.reverse_count`: a
+// new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so
+// it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`,
+// naming the material, the location and both quantities). It is refused, as a posting is, while an
+// open count document counts one of its materials at one of its storage locations (409
+// `inventory.posting_blocked`). The material may have been blocked since; the reversal is still
+// posted. Each line is valued at what its original line was, given back: what the stock does not take
+// of it at its price now is a price difference, and the value is posted through the ledger as the
+// original's was, reversed. A document of a company the caller may not act in is not found (404).
+// Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`).
 //
 // POST /v1/material-documents/{id}:reverse
 func (UnimplementedHandler) ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (r ReverseMaterialDocumentRes, _ error) {

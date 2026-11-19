@@ -86,6 +86,7 @@
   "object.tax_return": "Tax return",
   "object.material_change": "Material change",
   "object.credit_limit_change": "Credit limit change",
+  "object.inventory_difference": "Inventory differences of a count",
   "object.payment_run_release": "Payment run release",
   "approval.status.pending": "Waiting",
   "approval.status.approved": "Approved",

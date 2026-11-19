@@ -5424,9 +5424,23 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The SAP migration loads the material master (MARA, MAKT, MARM, MARC, MARD's assignments, T001W, T001L) into materials and tenancy with the quality gate and reconciliation; a material whose units are not exact is held back with its reason",
-      "r": "S2o · docs/design/plan-supply-chain.md §S2o · ADR-0082",
+      "r": "S2o · docs/design/plan-supply-chain.md §S2o · ADR-0082 As built S2o · docs/migration.md Plants, storage locations and materials · internal/sap/materials.go · internal/integration/materials.go, materialload.go, materialreconcile.go · materials.Migration · tenancy.OrgUnitMigration · external references MARA/<MATNR>, T001W/<WERKS>, T001L/<WERKS>/<LGORT> · MigrationLoadedCounts plants, storage_locations, materials, materials_extended · checks Plants, Storage locations, Materials · walkthrough step_migrate (migrated_materials)",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Storage location codes unique per plant: a storage location's code is unique within its plant, as SAP keys LGORT within its WERKS, not within its company (tenancy's org unit key and inventory's reads by code), so the SAP migration no longer refuses one LGORT at two plants of a company code",
+      "r": "S2o · ADR-0082 As built S2o · tenancy.org_unit · internal/integration plantsOf",
+      "src": "review:batch83",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "SAP migration over OData: the material master (MARA, MAKT, MARM, MARC, MARD's assignments) and the plants and storage locations (T001W with T001K's company code, T001L) mapped onto the released product and plant read APIs, their service and entity names taken from the pilot's $metadata (S2o loads them from a file extract only)",
+      "r": "S2o · docs/design/plan-supply-chain.md §S2o, Later · ADR-0082 As built S2o",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -5536,16 +5550,16 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "An inventory controller creates a count document for a storage location's materials, freezing the book quantity, and enters the counted quantities",
-      "r": "S2c · docs/design/plan-supply-chain.md §S2c · ADR-0082",
+      "r": "S2c · docs/design/plan-supply-chain.md §S2c · ADR-0082 As built S2c · db/migrations/000406 · inventory.count_document, .count_item · count_posting_block · POST /v1/physical-inventory-documents · GET /v1/physical-inventory-documents · GET /v1/physical-inventory-documents/{id} · POST /v1/physical-inventory-documents/{id}:enterCount · inventory.count.write · walkthrough step_count",
       "src": "po:2026-11-17",
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The inventory controller posts a count's differences valued at the material's price; a difference above the company's tolerance needs approval",
-      "r": "S2d · docs/design/plan-supply-chain.md §S2d · ADR-0082",
+      "r": "S2d · docs/design/plan-supply-chain.md §S2d · ADR-0082 As built S2d · db/migrations/000407, 000408 · material_document 701, 702 · companies[].account_determination.inventory[].difference · companies[].inventory_difference_tolerance · POST /v1/physical-inventory-documents/{id}:postDifferences · approval object type inventory_difference · inventory.count.post, inventory.difference.approve · walkthrough step_count",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -5648,16 +5662,23 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "A shipping clerk creates an outbound delivery for a confirmed sales order's items from a plant and storage location and records the picked quantities",
-      "r": "S2a · docs/design/plan-supply-chain.md §S2a",
+      "r": "S2a · docs/design/plan-supply-chain.md §S2a · ADR-0083 and As built · db/migrations/000409 · internal/shipping · shipping.outbound_delivery, .outbound_delivery_item · sales.delivery_assignment, sales_order_item.in_delivery_quantity · POST /v1/outbound-deliveries · GET /v1/outbound-deliveries · GET /v1/outbound-deliveries/{id} · POST /v1/outbound-deliveries/{id}:pick · sales.Endpoints.Ship · inventory.Endpoints.Held · OutboundDeliveryChanged · shipping.delivery.read, .write · walkthrough step_outbound_delivery",
       "src": "po:2026-11-17",
       "c": []
      },
      {
-      "s": "T",
-      "t": "Posting the delivery's goods issue reduces stock and posts the cost of goods sold at the valuation price; billing bills the delivered quantities and profitability shows cost of sales",
-      "r": "S2b · docs/design/plan-supply-chain.md §S2b",
+      "s": "D",
+      "t": "A warehouse clerk posts a picked outbound delivery's goods issue (601): the picked quantities leave stock valued at the valuation's price, the cost of goods sold posted from the stock account, the rest given back to the order; the sales order's items are delivered by it and billed from it, and a material kept in stock is no longer confirmed as delivered by hand",
+      "r": "S2b1 · docs/design/plan-supply-chain.md §S2b1 · ADR-0083 and As built · ADR-0082 As built S2b1 · db/migrations/000410, 000411 · inventory movement types 601, 602 · inventory.Endpoints.IssueForDelivery · config InventoryAccounts.cost_of_goods_sold · sales.Endpoints.Issue · sales.delivery outbound_delivery_*, material_document_*, delivery_item.cost_amount · POST /v1/outbound-deliveries/{id}:postGoodsIssue · shipping.goods_issue.post · sales.delivery_by_goods_issue · inventory.reverse_goods_issue · walkthrough step_goods_issue, step_material_items",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Net revenue by profitability segment shows each customer and item key's cost of sales from the goods issues of the period and its margin",
+      "r": "S2b2 · docs/design/plan-supply-chain.md §S2b2 · ADR-0083 §6 and As built · ADR-0075 As built S2b2 · sales.Segment.Cost, .Margin · ProfitabilityRow/Totals cost_of_sales, margin · includes_cost true · walkthrough step_goods_issue (goods_issue_margin)",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -7820,7 +7841,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Country packs",
       "r": "ADR-0048 · T62 (split T62a-T62f)",
       "c": [
@@ -7906,9 +7927,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Numbering-only packs Canada 2026.11 and UAE 2026.8 bring the ranges the pilot's settings still add themselves: returns_order, credit_memo_request, lease_contract, expense_report, material, material_document, journal_wa and journal_pr (a company activated from Canada 2026.10 or UAE 2026.7 lacks them: 422 config.no_number_range); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried (product owner 2026-11-19, batch 81's open item (b) as recommended); built in the next refill",
-        "r": "packs/ca/2026.11 · packs/ae/2026.8 · packs/released.sha256 · ADR-0048 As built",
+        "s": "D",
+        "t": "Numbering-only packs Canada 2026.11 and UAE 2026.8 bring the ranges the pilot's settings still add themselves: returns_order, credit_memo_request, lease_contract, expense_report, material_document, journal_wa and journal_pr (a company activated from Canada 2026.10 or UAE 2026.7 lacks them: 422 config.no_number_range); material stays each company's own, its numbers unique in the tenant (decided by default); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried (product owner 2026-11-19, batch 81's open item (b) as recommended)",
+        "r": "packs/ca/2026.11 · packs/ae/2026.8 · packs/released.sha256 · TestCanadaPack2026_11 · TestUAEPack2026_8 (pilotRanges) · ADR-0048 As built (the pilot's ranges) · walkthrough steps 2 and 41 apply them, the pilot's settings add only Maple's material range",
         "src": "po:2026-11-19",
         "c": []
        }

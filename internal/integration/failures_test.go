@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -115,6 +116,7 @@ type failureRuns struct {
 	e, other                              env
 	conn                                  uuid.UUID
 	loadedID, us, fresh, failing, refused uuid.UUID
+	extend                                uuid.UUID // extends the loaded run's material to a second plant
 	first, balances                       uuid.UUID // of the other, fresh tenant
 }
 
@@ -134,7 +136,22 @@ func (r *failureRuns) prepare(t *testing.T) {
 	// partner (tradingpartner.go).
 	blocked.T001 = append(blocked.T001, sap.T001{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD", RCOMP: "001000"})
 	blocked.LFA1[0].VBUND = "001000"
+	// A plant with a storage location and a material kept there (S2o).
+	blocked.T001W = []sap.T001W{{WERKS: "P1", NAME1: "Plant one", BUKRS: "2000"}}
+	blocked.T001L = []sap.T001L{{WERKS: "P1", LGORT: "S1", LGOBE: "Store one"}}
+	blocked.MARA = []sap.MARA{{MATNR: "M-1", MTART: "ROH", MATKL: "STEEL", MEINS: "KG"}}
+	blocked.MAKT = []sap.MAKT{{MATNR: "M-1", SPRAS: "E", MAKTX: "Steel sheet"}}
+	blocked.MARM = []sap.MARM{{MATNR: "M-1", MEINH: "T", UMREZ: "1000", UMREN: "1"}}
+	blocked.MARC = []sap.MARC{{MATNR: "M-1", WERKS: "P1"}}
+	blocked.MARD = []sap.MARD{{MATNR: "M-1", WERKS: "P1", LGORT: "S1"}}
 	write(t, e.dir, "tiny.json", blocked)
+	// The material at a second plant, which a later run extends it to.
+	more := *blocked
+	more.T001W = append(slices.Clone(blocked.T001W), sap.T001W{WERKS: "P2", NAME1: "Plant two", BUKRS: "2000"})
+	more.T001L = append(slices.Clone(blocked.T001L), sap.T001L{WERKS: "P2", LGORT: "S2", LGOBE: "Store two"})
+	more.MARC = append(slices.Clone(blocked.MARC), sap.MARC{MATNR: "M-1", WERKS: "P2"})
+	more.MARD = append(slices.Clone(blocked.MARD), sap.MARD{MATNR: "M-1", WERKS: "P2", LGORT: "S2"})
+	write(t, e.dir, "more.json", &more)
 	usOnly := tiny()
 	usOnly.T001 = []sap.T001{{BUKRS: "1000", WAERS: "USD"}}
 	usOnly.SKB1 = []sap.SKB1{{BUKRS: "1000", SAKNR: "0000211000", MITKZ: "K"}}
@@ -153,6 +170,7 @@ func (r *failureRuns) prepare(t *testing.T) {
 	r.fresh = uuid.MustParse(e.run(t, c, "documents", true, e.DE.String())["id"].(string))
 	r.failing = uuid.MustParse(e.run(t, e.connector(t, "bad.json"), "documents", false, e.DE.String())["id"].(string))
 	r.loadedID = uuid.MustParse(loaded["id"].(string))
+	r.extend = uuid.MustParse(e.run(t, e.connector(t, "more.json"), "documents", false, e.DE.String())["id"].(string))
 	write(t, other.dir, "tiny.json", blocked)
 	oc := other.connector(t, "tiny.json")
 	r.first = uuid.MustParse(other.run(t, oc, "documents", false, other.DE.String())["id"].(string))
@@ -168,7 +186,7 @@ func (r *failureRuns) prepare(t *testing.T) {
 // failureCalls are the handlers and context functions TestDatabaseFailures
 // calls outside a unit of work and with each statement failing.
 func failureCalls(h *integration.Endpoints, e env, r failureRuns) map[string]func(ctx context.Context) error {
-	conn, loadedID, us, fresh, failing, refused := r.conn, r.loadedID, r.us, r.fresh, r.failing, r.refused
+	conn, loadedID, us, fresh, failing, refused, extend := r.conn, r.loadedID, r.us, r.fresh, r.failing, r.refused, r.extend
 	yes := func(int32) error { return nil }
 	return map[string]func(ctx context.Context) error{
 		"create connector": func(ctx context.Context) error {
@@ -214,6 +232,10 @@ func failureCalls(h *integration.Endpoints, e env, r failureRuns) map[string]fun
 		},
 		"extend suppliers": func(ctx context.Context) error {
 			_, err := h.StartRun(ctx, us, yes)
+			return err
+		},
+		"extend materials": func(ctx context.Context) error {
+			_, err := h.StartRun(ctx, extend, yes)
 			return err
 		},
 		"quality gate": func(ctx context.Context) error {

@@ -264,6 +264,9 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, r 
 	if t.exponents, err = currency.Load(ctx, tx); err != nil {
 		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
 	}
+	if t.units, err = knownUnits(ctx, tx); err != nil {
+		return t, nil, c, fmt.Errorf("integration: migration run %s: %w", r.ID, err)
+	}
 	t.partners, err = e.groupCompanies(ctx, ext)
 	return t, ext, c, err
 }

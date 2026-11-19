@@ -259,7 +259,9 @@ follow by type.
   another company's or year's material numbers. The fixture gives each
   company a prefix of its own (`MA1000-`, `MA2000-`); the walkthrough's
   pilot settings add Maple's `MA` range, and step 40's copy of Maple's
-  ranges to company 1000 leaves it out.
+  ranges to company 1000 leaves it out. No country pack ships a
+  `material` range: one prefix for every company would repeat across
+  the tenant's companies (ADR-0048 As built, the pilot's ranges).
 - **Base unit and type** are absent from the change's contract (400) and
   fixed by `material_fixed` as well. A change that would leave the
   material as it is is 422 `materials.nothing_to_change`.
@@ -409,7 +411,8 @@ follow by type.
 - Walkthrough step 125, `step_goods_movements` (numbered after S1d's
   step 124, which values its materials first); the pilot's settings add
   Maple's `MD` range (`material_document`), as the fixture's companies
-  have theirs.
+  have theirs (since batch 83 Canada 2026.11 and UAE 2026.8 bring it;
+  ADR-0048 As built).
 - **The ledger's refusal** (review of batch 80, batch 81): the ledger's
   `reverseJournalEntry` refuses an inventory entry (409
   `ledger.entry_owned_elsewhere`, `requireOwnEntry`) naming where it is
@@ -511,7 +514,8 @@ follow by type.
   `amount` and `price_difference`, not required (ADR-0041).
 - Walkthrough step 124, `step_valuation`, before step 125; the pilot's
   settings add valuation class 3100 with accounts 1416, 2196, 3996, 5116,
-  5126, 5196 and 5197 and the `WA` and `PR` journal ranges.
+  5126, 5196 and 5197 and the `WA` and `PR` journal ranges (the ranges
+  from Canada 2026.11 since batch 83; ADR-0048 As built).
 - **Not built** (Later): the material ledger and actual costing, split
   valuation, future and previous period prices, revaluation into a past
   period, below-zero moving prices, small-difference tolerances. Totals
@@ -715,3 +719,212 @@ catalog's keys mapped), plan-supply-chain.md §S1f.
   part (S1f1), then a requisition item by material and the catalog mapped
   (S1f2).
 
+### S2o (2026-11-19)
+
+The SAP migration run (ADR-0012, ADR-0050 §10's pattern, docs/migration.md
+"Plants, storage locations and materials") loads the material master. No
+migration: the external references are `integration.external_ref`'s.
+
+- **A new dependency direction, `integration → materials`**, through
+  `materials.Migration`, the context's import entry point in its published
+  API (and `tenancy.OrgUnitMigration`, integration already importing
+  tenancy). Materials imports nothing new, so there is no cycle; the
+  `internal/layout` row names this section.
+- **The run is the approval** (decided by default, as for migrated centers
+  and suppliers): a migrated material is created `active` with its create
+  change `applied`, no approval request, its reason "Migration run <id>:
+  SAP material <MATNR>"; a material an earlier run created is extended to
+  the plants and storage locations a later run adds by an `update` change
+  applied at once (`materials_extended`), never shrunk. Each is checked as
+  a request is (type, units, active plants of companies the run may act
+  in) and audited and published (`MaterialChanged`, `MaterialChangeChanged`)
+  as the API's changes are. A migrated create lists no possible
+  duplicates: the run holds its company's material range from its first
+  material on, and the duplicate check's description lock taken after it
+  would deadlock with a request taking the two the other way round. A
+  material with a pending change is not extended (409
+  `materials.change_pending`, a load refusal): applying that change would
+  replace its plants and drop the extension.
+- **Locks** (ADR-0008, review round 1): a request takes a material or a
+  company's material range and then the tenant's material change numbers;
+  the run takes the materials it extends, then every new material's number
+  (`Migration.Number`, before it writes any change), and the change
+  numbers last, so it never waits for a material or a range while holding
+  them. It holds the change numbers until it commits, so a material
+  request in the tenant waits for the load (a cutover window).
+  `TestMaterialLoadAndRequestDoNotDeadlock` (batch 83's integration)
+  forces a request holding the range to wait while the run starts: the
+  run waits for the request, and both finish.
+- **Numbers** come from the `material` range of the company of the
+  material's first plant (by WERKS) in the scope; SAP's MATNR is kept as
+  the external reference `MARA/<MATNR>` (external numbering stays Later,
+  §S1a). Plants are `T001W/<WERKS>`, storage locations
+  `T001L/<WERKS>/<LGORT>`.
+- **Plants and storage locations** become org units coded as SAP's WERKS
+  and LGORT, a plant in the company code T001W names (BUKRS flattened in
+  from T001K by BWKEY), a storage location under its plant; an active one
+  the company already has with that code (under that plant) is taken
+  instead of created, one that is not active or under another plant
+  refuses its key. Tenancy keeps a storage location's code unique in its
+  company where SAP keys it by its plant, so one LGORT at two plants of a
+  company code refuses the run, the quality error naming the LGORT, both
+  plants and the company code. Coordinator decision (batch 83): storage
+  locations are to be keyed by their plant, as SAP keys LGORT within its
+  WERKS; that change needs tenancy and inventory and is a slice of its own
+  (tracker leaf "storage location codes unique per plant"), so S2o keeps
+  the refusal until it lands.
+- **Held back, not refused:** a material whose base or alternative unit is
+  none of `ref.unit_of_measure`'s, whose conversion (MARM UMREZ/UMREN) is
+  not whole numbers from 1 to 1,000,000 (a value with decimals of zero
+  reads), whose base unit's own row is not 1/1, which lists a unit twice,
+  whose type is none of ROH, HALB, FERT, HAWA, NLAG and DIEN, whose group
+  is no material group or which has no description is a quality warning
+  "held back: <reasons>" and is not loaded; the rest loads. A material, or
+  its plant or storage location data, flagged for deletion (LVORM) is not
+  migrated, a warning. Errors refuse the run: a row twice, plant data of a
+  material not in MARA, storage location data without plant data or of a
+  storage location not in T001L, a code that is no org unit code, a plant
+  or storage location without a name. The description is the English MAKT
+  text, else the first other language's (a warning), as centers' texts are.
+  SAP's internal unit keys (T006-MSEHI, such as ST) are not mapped onto
+  the platform's: an extract must carry the commercial code, or the
+  material is held back (specialist question).
+- **Reconciliation** per company code: `Plants`, `Storage locations` and
+  `Materials` with their differences by SAP key (`plant <WERKS>`, `storage
+  location <WERKS>/<LGORT>`, `material <MATNR>`: type, group, base unit,
+  status, description, the company's plants with their storage locations,
+  alternative units); held-back and deletion-flagged materials are left
+  out on SAP's side, as payables' duplicate invoices are.
+- **File extract only:** the OData mapping (API_PRODUCT_SRV and the plant
+  APIs) is not built; an OData extract carries no material master (tracker
+  leaf split from S2o).
+- Walkthrough: `migrated_materials` in step 3, `step_migrate`, with the six
+  checks among the run's.
+
+### S2c (2026-11-19)
+
+- Migration 000406: `inventory.count_document` (SAP IKPF) and
+  `inventory.count_item` (ISEG), the rules of 03 §3.35 under schema tests
+  (`db/physical_inventory_test.go`, the triggers also as the owner); the
+  permission `inventory.count.write` (reads under `inventory.stock.read`).
+  Fixture companies number count documents `PI`; the walkthrough's pilot
+  settings add Maple's `PI` range (`physical_inventory`; no pack ships it).
+- `POST /v1/physical-inventory-documents` (SAP MI01), `GET` (plant,
+  storage location, material, status; the latest first) and `/{id}`,
+  `:enterCount` (MI04, `If-Match`). Writes are human-only
+  (`x-agent: false`); no agent's never-list names them, as no agent counts.
+- **One storage location per document**, up to 100 items, one per
+  material: a stocked material of the tenant, `active` or `blocked` (a
+  blocked material's stock is still counted, as a blocked material's
+  document is still reversed, S1c), never `pending`; extended to the
+  plant, kept at the storage location and valued in the plant, so its
+  difference can be posted (422 `inventory.no_valuation` at creation, not
+  at posting). Decided by default.
+- **The book quantity is frozen** as the document is created: the
+  valuations and then the stock rows of its materials are locked in the
+  order every posting takes them (S1d's Locks; a row with no quantity
+  written for a material never moved there), and each item's book
+  quantity is the stock row's quantity under that lock.
+- **The posting block is always set** (SAP's MI01 indicator, optional
+  there; here the safer default): while an item is `open` no goods
+  movement of any kind moves its material at that storage location.
+  `takeStock`, which every posting passes (a person's, a reversal, a goods
+  receipt, the migration's initial entries, S2b's goods issue), refuses it
+  under the stock rows' locks, naming the material, the location and the
+  document (409 `inventory.posting_blocked`); the database's
+  `count_posting_block` refuses what passes it. A count takes the same
+  stock rows' locks before it writes its items, so a posting and a count
+  of one location serialize: the posting that came first is in the book
+  quantity, one that comes after is refused (`TestCountAndIssueAtOnce`).
+  The book quantity frozen is therefore the book quantity when the
+  differences are posted (S2d). Counting while goods move, and a book
+  quantity frozen at a past date, are Later.
+- **One open count per material and storage location** (409
+  `inventory.count_open`, naming the open document, checked under the
+  same locks; `count_item_one_open`): a recount is a new document once
+  the first is closed (posted, rejected or withdrawn, S2d).
+- **Counts** are entered by item number, in the material's base unit or
+  an alternative unit, converted exactly (`inventory.inexact_quantity`),
+  zero included: a zero count is entered as `0`, in any unit of the
+  material. An item is counted once (409 `inventory.item_counted`;
+  `count_item_once`); entries may come in several calls under the
+  document's row lock and `If-Match`; the document is `counted` once every
+  item is. A document no longer `counting` takes no count (409
+  `inventory.count_invalid_status`).
+- **Audited at each step** (`inventory.count_document.create`, `.count`),
+  naming its items' materials and quantities; no event, as for credit
+  limit changes: the stock moves only by the material documents of S2d,
+  which publish `MaterialDocumentPosted`.
+- Walkthrough step 141, `step_count`.
+
+### S2d (2026-11-19)
+
+- Migrations 000407 and 000408: the movement types `701` and `702`, the
+  account determination key `inventory_difference:<class>` (widened NOT
+  VALID, validated by 000408), the count document's approval, value and
+  closing, the item's difference, value and material document, the rules
+  of 03 §3.35 under schema tests (`TestDifferenceRules`); the permissions
+  `inventory.count.post` and `inventory.difference.approve` (an approval
+  permission, which agents never hold).
+- `POST /v1/physical-inventory-documents/{id}:postDifferences` (SAP MI07,
+  `If-Match`), human-only. A document is posted whole, once every item is
+  counted (`counted`); posting some items of it is Later.
+- **Gains and losses apart:** the gains as one material document of
+  `701`, the losses as one of `702`, as one movement type per document
+  holds (As built S1c; SAP's MI07 posts both in one, from memory). Their
+  item numbers are the count document's; neither is posted by
+  `POST /v1/material-documents` (422 `inventory.unknown_movement_type`)
+  nor reversed (409 `inventory.reverse_count`): a count is the record of
+  what was there, and a new count corrects it (decided by default; SAP
+  allows no cancellation of an MI07 posting either, from memory, for the
+  specialist).
+- **Valued at the material's price** as any receipt or issue is (S1d's
+  `valueLines`): a gain at the moving price or what the standard price
+  makes of the stock (422 `inventory.no_price` while a moving price is
+  zero), a loss at the value it takes from the stock; posted as `WA`
+  between the class's stock account and its new `difference` account
+  (`companies[].account_determination.inventory[].difference`, an expense
+  holding gains and losses alike; SAP's GBB with modifier INV, from
+  memory), 422 `inventory.no_inventory_account` without it.
+- **Tolerance:** `companies[].inventory_difference_tolerance`, an amount
+  in the company's currency, the limit of a document's differences
+  valued gains and losses alike (SAP's tolerance group's limit per
+  document, OMJ2, from memory; per item and per user group are Later).
+  None is zero: every difference of any value is approved (the safer
+  default, as a missing manual entry limit, T35). Above it the document
+  waits (`pending_approval`) on an approval request of object type
+  `inventory_difference` for the fixed role `controller`
+  (`approvals.DefaultInventoryDifferenceRole`, as GR/IR clearings, whose
+  differences reach profit and loss too), naming the value asked for; the
+  requester never approves (the approvals context). Approval posts the
+  differences as valued then, in the approver's transaction on the
+  company's date then; rejection (`rejected`) or the requester's
+  withdrawal (`withdrawn`) posts nothing and closes the document, lifting
+  the posting block: the materials are recounted by a new document
+  (MI11's link between the two is Later). The posting block holds while
+  the differences wait, so the book quantity is still the frozen one.
+- **Locks:** the count document's row, then the valuations and stock rows
+  of every item with a difference in the order every posting takes them
+  (`lockCount`, so the second material document locks nothing new), then
+  numbers and the ledger. The document's items are closed before its
+  material documents are written, so its own block does not refuse them;
+  a posting of another document never locks a count document, so no
+  cycle. Two postings of one document at once post once
+  (`TestPostDifferencesAtOnce`).
+- `inventory` imports `approvals` (its request type and object types), a
+  new direction decided here, as `materials` and `credit` do (no cycle:
+  approvals imports no context).
+- Each material document is published as `MaterialDocumentPosted`, its
+  audit naming the count document; the count document's steps are audited
+  (`.request`, `.post`, `.reject`, `.withdraw`). The web workspace names
+  the object type, headless otherwise.
+- Walkthrough step 141 extended: the pilot's settings add account 5198,
+  the class's `difference` account, and a tolerance of CAD 50.00.
+
+**S2b1** (ADR-0083, lane ship, 2026-11-19): movement types `601` (goods
+issue for a delivery, posted by shipping through
+`Endpoints.IssueForDelivery`, its reference the outbound delivery's
+number) and `602` (its reversal, in the database's rules, posted by no one
+yet); a valuation class's `cost_of_goods_sold` account (SAP GBB VAX, from
+memory), an expense, which a 601's value posts against. `Endpoints.Held`
+reads a location's stock without a lock for shipping's picking.

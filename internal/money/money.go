@@ -63,6 +63,16 @@ func PositiveQuantity(s string) error {
 	return nil
 }
 
+// QuantityOrZero checks a quantity that may be zero (what is picked of
+// a delivery's item, ADR-0083): PositiveQuantity's plain decimal, or
+// zero written as one ("0", "0.000").
+func QuantityOrZero(s string) error {
+	if intPart, frac, ok := plainParts(s); ok && strings.Trim(intPart+frac, "0") == "" {
+		return nil
+	}
+	return PositiveQuantity(s)
+}
+
 // decimalParts splits a decimal in the grammar every amount is read with:
 // optional surrounding space, one sign (a leading "-" or "+", or the
 // trailing "-" of SAP table extracts), digits, and an optional "." with

@@ -40,7 +40,8 @@ var maxStock = new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(m
 // refuses a line that takes a location's stock below zero (409
 // inventory.insufficient_stock) or beyond a quantity column (422
 // inventory.quantity_too_large). The check follows the lock, so two
-// issues of the last quantity at once post one (ADR-0008).
+// issues of the last quantity at once post one (ADR-0008). A location an
+// open count document counts is refused first (blocked, S2c).
 func takeStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.UUID, lines []Line, r refs) error {
 	var keys []stockKey
 	for _, l := range lines {
@@ -51,6 +52,9 @@ func takeStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.
 	slices.SortFunc(keys, stockKey.compare)
 	current, err := lockStock(ctx, tx, p, company, keys)
 	if err != nil {
+		return err
+	}
+	if err := blocked(ctx, tx, keys, r); err != nil {
 		return err
 	}
 	for _, l := range lines {

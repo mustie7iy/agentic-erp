@@ -46,7 +46,7 @@ var ApprovalPermissions = []string{"workflow.request.read", "workflow.request.de
 	"procurement.requisition.approve", "partner.change.approve", "payables.invoice.approve", "config.change.approve",
 	"ledger.period.unlock.approve", "ledger.entry.approve", "procurement.order.approve", "payments.statement.clearing.approve",
 	"ledger.cost_center.approve", "procurement.gr_ir.clear.approve", "tax.return.approve", "materials.change.approve",
-	"credit.limit.approve"}
+	"credit.limit.approve", "inventory.difference.approve"}
 
 // Years are the fiscal years the fixture sets up: 2026, which tests date
 // documents in, and the current year, which numbers documents dated today.
@@ -60,7 +60,7 @@ func Years() []int {
 // DocumentTypes get a number range per company and year.
 var DocumentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journal_wa": "", "journal_pr": "", "journal_kr": "", "journal_we": "", "journal_kg": "", "requisition": "PR", "purchase_order": "PO",
 	"contract": "CT", "goods_receipt": "GR", "supplier_invoice": "SI", "partner_change": "", "payment_run": "PR", "journal_zp": "",
-	"journal_re": "", "journal_kz": "", "journal_ob": "", "down_payment_request": "DP", "customer_invoice": "CI", "rfq": "RQ", "quotation": "QT", "sales_order": "SO", "billing_document": "BD", "returns_order": "RO", "credit_memo_request": "CR", "lease_contract": "LC", "expense_report": "ER", "material": "MA", "material_document": "MD"}
+	"journal_re": "", "journal_kz": "", "journal_ob": "", "down_payment_request": "DP", "customer_invoice": "CI", "rfq": "RQ", "quotation": "QT", "sales_order": "SO", "billing_document": "BD", "returns_order": "RO", "credit_memo_request": "CR", "lease_contract": "LC", "expense_report": "ER", "material": "MA", "material_document": "MD", "physical_inventory": "PI", "outbound_delivery": "OD"}
 
 // Document is the prototype's configuration (companies 1000 in USD and
 // 2000 in EUR) with number ranges for every document type in Years.

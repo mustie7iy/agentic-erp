@@ -449,6 +449,10 @@ type CreateOrgUnitRes interface {
 	createOrgUnitRes()
 }
 
+type CreateOutboundDeliveryRes interface {
+	createOutboundDeliveryRes()
+}
+
 type CreatePartnerChangeRes interface {
 	createPartnerChangeRes()
 }
@@ -459,6 +463,10 @@ type CreatePeriodCloseRes interface {
 
 type CreatePersonalDataDeletionRunRes interface {
 	createPersonalDataDeletionRunRes()
+}
+
+type CreatePhysicalInventoryDocumentRes interface {
+	createPhysicalInventoryDocumentRes()
 }
 
 type CreatePlanCategoryRes interface {
@@ -655,6 +663,10 @@ type EndRolePermissionRes interface {
 
 type EndSodRuleRes interface {
 	endSodRuleRes()
+}
+
+type EnterPhysicalInventoryCountRes interface {
+	enterPhysicalInventoryCountRes()
 }
 
 type EvaluateMetricWatcherRes interface {
@@ -1077,6 +1089,10 @@ type GetOrgUnitRes interface {
 	getOrgUnitRes()
 }
 
+type GetOutboundDeliveryRes interface {
+	getOutboundDeliveryRes()
+}
+
 type GetParkedJournalEntryRes interface {
 	getParkedJournalEntryRes()
 }
@@ -1107,6 +1123,10 @@ type GetPersonalDataInventoryRes interface {
 
 type GetPersonalDataSubjectRes interface {
 	getPersonalDataSubjectRes()
+}
+
+type GetPhysicalInventoryDocumentRes interface {
+	getPhysicalInventoryDocumentRes()
 }
 
 type GetPlanCategoryRes interface {
@@ -1717,6 +1737,10 @@ type ListOrgUnitsRes interface {
 	listOrgUnitsRes()
 }
 
+type ListOutboundDeliveriesRes interface {
+	listOutboundDeliveriesRes()
+}
+
 type ListParkedJournalEntriesRes interface {
 	listParkedJournalEntriesRes()
 }
@@ -1747,6 +1771,10 @@ type ListPeriodClosesRes interface {
 
 type ListPersonalDataDeletionSubjectsRes interface {
 	listPersonalDataDeletionSubjectsRes()
+}
+
+type ListPhysicalInventoryDocumentsRes interface {
+	listPhysicalInventoryDocumentsRes()
 }
 
 type ListPlanCategoriesRes interface {
@@ -2009,6 +2037,10 @@ type PauseWebhookSubscriptionRes interface {
 	pauseWebhookSubscriptionRes()
 }
 
+type PickOutboundDeliveryRes interface {
+	pickOutboundDeliveryRes()
+}
+
 type PingWebhookSubscriptionRes interface {
 	pingWebhookSubscriptionRes()
 }
@@ -2045,8 +2077,16 @@ type PostJournalEntryRes interface {
 	postJournalEntryRes()
 }
 
+type PostOutboundDeliveryGoodsIssueRes interface {
+	postOutboundDeliveryGoodsIssueRes()
+}
+
 type PostParkedJournalEntryRes interface {
 	postParkedJournalEntryRes()
+}
+
+type PostPhysicalInventoryDifferencesRes interface {
+	postPhysicalInventoryDifferencesRes()
 }
 
 type PostRevaluationRunRes interface {

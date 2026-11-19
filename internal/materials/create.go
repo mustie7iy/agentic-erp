@@ -206,7 +206,11 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 	if err := confirmed(dups, in.ConfirmDuplicate); err != nil {
 		return Material{}, err
 	}
-	m, err := e.insert(ctx, tx, p, le, in, companies)
+	number, err := e.number(ctx, le)
+	if err != nil {
+		return Material{}, err
+	}
+	m, err := e.insert(ctx, tx, p, le, in, companies, number, Pending)
 	if err != nil {
 		return Material{}, err
 	}
@@ -228,17 +232,15 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Material, error) {
 	return load(ctx, tx, m.ID, false)
 }
 
-// insert numbers the material and writes it pending with its plants,
+// insert writes the material with its number in the status, pending for
+// a request and active for a migration (Migration), with its plants,
 // storage locations and units.
-func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, in Input, companies map[uuid.UUID]uuid.UUID) (Material, error) {
-	number, err := e.number(ctx, le)
-	if err != nil {
-		return Material{}, err
-	}
+func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le tenancy.Entity, in Input, companies map[uuid.UUID]uuid.UUID,
+	number, status string) (Material, error) {
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type,
 			material_group, status, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)`,
-		p.TenantID, id, number, le.ID, in.Description, in.BaseUnit, in.Type, in.Group, Pending, p.ID); err != nil {
+		p.TenantID, id, number, le.ID, in.Description, in.BaseUnit, in.Type, in.Group, status, p.ID); err != nil {
 		return Material{}, fmt.Errorf("materials: insert material %s: %w", number, err)
 	}
 	if err := writePlants(ctx, tx, p, id, in.Plants, companies); err != nil {

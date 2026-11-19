@@ -88,8 +88,12 @@ material type is not built.
   stock by location, goods movements, valuation and physical inventory.
   Reads materials through `materials`' published API and posts through
   the ledger's posting port.
-- Shipping (S2a, S2b), planning (S2k–S2n) and the connectors (S2q–S2s)
-  are decided by their own ADRs when they are built.
+- **`shipping`** (schema `shipping`, `internal/shipping`, from S2a;
+  ADR-0083): outbound deliveries, their picking and goods issue. A leaf:
+  it reads sales' orders and writes their deliveries through sales'
+  published API and posts the goods issue through inventory's.
+- Planning (S2k–S2n) and the connectors (S2q–S2s) are decided by their
+  own ADRs when they are built.
 
 ## S1 Foundation
 
@@ -429,6 +433,30 @@ records the picked quantities.
 - **Walkthrough:** `step_outbound_delivery`. **Acceptance:** a delivery
   takes no more than the order's open quantity; picking is at most the
   delivery quantity and from stock that is there.
+- **Detailed** (lane ship, 2026-11-19; ADR-0083, decided by default):
+  the context `shipping` (schema `shipping`, `internal/shipping`), a leaf
+  reading the sales order through sales' published API, materials and
+  stock through materials' and inventory's, tenancy's plants and storage
+  locations and the configuration's ranges and company dates. A delivery
+  (SAP LIKP/LIPS, from memory) is of one confirmed order that is not
+  blocked for credit, from one plant and storage location of the order's
+  company; its items are the order's items of a material kept in stock,
+  each named once with a quantity in the order item's unit, at most what
+  is open: ordered less delivered less what other deliveries not yet
+  issued hold. Without items it takes every such item's open quantity.
+  Sales keeps what deliveries hold per order item
+  (`sales_order_item.in_delivery_quantity`, the sum of
+  `sales.delivery_assignment`), so an order change cannot take an item's
+  quantity below what is delivered and in delivery, nor remove the item or
+  cancel the order while a delivery holds it. Picking
+  (`:pick`, `If-Match`) sets each item's picked quantity, at most its
+  delivery quantity and at most what the storage location holds of the
+  material in the base unit (stock is not reserved: ATP is S2j); the
+  picking status is `not_picked`, `partly_picked` or `picked` (SAP KOSTK
+  A, B, C, from memory). Reads `GET /v1/outbound-deliveries` (company,
+  order, status) and `/{id}`; permissions `shipping.delivery.read`,
+  `.write`; event `OutboundDeliveryChanged`; human-only writes.
+- **As built** (2026-11-19): ADR-0083 As built S2a, walkthrough step 142.
 
 ### S2b Goods issue, cost of goods sold and billing from the delivery (pilot)
 
@@ -442,6 +470,69 @@ bills the delivered quantities; profitability shows cost of sales.
   issue (ADR-0075 As built). **Walkthrough:** `step_goods_issue`.
   **Acceptance:** the goods issue posts once; its cost equals the stock
   value taken; a delivery without goods issue is not billed.
+- **Split** (lane ship, 2026-11-19) into S2b1 and S2b2, each a leaf;
+  decided by default (ADR-0083).
+
+#### S2b1 Goods issue and cost of goods sold, billed from the delivery (pilot)
+
+**Capability.** A warehouse clerk posts a picked delivery's goods issue:
+its picked quantities leave the storage location's stock as a material
+document of movement 601, valued at the valuation's price, its value
+posted from the stock account to the class's cost of goods sold account;
+the sales order's items are delivered by it, and billing bills them.
+
+- **Adds:** `POST /v1/outbound-deliveries/{id}:post-goods-issue`
+  (`If-Match`, permission `shipping.goods_issue.post`); movement types 601
+  and its reversal 602 in inventory (601 posted only by shipping, through
+  `inventory.Endpoints.IssueForDelivery`; a person neither posts nor
+  reverses it); the account kind `cost_of_goods_sold` of a valuation
+  class (SAP GBB VAX, from memory), an expense; the sales delivery
+  (T78c's record) written by the goods issue through sales' published API,
+  naming the outbound delivery and the material document, with each
+  item's cost; T78c's confirmation refused for an item of a material kept
+  in stock (422 `sales.delivery_by_goods_issue`), which a service or
+  free-text item, or a material kept in no stock, keeps.
+- **Decided by default:** the goods issue issues each item's picked
+  quantity and gives the rest back to the order, the delivery keeping its
+  delivery quantity (SAP would change it to the picked one before the
+  goods issue, from memory); an item picked at nothing
+  issues nothing; a delivery with nothing picked is refused. It is posted
+  on the company's date today, once (the delivery's status and row lock),
+  for an order not blocked for credit. Billing is unchanged: it bills
+  what is delivered and not billed, so a delivery without goods issue is
+  not billed. Reversal of a goods issue (602 with the billing cancelled)
+  is Later.
+- **Walkthrough:** `step_goods_issue`: the delivery of step
+  `step_outbound_delivery` picked and issued; stock and the moving price's
+  value fall by the cost; the WA entry debits cost of goods sold; the
+  order is billed for the issued quantity; a second goods issue and a
+  confirmation of the bracket by T78c are refused.
+- **Acceptance:** the goods issue posts once; its cost equals the stock
+  value taken; a delivery without goods issue is not billed.
+- **As built** (2026-11-19): ADR-0083 As built S2b1, walkthrough steps 143
+  and 135 (its stock item shipped).
+
+#### S2b2 Cost of sales in net revenue by profitability segment (pilot)
+
+**Capability.** A controller reads cost of sales and margin per customer
+and item key beside net revenue: the cost of the goods issues of the
+period.
+
+- **Adds:** `cost_of_sales` and `margin` on each row and the totals of
+  `GET /v1/profitability-report`, `includes_cost` true; sales'
+  `Orders.Segments` adds the goods issues' cost by the order item's
+  segment.
+- **Decided by default:** a goods issue counts in the period of its
+  posting date (the date its cost is posted), in the segment of the order
+  item it delivered, for an order in the company's currency, as the
+  report counts revenue; one in another currency is left out and counted
+  in `foreign_currency_documents`. Margin is net revenue less cost of
+  sales. The margin report already shows the posted cost of goods sold
+  when its account is a named cost of sales account.
+- **Walkthrough:** `step_goods_issue` (the report's part).
+- **Acceptance:** the segment's cost of sales equals the goods issue's
+  cost; rows and totals add up.
+- **As built** (2026-11-19): ADR-0083 As built S2b2, walkthrough step 143.
 
 **Later for Shipping and delivery:** packing and handling units, shipping
 points and routes, delivery split and grouping, proof of delivery,
@@ -458,6 +549,39 @@ enters the counted quantities.
   posting block during the count. **Walkthrough:** `step_count`.
   **Acceptance:** one open count per material and storage location; a
   count is entered once per item and recounted only as a new document.
+- **Detailed** (lane count, 2026-11-19; one slice, one leaf, nothing to
+  split; decided by default, ADR-0082 As built S2c): a count document is
+  of one plant's storage location (SAP IKPF's plant and storage location)
+  with up to 100 items, one per material (ISEG), numbered from the
+  company's `physical_inventory` range of the fiscal year of its date (the
+  company's date today), `POST /v1/physical-inventory-documents`, `GET`
+  (by plant, storage location, material and status; newest first) and
+  `/{id}`, `:enterCount` (`If-Match`). An item's material is a stocked
+  material of the tenant kept at that storage location and valued in its
+  plant (so its difference can be posted, S2d), `active` or `blocked` (a
+  blocked material's stock is still counted), never `pending`. The book
+  quantity is the stock's as the document is created, read under the
+  stock row's lock (a row with no quantity written for a material never
+  moved there), and the **posting block** is always set (SAP's MI01
+  indicator, here not optional, the safer default): while the document is
+  open no goods movement of any kind (a person's, a goods receipt, a goods
+  issue) moves its materials at that storage location (409
+  `inventory.posting_blocked`, the database's `count_posting_block` on
+  every movement), so the book quantity frozen is the book quantity when
+  the differences are posted. One open count per material and storage
+  location (409 `inventory.count_open`, the database's
+  `count_item_one_open`). Counts are entered by item number (SAP MI04), in
+  any unit of the material converted exactly to its base unit, zero
+  included (a zero count is entered as `0`); an item counted is not
+  counted again (409 `inventory.item_counted`); a document is `counting`
+  until every item is counted, then `counted`. Permission
+  `inventory.count.write`; reads under `inventory.stock.read`. Audited at
+  each step; no event (the stock moves only by S2d's material documents,
+  which publish `MaterialDocumentPosted`). **Later:** counts without a
+  posting block, book quantities frozen while movements go on, counts by
+  bin, batch or special stock, count date per item, a deletion flag (a
+  document is closed by posting its differences or by rejecting them,
+  S2d).
 
 ### S2d Inventory differences posted (pilot)
 
@@ -468,6 +592,33 @@ enters the counted quantities.
   key for inventory differences. **Walkthrough:** extends `step_count`.
   **Acceptance:** book quantity after posting equals the count; a
   difference above the company's tolerance needs approval.
+- **Detailed** (lane count, 2026-11-19; one slice, one leaf, nothing to
+  split; decided by default, ADR-0082 As built S2d): `:postDifferences`
+  (`If-Match`, permission `inventory.count.post`) on a `counted`
+  document posts each item's difference (counted less book): the gains as
+  one material document of movement type `701`, the losses as one of
+  `702` (one movement type per document, As built S1c), each valued as
+  any receipt or issue is (S1d: a gain at the moving or standard price, a
+  loss at the value it takes from the stock) and posted (`WA`) between the
+  class's stock account and its new `difference` account
+  (`companies[].account_determination.inventory[].difference`, SAP GBB
+  with modifier INV), an expense holding gains and losses alike. The
+  **tolerance** is the company's `inventory_difference_tolerance`, an
+  amount in its currency (SAP's tolerance group's limit per document,
+  OMJ2): when the differences' values, gains and losses alike, total
+  more, the document waits for the controller's approval
+  (`pending_approval`; object type `inventory_difference`, permission
+  `inventory.difference.approve`, the requester never the approver), and
+  approval posts them as valued then; a company without a tolerance has
+  every difference of any value approved. Rejection (`rejected`) or the
+  requester's withdrawal (`withdrawn`) posts nothing and closes the
+  document, lifting its posting block: the materials are recounted by a
+  new document. A posted document (`posted`) names each item's difference,
+  value and material document; the book quantity is then the count. Its
+  material documents are not reversed (409 `inventory.reverse_count`): a
+  new count corrects them. **Later:** a tolerance per item and per user
+  group, difference reasons, partial posting of a document's items,
+  recount history (MI11 linking the documents).
 
 ### S2e Count planning agent
 
@@ -567,6 +718,42 @@ reference; a material whose base unit or conversion is not exact is held
 back with its reason. Which MARA fields carry which meaning is the SAP
 specialist's to confirm (from memory here).
 
+- **Reuses:** the migration run (`internal/integration`: extract, quality
+  gate, load in savepoints, external references, reconciliation, report),
+  the file extract and the mock (`internal/sap`), materials' checks and
+  numbering, tenancy's org units.
+- **Adds:** the tables MARA, MAKT, MARM, MARC, MARD, T001W (with T001K's
+  company code) and T001L in the extract, kept for the scope's plants;
+  `materials.Migration` (create a material active with its create change
+  applied, extend one to more plants, both without an approval request:
+  the run is their approval, as for centers) and
+  `tenancy.OrgUnitMigration` (an org unit created active, one found by
+  code); quality findings (errors refusing the run, warnings holding a
+  material back with its reasons); reconciliation checks `Plants`,
+  `Storage locations` and `Materials` with differences by SAP key; report
+  counts `plants`, `storage_locations`, `materials`, `materials_extended`
+  and the seven tables' rows; the mock's company 3000 with two plants,
+  three storage locations, three materials that load, two held back and
+  one flagged for deletion; ADR-0082 As built S2o.
+- **Walkthrough:** `migrated_materials` in step 3, `step_migrate`: the
+  plants and storage locations as org units, the materials active with
+  their numbers from Maple's range and their units, the create change
+  naming SAP's number without an approval request, the two held back with
+  their reasons, the checks passing.
+- **Acceptance (as built):** the SAP number is the external reference
+  `MARA/<MATNR>`, named in the create change's reason; a unit that is none
+  of the platform's or a conversion that is not whole numbers from 1 to
+  1,000,000 holds the material back with its reason while the rest loads;
+  a later run extends a loaded material to the plants it adds and creates
+  nothing twice; the reconciliation agrees per company code.
+- **Depends on:** S1a, S1b.
+
+**Later for the material master's migration:** the OData mapping (the
+product and plant APIs; a tracker leaf); descriptions in further
+languages; SAP's internal unit keys mapped onto the platform's (T006);
+MARA's views beyond the basic data; plant-scoped storage location codes
+(tenancy keeps them unique per company).
+
 ### S2p SAP migration of stock and values (pilot)
 
 **Capability.** The cutover loads stock by storage location (MARD) and
@@ -604,9 +791,12 @@ S2a–S2d, S2o and S2p (twelve).
 - SAP's material tables and fields named here (MARA, MAKT, MARM with
   UMREZ/UMREN, MARC, MARD, MBEW with VPRSV, VERPR, STPRS, PEINH and BKLAS,
   T001W, T001L, T134, T023) and the movement types (101, 102, 201, 202,
-  261, 301, 302, 311, 312, 351, 501, 502, 551, 552, 561, 562, 601, 701,
-  702) are stated from memory, without a primary source in the
-  repository.
+  261, 301, 302, 311, 312, 351, 501, 502, 551, 552, 561, 562, 601, 602,
+  701, 702) are stated from memory, without a primary source in the
+  repository; so are the delivery tables LIKP and LIPS, the picking
+  status KOSTK (A, B, C), the account modifier VAX of GBB for a goods
+  issue's cost of goods sold, and SAP changing the delivery quantity to
+  the picked one before goods issue, which ADR-0083 does not follow.
 - SAP's account determination for inventory (transaction keys BSX, WRX,
   PRD, GBB with its account modifiers, UMB) is from memory; ADR-0082 §8
   maps it onto this ERP's account determination keys and is confirmed by

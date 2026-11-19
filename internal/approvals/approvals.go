@@ -80,6 +80,10 @@ const (
 	// changing its validity, applied when approved (ADR-0066, As built
 	// T77d).
 	CreditLimitChange = "credit_limit_change"
+	// InventoryDifference is a physical inventory count's differences
+	// above its company's tolerance, posted when approved (ADR-0082 As
+	// built S2d).
+	InventoryDifference = "inventory_difference"
 )
 
 // Request statuses.
@@ -136,6 +140,13 @@ const DefaultMaterialChangeRole = "process_owner"
 // planned.
 const DefaultCreditLimitRole = "controller"
 
+// DefaultInventoryDifferenceRole approves a count's differences above its
+// company's tolerance (ADR-0082 As built S2d): the controller, a fixed
+// role as for GR/IR clearings, whose differences go to the profit and loss
+// account too, until approval tiers or a configurable approver are
+// planned.
+const DefaultInventoryDifferenceRole = "controller"
+
 // ObjectPermissions is the approval permission of each object type
 // (x-object-permissions of approveApprovalRequest).
 var ObjectPermissions = map[string]string{
@@ -148,10 +159,11 @@ var ObjectPermissions = map[string]string{
 	GRIRClearing: "procurement.gr_ir.clear.approve",
 	// The second person is a releaser too: the approval is half of the
 	// release step.
-	PaymentRunRelease: "payments.run.release",
-	TaxReturn:         "tax.return.approve",
-	MaterialChange:    "materials.change.approve",
-	CreditLimitChange: "credit.limit.approve",
+	PaymentRunRelease:   "payments.run.release",
+	TaxReturn:           "tax.return.approve",
+	MaterialChange:      "materials.change.approve",
+	CreditLimitChange:   "credit.limit.approve",
+	InventoryDifference: "inventory.difference.approve",
 }
 
 func init() {
@@ -503,6 +515,8 @@ func steps(ctx context.Context, rates Rates, doc *config.Config, in NewRequest) 
 		out = append(out, policyStep{DefaultMaterialChangeRole, 1})
 	case CreditLimitChange:
 		out = append(out, policyStep{DefaultCreditLimitRole, 1})
+	case InventoryDifference:
+		out = append(out, policyStep{DefaultInventoryDifferenceRole, 1})
 	case ManualEntry:
 		return manualEntrySteps(ctx, rates, doc, in)
 	case PurchaseOrder, OrderChange:
