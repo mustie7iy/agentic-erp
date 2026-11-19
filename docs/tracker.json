@@ -2838,10 +2838,17 @@
           "c": []
          },
          {
-          "s": "T",
-          "t": "E2 PINT AE rendering: tax invoice 380 from a billing document and tax credit note 381 (reason BTAE-03) from a customer credit memo, UBL 2.1, CustomizationID urn:peppol:pint:billing-1@ae-1; seller and buyer with TRN and endpoint 0235: and the TIN, emirate code, lines, VAT categories from the tax items (ADR-0049's boundary), AED VAT totals when the invoice currency is not AED, BTAE-02 transaction type flags; in-house validation of the mandatory fields; the rendered XML archived with the billing document; read GET /v1/e-invoices/{id}; walkthrough step_einvoice_render",
-          "r": "ADR-0061 §9 and As built E2 · coordinator plan einvoicing-evatra E2",
+          "s": "D",
+          "t": "E2 PINT AE rendering: a posted customer invoice (a billing document's is the invoice it posted as) as a tax invoice 380 and a customer credit memo as a tax credit note 381 (reason BTAE-03, the invoice it credits), UBL 2.1, CustomizationID urn:peppol:pint:billing-1@ae-1; seller and buyer with TRN, endpoint 0235: and the TRN's first ten digits, emirate code, lines, VAT categories from the tax items (ADR-0049's boundary), BTAE-02; in-house validation of the mandatory fields before anything is kept (a document failing them recorded invalid with its problems, no XML); the rendered XML kept write-once and read back; POST /v1/outgoing-e-invoices, its list, read and content (people only); OutgoingEInvoiceRendered; debit memos refused; only AED documents of S and Z lines valid for now; walkthrough step_einvoice_render",
+          "r": "einvoicing.RenderPINTAE · einvoicing.ParsePINTAE · einvoicing.Check · createOutgoingEInvoice, listOutgoingEInvoices, getOutgoingEInvoice, getOutgoingEInvoiceContent · OutgoingEInvoiceRendered · migration 000415 · partner.InvoiceParties · taxfiling.InvoiceNumbers · walkthrough step_einvoice_render (step 145) · ADR-0061 §9 and As built E2 · coordinator plan einvoicing-evatra E2",
           "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "UAE emirate on sales items and billing documents: a sales document's item carries the emirate of its supply, so a UAE billing document can bill the standard-rated code S5 (which levies each line's emirate) instead of being refused sales.tax_jurisdiction_not_supported, and E2 renders the billing document's customer invoice; until then E2 renders only customer invoices and credit memos entered in receivables (batch 85)",
+          "r": "ADR-0061 As built E2 (Gaps found) · ADR-0049 · T75 · coordinator plan einvoicing-evatra E2",
+          "src": "review:batch84",
           "c": []
          },
          {
@@ -2860,7 +2867,7 @@
          },
          {
           "s": "T",
-          "t": "Later: self-billing (389, 261), out-of-scope and export types (480, 81), deemed supply endpoints, summary and continuous supply invoices, the margin scheme, the list of invalid inbound Peppol documents, a PDF through Evatra's generate/pdf, a second accredited provider",
+          "t": "Later: self-billing (389, 261), out-of-scope and export types (480, 81), deemed supply endpoints, summary and continuous supply invoices, the margin scheme, the list of invalid inbound Peppol documents, a PDF through Evatra's generate/pdf, a second accredited provider; PINT AE: non-AED documents and E/O/AE lines (BTAE-08/10/20, IBT-120/121), once the specialist confirms the terms (ADR-0061 As built E2)",
           "r": "coordinator plan einvoicing-evatra Later",
           "src": "po:2026-11-19",
           "c": []
