@@ -172,11 +172,11 @@ func (e *Endpoints) creditApplication(ctx context.Context, tx pgx.Tx, v Incoming
 	if err != nil {
 		return ledger.ReceiptApplication{}, tenancy.Entity{}, "", fmt.Errorf("receivables: company of incoming payment %s: %w", v.ID, err)
 	}
-	residuals, err := residualsOf(in.Residuals, len(in.Items), v.Currency, v.Exponent)
+	rules, err := e.differenceRules(ctx, tx, le)
 	if err != nil {
 		return ledger.ReceiptApplication{}, tenancy.Entity{}, "", err
 	}
-	under, _, err := e.tolerance(ctx, tx, le)
+	residuals, err := residualsOf(in.Residuals, len(in.Items), v.Currency, v.Exponent, rules)
 	if err != nil {
 		return ledger.ReceiptApplication{}, tenancy.Entity{}, "", err
 	}
@@ -192,7 +192,7 @@ func (e *Endpoints) creditApplication(ctx context.Context, tx pgx.Tx, v Incoming
 	text := "Incoming payment " + v.DocumentNumber + " on account of customer " + number + " applied"
 	account := *v.OnAccountAccount // a payment with a credit names its account (incoming_payment_on_account)
 	return ledger.ReceiptApplication{LegalEntityID: le.ID, DocumentType: PaymentDocumentType, PostingDate: date, Currency: v.Currency, ReceiptAccountID: account,
-		Receipt: credit, Credit: true, CustomerID: v.CustomerID, Items: in.Items, Residuals: residuals, Under: under, OnAccount: account, HeaderText: &text,
+		Receipt: credit, Credit: true, CustomerID: v.CustomerID, Items: in.Items, Residuals: residuals, Under: rules.under, OnAccount: account, HeaderText: &text,
 		SourceContext: "receivables", SourceDocumentID: v.ID}, le, number, nil
 }
 
@@ -222,12 +222,7 @@ func insertApplication(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Inc
 func recordCreditApplied(ctx context.Context, v IncomingPayment, le tenancy.Entity, customer string, applied ledger.AppliedReceipt, items int) error {
 	const action = "receivables.incoming_payment.apply_on_account"
 	a := v.Applications[len(v.Applications)-1] // the one just written
-	residuals := 0
-	for _, it := range v.Items {
-		if it.ApplicationNo == a.No && it.ResidualAmount != nil {
-			residuals++
-		}
-	}
+	residuals, writeOffs := v.residualCounts(a.No)
 	amount := func(m money.Minor) map[string]string { return money.EventAmount(m, v.Currency, v.Exponent) }
 	entry := applied.Entry
 	payload := map[string]any{"incoming_payment_id": v.ID, "document_number": v.DocumentNumber, "legal_entity_id": v.LegalEntityID,
@@ -236,7 +231,7 @@ func recordCreditApplied(ctx context.Context, v IncomingPayment, le tenancy.Enti
 		"journal_entry_year": entry.FiscalYear, "journal_entry_number": entry.DocumentNumber, "item_count": items, "residual_count": residuals}
 	detail := map[string]any{"document_number": v.DocumentNumber, "application_no": a.No, "posting_date": a.PostingDate, "amount": amount(a.Amount),
 		"difference": amount(a.Difference), "on_account": amount(a.OnAccount), "journal_entry_id": entry.ID, "journal_entry_number": entry.DocumentNumber,
-		"items": items, "residuals": residuals}
+		"items": items, "residuals": residuals, "write_offs": writeOffs}
 	if err := audit.Record(ctx, action, "receivables.incoming_payment", v.ID, detail,
 		outbox.Event{Context: "receivables", Name: "incoming_payment_on_account_applied", AggregateType: "receivables.incoming_payment", AggregateID: v.ID,
 			Payload: payload}); err != nil {

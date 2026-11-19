@@ -30,6 +30,10 @@ type application struct {
 	lines         []Line
 	kinds         []string
 	residualLines []int32
+	// writeOffLines are each item's line written off by its reason (T75o),
+	// 0 for none, and writtenOff their total.
+	writeOffLines []int32
+	writtenOff    money.Minor
 	difference    money.Minor
 	onAccount     money.Minor
 	onAccountLine int32
@@ -110,28 +114,32 @@ func checkCredit(it item, le uuid.UUID, in ReceiptApplication, customerAccount m
 // rate; what is left on account and the difference take the receipt's,
 // so a receipt left whole on account realizes no exchange difference.
 func applicationLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid.UUID, items []item, offsets []Line) (application, error) {
-	a := application{lines: offsets, residualLines: make([]int32, len(in.Items))}
-	if err := a.residuals(in, items[1:]); err != nil {
+	a := application{lines: offsets, residualLines: make([]int32, len(in.Items)), writeOffLines: make([]int32, len(in.Items))}
+	receipt := items[0]
+	if err := a.residuals(in, receipt, items[1:]); err != nil {
 		return application{}, err
 	}
 	tc, _, _, err := lineTotals(a.lines)
 	if err != nil {
 		return application{}, err
 	}
-	receipt := items[0]
-	d := -tc // what the items, net of their residuals, exceed the receipt by
+	d := -tc // what the items, net of their residuals and write-offs, exceed the receipt by
 	lc, gc, err := receiptRate(receipt, d)
 	if err != nil {
 		return application{}, err
 	}
+	onAccount := d < 0 && in.OnAccount != uuid.Nil
+	if err := a.withinTolerance(ctx, tx, in, receipt, d, onAccount); err != nil {
+		return application{}, err
+	}
 	switch {
-	case d < 0 && in.OnAccount != uuid.Nil:
+	case onAccount:
 		customer := in.CustomerID
 		a.onAccount = -d
 		a.onAccountLine = a.add(Line{AccountID: in.OnAccount, PartnerID: &customer, TC: d, LC: lc, GC: gc, Text: in.HeaderText},
 			"The customer's reconciliation account the credit is left on")
 	case d != 0:
-		if err := a.writeOff(ctx, tx, in, le, receipt, d, lc, gc); err != nil {
+		if err := a.writeOff(ctx, in, le, d, lc, gc); err != nil {
 			return application{}, err
 		}
 	}
@@ -149,7 +157,7 @@ func applicationLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le 
 	// A difference line takes the items' trading partner (ADR-0059 §4); the
 	// line left on account takes the customer's (deriveTradingPartners).
 	tp := sharedTradingPartner(items[1:])
-	for i := len(items) + countNonZero(a.residualLines); i < len(a.lines); i++ {
+	for i := len(items) + countNonZero(a.residualLines) + countNonZero(a.writeOffLines); i < len(a.lines); i++ {
 		if int32(i+1) != a.onAccountLine && a.lines[i].TradingPartnerID == nil {
 			a.lines[i].TradingPartnerID = tp
 		}
@@ -157,10 +165,13 @@ func applicationLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le 
 	return a, nil
 }
 
-// residuals adds each item's residual item: a debit of the customer on
-// the item's account, more than zero and less than the item, at the
-// item's own rate.
-func (a *application) residuals(in ReceiptApplication, items []item) error {
+// residuals adds each item's residual item, a debit of the customer on
+// the item's account at the item's own rate, or, for a residual its reason
+// writes off (T75o), a debit of the reason's account at the receipt's
+// rate, as the payment difference is; either is more than zero and less
+// than the item.
+func (a *application) residuals(in ReceiptApplication, receipt item, items []item) error {
+	var off []money.Minor
 	for i, r := range in.Residuals {
 		if r.Amount == 0 {
 			continue
@@ -171,47 +182,88 @@ func (a *application) residuals(in ReceiptApplication, items []item) error {
 				"which is an amount the customer owes; what is left of a credit is not a residual.",
 				problem.FieldError{Field: fmt.Sprintf("items[%d].residual.amount", i), Code: "invalid", Message: "more than zero and less than the item"})
 		}
-		// A share of less than the whole of an amount in range is in range:
-		// prorate cannot fail here.
-		lc, _ := prorate(it.lc, r.Amount, it.tc)
-		gc, _ := prorate(it.gc, r.Amount, it.tc)
 		text := r.Text
 		if text == nil {
 			text = in.HeaderText
 		}
+		if r.WriteOff != uuid.Nil {
+			// Less than an item in range: the share of the receipt is in range.
+			lc, gc, _ := receiptRate(receipt, r.Amount)
+			off = append(off, r.Amount)
+			a.writeOffLines[i] = a.add(Line{AccountID: r.WriteOff, TC: r.Amount, LC: lc, GC: gc, Text: text},
+				"Item "+fmt.Sprint(i+1)+"'s write-off account, its reason's")
+			continue
+		}
+		// A share of less than the whole of an amount in range is in range:
+		// prorate cannot fail here.
+		lc, _ := prorate(it.lc, r.Amount, it.tc)
+		gc, _ := prorate(it.gc, r.Amount, it.tc)
 		a.residualLines[i] = a.add(Line{AccountID: it.account, PartnerID: it.partner, TC: r.Amount, LC: lc, GC: gc, Text: text, TradingPartnerID: it.tradingPartner,
 			offsets: true}, "Item "+fmt.Sprint(i+1)+"'s account, which its residual item is posted to")
+	}
+	var err error
+	if a.writtenOff, err = money.Sum(off...); err != nil {
+		return errTotalTooLarge("items")
 	}
 	return nil
 }
 
-// writeOff books the payment difference d, an underpayment when positive,
-// on the account determination's payment_difference_expense or, an
-// overpayment, payment_difference_revenue, when the tolerance of its
-// direction allows it: its local amount at most the limit's amount and d
-// at most the limit's percent of the items applied, net of their
-// residuals (the lower binds, SAP OBA3). Anything more is refused, 422
-// ledger.clearing_not_balanced, as an application that does not balance
-// always was.
-func (a *application) writeOff(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid.UUID, receipt item, d, lc, gc money.Minor) error {
-	limit, key, what := in.Under, "payment_difference_expense", "an underpayment"
-	if d < 0 {
-		limit, key, what = in.Over, "payment_difference_revenue", "an overpayment"
+// withinTolerance refuses a payment difference beyond the tolerance of
+// its direction: what the items, net of their residual items, differ from
+// the receipt by, d and what their reasons wrote off together (T75o),
+// less d when it is left on account (onAccount). The difference is within
+// it when its local amount is at most the limit's amount and it is at most
+// the limit's percent of the items applied, net of their residual items
+// (the lower binds, SAP OBA3); none is always within it. Anything more is
+// refused, 422 ledger.clearing_not_balanced, as an application that does
+// not balance always was.
+func (a *application) withinTolerance(ctx context.Context, tx pgx.Tx, in ReceiptApplication, receipt item, d money.Minor, onAccount bool) error {
+	total := a.writtenOff
+	var err error
+	if !onAccount {
+		if total, err = money.Sum(d, a.writtenOff); err != nil {
+			return errTotalTooLarge("items")
+		}
 	}
-	base, err := money.Diff(d, receipt.tc) // the items applied, net of their residuals: the receipt and the difference
+	if total == 0 {
+		return nil
+	}
+	limit, what := in.Under, "an underpayment"
+	if total < 0 {
+		limit, what = in.Over, "an overpayment"
+	}
+	// The items applied, net of their residual items: the receipt, the
+	// difference and what was written off.
+	base, err := money.Sum(-receipt.tc, d, a.writtenOff)
 	if err != nil {
 		return errTotalTooLarge("items")
 	}
-	if !withinTolerance(limit, d, lc, base) {
-		exps, err := exponents(ctx, tx, in.Currency)
-		if err != nil {
-			return err
-		}
-		exp := exps[in.Currency]
-		return problem.Unprocessable("ledger.clearing_not_balanced", fmt.Sprintf("The items applied, net of their residual items, differ from the receipt of %s %s by %s: "+
-			"%s beyond the company's payment tolerance (companies[].receivables.payment_tolerance). Leave a residual item, apply other items or leave the rest on the customer's account.",
-			(-receipt.tc).Plain(exp), in.Currency, d.Plain(exp), what),
-			problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that total the receipt, within the payment tolerance"})
+	lc, _, err := receiptRate(receipt, total)
+	if err != nil {
+		return err
+	}
+	if withinLimit(limit, total, lc, base) {
+		return nil
+	}
+	exps, err := exponents(ctx, tx, in.Currency)
+	if err != nil {
+		return err
+	}
+	exp := exps[in.Currency]
+	return problem.Unprocessable("ledger.clearing_not_balanced", fmt.Sprintf("The items applied, net of their residual items, differ from the receipt of %s %s by %s: "+
+		"%s beyond the company's payment tolerance (companies[].receivables.payment_tolerance). Leave a residual item, apply other items or leave the rest on the customer's account.",
+		(-receipt.tc).Plain(exp), in.Currency, total.Plain(exp), what),
+		problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that total the receipt, within the payment tolerance"})
+}
+
+// writeOff books the payment difference d, within the tolerance
+// (withinTolerance), an underpayment when positive, on the account
+// determination's payment_difference_expense or, an overpayment,
+// payment_difference_revenue, at the receipt's rate (lc, gc).
+func (a *application) writeOff(ctx context.Context, in ReceiptApplication, le uuid.UUID, d, lc, gc money.Minor) error {
+	key, what := "payment_difference_expense", "an underpayment"
+	if d < 0 {
+		key, what = "payment_difference_revenue", "an overpayment"
 	}
 	account, ok, err := Accounts{}.Determination(ctx, le, key)
 	if err != nil {
@@ -226,10 +278,10 @@ func (a *application) writeOff(ctx context.Context, tx pgx.Tx, in ReceiptApplica
 	return nil
 }
 
-// withinTolerance reports whether a payment difference of d, lc in local currency,
+// withinLimit reports whether a payment difference of d, lc in local currency,
 // is within the limit on items applied of base: lc at most its amount and
 // d at most its percent of base, both limits above zero.
-func withinTolerance(limit config.ToleranceLimit, d, lc, base money.Minor) bool {
+func withinLimit(limit config.ToleranceLimit, d, lc, base money.Minor) bool {
 	if limit.Amount <= 0 || limit.Percent == nil || limit.Percent.Sign() <= 0 || base <= 0 || lc.Abs() > limit.Amount {
 		return false
 	}

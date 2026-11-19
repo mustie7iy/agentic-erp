@@ -56308,8 +56308,11 @@ type IncomingPaymentItem struct {
 	// payment's currency.
 	ExchangeRate OptDecimal `json:"exchange_rate"`
 	// The residual item the payment left of the item, paid in part; absent when the payment cleared it in
-	// full.
+	// full or its reason wrote the rest off.
 	Residual OptIncomingPaymentResidual `json:"residual"`
+	// What of the item, paid in part, its reason wrote off instead of leaving a residual item (T75o);
+	// absent otherwise.
+	WriteOff OptIncomingPaymentWriteOff `json:"write_off"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -56382,6 +56385,11 @@ func (s *IncomingPaymentItem) GetResidual() OptIncomingPaymentResidual {
 	return s.Residual
 }
 
+// GetWriteOff returns the value of WriteOff.
+func (s *IncomingPaymentItem) GetWriteOff() OptIncomingPaymentWriteOff {
+	return s.WriteOff
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *IncomingPaymentItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -56450,6 +56458,11 @@ func (s *IncomingPaymentItem) SetExchangeRate(val OptDecimal) {
 // SetResidual sets the value of Residual.
 func (s *IncomingPaymentItem) SetResidual(val OptIncomingPaymentResidual) {
 	s.Residual = val
+}
+
+// SetWriteOff sets the value of WriteOff.
+func (s *IncomingPaymentItem) SetWriteOff(val OptIncomingPaymentWriteOff) {
+	s.WriteOff = val
 }
 
 // An open item an incoming payment is applied to (fiscal_year, journal_entry_id, line_no), with what
@@ -56723,8 +56736,9 @@ func (s *IncomingPaymentResetDone) SetCreatedBy(val uuid.UUID) {
 type IncomingPaymentResidual struct {
 	// What stayed open of the item, in the payment's currency.
 	Amount Money `json:"amount"`
-	// Why the item was paid in part (`IncomingPaymentResidualCreate.reason`). Open enumeration: clients
-	// accept values they do not know.
+	// Why the item was paid in part (`IncomingPaymentResidualCreate.reason`), one of the company's
+	// residual reasons. Open enumeration: clients accept values they do not know, a company's own codes
+	// among them.
 	Reason string `json:"reason"`
 	// The free text on the reason; absent when none was given.
 	ReasonText OptString `json:"reason_text"`
@@ -56808,17 +56822,21 @@ func (s *IncomingPaymentResidual) SetLineNo(val int32) {
 	s.LineNo = val
 }
 
-// What stays open of an item the payment pays in part: a residual item of the customer for the amount,
-// linked to the item, with the item's due date (T75f).
+// What of an item the payment pays in part it does not pay: a residual item of the customer for the
+// amount, linked to the item, with the item's due date (T75f), or, when the reason's treatment is
+// `write_off`, the amount written off to the reason's account (T75o).
 // Ref: #/components/schemas/IncomingPaymentResidualCreate
 type IncomingPaymentResidualCreate struct {
-	// What stays open, in the receipt's currency: more than zero and less than the item, which is an
+	// What is not paid, in the receipt's currency: more than zero and less than the item, which is an
 	// amount the customer owes (an invoice).
 	Amount Money `json:"amount"`
-	// Why the item is paid in part. `short_payment`: the customer paid less without saying why;
-	// `disputed`: the customer disputes the rest; `deduction`: the customer deducted something it claims
-	// (a return, a fee); `other`: anything else, which `reason_text` says. Open enumeration: values may be
-	// added within /v1; one that is not known is refused.
+	// Why the item is paid in part: the code of one of the company's payment-difference reasons
+	// (`companies[].receivables.payment_difference_reasons`, T75o), whose treatment decides whether the
+	// amount stays open or is written off. A company that configures none has the four listed:
+	// `short_payment`, the customer paid less without saying why; `disputed`, the customer disputes the
+	// rest; `deduction`, the customer deducted something it claims (a return, a fee); `other`, anything
+	// else, which `reason_text` says; all four leave a residual item. Open enumeration: a company's own
+	// codes are values too; one the company does not have is refused.
 	Reason string `json:"reason"`
 	// A free text on the reason, as the remittance or the customer gave it.
 	ReasonText OptString `json:"reason_text"`
@@ -56852,6 +56870,134 @@ func (s *IncomingPaymentResidualCreate) SetReason(val string) {
 // SetReasonText sets the value of ReasonText.
 func (s *IncomingPaymentResidualCreate) SetReasonText(val OptString) {
 	s.ReasonText = val
+}
+
+// What of an item an incoming payment paid in part its reason wrote off (T75o, a reason whose
+// treatment is `write_off`): a debit line of the clearing entry on the reason's account, at the
+// receipt's rate; the item itself is cleared and nothing of it stays open.
+// Ref: #/components/schemas/IncomingPaymentWriteOff
+type IncomingPaymentWriteOff struct {
+	// What was written off, in the payment's currency.
+	Amount Money `json:"amount"`
+	// The code of the company's payment-difference reason that wrote it off
+	// (`companies[].receivables.payment_difference_reasons`).
+	Reason string `json:"reason"`
+	// The free text on the reason; absent when none was given.
+	ReasonText OptString `json:"reason_text"`
+	// The account it was written off to, the reason's (`GET /v1/accounts/{id}`).
+	AccountID uuid.UUID `json:"account_id"`
+	// That account's number.
+	AccountNumber string `json:"account_number"`
+	// That account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// Fiscal year of the clearing entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The clearing entry the write-off is a line of (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// That entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The write-off's line in the entry.
+	LineNo int32 `json:"line_no"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *IncomingPaymentWriteOff) GetAmount() Money {
+	return s.Amount
+}
+
+// GetReason returns the value of Reason.
+func (s *IncomingPaymentWriteOff) GetReason() string {
+	return s.Reason
+}
+
+// GetReasonText returns the value of ReasonText.
+func (s *IncomingPaymentWriteOff) GetReasonText() OptString {
+	return s.ReasonText
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *IncomingPaymentWriteOff) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *IncomingPaymentWriteOff) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *IncomingPaymentWriteOff) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *IncomingPaymentWriteOff) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPaymentWriteOff) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPaymentWriteOff) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *IncomingPaymentWriteOff) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// SetAmount sets the value of Amount.
+func (s *IncomingPaymentWriteOff) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetReason sets the value of Reason.
+func (s *IncomingPaymentWriteOff) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetReasonText sets the value of ReasonText.
+func (s *IncomingPaymentWriteOff) SetReasonText(val OptString) {
+	s.ReasonText = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *IncomingPaymentWriteOff) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *IncomingPaymentWriteOff) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *IncomingPaymentWriteOff) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *IncomingPaymentWriteOff) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPaymentWriteOff) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPaymentWriteOff) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *IncomingPaymentWriteOff) SetLineNo(val int32) {
+	s.LineNo = val
 }
 
 // A consolidation run's intercompany difference (ADR-0059 §8): a pair of its companies on an
@@ -77110,6 +77256,52 @@ func (o OptIncomingPaymentResidualCreate) Get() (v IncomingPaymentResidualCreate
 
 // Or returns value if set, or given parameter if does not.
 func (o OptIncomingPaymentResidualCreate) Or(d IncomingPaymentResidualCreate) IncomingPaymentResidualCreate {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptIncomingPaymentWriteOff returns new OptIncomingPaymentWriteOff with value set to v.
+func NewOptIncomingPaymentWriteOff(v IncomingPaymentWriteOff) OptIncomingPaymentWriteOff {
+	return OptIncomingPaymentWriteOff{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptIncomingPaymentWriteOff is optional IncomingPaymentWriteOff.
+type OptIncomingPaymentWriteOff struct {
+	Value IncomingPaymentWriteOff
+	Set   bool
+}
+
+// IsSet returns true if OptIncomingPaymentWriteOff was set.
+func (o OptIncomingPaymentWriteOff) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptIncomingPaymentWriteOff) Reset() {
+	var v IncomingPaymentWriteOff
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptIncomingPaymentWriteOff) SetTo(v IncomingPaymentWriteOff) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptIncomingPaymentWriteOff) Get() (v IncomingPaymentWriteOff, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptIncomingPaymentWriteOff) Or(d IncomingPaymentWriteOff) IncomingPaymentWriteOff {
 	if v, ok := o.Get(); ok {
 		return v
 	}

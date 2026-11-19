@@ -21239,43 +21239,51 @@ func (s *Server) handleCreateHierarchyRequest(args [0]string, argsEscaped bool, 
 // what stays open of it, more than zero and less than the item, which is an amount the customer owes
 // (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more than zero (422
 // `receivables.amount_not_positive`) in the receipt's currency (422 `receivables.currency_mismatch`),
-// with a reason (422 `receivables.unknown_residual_reason`) and, if wanted, a free text that is not
-// white space alone (422 `request.validation_failed`). Together the items, net of their residuals,
-// equal the receipt, but for a payment difference within the company's payment tolerance
+// with a reason, one of the company's payment-difference reasons
+// (`companies[].receivables.payment_difference_reasons`, SAP OBBE; a company that configures none has
+// `short_payment`, `disputed`, `deduction` and `other`; another is refused, 422
+// `receivables.unknown_residual_reason`), and, if wanted, a free text that is not white space alone
+// (422 `request.validation_failed`). The reason decides what becomes of the residual (T75o): a reason
+// whose treatment is `residual` leaves it open as a residual item, as below; one whose treatment is
+// `write_off` writes it off instead, a debit line of the clearing entry on the reason's account at the
+// receipt's rate, shown as the item's `write_off` (422 `receivables.no_write_off_account` when the
+// company's chart no longer has that account), and what reasons write off counts with the payment
+// difference against the payment tolerance. Together the items, net of their residuals, equal the
+// receipt, but for a payment difference within the company's payment tolerance
 // (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's
-// currency and a percent of the items applied, the lower binding; none configured, none allowed);
-// anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No
-// cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`,
-// offsets the receipt and every item at the amounts they were booked at and clears them all; each
-// residual is a new open item of the customer, a debit line of that entry on the item's account at the
-// item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item
-// did; a difference is a line on the company's `payment_difference_expense` account (an underpayment)
-// or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
-// `ledger.no_payment_difference_account` without it); what that leaves in local or group currency,
-// receipt and items having been booked at different rates, is a realized exchange difference on the
-// company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date
-// is the request's, else today, the company's date in its time zone; it must be in an open period (409
-// `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items,
-// since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming
-// `posting_date`, its message giving that date). With `on_account`, what the receipt leaves after the
-// items, the whole receipt when there are none, is posted to the customer's reconciliation account
-// (its company data, 422 `receivables.customer_not_usable` without it) as a credit of the customer's
-// at the receipt's rate, a line of the clearing entry, which `applyIncomingPaymentOnAccount` applies
-// later; an overpayment is then left on account rather than kept within the tolerance, and something
-// must be left (422 `receivables.nothing_left_on_account`); without it the items are required (422
-// `ledger.no_items`). The application is a document with a number from the company's
-// `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A
-// receipt that is not waiting on an incoming payments clearing account of the company is refused, 422
-// `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
-// `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an
-// open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as
-// are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a
-// cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409
-// `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`) and one a payment run
-// holds (409 `ledger.item_reserved`), each naming its place in the request as the field `items[i]`.
-// Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers
-// the payment applied; another request for the same receipt is refused while the payment is applied.
-// `resetIncomingPayment` undoes it (T75i). Human-only (`x-agent: false`).
+// currency and a percent of the items applied, the lower binding; none configured, none allowed), what
+// reasons write off included; anything more is refused, 422 `ledger.clearing_not_balanced`, its
+// message giving the difference. No cash discount is granted. One clearing entry, document type `DZ`,
+// `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked
+// at and clears them all; each residual is a new open item of the customer, a debit line of that entry
+// on the item's account at the item's rate, with the item's payment terms but no cash discount tier,
+// so it falls due when the item did; a difference is a line on the company's
+// `payment_difference_expense` account (an underpayment) or `payment_difference_revenue` account (an
+// overpayment), at the receipt's rate (422 `ledger.no_payment_difference_account` without it); what
+// that leaves in local or group currency, receipt and items having been booked at different rates, is
+// a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422
+// `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's
+// date in its time zone; it must be in an open period (409 `ledger.period_not_open`) and on or after
+// the latest posting date of the receipt and the items, since nothing is cleared before it was posted
+// (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). With
+// `on_account`, what the receipt leaves after the items, the whole receipt when there are none, is
+// posted to the customer's reconciliation account (its company data, 422
+// `receivables.customer_not_usable` without it) as a credit of the customer's at the receipt's rate, a
+// line of the clearing entry, which `applyIncomingPaymentOnAccount` applies later; an overpayment is
+// then left on account rather than kept within the tolerance, and something must be left (422
+// `receivables.nothing_left_on_account`); without it the items are required (422 `ledger.no_items`).
+// The application is a document with a number from the company's `incoming_payment` number range; an
+// audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an
+// incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open`
+// naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming
+// payment applied it. An item that is not an open item on a reconciliation account of the company is
+// refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account
+// (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a
+// reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`) and
+// one a payment run holds (409 `ledger.item_reserved`), each naming its place in the request as the
+// field `items[i]`. Nothing is posted when the application is refused. A retry with the same
+// `Idempotency-Key` answers the payment applied; another request for the same receipt is refused while
+// the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only (`x-agent: false`).
 //
 // POST /v1/incoming-payments
 func (s *Server) handleCreateIncomingPaymentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

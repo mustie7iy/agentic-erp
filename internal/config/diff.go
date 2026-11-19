@@ -105,6 +105,9 @@ var tierRules = []struct {
 	// the profit and loss account (T75f): tier 3, as the accounts it posts
 	// to are.
 	{rx(`^companies\[\*\]\.receivables\.payment_tolerance`), TierPostingRelated},
+	// A payment-difference reason decides what is written off to profit
+	// and loss and where (T75o), as the tolerance does.
+	{rx(`^companies\[\*\]\.receivables\.payment_difference_reasons`), TierPostingRelated},
 	{rx(`^(ledgers|ledger_groups)\[\*\]\.name$`), TierCosmetic},
 	{rx(`^ledgers`), TierStructural},
 	// A group decides which ledgers a posting naming it reaches (T52b).
@@ -268,6 +271,8 @@ var listKeys = map[string]string{
 	"retention": "kind",
 	// A company's expense types by code (ADR-0074 §2).
 	"expense_types": "code",
+	// A company's payment-difference reasons by code (ADR-0063 §6, T75o).
+	"payment_difference_reasons": "code",
 	// Condition types and customer price groups by code (ADR-0067 §11,
 	// §13); the procedure's steps are listed by position, since their
 	// order is the setting.

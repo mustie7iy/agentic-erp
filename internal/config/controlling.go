@@ -122,7 +122,8 @@ func determinationKeys(ad AccountDetermination) [][2]string {
 // tax codes in the single-rate form and each component's account (T61a: a
 // multi-component code posts each tax to its component's account),
 // withholding tax codes, the revaluation's accounts, the house banks'
-// accounts and the bank statement posting rules. Every check of automatic
+// accounts, the bank statement posting rules and the write-off accounts of
+// the payment-difference reasons (T75o). Every check of automatic
 // accounts reads this one list, so a new kind of setting is added here.
 func (c *Company) AutomaticAccounts() []AutomaticAccount {
 	var out []AutomaticAccount
@@ -162,6 +163,9 @@ func (c *Company) AutomaticAccounts() []AutomaticAccount {
 	}
 	for _, r := range c.BankStatements.PostingRules {
 		add("bank_statements.posting_rules["+r.TransactionCode+"].account", r.Account)
+	}
+	for _, r := range c.Receivables.PaymentDifferenceReasons {
+		add("receivables.payment_difference_reasons["+r.Code+"].account", r.Account)
 	}
 	return out
 }

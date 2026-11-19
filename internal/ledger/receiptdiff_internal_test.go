@@ -21,10 +21,28 @@ func TestApplicationAmountsOutOfRange(t *testing.T) {
 	if _, _, _, err := lineTotals([]Line{{TC: math.MaxInt64}, {TC: math.MaxInt64}}); err == nil {
 		t.Error("lineTotals: got no error, want the total too large")
 	}
-	var a application
-	if err := a.writeOff(context.Background(), nil, ReceiptApplication{}, uuid.Nil, item{tc: -math.MaxInt64}, math.MaxInt64, 0, 0); err == nil {
-		t.Error("writeOff: got no error, want the items applied too large")
+	for name, c := range map[string]struct {
+		a       application
+		receipt item
+		d       money.Minor
+	}{
+		"the items applied":                       {application{}, item{tc: -math.MaxInt64}, math.MaxInt64},
+		"the difference and what was written off": {application{writtenOff: math.MaxInt64}, item{tc: -1}, 1},
+		"the difference at the receipt's rate":    {application{}, item{tc: -1, lc: -math.MaxInt64 / 2}, 3},
+	} {
+		t.Run("withinTolerance: "+name, func(t *testing.T) {
+			if err := c.a.withinTolerance(context.Background(), nil, ReceiptApplication{}, c.receipt, c.d, false); err == nil {
+				t.Error("got no error, want the amounts too large")
+			}
+		})
 	}
+	t.Run("residuals: what is written off", func(t *testing.T) {
+		a := application{residualLines: make([]int32, 2), writeOffLines: make([]int32, 2)}
+		in := ReceiptApplication{Residuals: []Residual{{Amount: math.MaxInt64 - 1, WriteOff: uuid.New()}, {Amount: math.MaxInt64 - 1, WriteOff: uuid.New()}}}
+		if err := a.residuals(in, item{tc: -1}, []item{{tc: math.MaxInt64}, {tc: math.MaxInt64}}); err == nil {
+			t.Error("got no error, want the total written off too large")
+		}
+	})
 	for name, c := range map[string]struct {
 		receipt item
 		offsets []Line
@@ -48,9 +66,9 @@ func TestApplicationAmountsOutOfRange(t *testing.T) {
 	}
 }
 
-// TestWithinTolerance: a difference is within a limit when both its
+// TestWithinLimit: a difference is within a limit when both its
 // amount and its percent of the items applied allow it.
-func TestWithinTolerance(t *testing.T) {
+func TestWithinLimit(t *testing.T) {
 	limit := config.ToleranceLimit{Amount: 500, Percent: big.NewRat(1, 1)}
 	for _, c := range []struct {
 		name        string
@@ -67,7 +85,7 @@ func TestWithinTolerance(t *testing.T) {
 		{"an overpayment", limit, -5, -5, 10000, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if got := withinTolerance(c.limit, c.d, c.lc, c.base); got != c.want {
+			if got := withinLimit(c.limit, c.d, c.lc, c.base); got != c.want {
 				t.Errorf("got %v, want %v", got, c.want)
 			}
 		})

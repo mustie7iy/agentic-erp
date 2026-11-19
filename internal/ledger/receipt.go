@@ -76,10 +76,13 @@ type ReceiptApplication struct {
 }
 
 // Residual is what stays open of an item paid in part, with the text its
-// line carries (nil: the application's header text).
+// line carries (nil: the application's header text). WriteOff is the
+// account its reason writes it off to instead (T75o), uuid.Nil for a
+// residual item.
 type Residual struct {
-	Amount money.Minor
-	Text   *string
+	Amount   money.Minor
+	Text     *string
+	WriteOff uuid.UUID
 }
 
 // AppliedReceipt is a receipt applied: the clearing entry, what the
@@ -95,8 +98,10 @@ type AppliedReceipt struct {
 	// application's CustomerID or one of its OtherCustomers.
 	Customers []uuid.UUID
 	// ResidualLines are the entry's line of each item's residual item, in
-	// the order of Items; 0 for an item paid in full.
+	// the order of Items; 0 for an item paid in full. WriteOffLines are
+	// likewise the line of what each item's reason wrote off (T75o).
 	ResidualLines []int32
+	WriteOffLines []int32
 	// Difference is what the items, net of their residuals, exceed the
 	// receipt by and was written off: positive an underpayment, negative an
 	// overpayment, zero for none.
@@ -180,7 +185,7 @@ func (p Postings) ApplyReceipt(ctx context.Context, in ReceiptApplication) (Appl
 		return AppliedReceipt{}, err
 	}
 	out := AppliedReceipt{Entry: entry, Receipt: -first.tc, Items: make([]money.Minor, len(in.Items)), Customers: make([]uuid.UUID, len(in.Items)),
-		ResidualLines: plan.residualLines, Difference: plan.difference, OnAccount: plan.onAccount, OnAccountLine: plan.onAccountLine,
+		ResidualLines: plan.residualLines, WriteOffLines: plan.writeOffLines, Difference: plan.difference, OnAccount: plan.onAccount, OnAccountLine: plan.onAccountLine,
 		Translations: plan.translations}
 	for i, it := range items[1:] {
 		out.Items[i], out.Customers[i] = it.tc, *it.partner // a customer's item names its customer (checkCustomerItem)

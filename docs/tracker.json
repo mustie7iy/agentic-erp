@@ -1212,9 +1212,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A company configures its payment-difference reason codes (companies[].receivables.payment_difference_reasons: code, description, residual or write_off, the write-off account); an item's residual names one, and the reason decides whether the difference stays open as a residual item or is written off to its account within the tolerance, in place of the four fixed reasons",
-        "r": "T75o · docs/design/plan-depth-3.md §T75o · ADR-0063 §6 and As built",
+        "r": "T75o · docs/design/plan-depth-3.md §T75o · companies[].receivables.payment_difference_reasons (internal/config/receivables.go, tier 3) · residual.reason from configuration and write_off on IncomingPaymentItem (422 receivables.no_write_off_account) · db/migrations/000396 · ledger.Residual.WriteOff, AppliedReceipt.WriteOffLines (internal/ledger/receiptdiff.go) · TestDifferenceReasonsValid, TestDifferenceReasonsTier, TestApplyReceiptWriteOff, TestReasonWritesOff, TestReasonRefusals, db TestIncomingPaymentWriteOffRules · walkthrough step_payment_difference_reasons · ADR-0063 §6 and As built T75o",
         "src": "split:T75c · adr:ADR-0063",
         "c": []
        },

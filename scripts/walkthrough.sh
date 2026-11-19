@@ -14229,6 +14229,72 @@ step_receipt_other_currency() {
   passed
 }
 
+# step_payment_difference_reasons is T75o (ADR-0063 §6 As built): Ada
+# configures Maple's payment-difference reasons through a governed change
+# (tier 3, as the tolerance): short_payment and disputed leave a residual
+# item, bank_charges writes the difference off to 6850. Northwind pays CAD
+# 496.00 of an invoice of 500.00, its bank having taken 4.00: deduction,
+# one of the four reasons Maple had before configuring its own, is refused
+# now; with bank_charges the invoice is cleared, nothing stays open and
+# the 4.00 is on 6850, within the tolerance (CAD 5.00 and 1%).
+step_payment_difference_reasons() {
+  heading "Step 136 — Payment-difference reasons from configuration: a company's own reasons, one writing the difference off to its account instead of leaving a residual item"
+  local base cr request body payment clearing
+  [ -n "$CUSTOMER" ] || fail "step 47's customer is not there"
+  as ada
+  say "Maple's AR accountants have given T75f's four reasons for short payments. Ada configures Maple's own (T75o, SAP's"
+  say "reason codes): short payments and disputes stay open as residual items, and the charges a customer's bank takes"
+  say "are written off to 6850. What is written off reaches profit and loss, so the change is posting-related (tier 3):"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq --arg cc "$CC" --argjson base "$base" '{title: "Payment-difference reasons", rationale: "Maple'"'"'s reasons for short payments (T75o)",
+    base_version: $base, proposed: (.items[0].document | .companies |= map(if .code == $cc then .receivables.payment_difference_reasons = [
+      {code: "short_payment", description: "The customer paid less without saying why", treatment: "residual"},
+      {code: "disputed", description: "The customer disputes the rest", treatment: "residual"},
+      {code: "bank_charges", description: "Charges the customer'"'"'s bank took", treatment: "write_off", account: "6850"}] else . end))}' \
+    "$WORK/last.json" >"$WORK/reasons.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @reasons.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 3
+  QUIET=1 api 201 '' createRegressionSuite -body '{"name": "Before the payment-difference reasons", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The reasons AR gives for short payments"
+  approve carla "$request" "Bank charges written off to customer payment differences, within the tolerance"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  say "Maple invoices Northwind CAD 500.00; Northwind pays it, but its bank takes CAD 4.00 on the way: 496.00 arrives."
+  northwind_invoice 500.00
+  northwind_receipt 496.00
+  as ruth
+  body="{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$INVOICE_ENTRY\", \"line_no\": 1, \"residual\": {\"amount\": {\"amount\": \"4.00\", \"currency\": \"CAD\"}, \"reason\""
+  say "Ruth gives the 4.00 the reason deduction, as she used to: Maple no longer has it, and the refusal lists its reasons:"
+  refused 422 receivables.unknown_residual_reason createIncomingPayment -body "$body: \"deduction\"}}]}"
+  expect "the refused field" "$(field '.errors[0].field')" "items[0].residual.reason"
+  say "With bank_charges, the 4.00 is written off to 6850 instead of staying open; the invoice is cleared:"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency), difference \(.difference.amount)", (.items[] | "  item \(.item_no): \(.amount.amount), written off \(.write_off.amount.amount) to \(.write_off.account_number) \(.write_off.account_name) (\(.write_off.reason)), residual \(.residual.amount.amount // "none")")' \
+    createIncomingPayment -body "$body: \"bank_charges\", \"reason_text\": \"Wire charges of Northwind's bank\"}}]}"
+  payment=$(field .id)
+  clearing=$(field .journal_entry_id)
+  expect "the write-off" "$(field '.items[0] | "\(.write_off.amount.amount) \(.write_off.account_number) \(.write_off.reason) \(.residual == null)"')" "4.00 6850 bank_charges true"
+  expect "the customer's part" "$(field '"\(.customers[0].amount.amount) \(.difference.amount)"')" "496.00 0.00"
+  QUIET=1 api 200 '' getJournalEntry -p "id=$clearing"
+  expect "the clearing entry" "$(field '[.lines[] | "\(.account_id) \(.amount.amount)"] | join(", ")')" \
+    "$(account 1015) 496.00, $(account 1200) -500.00, $(account 6850) 4.00"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the invoice open, or a residual of it" "$(field "[.items[] | select(.journal_entry_id == \"$INVOICE_ENTRY\" or .journal_entry_id == \"$clearing\")] | length")" 0
+  QUIET=1 api 200 '' getIncomingPayment -p "id=$payment"
+  expect "the payment read back" "$(field '.items[0].write_off.reason_text')" "Wire charges of Northwind's bank"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -16259,7 +16325,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_receipt_other_currency step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_receipt_other_currency step_payment_difference_reasons step_close'
 
 main() {
   stop_unseen

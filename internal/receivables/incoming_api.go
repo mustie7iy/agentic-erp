@@ -22,7 +22,8 @@ import (
 
 // paymentReferences are what incoming payments name by id, as their
 // consumer reads them (REVIEW.md, API-consumer classes): the companies,
-// the customers, the receipts' accounts, the journal entries (the
+// the customers, the receipts' and the write-offs' accounts, the journal
+// entries (the
 // receipt, the clearing entry, the items') by document number and, for
 // the items, by reference, and the bank statement line that posted each
 // receipt.
@@ -59,6 +60,9 @@ func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPa
 		}
 		for _, it := range v.Items {
 			items, partners = append(items, it.EntryID), append(partners, it.CustomerID)
+			if it.WriteOffAccount != nil {
+				accounts = append(accounts, *it.WriteOffAccount)
+			}
 		}
 		refs.parts[v.ID] = v.Parts()
 		if _, ok := refs.companies[v.LegalEntityID]; ok {
@@ -134,6 +138,9 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 				ReasonText: apitypes.OptString(it.ResidualText), FiscalYear: int32(year), JournalEntryID: entry, JournalEntryNumber: refs.numbers[entry],
 				LineNo: *it.ResidualLineNo})
 		}
+		if it.WriteOffAmount != nil { // stored with its line, account and reason (incoming_payment_item_write_off)
+			out.Items[i].WriteOff.SetTo(writeOffToAPI(v, it, refs))
+		}
 	}
 	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, v.Currency, v.Exponent) }
 	for i, a := range v.Applications {
@@ -156,6 +163,16 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 		out.OnAccount.SetTo(on)
 	}
 	return out
+}
+
+// writeOffToAPI is what an item's reason wrote off (T75o) as the API gives
+// it, with its account's number and name and its clearing entry's number.
+func writeOffToAPI(v IncomingPayment, it PaymentItem, refs paymentReferences) gen.IncomingPaymentWriteOff {
+	year, entry := v.clearing(it.ApplicationNo)
+	account := refs.accounts[*it.WriteOffAccount]
+	return gen.IncomingPaymentWriteOff{Amount: apitypes.Money(*it.WriteOffAmount, v.Currency, v.Exponent), Reason: *it.WriteOffReason,
+		ReasonText: apitypes.OptString(it.WriteOffText), AccountID: *it.WriteOffAccount, AccountNumber: account.Number, AccountName: account.Name,
+		FiscalYear: int32(year), JournalEntryID: entry, JournalEntryNumber: refs.numbers[entry], LineNo: *it.WriteOffLineNo}
 }
 
 // resetToAPI is an undoing as the API gives it, with its reversal's

@@ -64,6 +64,14 @@ type PaymentItem struct {
 	// ApplicationNo is the application of the payment's credit on account
 	// that applied the item (T75g); 0 for the payment itself.
 	ApplicationNo int32 `json:"application_no"`
+	// What the item's reason wrote off of it instead of leaving a residual
+	// item (T75o): the amount, its line in the clearing entry, the account
+	// and the reason; nil for none.
+	WriteOffAmount  *money.Minor `json:"write_off_amount"`
+	WriteOffLineNo  *int32       `json:"write_off_line_no"`
+	WriteOffAccount *uuid.UUID   `json:"write_off_account_id"`
+	WriteOffReason  *string      `json:"write_off_reason"`
+	WriteOffText    *string      `json:"write_off_reason_text"`
 	// An item in another currency than the payment's (T75n): its own
 	// currency, with that currency's minor-unit digits, its own amount,
 	// signed as Amount, and the rate it was translated at; nil for an item
@@ -135,7 +143,8 @@ const paymentSelect = `SELECT p.id, p.document_number, p.legal_entity_id, p.cust
 			'line_no', t.line_no, 'amount', t.amount, 'residual_amount', t.residual_amount, 'residual_line_no', t.residual_line_no,
 			'residual_reason', t.residual_reason, 'residual_reason_text', t.residual_reason_text, 'application_no', t.application_no,
 			'item_currency', t.item_currency, 'item_exponent', (SELECT x.exponent FROM ref.currency x WHERE x.code = t.item_currency), 'item_amount', t.item_amount,
-			'exchange_rate', t.exchange_rate::text) ORDER BY t.item_no)
+			'exchange_rate', t.exchange_rate::text, 'write_off_amount', t.write_off_amount, 'write_off_line_no', t.write_off_line_no,
+			'write_off_account_id', t.write_off_account_id, 'write_off_reason', t.write_off_reason, 'write_off_reason_text', t.write_off_reason_text) ORDER BY t.item_no)
 		 FROM receivables.incoming_payment_item t WHERE t.tenant_id = p.tenant_id AND t.incoming_payment_id = p.id), '[]'),
 		p.on_account_amount, p.on_account_line_no, p.on_account_account_id,
 		coalesce((SELECT json_agg(json_build_object('application_no', a.application_no, 'posting_date', a.posting_date, 'credit_entry_year', a.credit_entry_year,
@@ -466,21 +475,22 @@ type receiptApplication struct {
 }
 
 // receiptApplication reads what the request asks for into the ledger's
-// application of the receipt; the payment's id is the clearing entry's
-// source document.
+// application of the receipt, its residuals read by the company's
+// payment-difference rules (differenceRules); the payment's id is the
+// clearing entry's source document.
 func (e *Endpoints) receiptApplication(ctx context.Context, tx pgx.Tx, le tenancy.Entity, customer partner.Named, in PaymentInput, receipt ledger.Receipt,
 	id uuid.UUID) (receiptApplication, error) {
-	residuals, err := residualsOf(in.Residuals, len(in.Items), receipt.Currency, receipt.Exponent)
+	rules, err := e.differenceRules(ctx, tx, le)
 	if err != nil {
 		return receiptApplication{}, err
 	}
-	under, over, err := e.tolerance(ctx, tx, le)
+	residuals, err := residualsOf(in.Residuals, len(in.Items), receipt.Currency, receipt.Exponent, rules)
 	if err != nil {
 		return receiptApplication{}, err
 	}
 	text := "Incoming payment of customer " + customer.Number
 	app := ledger.ReceiptApplication{LegalEntityID: le.ID, DocumentType: PaymentDocumentType, Currency: receipt.Currency, ReceiptAccountID: receipt.AccountID,
-		Receipt: receipt.Item, CustomerID: in.CustomerID, OtherCustomers: in.OtherCustomers, Items: in.Items, Residuals: residuals, Under: under, Over: over, HeaderText: &text,
+		Receipt: receipt.Item, CustomerID: in.CustomerID, OtherCustomers: in.OtherCustomers, Items: in.Items, Residuals: residuals, Under: rules.under, Over: rules.over, HeaderText: &text,
 		SourceContext: "receivables", SourceDocumentID: id}
 	if in.OnAccount {
 		if app.OnAccount, err = e.customerAccount(ctx, in.CustomerID, le); err != nil {
@@ -507,6 +517,16 @@ func (e *Endpoints) customerAccount(ctx context.Context, customer uuid.UUID, le 
 	return c.ReconciliationID, nil
 }
 
+// writeOffs are the columns of what the items' reasons wrote off (T75o),
+// one per item, nil for none.
+type writeOffs struct {
+	amounts  []*money.Minor
+	lines    []*int32
+	accounts []*uuid.UUID
+	reasons  []*string
+	texts    []*string
+}
+
 // applying is what an application applies: the items, with the residuals
 // as the request gave them and as read (residualsOf), each one per item or
 // none.
@@ -518,30 +538,38 @@ type applying struct {
 
 // insertPaymentItems writes the items of an application, numbered from after
 // the first, in the request's order, each with the amount the ledger
-// cleared it at, its residual item, if it left one, and for an item in
-// another currency its own amount and rate (T75n).
+// cleared it at, its residual item or what its reason wrote off (T75o),
+// if either, and for an item in another currency its own amount and rate
+// (T75n).
 func insertPaymentItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, first, application int32, a applying, applied ledger.AppliedReceipt) error {
 	n := len(a.items)
 	nos, years, entries, lines := make([]int32, n), make([]int16, n), make([]uuid.UUID, n), make([]int32, n)
 	amounts, residualLines, reasons, texts := make([]*money.Minor, n), make([]*int32, n), make([]*string, n), make([]*string, n)
 	currencies, owns, rates := make([]*string, n), make([]*money.Minor, n), make([]*string, n)
+	off := writeOffs{amounts: make([]*money.Minor, n), lines: make([]*int32, n), accounts: make([]*uuid.UUID, n), reasons: make([]*string, n), texts: make([]*string, n)}
 	for i, it := range a.items {
 		nos[i], years[i], entries[i], lines[i] = first+int32(i+1), it.FiscalYear, it.EntryID, it.LineNo
 		if line := applied.ResidualLines[i]; line != 0 { // a residual the request gave (residualsOf)
 			amount := a.residuals[i].Amount
 			amounts[i], residualLines[i], reasons[i], texts[i] = &amount, &line, &a.inputs[i].Reason, a.inputs[i].Text
 		}
+		if line := applied.WriteOffLines[i]; line != 0 { // a residual its reason wrote off (residualsOf, T75o)
+			amount, account := a.residuals[i].Amount, a.residuals[i].WriteOff
+			off.amounts[i], off.lines[i], off.accounts[i], off.reasons[i], off.texts[i] = &amount, &line, &account, &a.inputs[i].Reason, a.inputs[i].Text
+		}
 		if tr := applied.Translations[i]; tr.Currency != "" { // translated into the payment's currency (T75n)
 			currencies[i], owns[i], rates[i] = &tr.Currency, &tr.Amount, &tr.Rate
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
-			residual_amount, residual_line_no, residual_reason, residual_reason_text, application_no, customer_id, item_currency, item_amount, exchange_rate)
-		SELECT $1, $2, n, y, je, l, a, ra, rl, rr, rt, $12, c, ic, ia, xr
+			residual_amount, residual_line_no, residual_reason, residual_reason_text, application_no, customer_id, item_currency, item_amount, exchange_rate,
+			write_off_amount, write_off_line_no, write_off_account_id, write_off_reason, write_off_reason_text)
+		SELECT $1, $2, n, y, je, l, a, ra, rl, rr, rt, $12, c, ic, ia, xr, wa, wl, wc, wr, wt
 		FROM unnest($3::int[], $4::smallint[], $5::uuid[], $6::int[], $7::bigint[], $8::bigint[], $9::int[], $10::text[], $11::text[], $13::uuid[],
-			$14::text[], $15::bigint[], $16::numeric[]) AS x(n, y, je, l, a, ra, rl, rr, rt, c, ic, ia, xr)`,
+			$14::text[], $15::bigint[], $16::numeric[], $17::bigint[], $18::int[], $19::uuid[], $20::text[], $21::text[])
+			AS x(n, y, je, l, a, ra, rl, rr, rt, c, ic, ia, xr, wa, wl, wc, wr, wt)`,
 		tenant, id, nos, years, entries, lines, applied.Items, amounts, residualLines, reasons, texts, application, applied.Customers,
-		currencies, owns, rates); err != nil {
+		currencies, owns, rates, off.amounts, off.lines, off.accounts, off.reasons, off.texts); err != nil {
 		return fmt.Errorf("receivables: write items of incoming payment %s: %w", id, err)
 	}
 	return nil
@@ -557,8 +585,8 @@ type CustomerPart struct {
 // Parts are the customers whose items the payment applied with its
 // receipt, the payer first (its part zero when none of the items was its
 // own), then the others in the order of their first item, each with its
-// part. The parts, less the difference and with what was left on account,
-// are the receipt.
+// part, net of residuals and of what reasons wrote off (T75o). The parts,
+// less the difference and with what was left on account, are the receipt.
 func (v IncomingPayment) Parts() []CustomerPart {
 	var customers []uuid.UUID
 	var amounts []money.Minor
@@ -567,8 +595,10 @@ func (v IncomingPayment) Parts() []CustomerPart {
 			continue // applied with a credit on account, the payer's own
 		}
 		customers, amounts = append(customers, it.CustomerID), append(amounts, it.Amount)
-		if it.ResidualAmount != nil {
-			customers, amounts = append(customers, it.CustomerID), append(amounts, -*it.ResidualAmount)
+		for _, r := range []*money.Minor{it.ResidualAmount, it.WriteOffAmount} {
+			if r != nil {
+				customers, amounts = append(customers, it.CustomerID), append(amounts, -*r)
+			}
 		}
 	}
 	parts, _ := customerParts(v.CustomerID, customers, amounts) // in range: ApplyPayment refused a part out of range (requireApplied)
@@ -609,6 +639,22 @@ func (v IncomingPayment) partsPayload(parts []CustomerPart, names map[uuid.UUID]
 	return out
 }
 
+// residualCounts counts the residual items the application with the
+// number left (0: the payment's own) and the items its reasons wrote off
+// (T75o).
+func (v IncomingPayment) residualCounts(application int32) (residuals, writeOffs int) {
+	for _, it := range v.Items {
+		switch {
+		case it.ApplicationNo != application:
+		case it.ResidualAmount != nil:
+			residuals++
+		case it.WriteOffAmount != nil:
+			writeOffs++
+		}
+	}
+	return residuals, writeOffs
+}
+
 // recordApplied adds the audit record of the application and publishes
 // IncomingPaymentApplied in the same transaction (ADR-0007, ADR-0011).
 // The event names the customers by id and number, never by name (product
@@ -616,12 +662,8 @@ func (v IncomingPayment) partsPayload(parts []CustomerPart, names map[uuid.UUID]
 // number of items, not the items.
 func recordApplied(ctx context.Context, v IncomingPayment, le tenancy.Entity, names map[uuid.UUID]partner.Named, entry ledger.Entry) error {
 	const action = "receivables.incoming_payment.apply"
-	amount, residuals := money.EventAmount(v.Amount, v.Currency, v.Exponent), 0
-	for _, it := range v.Items {
-		if it.ResidualAmount != nil {
-			residuals++
-		}
-	}
+	amount := money.EventAmount(v.Amount, v.Currency, v.Exponent)
+	residuals, writeOffs := v.residualCounts(0)
 	customers := v.partsPayload(v.Parts(), names)
 	customer := names[v.CustomerID]
 	payload := map[string]any{"incoming_payment_id": v.ID, "document_number": v.DocumentNumber, "legal_entity_id": v.LegalEntityID,
@@ -632,7 +674,7 @@ func recordApplied(ctx context.Context, v IncomingPayment, le tenancy.Entity, na
 		"on_account_amount": money.EventAmount(v.OnAccount, v.Currency, v.Exponent), "customers": customers}
 	detail := map[string]any{"document_number": v.DocumentNumber, "customer_id": v.CustomerID, "posting_date": v.PostingDate.Format(time.DateOnly),
 		"amount": amount, "receipt_journal_entry_id": v.ReceiptEntryID, "journal_entry_id": entry.ID, "journal_entry_number": entry.DocumentNumber,
-		"items": len(v.Items), "residuals": residuals, "difference": money.EventAmount(v.Difference, v.Currency, v.Exponent),
+		"items": len(v.Items), "residuals": residuals, "write_offs": writeOffs, "difference": money.EventAmount(v.Difference, v.Currency, v.Exponent),
 		"on_account": money.EventAmount(v.OnAccount, v.Currency, v.Exponent), "customers": customers}
 	if err := audit.Record(ctx, action, "receivables.incoming_payment", v.ID, detail,
 		outbox.Event{Context: "receivables", Name: "incoming_payment_applied", AggregateType: "receivables.incoming_payment", AggregateID: v.ID,

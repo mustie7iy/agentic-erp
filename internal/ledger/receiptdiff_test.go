@@ -362,3 +362,77 @@ func TestApplyReceiptOnAccountInForeignCurrency(t *testing.T) {
 		t.Errorf("lines: got %s, want %s", got, want)
 	}
 }
+
+// TestApplyReceiptWriteOff (T75o, ADR-0063 §6 As built): what of an item
+// its reason writes off is a debit of the reason's account at the
+// receipt's rate, the item cleared in full and nothing left open; together
+// with the payment difference, or alone when the rest is left on account,
+// it is held to the underpayment tolerance; the account must be postable,
+// a refusal naming it by what it is.
+func TestApplyReceiptWriteOff(t *testing.T) {
+	r := receiptSetup(t, withDifferences)
+	north := r.newCustomer(t, "BP00000031", true)
+	charges := settleAccount(t, r.env, "2000", "680000")
+	under := tolerance(500, "5")
+	for _, c := range []struct {
+		name, lines, shown string
+		receipt, owed      int64
+		writeOff           int64
+		onAccount          bool
+	}{
+		{"a write-off alone", "103000 9600/9600/9600; 120000 -10000/-10000/-10000; 680000 400/400/400", "[0] [3] 0 0", 9600, 10000, 400, false},
+		{"a write-off and a difference within the tolerance", "103000 9599/9599/9599; 120000 -10000/-10000/-10000; 680000 400/400/400; 680000 1/1/1",
+			"[0] [3] 1 0", 9599, 10000, 400, false},
+		{"a write-off with the rest on account", "103000 10000/10000/10000; 120000 -10000/-10000/-10000; 680000 400/400/400; 120000 -400/-400/-400",
+			"[0] [3] 0 400", 10000, 10000, 400, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			in := r.application(r.received(t, c.receipt, "EUR", "2026-03-20"), north, "EUR", "2026-03-21", r.owed(t, north, c.owed, "EUR", "2026-03-01"))
+			in.Under, in.Residuals = under, []ledger.Residual{{Amount: money.Minor(c.writeOff), WriteOff: charges}}
+			if c.onAccount {
+				in.OnAccount = settleAccount(t, r.env, "2000", "120000")
+			}
+			applied := r.apply(t, in)
+			if got := posted(t, r.env, applied.Entry.ID); got != c.lines {
+				t.Errorf("lines: got %s, want %s", got, c.lines)
+			}
+			if got := fmt.Sprint(applied.ResidualLines, applied.WriteOffLines, int64(applied.Difference), int64(applied.OnAccount)); got != c.shown {
+				t.Errorf("residual and write-off lines, difference, on account: got %s, want %s", got, c.shown)
+			}
+		})
+	}
+	if open := receivable(t, r.env, north); len(open) != 1 || open[0].Amount != -400 {
+		t.Errorf("the customer's open items: got %+v, want the credit left on account alone", open)
+	}
+	for _, c := range []struct {
+		name              string
+		receipt, writeOff int64
+		onAccount         bool
+	}{
+		{"a write-off beyond the tolerance", 9400, 600, false},
+		{"a write-off and a difference beyond it together", 9499, 450, false}, // 4.50 and 0.51 short: 5.01
+		{"a write-off with the rest on account beyond it", 10000, 600, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			in := r.application(r.received(t, c.receipt, "EUR", "2026-03-20"), north, "EUR", "2026-03-21", r.owed(t, north, 10000, "EUR", "2026-03-01"))
+			in.Under, in.Residuals = under, []ledger.Residual{{Amount: money.Minor(c.writeOff), WriteOff: charges}}
+			if c.onAccount {
+				in.OnAccount = settleAccount(t, r.env, "2000", "120000")
+			}
+			p := r.refusal(t, in)
+			if p.Code != "ledger.clearing_not_balanced" || !strings.Contains(p.Detail, "an underpayment beyond") {
+				t.Errorf("got %s (%s), want ledger.clearing_not_balanced, an underpayment", p.Code, p.Detail)
+			}
+		})
+	}
+	t.Run("the write-off account blocked", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE ledger.company_account SET is_posting_blocked = true, version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
+			AND account_id = $3`, r.ten.ID, r.de, charges)
+		in := r.application(r.received(t, 9600, "EUR", "2026-03-20"), north, "EUR", "2026-03-21", r.owed(t, north, 10000, "EUR", "2026-03-01"))
+		in.Under, in.Residuals = under, []ledger.Residual{{Amount: 400, WriteOff: charges}}
+		p := r.refusal(t, in)
+		if p.Code != "ledger.account_not_postable" || !strings.Contains(p.Detail, "Item 1's write-off account, its reason's cannot be posted") {
+			t.Errorf("got %s (%s), want ledger.account_not_postable naming item 1's write-off account", p.Code, p.Detail)
+		}
+	})
+}
