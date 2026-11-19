@@ -43,15 +43,16 @@ deliveries, their picking and their goods issue. It imports the
 published APIs of `sales` (the order, and the order's delivery bookkeeping,
 §4), `inventory` (the goods issue and the stock a pick checks, §5),
 `materials` (a material's number, plants, storage locations and unit
-conversions), `config` and `tenancy`, through ports the composition root
+conversions), `partner` (its customers' names), `config` and `tenancy`,
+through ports the composition root
 wires, and the ledger's fiscal calendar through a port in its own types.
 It is a leaf: no context imports it. It does not import the ledger's
 posting port: the goods issue's value is posted by inventory as every
 material document's is (ADR-0082 §8), so shipping posts nothing itself.
 
 The new directions are `shipping → sales`, `shipping → inventory`,
-`shipping → materials`. No cycle: sales, inventory and materials import
-nothing of shipping.
+`shipping → materials`, `shipping → partner`. No cycle: sales,
+inventory, materials and partner import nothing of shipping.
 
 ### 2. Data model
 
@@ -122,8 +123,8 @@ lock the order `FOR UPDATE` as T78c's confirmation does.
   picked; the delivery keeps its delivery quantity, and what was not
   picked goes back to the order, open for another delivery (where SAP
   would have the delivery quantity changed to the picked one before the
-  goods issue, from memory); a delivery with nothing picked is refused. It posts once: the delivery's row lock
-  and status.
+  goods issue, from memory); a delivery with nothing picked is refused.
+  It posts once: the delivery's row lock and status.
 - **T78c for stock**: a person no longer confirms the delivery of an
   item of a material kept in stock (422 `sales.delivery_by_goods_issue`):
   its delivery is a goods issue. Service and free-text items, and items
