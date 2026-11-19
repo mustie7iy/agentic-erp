@@ -415,9 +415,10 @@ settings cannot simply overwrite their document.
   second company of a tenant to adopt the pack, as the walkthrough's UAE
   company does in step 41, would have its change refused
   (`config.RangeRepeats`). Each company sets its own material range, with
-  a prefix of its own (the pilot's settings keep Maple's `MA`); a pack
-  that templates the prefix by company is not built (listed for the
-  digest).
+  a prefix of its own (the pilot's settings keep Maple's `MA`), and the
+  pack's validation refuses a range of a type numbered across the tenant
+  (`numberRanges`), so a later version cannot ship one; a pack that
+  templates the prefix by company is not built (listed for the digest).
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

@@ -11,6 +11,14 @@
 # 2026.7), carried here with the product owner's approval of 2026-11-19:
 # the sign-off covers this numbering-only version, whose tax content is
 # the content signed off, so production applies it.
+#
+# The sources below are those ADR-0049 records with a link, cited from its
+# proposal of 2026-10-20 and not fetched again in T62f, T61k or the guard.
+# The VAT Law (Federal Decree-Law No. 8 of 2017) and its Executive
+# Regulation (Cabinet Decision No. 52 of 2017), on which the rate, the
+# categories, blocked input and the tax invoice rest, are named by
+# ADR-0049 without a link and are not listed here; the pending files say
+# so for each fact.
 country: AE
 version: "2026.8"
 name: United Arab Emirates
