@@ -1206,8 +1206,22 @@
        },
        {
         "s": "T",
-        "t": "later: incoming payment variants: a receipt in another currency than the items, matching by rule and agent proposals from statement lines, receipts without a statement, direct debits, refunds, reason codes from configuration, output tax corrected on a payment difference, resetting a clearing without reversing it and resetting clearings other than incoming payments' (partial payments with residual items, payment differences and tolerances, payments on account, one receipt for several customers and undoing an application are T75f, T75g, T75h and T75i; after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T75c, Later · docs/design/plan-depth-1.md §recv, Later · docs/design/plan-depth-2.md §recv2, Later",
+        "t": "An AR accountant applies a receipt in one currency to a customer's items in another: each item translated into the receipt's currency at the average rate valid on the posting date and cleared at its own rate, the realized exchange difference posted to fx_gain or fx_loss; refused when no rate is valid on the day",
+        "r": "T75n · docs/design/plan-depth-3.md §T75n · ADR-0063 §6 and As built",
+        "src": "split:T75c · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A company configures its payment-difference reason codes (companies[].receivables.payment_difference_reasons: code, description, residual or write_off, the write-off account); an item's residual names one, and the reason decides whether the difference stays open as a residual item or is written off to its account within the tolerance, in place of the four fixed reasons",
+        "r": "T75o · docs/design/plan-depth-3.md §T75o · ADR-0063 §6 and As built",
+        "src": "split:T75c · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: incoming payment variants: matching by rule and agent proposals from statement lines, receipts without a statement, direct debits, refunds, output tax corrected on a payment difference, resetting a clearing without reversing it and resetting clearings other than incoming payments' (partial payments with residual items, payment differences and tolerances, payments on account, one receipt for several customers, undoing an application, a receipt in another currency than the items and reason codes from configuration are T75f, T75g, T75h, T75i, T75n and T75o; after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75c, Later · docs/design/plan-depth-1.md §recv, Later · docs/design/plan-depth-2.md §recv2, Later · docs/design/plan-depth-3.md §rcpt, Later",
         "src": "po:2026-11-10 · design:03 §3.16 · adr:ADR-0047",
         "c": []
        }
