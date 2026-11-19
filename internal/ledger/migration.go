@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -294,7 +295,7 @@ func totalsOf(rows pgx.Rows) (Totals, error) {
 		t.Debits = total
 		return err
 	})
-	return t, err
+	return t, errs.Wrapf(err, "read the totals")
 }
 
 // EntryTotals sums the lines of the journal entries with the ids that the
