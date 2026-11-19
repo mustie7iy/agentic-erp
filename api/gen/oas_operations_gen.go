@@ -522,6 +522,7 @@ const (
 	PostGoodsReceiptOperation                      OperationName = "PostGoodsReceipt"
 	PostJournalEntryOperation                      OperationName = "PostJournalEntry"
 	PostParkedJournalEntryOperation                OperationName = "PostParkedJournalEntry"
+	PostPhysicalInventoryDifferencesOperation      OperationName = "PostPhysicalInventoryDifferences"
 	PostRevaluationRunOperation                    OperationName = "PostRevaluationRun"
 	PostSupplierInvoiceOperation                   OperationName = "PostSupplierInvoice"
 	PrepareTaxReturnOperation                      OperationName = "PrepareTaxReturn"

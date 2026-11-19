@@ -65,17 +65,20 @@ func setupWith(t *testing.T, permissions ...string) env {
 
 // valued gives company 2000 the accounts of valuation class 3000, the
 // stock account alone of class 3100 and the stock and initial entry
-// accounts of class 3200.
+// accounts of class 3200, and an inventory difference tolerance of EUR
+// 10.00.
 func valued(c *config.Config) {
 	de := c.Company("2000")
+	de.InventoryDifferenceTolerance = "10.00"
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "150000", Name: "Inventory", Type: config.Asset},
 		config.Account{Number: "219000", Name: "Receipts without order", Type: config.Liability},
 		config.Account{Number: "391000", Name: "Initial entries of stock", Type: config.Equity},
 		config.Account{Number: "515000", Name: "Consumption", Type: config.Expense}, config.Account{Number: "516000", Name: "Scrapping", Type: config.Expense},
 		config.Account{Number: "517000", Name: "Price differences", Type: config.Expense},
-		config.Account{Number: "518000", Name: "Revaluation", Type: config.Expense})
+		config.Account{Number: "518000", Name: "Revaluation", Type: config.Expense},
+		config.Account{Number: "519000", Name: "Inventory differences", Type: config.Expense})
 	de.AccountDetermination.Inventory = []config.InventoryAccounts{{ValuationClass: "3000", Stock: "150000", Receipt: "219000", InitialEntry: "391000",
-		Consumption: "515000", Scrapping: "516000", PriceDifference: "517000", Revaluation: "518000"}, {ValuationClass: "3100", Stock: "150000"},
+		Consumption: "515000", Scrapping: "516000", PriceDifference: "517000", Revaluation: "518000", Difference: "519000"}, {ValuationClass: "3100", Stock: "150000"},
 		{ValuationClass: "3200", Stock: "150000", InitialEntry: "391000"}}
 }
 

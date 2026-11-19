@@ -24670,7 +24670,7 @@ paths:
             type: string
             maxLength: 3
             description: "Movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302"]
+            x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "701", "702"]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -24882,6 +24882,7 @@ paths:
         - inventory.no_valuation
         - inventory.posting_blocked
         - inventory.quantity_too_large
+        - inventory.reverse_count
         - inventory.reverse_goods_receipt
         - ledger.account_not_postable
         - ledger.amount_too_large
@@ -25459,6 +25460,120 @@ paths:
       responses:
         "200":
           description: The count document with the counts entered.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhysicalInventoryDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/physical-inventory-documents/{id}:postDifferences":
+    post:
+      operationId: postPhysicalInventoryDifferences
+      tags:
+        - inventory
+      summary: Post a count's differences
+      description: "Posts the differences of a `counted` document at the caller's version (`If-Match`; ADR-0082 As built S2d; SAP MI07): each item's counted quantity less its book quantity, the gains as one material document of movement type `701`, the losses as one of `702` (none for an item without a difference), each valued as any receipt or issue (a gain at the moving or standard price, 422 `inventory.no_price` while a moving price is zero; a loss at the value it takes from the stock) and posted (document type `WA`) between the valuation class's stock and `difference` accounts (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422 `ledger.period_not_open`). When the value of the differences, gains and losses alike, is more than the company's `inventory_difference_tolerance` (none: zero), nothing is posted: the document is `pending_approval`, naming the approval request (`workflow_request_id`, object type `inventory_difference`, the controller's, never the requester's) and the value asked for (`difference_value`); approval posts the differences as valued then, rejection (`rejected`) or withdrawal (`withdrawn`) closes the document with nothing posted, and its materials are recounted by a new document. Posted, the document is `posted` and its posting block lifted: each item names its difference, its value and its material document, and the book quantity is the count. A document not `counted` is 409 `inventory.count_invalid_status`; one of a company the caller may not act in is not found (404). Audited; each material document is published as MaterialDocumentPosted. Such a material document is not reversed (409 `inventory.reverse_count`): a new count corrects the stock. Human-only (`x-agent: false`)."
+      x-permission: inventory.count.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.count_invalid_status
+        - inventory.count_open
+        - inventory.currency_mismatch
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+        - workflow.no_policy
+        - workflow.request_pending
+        - workflow.unknown_role
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The count document, `posted`, or `pending_approval` when its differences wait for approval."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -33334,6 +33449,18 @@ paths:
         - credit.change_pending
         - credit.invalid_status
         - credit.limit_exists
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.count_invalid_status
+        - inventory.count_open
+        - inventory.currency_mismatch
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -33546,6 +33673,7 @@ paths:
         gr_ir_clearing: procurement.gr_ir.clear.approve
         material_change: materials.change.approve
         credit_limit_change: credit.limit.approve
+        inventory_difference: inventory.difference.approve
         tax_return: tax.return.approve
   "/v1/approval-requests/{id}:reject":
     post:
@@ -33559,12 +33687,77 @@ paths:
       x-agent: false
       x-problem-codes:
         - config.invalid_status
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
         - config.unknown_base_version
         - credit.change_pending
         - credit.invalid_status
         - credit.limit_exists
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.count_invalid_status
+        - inventory.count_open
+        - inventory.currency_mismatch
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
         - ledger.center_change_pending
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
         - ledger.item_reserved
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
         - materials.change_pending
         - materials.invalid_status
         - partner.change_pending
@@ -33578,6 +33771,7 @@ paths:
         - procurement.gr_ir_clearing_pending
         - procurement.invalid_status
         - procurement.requisition_ordered
+        - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
         - tax.return_exists
@@ -33645,6 +33839,7 @@ paths:
         gr_ir_clearing: procurement.gr_ir.clear.approve
         material_change: materials.change.approve
         credit_limit_change: credit.limit.approve
+        inventory_difference: inventory.difference.approve
         tax_return: tax.return.approve
   "/v1/approval-requests/{id}:cancel":
     post:
@@ -33657,11 +33852,76 @@ paths:
       x-autonomy: propose
       x-problem-codes:
         - config.invalid_status
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
         - config.unknown_base_version
         - credit.change_pending
         - credit.invalid_status
         - credit.limit_exists
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.count_invalid_status
+        - inventory.count_open
+        - inventory.currency_mismatch
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
         - ledger.center_change_pending
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
         - materials.change_pending
         - materials.invalid_status
         - partner.change_pending
@@ -33674,6 +33934,7 @@ paths:
         - procurement.gr_ir_clearing_pending
         - procurement.invalid_status
         - procurement.requisition_ordered
+        - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
         - tax.return_exists
@@ -63223,7 +63484,7 @@ components:
         fiscal_year: {type: integer, format: int32, description: "The fiscal year of its posting date, which its number is of.", readOnly: true}
         movement_type:
           type: string
-          x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302"]
+          x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "701", "702"]
           description: "Its movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         movement_type_name: {type: string, description: "What the movement type is, in English.", readOnly: true}
@@ -63336,6 +63597,10 @@ components:
         entry_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity counted as it was entered, in the unit it was entered in; absent with `counted_quantity`.", readOnly: true}
         counted_at: {type: string, format: date-time, description: "When the count was entered; absent with it.", readOnly: true}
         counted_by: {type: string, format: uuid, description: "Who entered it; absent with it.", readOnly: true}
+        difference: {$ref: "#/components/schemas/Quantity", description: "Once the document is posted, the counted quantity less the book quantity, in the base unit: positive a gain, negative a loss, zero none (S2d); absent before.", readOnly: true}
+        difference_value: {$ref: "#/components/schemas/Money", description: "What the difference moved in value on the material's valuation in the plant, signed as it is; absent with it.", readOnly: true}
+        material_document_id: {type: string, format: uuid, description: "The material document (`GET /v1/material-documents/{id}`, movement type 701 or 702) that posted the difference; absent when there was none.", readOnly: true}
+        material_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
     PhysicalInventoryDocument:
       description: "A physical inventory count document (SAP IKPF with its ISEG items): the materials of a plant's storage location counted, their book quantities frozen and their stock blocked from postings until the document is closed. Its `version` moves at each step."
       allOf:
@@ -63359,6 +63624,8 @@ components:
               x-extensible-enum: [counting, counted, pending_approval, posted, rejected, withdrawn]
               description: "`counting` until every item is counted, then `counted`; `pending_approval` while its differences wait for approval; `posted` once they are posted; `rejected` or `withdrawn` when their approval was refused or withdrawn, nothing posted. The posting block holds until it is `posted`, `rejected` or `withdrawn`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
+            workflow_request_id: {type: string, format: uuid, description: "The approval request (`GET /v1/approval-requests/{id}`) of differences above the company's tolerance (S2d); absent when none was asked.", readOnly: true}
+            difference_value: {$ref: "#/components/schemas/Money", description: "The value of the differences, gains and losses alike, the approval was asked for; absent with it.", readOnly: true}
             items:
               type: array
               items: {$ref: "#/components/schemas/PhysicalInventoryItem"}

@@ -12,7 +12,7 @@ import (
 const counts = "/v1/physical-inventory-documents"
 
 // countPerms are what counting and posting differences take besides perms.
-var countPerms = append([]string{"inventory.count.write"}, perms...)
+var countPerms = append([]string{"inventory.count.write", "inventory.count.post"}, perms...)
 
 // countSetup is setup with the permissions to count.
 func countSetup(t *testing.T) env {

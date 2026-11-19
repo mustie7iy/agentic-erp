@@ -27983,6 +27983,7 @@ func (*ConflictHeaders) postExpenseReportRes()                     {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
 func (*ConflictHeaders) postParkedJournalEntryRes()                {}
+func (*ConflictHeaders) postPhysicalInventoryDifferencesRes()      {}
 func (*ConflictHeaders) postRevaluationRunRes()                    {}
 func (*ConflictHeaders) postSupplierInvoiceRes()                   {}
 func (*ConflictHeaders) prepareTaxReturnRes()                      {}
@@ -45904,7 +45905,8 @@ func (s *EnterPhysicalInventoryCountOKHeaders) SetResponse(val PhysicalInventory
 	s.Response = val
 }
 
-func (*EnterPhysicalInventoryCountOKHeaders) enterPhysicalInventoryCountRes() {}
+func (*EnterPhysicalInventoryCountOKHeaders) enterPhysicalInventoryCountRes()      {}
+func (*EnterPhysicalInventoryCountOKHeaders) postPhysicalInventoryDifferencesRes() {}
 
 type EnterPhysicalInventoryCountPreconditionFailed Problem
 
@@ -86825,6 +86827,11 @@ type PhysicalInventoryDocument struct {
 	// `withdrawn`. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
 	Status string `json:"status"`
+	// The approval request (`GET /v1/approval-requests/{id}`) of differences above the company's tolerance
+	// (S2d); absent when none was asked.
+	WorkflowRequestID OptUUID `json:"workflow_request_id"`
+	// The value of the differences, gains and losses alike, the approval was asked for; absent with it.
+	DifferenceValue OptMoney `json:"difference_value"`
 	// Its items, in item order.
 	Items []PhysicalInventoryItem `json:"items"`
 }
@@ -86917,6 +86924,16 @@ func (s *PhysicalInventoryDocument) GetDocumentDate() time.Time {
 // GetStatus returns the value of Status.
 func (s *PhysicalInventoryDocument) GetStatus() string {
 	return s.Status
+}
+
+// GetWorkflowRequestID returns the value of WorkflowRequestID.
+func (s *PhysicalInventoryDocument) GetWorkflowRequestID() OptUUID {
+	return s.WorkflowRequestID
+}
+
+// GetDifferenceValue returns the value of DifferenceValue.
+func (s *PhysicalInventoryDocument) GetDifferenceValue() OptMoney {
+	return s.DifferenceValue
 }
 
 // GetItems returns the value of Items.
@@ -87012,6 +87029,16 @@ func (s *PhysicalInventoryDocument) SetDocumentDate(val time.Time) {
 // SetStatus sets the value of Status.
 func (s *PhysicalInventoryDocument) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetWorkflowRequestID sets the value of WorkflowRequestID.
+func (s *PhysicalInventoryDocument) SetWorkflowRequestID(val OptUUID) {
+	s.WorkflowRequestID = val
+}
+
+// SetDifferenceValue sets the value of DifferenceValue.
+func (s *PhysicalInventoryDocument) SetDifferenceValue(val OptMoney) {
+	s.DifferenceValue = val
 }
 
 // SetItems sets the value of Items.
@@ -87165,6 +87192,17 @@ type PhysicalInventoryItem struct {
 	CountedAt OptDateTime `json:"counted_at"`
 	// Who entered it; absent with it.
 	CountedBy OptUUID `json:"counted_by"`
+	// Once the document is posted, the counted quantity less the book quantity, in the base unit: positive
+	// a gain, negative a loss, zero none (S2d); absent before.
+	Difference OptQuantity `json:"difference"`
+	// What the difference moved in value on the material's valuation in the plant, signed as it is; absent
+	// with it.
+	DifferenceValue OptMoney `json:"difference_value"`
+	// The material document (`GET /v1/material-documents/{id}`, movement type 701 or 702) that posted the
+	// difference; absent when there was none.
+	MaterialDocumentID OptUUID `json:"material_document_id"`
+	// That document's number; absent with it.
+	MaterialDocumentNumber OptString `json:"material_document_number"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -87212,6 +87250,26 @@ func (s *PhysicalInventoryItem) GetCountedBy() OptUUID {
 	return s.CountedBy
 }
 
+// GetDifference returns the value of Difference.
+func (s *PhysicalInventoryItem) GetDifference() OptQuantity {
+	return s.Difference
+}
+
+// GetDifferenceValue returns the value of DifferenceValue.
+func (s *PhysicalInventoryItem) GetDifferenceValue() OptMoney {
+	return s.DifferenceValue
+}
+
+// GetMaterialDocumentID returns the value of MaterialDocumentID.
+func (s *PhysicalInventoryItem) GetMaterialDocumentID() OptUUID {
+	return s.MaterialDocumentID
+}
+
+// GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
+func (s *PhysicalInventoryItem) GetMaterialDocumentNumber() OptString {
+	return s.MaterialDocumentNumber
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *PhysicalInventoryItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -87255,6 +87313,26 @@ func (s *PhysicalInventoryItem) SetCountedAt(val OptDateTime) {
 // SetCountedBy sets the value of CountedBy.
 func (s *PhysicalInventoryItem) SetCountedBy(val OptUUID) {
 	s.CountedBy = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *PhysicalInventoryItem) SetDifference(val OptQuantity) {
+	s.Difference = val
+}
+
+// SetDifferenceValue sets the value of DifferenceValue.
+func (s *PhysicalInventoryItem) SetDifferenceValue(val OptMoney) {
+	s.DifferenceValue = val
+}
+
+// SetMaterialDocumentID sets the value of MaterialDocumentID.
+func (s *PhysicalInventoryItem) SetMaterialDocumentID(val OptUUID) {
+	s.MaterialDocumentID = val
+}
+
+// SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
+func (s *PhysicalInventoryItem) SetMaterialDocumentNumber(val OptString) {
+	s.MaterialDocumentNumber = val
 }
 
 // A material to count.
@@ -88551,6 +88629,30 @@ func (*PostParkedJournalEntryPreconditionRequired) postParkedJournalEntryRes() {
 type PostParkedJournalEntryUnprocessableEntity Problem
 
 func (*PostParkedJournalEntryUnprocessableEntity) postParkedJournalEntryRes() {}
+
+type PostPhysicalInventoryDifferencesBadRequest Problem
+
+func (*PostPhysicalInventoryDifferencesBadRequest) postPhysicalInventoryDifferencesRes() {}
+
+type PostPhysicalInventoryDifferencesForbidden Problem
+
+func (*PostPhysicalInventoryDifferencesForbidden) postPhysicalInventoryDifferencesRes() {}
+
+type PostPhysicalInventoryDifferencesNotFound Problem
+
+func (*PostPhysicalInventoryDifferencesNotFound) postPhysicalInventoryDifferencesRes() {}
+
+type PostPhysicalInventoryDifferencesPreconditionFailed Problem
+
+func (*PostPhysicalInventoryDifferencesPreconditionFailed) postPhysicalInventoryDifferencesRes() {}
+
+type PostPhysicalInventoryDifferencesPreconditionRequired Problem
+
+func (*PostPhysicalInventoryDifferencesPreconditionRequired) postPhysicalInventoryDifferencesRes() {}
+
+type PostPhysicalInventoryDifferencesUnprocessableEntity Problem
+
+func (*PostPhysicalInventoryDifferencesUnprocessableEntity) postPhysicalInventoryDifferencesRes() {}
 
 type PostRevaluationRunBadRequest Problem
 
@@ -115960,6 +116062,7 @@ func (*TooManyRequestsHeaders) postExpenseReportRes()                     {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()                {}
+func (*TooManyRequestsHeaders) postPhysicalInventoryDifferencesRes()      {}
 func (*TooManyRequestsHeaders) postRevaluationRunRes()                    {}
 func (*TooManyRequestsHeaders) postSupplierInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) prepareTaxReturnRes()                      {}
@@ -116906,6 +117009,7 @@ func (*UnauthorizedHeaders) postExpenseReportRes()                     {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()                {}
+func (*UnauthorizedHeaders) postPhysicalInventoryDifferencesRes()      {}
 func (*UnauthorizedHeaders) postRevaluationRunRes()                    {}
 func (*UnauthorizedHeaders) postSupplierInvoiceRes()                   {}
 func (*UnauthorizedHeaders) prepareTaxReturnRes()                      {}

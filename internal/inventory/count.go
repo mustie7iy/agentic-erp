@@ -61,6 +61,13 @@ type CountItem struct {
 	CountedAt  *time.Time `json:"counted_at"`
 	CountedBy  *uuid.UUID `json:"counted_by"`
 	Open       bool       `json:"open"`
+	// Difference (counted less book), Amount, the value it moved in the
+	// document's currency, and the material document that moved it, once
+	// the document is posted (S2d).
+	Difference             *string      `json:"difference"`
+	Amount                 *money.Minor `json:"amount"`
+	MaterialDocumentID     *uuid.UUID   `json:"material_document_id"`
+	MaterialDocumentNumber *string      `json:"material_document_number"`
 }
 
 // CountDocument is a count document (SAP IKPF) of a plant's storage
@@ -79,6 +86,14 @@ type CountDocument struct {
 	CreatedBy         uuid.UUID
 	UpdatedAt         time.Time
 	UpdatedBy         uuid.UUID
+	// WorkflowRequestID is the approval request of differences above the
+	// company's tolerance and DifferenceValue the value it was asked for
+	// (S2d), nil when none was asked; Currency and Exponent are what that
+	// value and the items' are in, the company's, "" until either is.
+	WorkflowRequestID *uuid.UUID
+	DifferenceValue   *money.Minor
+	Currency          string
+	Exponent          int
 	Items             []CountItem
 }
 
@@ -93,17 +108,22 @@ func (d CountDocument) materialIDs() []uuid.UUID {
 
 // countSelect reads count documents with their items in item order.
 const countSelect = `SELECT d.id, d.legal_entity_id, d.fiscal_year, d.number, d.plant_id, d.storage_location_id, d.document_date, d.status, d.version,
-		d.created_at, d.created_by, d.updated_at, d.updated_by,
+		d.created_at, d.created_by, d.updated_at, d.updated_by, d.workflow_request_id, d.difference_value, coalesce(d.currency, ''),
+		coalesce(c.exponent, 0),
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'book_quantity', trim_scale(i.book_quantity)::text,
 				'counted_quantity', trim_scale(i.counted_quantity)::text, 'entry_quantity', trim_scale(i.entry_quantity)::text,
-				'entry_unit', i.entry_uom_code, 'counted_at', i.counted_at, 'counted_by', i.counted_by, 'open', i.open) ORDER BY i.item_no)
-			FROM inventory.count_item i WHERE i.tenant_id = d.tenant_id AND i.count_document_id = d.id) AS items
-	FROM inventory.count_document d`
+				'entry_unit', i.entry_uom_code, 'counted_at', i.counted_at, 'counted_by', i.counted_by, 'open', i.open,
+				'difference', trim_scale(i.difference)::text, 'amount', i.amount, 'material_document_id', i.material_document_id,
+				'material_document_number', m.number) ORDER BY i.item_no)
+			FROM inventory.count_item i LEFT JOIN inventory.material_document m ON m.tenant_id = i.tenant_id AND m.id = i.material_document_id
+			WHERE i.tenant_id = d.tenant_id AND i.count_document_id = d.id) AS items
+	FROM inventory.count_document d
+	LEFT JOIN ref.currency c ON c.code = d.currency`
 
 func scanCount(row pgx.Row) (CountDocument, error) {
 	var d CountDocument
 	err := row.Scan(&d.ID, &d.LegalEntityID, &d.FiscalYear, &d.Number, &d.PlantID, &d.StorageLocationID, &d.DocumentDate, &d.Status, &d.Version,
-		&d.CreatedAt, &d.CreatedBy, &d.UpdatedAt, &d.UpdatedBy, &d.Items)
+		&d.CreatedAt, &d.CreatedBy, &d.UpdatedAt, &d.UpdatedBy, &d.WorkflowRequestID, &d.DifferenceValue, &d.Currency, &d.Exponent, &d.Items)
 	return d, errs.Wrapf(err, "scan count document")
 }
 

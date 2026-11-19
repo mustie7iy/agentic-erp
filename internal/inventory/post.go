@@ -62,7 +62,7 @@ func (e *Endpoints) Post(ctx context.Context, in Input) (Document, error) {
 		return Document{}, err
 	}
 	mt, ok := movementTypes[in.MovementType]
-	if !ok || mt.reverses != "" || mt.order {
+	if !ok || mt.reverses != "" || mt.order || mt.count {
 		return Document{}, problem.Invalid("inventory.unknown_movement_type", "movement_type", fmt.Sprintf("%q is not a movement type that is posted; "+
 			"they are 501, 561, 201, 551, 311 and 301, and a reversal is posted by reversing its document.", in.MovementType))
 	}

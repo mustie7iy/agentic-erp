@@ -212527,6 +212527,18 @@ func (s *PhysicalInventoryDocument) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.WorkflowRequestID.Set {
+			e.FieldStart("workflow_request_id")
+			s.WorkflowRequestID.Encode(e)
+		}
+	}
+	{
+		if s.DifferenceValue.Set {
+			e.FieldStart("difference_value")
+			s.DifferenceValue.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -212536,7 +212548,7 @@ func (s *PhysicalInventoryDocument) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPhysicalInventoryDocument = [19]string{
+var jsonFieldsNameOfPhysicalInventoryDocument = [21]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -212555,7 +212567,9 @@ var jsonFieldsNameOfPhysicalInventoryDocument = [19]string{
 	15: "storage_location_name",
 	16: "document_date",
 	17: "status",
-	18: "items",
+	18: "workflow_request_id",
+	19: "difference_value",
+	20: "items",
 }
 
 // Decode decodes PhysicalInventoryDocument from json.
@@ -212781,8 +212795,28 @@ func (s *PhysicalInventoryDocument) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
+		case "workflow_request_id":
+			if err := func() error {
+				s.WorkflowRequestID.Reset()
+				if err := s.WorkflowRequestID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"workflow_request_id\"")
+			}
+		case "difference_value":
+			if err := func() error {
+				s.DifferenceValue.Reset()
+				if err := s.DifferenceValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"difference_value\"")
+			}
 		case "items":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				s.Items = make([]PhysicalInventoryItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -212811,7 +212845,7 @@ func (s *PhysicalInventoryDocument) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b11111111,
-		0b00000111,
+		0b00010011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -213173,18 +213207,46 @@ func (s *PhysicalInventoryItem) encodeFields(e *jx.Encoder) {
 			s.CountedBy.Encode(e)
 		}
 	}
+	{
+		if s.Difference.Set {
+			e.FieldStart("difference")
+			s.Difference.Encode(e)
+		}
+	}
+	{
+		if s.DifferenceValue.Set {
+			e.FieldStart("difference_value")
+			s.DifferenceValue.Encode(e)
+		}
+	}
+	{
+		if s.MaterialDocumentID.Set {
+			e.FieldStart("material_document_id")
+			s.MaterialDocumentID.Encode(e)
+		}
+	}
+	{
+		if s.MaterialDocumentNumber.Set {
+			e.FieldStart("material_document_number")
+			s.MaterialDocumentNumber.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfPhysicalInventoryItem = [9]string{
-	0: "item_no",
-	1: "material_id",
-	2: "material_number",
-	3: "material_description",
-	4: "book_quantity",
-	5: "counted_quantity",
-	6: "entry_quantity",
-	7: "counted_at",
-	8: "counted_by",
+var jsonFieldsNameOfPhysicalInventoryItem = [13]string{
+	0:  "item_no",
+	1:  "material_id",
+	2:  "material_number",
+	3:  "material_description",
+	4:  "book_quantity",
+	5:  "counted_quantity",
+	6:  "entry_quantity",
+	7:  "counted_at",
+	8:  "counted_by",
+	9:  "difference",
+	10: "difference_value",
+	11: "material_document_id",
+	12: "material_document_number",
 }
 
 // Decode decodes PhysicalInventoryItem from json.
@@ -213293,6 +213355,46 @@ func (s *PhysicalInventoryItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"counted_by\"")
+			}
+		case "difference":
+			if err := func() error {
+				s.Difference.Reset()
+				if err := s.Difference.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"difference\"")
+			}
+		case "difference_value":
+			if err := func() error {
+				s.DifferenceValue.Reset()
+				if err := s.DifferenceValue.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"difference_value\"")
+			}
+		case "material_document_id":
+			if err := func() error {
+				s.MaterialDocumentID.Reset()
+				if err := s.MaterialDocumentID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_document_id\"")
+			}
+		case "material_document_number":
+			if err := func() error {
+				s.MaterialDocumentNumber.Reset()
+				if err := s.MaterialDocumentNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_document_number\"")
 			}
 		default:
 			return d.Skip()
@@ -217577,6 +217679,234 @@ func (s *PostParkedJournalEntryUnprocessableEntity) MarshalJSON() ([]byte, error
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *PostParkedJournalEntryUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostPhysicalInventoryDifferencesBadRequest as json.
+func (s *PostPhysicalInventoryDifferencesBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostPhysicalInventoryDifferencesBadRequest from json.
+func (s *PostPhysicalInventoryDifferencesBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostPhysicalInventoryDifferencesBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostPhysicalInventoryDifferencesBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostPhysicalInventoryDifferencesBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostPhysicalInventoryDifferencesBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostPhysicalInventoryDifferencesForbidden as json.
+func (s *PostPhysicalInventoryDifferencesForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostPhysicalInventoryDifferencesForbidden from json.
+func (s *PostPhysicalInventoryDifferencesForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostPhysicalInventoryDifferencesForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostPhysicalInventoryDifferencesForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostPhysicalInventoryDifferencesForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostPhysicalInventoryDifferencesForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostPhysicalInventoryDifferencesNotFound as json.
+func (s *PostPhysicalInventoryDifferencesNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostPhysicalInventoryDifferencesNotFound from json.
+func (s *PostPhysicalInventoryDifferencesNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostPhysicalInventoryDifferencesNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostPhysicalInventoryDifferencesNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostPhysicalInventoryDifferencesNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostPhysicalInventoryDifferencesNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostPhysicalInventoryDifferencesPreconditionFailed as json.
+func (s *PostPhysicalInventoryDifferencesPreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostPhysicalInventoryDifferencesPreconditionFailed from json.
+func (s *PostPhysicalInventoryDifferencesPreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostPhysicalInventoryDifferencesPreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostPhysicalInventoryDifferencesPreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostPhysicalInventoryDifferencesPreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostPhysicalInventoryDifferencesPreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostPhysicalInventoryDifferencesPreconditionRequired as json.
+func (s *PostPhysicalInventoryDifferencesPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostPhysicalInventoryDifferencesPreconditionRequired from json.
+func (s *PostPhysicalInventoryDifferencesPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostPhysicalInventoryDifferencesPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostPhysicalInventoryDifferencesPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostPhysicalInventoryDifferencesPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostPhysicalInventoryDifferencesPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes PostPhysicalInventoryDifferencesUnprocessableEntity as json.
+func (s *PostPhysicalInventoryDifferencesUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes PostPhysicalInventoryDifferencesUnprocessableEntity from json.
+func (s *PostPhysicalInventoryDifferencesUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode PostPhysicalInventoryDifferencesUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = PostPhysicalInventoryDifferencesUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *PostPhysicalInventoryDifferencesUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *PostPhysicalInventoryDifferencesUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

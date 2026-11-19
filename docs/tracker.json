@@ -5543,9 +5543,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The inventory controller posts a count's differences valued at the material's price; a difference above the company's tolerance needs approval",
-      "r": "S2d · docs/design/plan-supply-chain.md §S2d · ADR-0082",
+      "r": "S2d · docs/design/plan-supply-chain.md §S2d · ADR-0082 As built S2d · db/migrations/000407, 000408 · material_document 701, 702 · companies[].account_determination.inventory[].difference · companies[].inventory_difference_tolerance · POST /v1/physical-inventory-documents/{id}:postDifferences · approval object type inventory_difference · inventory.count.post, inventory.difference.approve · walkthrough step_count",
       "src": "po:2026-11-17",
       "c": []
      },

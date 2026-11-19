@@ -16,5 +16,6 @@ import (
 // movements and price changes through the ledger's posting port.
 func Inventory(cfg Config) *inventory.Endpoints {
 	return &inventory.Endpoints{Pages: cfg.Pages, Materials: materials.Materials{}, LegalEntities: tenancy.Directory{}, CostCenters: ledger.AssignmentBalances{},
-		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Postings: postings(), Accounts: ledger.Accounts{}, Now: cfg.Now}
+		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Postings: postings(), Accounts: ledger.Accounts{},
+		Requests: opener(), Now: cfg.Now}
 }

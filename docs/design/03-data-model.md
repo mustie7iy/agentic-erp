@@ -6699,7 +6699,24 @@ erDiagram
   reads); while one is open no movement of the material is written there
   (`count_posting_block`, a trigger on `inventory.movement`). Neither is
   deleted.
+- S2d (migrations 000407, 000408): `inventory.material_document` takes
+  the movement types `701` and `702`, a count's gains and losses, and the
+  account determination the key `inventory_difference:<class>` (both
+  widened NOT VALID, validated by 000408). `inventory.count_document`
+  gains `workflow_request_id`, `difference_value` (zero or more,
+  `count_document_difference_value_check`) and `currency`, the request
+  and the value asked for together, in the company's currency, which a
+  posted document has too (`count_document_approval`), and `closed_at`,
+  set exactly when it is posted, rejected or withdrawn
+  (`count_document_closed`). `inventory.count_item` gains `difference`,
+  `amount` and `material_document_id` (`count_item_material_document_fkey`):
+  difference and value together and only once counted, a non-zero
+  difference naming its material document and a zero one none, only once
+  the item is closed (`count_item_posted`), each set once
+  (`count_item_once`).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,
-  `inventory.valuation.read` and `.write`, `inventory.count.write` (S2c).
+  `inventory.valuation.read` and `.write`, `inventory.count.write` (S2c),
+  `inventory.count.post` and the approval permission
+  `inventory.difference.approve` (S2d).

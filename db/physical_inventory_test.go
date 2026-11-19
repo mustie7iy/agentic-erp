@@ -68,8 +68,8 @@ func TestCountRules(t *testing.T) {
 		{"counting to posted", func(s countScene) []stmt {
 			return []stmt{s.document(s.count, "PI1", "counting"), step(`UPDATE inventory.count_document SET status = 'posted' WHERE id = $1`, s.count)}
 		}, "count_document_status_flow"},
-		{"posted to counting", func(s countScene) []stmt {
-			return []stmt{s.document(s.count, "PI1", "posted"), step(`UPDATE inventory.count_document SET status = 'counting' WHERE id = $1`, s.count)}
+		{"pending approval to counting", func(s countScene) []stmt {
+			return []stmt{s.document(s.count, "PI1", "pending_approval"), step(`UPDATE inventory.count_document SET status = 'counting' WHERE id = $1`, s.count)}
 		}, "count_document_status_flow"},
 		{"counting to counted", func(s countScene) []stmt {
 			return []stmt{s.document(s.count, "PI1", "counting"), step(`UPDATE inventory.count_document SET status = 'counted', version = 2 WHERE id = $1`, s.count)}
@@ -196,5 +196,79 @@ func TestCountTriggersAsOwner(t *testing.T) {
 			}
 			failsOn(t, exec(tx, c.st.sql, c.st.args...), c.want)
 		})
+	}
+}
+
+// TestDifferenceRules (S2d, migrations 000407 and 000408; ADR-0082 As
+// built S2d): a document asking approval names its request, the value
+// asked for, of zero or more, and its currency; a closed one when it was
+// closed, a posted one its currency; an item's difference and value come
+// together, once it is counted, and a non-zero difference names the
+// material document of 701 or 702 that posted it, once the item is
+// closed, each set once; inventory.difference.approve is an approval
+// permission.
+func TestDifferenceRules(t *testing.T) {
+	need(t)
+	const posted = `UPDATE inventory.count_item SET open = false, difference = $2::numeric, amount = 5, material_document_id = $3
+		WHERE count_document_id = $1`
+	loss := id()
+	approval := func(s countScene, value int) stmt {
+		return step(`UPDATE inventory.count_document SET status = 'pending_approval', workflow_request_id = $2, difference_value = $3, currency = 'EUR',
+			version = 3 WHERE id = $1`, s.count, id(), value)
+	}
+	counted := func(s countScene) []stmt {
+		return append(s.received()[:3], s.document(s.count, "PI1", "counting"), s.item(s.count, 1, s.material, "10"), s.counted(1),
+			step(`UPDATE inventory.count_document SET status = 'counted', version = 2 WHERE id = $1`, s.count))
+	}
+	cases := []struct {
+		name string
+		run  func(s countScene) []stmt
+		want string
+	}{
+		{"an approval asked", func(s countScene) []stmt { return append(counted(s), approval(s, 500)) }, ""},
+		{"a negative value asked", func(s countScene) []stmt { return append(counted(s), approval(s, -1)) }, "count_document_difference_value_check"},
+		{"a request without a value", func(s countScene) []stmt {
+			return append(counted(s), step(`UPDATE inventory.count_document SET workflow_request_id = $2, version = 3 WHERE id = $1`, s.count, id()))
+		}, "count_document_approval"},
+		{"posted without its currency", func(s countScene) []stmt {
+			return append(counted(s), step(`UPDATE inventory.count_document SET status = 'posted', closed_at = now(), version = 3 WHERE id = $1`, s.count))
+		}, "count_document_approval"},
+		{"posted without when", func(s countScene) []stmt {
+			return append(counted(s), step(`UPDATE inventory.count_document SET status = 'posted', currency = 'EUR', version = 3 WHERE id = $1`, s.count))
+		}, "count_document_closed"},
+		{"a difference posted", func(s countScene) []stmt {
+			return append(counted(s), s.inventoryScene.document(loss, "MD2", "702", nil), step(posted, s.count, "-1", loss))
+		}, ""},
+		{"a difference posted by no document", func(s countScene) []stmt { return append(counted(s), step(posted, s.count, "-1", nil)) }, "count_item_posted"},
+		{"a zero difference with a document", func(s countScene) []stmt {
+			return append(counted(s), s.inventoryScene.document(loss, "MD2", "702", nil), step(posted, s.count, "0", loss))
+		}, "count_item_posted"},
+		{"a difference without its value", func(s countScene) []stmt {
+			return append(counted(s), step(`UPDATE inventory.count_item SET open = false, difference = 0 WHERE count_document_id = $1`, s.count))
+		}, "count_item_posted"},
+		{"a difference posted twice", func(s countScene) []stmt {
+			return append(counted(s), s.inventoryScene.document(loss, "MD2", "702", nil), step(posted, s.count, "-1", loss),
+				step(`UPDATE inventory.count_item SET amount = 6 WHERE count_document_id = $1`, s.count))
+		}, "count_item_once"},
+		{"a 701 and a 702", func(s countScene) []stmt {
+			return []stmt{s.inventoryScene.document(s.doc, "MD1", "701", nil), s.inventoryScene.document(id(), "MD2", "702", nil)}
+		}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := newCountScene()
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want == "" {
+				if err != nil {
+					t.Fatalf("got %v, want no error", err)
+				}
+				return
+			}
+			failsOn(t, err, c.want)
+		})
+	}
+	var approve bool
+	if err := testDB.QueryRow(context.Background(), `SELECT is_approval FROM ref.permission WHERE code = 'inventory.difference.approve'`).Scan(&approve); err != nil || !approve {
+		t.Errorf("inventory.difference.approve: got %v %v, want an approval permission", approve, err)
 	}
 }

@@ -451,21 +451,22 @@ func (h *handler) laterContexts(cfg Config) {
 // API reads them (approvals.Locator).
 func approvalHandlers(cfg Config) map[string]approvals.Handler {
 	return map[string]approvals.Handler{
-		approvals.Requisition:       procurement.Approvals{Endpoints: Procurement(cfg)},
-		approvals.PartnerChange:     partner.Approvals{Schemas: configuration.Settings{}},
-		approvals.ConfigChange:      configuration.Approvals{},
-		approvals.InvoiceException:  payables.Approvals{},
-		approvals.PeriodUnlock:      ledger.PeriodUnlocks{},
-		approvals.ManualEntry:       ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, TaxReturns: taxfiling.Holds{}},
-		approvals.PurchaseOrder:     procurement.OrderReleases{Endpoints: Procurement(cfg)},
-		approvals.OrderChange:       procurement.OrderChanges{Endpoints: Procurement(cfg)},
-		approvals.BankClearing:      payments.BankClearings{Endpoints: Payments(cfg)},
-		approvals.CenterChange:      ledger.CenterChanges{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now},
-		approvals.PaymentRunRelease: payments.ReleaseApprovals{Endpoints: Payments(cfg)},
-		approvals.GRIRClearing:      procurement.GRIRClearings{Endpoints: Procurement(cfg)},
-		approvals.TaxReturn:         taxfiling.TaxReturns{Endpoints: &taxfiling.Endpoints{Items: ledger.TaxItems{}}},
-		approvals.MaterialChange:    materials.Approvals{Endpoints: Materials(cfg)},
-		approvals.CreditLimitChange: credit.Approvals{Endpoints: Credit(cfg)},
+		approvals.Requisition:         procurement.Approvals{Endpoints: Procurement(cfg)},
+		approvals.PartnerChange:       partner.Approvals{Schemas: configuration.Settings{}},
+		approvals.ConfigChange:        configuration.Approvals{},
+		approvals.InvoiceException:    payables.Approvals{},
+		approvals.PeriodUnlock:        ledger.PeriodUnlocks{},
+		approvals.ManualEntry:         ledger.ManualEntries{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, TaxReturns: taxfiling.Holds{}},
+		approvals.PurchaseOrder:       procurement.OrderReleases{Endpoints: Procurement(cfg)},
+		approvals.OrderChange:         procurement.OrderChanges{Endpoints: Procurement(cfg)},
+		approvals.BankClearing:        payments.BankClearings{Endpoints: Payments(cfg)},
+		approvals.CenterChange:        ledger.CenterChanges{LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now},
+		approvals.PaymentRunRelease:   payments.ReleaseApprovals{Endpoints: Payments(cfg)},
+		approvals.GRIRClearing:        procurement.GRIRClearings{Endpoints: Procurement(cfg)},
+		approvals.TaxReturn:           taxfiling.TaxReturns{Endpoints: &taxfiling.Endpoints{Items: ledger.TaxItems{}}},
+		approvals.MaterialChange:      materials.Approvals{Endpoints: Materials(cfg)},
+		approvals.CreditLimitChange:   credit.Approvals{Endpoints: Credit(cfg)},
+		approvals.InventoryDifference: inventory.Approvals{Endpoints: Inventory(cfg)},
 	}
 }
 

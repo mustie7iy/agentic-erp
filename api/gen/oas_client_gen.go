@@ -2129,18 +2129,20 @@ type Invoker interface {
 	// Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
 	// item is two, the issue and the receipt. The lines are applied in order, and each leaves its
 	// location's stock at zero or more, so items that move stock round a circle out of an empty location
-	// are refused though they change nothing in all. Every line is valued (S1d): its material is valued in
-	// its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the
-	// stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the
-	// value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is
-	// worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's
-	// currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422
-	// `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the
-	// receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted
-	// through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or
-	// initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock
-	// account against the account its movement type posts to (receipt, initial entry, consumption with the
-	// item's cost center, scrapping), and price differences on its price difference account (422
+	// are refused though they change nothing in all. A material at a storage location an open physical
+	// inventory count document counts is not moved there (409 `inventory.posting_blocked`, naming the
+	// document; S2c). Every line is valued (S1d): its material is valued in its plant (422
+	// `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at
+	// a standard price the rest is worth its quantity at the price; at a moving price the value in
+	// proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth
+	// (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency,
+	// 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price`
+	// while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a
+	// price difference), a transfer's receipt what its issue took. The value is posted through the ledger
+	// in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA`
+	// otherwise; none when the document moves no value): the valuation class's stock account against the
+	// account its movement type posts to (receipt, initial entry, consumption with the item's cost center,
+	// scrapping), and price differences on its price difference account (422
 	// `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
 	// 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
 	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
@@ -7231,6 +7233,30 @@ type Invoker interface {
 	//
 	// POST /v1/parked-journal-entries/{id}:post
 	PostParkedJournalEntry(ctx context.Context, params PostParkedJournalEntryParams) (PostParkedJournalEntryRes, error)
+	// PostPhysicalInventoryDifferences invokes postPhysicalInventoryDifferences operation.
+	//
+	// Posts the differences of a `counted` document at the caller's version (`If-Match`; ADR-0082 As built
+	// S2d; SAP MI07): each item's counted quantity less its book quantity, the gains as one material
+	// document of movement type `701`, the losses as one of `702` (none for an item without a difference),
+	// each valued as any receipt or issue (a gain at the moving or standard price, 422
+	// `inventory.no_price` while a moving price is zero; a loss at the value it takes from the stock) and
+	// posted (document type `WA`) between the valuation class's stock and `difference` accounts (422
+	// `inventory.no_inventory_account`; the ledger's refusals, such as 422 `ledger.period_not_open`). When
+	// the value of the differences, gains and losses alike, is more than the company's
+	// `inventory_difference_tolerance` (none: zero), nothing is posted: the document is
+	// `pending_approval`, naming the approval request (`workflow_request_id`, object type
+	// `inventory_difference`, the controller's, never the requester's) and the value asked for
+	// (`difference_value`); approval posts the differences as valued then, rejection (`rejected`) or
+	// withdrawal (`withdrawn`) closes the document with nothing posted, and its materials are recounted by
+	// a new document. Posted, the document is `posted` and its posting block lifted: each item names its
+	// difference, its value and its material document, and the book quantity is the count. A document not
+	// `counted` is 409 `inventory.count_invalid_status`; one of a company the caller may not act in is not
+	// found (404). Audited; each material document is published as MaterialDocumentPosted. Such a material
+	// document is not reversed (409 `inventory.reverse_count`): a new count corrects the stock. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/physical-inventory-documents/{id}:postDifferences
+	PostPhysicalInventoryDifferences(ctx context.Context, params PostPhysicalInventoryDifferencesParams) (PostPhysicalInventoryDifferencesRes, error)
 	// PostRevaluationRun invokes postRevaluationRun operation.
 	//
 	// Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042,
@@ -8211,12 +8237,13 @@ type Invoker interface {
 	// it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
 	// nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The
 	// reversal moves the stock back, so it is refused when the stock the original received has gone (409
-	// `inventory.insufficient_stock`, naming the material, the location and both quantities). The material
-	// may have been blocked since; the reversal is still posted. Each line is valued at what its original
-	// line was, given back: what the stock does not take of it at its price now is a price difference, and
-	// the value is posted through the ledger as the original's was, reversed. A document of a company the
-	// caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted.
-	// Human-only (`x-agent: false`).
+	// `inventory.insufficient_stock`, naming the material, the location and both quantities). It is
+	// refused, as a posting is, while an open count document counts one of its materials at one of its
+	// storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the
+	// reversal is still posted. Each line is valued at what its original line was, given back: what the
+	// stock does not take of it at its price now is a price difference, and the value is posted through
+	// the ledger as the original's was, reversed. A document of a company the caller may not act in is not
+	// found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`).
 	//
 	// POST /v1/material-documents/{id}:reverse
 	ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (ReverseMaterialDocumentRes, error)
@@ -26434,18 +26461,20 @@ func (c *Client) sendCreateMaterial(ctx context.Context, request *MaterialCreate
 // Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
 // item is two, the issue and the receipt. The lines are applied in order, and each leaves its
 // location's stock at zero or more, so items that move stock round a circle out of an empty location
-// are refused though they change nothing in all. Every line is valued (S1d): its material is valued in
-// its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the
-// stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the
-// value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is
-// worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's
-// currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422
-// `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the
-// receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted
-// through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or
-// initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock
-// account against the account its movement type posts to (receipt, initial entry, consumption with the
-// item's cost center, scrapping), and price differences on its price difference account (422
+// are refused though they change nothing in all. A material at a storage location an open physical
+// inventory count document counts is not moved there (409 `inventory.posting_blocked`, naming the
+// document; S2c). Every line is valued (S1d): its material is valued in its plant (422
+// `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at
+// a standard price the rest is worth its quantity at the price; at a moving price the value in
+// proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth
+// (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency,
+// 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price`
+// while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a
+// price difference), a transfer's receipt what its issue took. The value is posted through the ledger
+// in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA`
+// otherwise; none when the document moves no value): the valuation class's stock account against the
+// account its movement type posts to (receipt, initial entry, consumption with the item's cost center,
+// scrapping), and price differences on its price difference account (422
 // `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
 // 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
 // MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
@@ -102236,6 +102265,181 @@ func (c *Client) sendPostParkedJournalEntry(ctx context.Context, params PostPark
 	return result, nil
 }
 
+// PostPhysicalInventoryDifferences invokes postPhysicalInventoryDifferences operation.
+//
+// Posts the differences of a `counted` document at the caller's version (`If-Match`; ADR-0082 As built
+// S2d; SAP MI07): each item's counted quantity less its book quantity, the gains as one material
+// document of movement type `701`, the losses as one of `702` (none for an item without a difference),
+// each valued as any receipt or issue (a gain at the moving or standard price, 422
+// `inventory.no_price` while a moving price is zero; a loss at the value it takes from the stock) and
+// posted (document type `WA`) between the valuation class's stock and `difference` accounts (422
+// `inventory.no_inventory_account`; the ledger's refusals, such as 422 `ledger.period_not_open`). When
+// the value of the differences, gains and losses alike, is more than the company's
+// `inventory_difference_tolerance` (none: zero), nothing is posted: the document is
+// `pending_approval`, naming the approval request (`workflow_request_id`, object type
+// `inventory_difference`, the controller's, never the requester's) and the value asked for
+// (`difference_value`); approval posts the differences as valued then, rejection (`rejected`) or
+// withdrawal (`withdrawn`) closes the document with nothing posted, and its materials are recounted by
+// a new document. Posted, the document is `posted` and its posting block lifted: each item names its
+// difference, its value and its material document, and the book quantity is the count. A document not
+// `counted` is 409 `inventory.count_invalid_status`; one of a company the caller may not act in is not
+// found (404). Audited; each material document is published as MaterialDocumentPosted. Such a material
+// document is not reversed (409 `inventory.reverse_count`): a new count corrects the stock. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents/{id}:postDifferences
+func (c *Client) PostPhysicalInventoryDifferences(ctx context.Context, params PostPhysicalInventoryDifferencesParams) (PostPhysicalInventoryDifferencesRes, error) {
+	res, err := c.sendPostPhysicalInventoryDifferences(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendPostPhysicalInventoryDifferences(ctx context.Context, params PostPhysicalInventoryDifferencesParams) (res PostPhysicalInventoryDifferencesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postPhysicalInventoryDifferences"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/physical-inventory-documents/{id}:postDifferences"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostPhysicalInventoryDifferencesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/physical-inventory-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":postDifferences"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostPhysicalInventoryDifferencesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostPhysicalInventoryDifferencesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // PostRevaluationRun invokes postRevaluationRun operation.
 //
 // Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042,
@@ -112376,12 +112580,13 @@ func (c *Client) sendReverseJournalEntry(ctx context.Context, request OptJournal
 // it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
 // nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The
 // reversal moves the stock back, so it is refused when the stock the original received has gone (409
-// `inventory.insufficient_stock`, naming the material, the location and both quantities). The material
-// may have been blocked since; the reversal is still posted. Each line is valued at what its original
-// line was, given back: what the stock does not take of it at its price now is a price difference, and
-// the value is posted through the ledger as the original's was, reversed. A document of a company the
-// caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted.
-// Human-only (`x-agent: false`).
+// `inventory.insufficient_stock`, naming the material, the location and both quantities). It is
+// refused, as a posting is, while an open count document counts one of its materials at one of its
+// storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the
+// reversal is still posted. Each line is valued at what its original line was, given back: what the
+// stock does not take of it at its price now is a price difference, and the value is posted through
+// the ledger as the original's was, reversed. A document of a company the caller may not act in is not
+// found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`).
 //
 // POST /v1/material-documents/{id}:reverse
 func (c *Client) ReverseMaterialDocument(ctx context.Context, params ReverseMaterialDocumentParams) (ReverseMaterialDocumentRes, error) {

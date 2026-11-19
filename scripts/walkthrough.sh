@@ -1669,8 +1669,10 @@ migrated_down_payment() {
 # CAD 1.00 and 0.5% kept; no pack ships them), valuation class 3100 of
 # trading goods with its inventory accounts (S1d, ADR-0082 §8; 1416 stock,
 # 2196 receipts without an order, 3996 initial entries, 5116 consumption,
-# 5126 scrapping, 5196 price differences, 5197 revaluation) and the WA
-# and PR journal ranges its postings need (no pack ships them),
+# 5126 scrapping, 5196 price differences, 5197 revaluation, 5198
+# inventory differences, S2d) and the WA and PR journal ranges its
+# postings need (no pack ships them), the inventory difference tolerance
+# of CAD 50.00 (S2d) and the physical_inventory range PI (S2c),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1712,7 +1714,8 @@ PILOT_SETTINGS='
       {"number": "5116", "name": "Consumption of materials", "type": "expense"},
       {"number": "5126", "name": "Scrapped materials", "type": "expense"},
       {"number": "5196", "name": "Inventory price differences", "type": "expense"},
-      {"number": "5197", "name": "Inventory revaluation", "type": "expense"}]
+      {"number": "5197", "name": "Inventory revaluation", "type": "expense"},
+      {"number": "5198", "name": "Inventory differences", "type": "expense"}]
     | .account_determination.right_of_use_asset = "1660"
     | .account_determination.lease_liability = "2650"
     | .account_determination.lease_interest = "6720"
@@ -1721,7 +1724,8 @@ PILOT_SETTINGS='
     | .account_determination.payment_difference_expense = "6850"
     | .account_determination.payment_difference_revenue = "4850"
     | .account_determination.inventory = [{"valuation_class": "3100", "stock": "1416", "receipt": "2196", "initial_entry": "3996",
-        "consumption": "5116", "scrapping": "5126", "price_difference": "5196", "revaluation": "5197"}]
+        "consumption": "5116", "scrapping": "5126", "price_difference": "5196", "revaluation": "5197", "difference": "5198"}]
+    | .inventory_difference_tolerance = "50.00"
     | .receivables.payment_tolerance = {"underpayment_amount": "5.00", "underpayment_percent": "1", "overpayment_amount": "1.00",
         "overpayment_percent": "0.5"}
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
@@ -14662,7 +14666,8 @@ step_dispute_resolution() {
 # enters the bracket's count, which is not entered twice, and the bolts'
 # in a second entry; the document is then counted.
 step_count() {
-  heading "Step 141 — Physical inventory: a count document of the main store's brackets and bolts freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once"
+  local loss brackets
+  heading "Step 141 — Physical inventory: a count document of the main store's brackets and bolts freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once; the differences posted (701, 702) within the tolerance at once and above it once the controller approves"
   local doc book
   [ -n "$BOLT" ] || fail "step 124's valuations are not there"
   as wade
@@ -14674,6 +14679,7 @@ step_count() {
   case "$(field .number)" in PI*) ;; *) fail "the count document's number: got $(field .number), want one of the PI range" ;; esac
   doc=$(field .id)
   book=$(field '.items[0].book_quantity.value')
+  brackets=$book
   expect "the bracket's book quantity" "$book EA" "$(stock_at "$MAIN_STORE")"
   say "While it is counted no bracket leaves the main store, whatever posts it:"
   QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
@@ -14695,6 +14701,37 @@ step_count() {
   api 200 '"\(.status): " + ([.items[] | "item \(.item_no) \(.counted_quantity.value) \(.counted_quantity.unit)"] | join(", "))' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
     -body "{\"items\": [{\"item_no\": 2, \"quantity\": {\"value\": \"$book\", \"unit\": \"EA\"}}]}"
   expect "the count document" "$(field .status)" counted
+  as ines
+  say "Ines posts the differences (SAP MI07): the 8 missing brackets as a 702 valued at their moving price, against"
+  say "the inventory differences account 5198; within Maple's tolerance of 50.00 CAD, so at once. The book is the count:"
+  QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
+  api 200 '"count document \(.number): \(.status)", (.items[] | "  item \(.item_no) \(.material_number): difference \(.difference.value) \(.difference.unit) worth \(.difference_value.amount) \(.difference_value.currency), material document \(.material_document_number // "none")")' \
+    postPhysicalInventoryDifferences -p "id=$doc" -if-match "$ETAG"
+  expect "the count document" "$(field .status)" posted
+  loss=$(field '.items[0].material_document_id')
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(QUIET=1 api 200 '' getMaterialDocument -p "id=$loss"; field .journal_entry_id)"
+  expect "the main store's brackets, the count" "$(stock_at "$MAIN_STORE")" "$((brackets - 8)) EA"
+  say "The count's material document is not reversed; a new count corrects the stock:"
+  QUIET=1 api 200 '' getMaterialDocument -p "id=$loss"
+  refused 409 inventory.reverse_count reverseMaterialDocument -p "id=$loss" -if-match "$ETAG"
+  as wade
+  say "A month on, Wade counts the bolts again and finds 100 missing, 55.00 CAD at their standard price, and 2 more"
+  say "brackets than the book: 60.02 CAD of differences, above the tolerance, so they wait for Carla, the controller:"
+  api 201 '"count document \(.number): \(.status)"' createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"items\": [{\"material_id\": \"$MATERIAL\"}, {\"material_id\": \"$BOLT\"}]}"
+  doc=$(field .id)
+  api 200 '"\(.status)"' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" -body "{\"items\": [
+      {\"item_no\": 1, \"quantity\": {\"value\": \"$(( $(field '.items[0].book_quantity.value') + 2 ))\", \"unit\": \"EA\"}},
+      {\"item_no\": 2, \"quantity\": {\"value\": \"$(( $(field '.items[1].book_quantity.value') - 100 ))\", \"unit\": \"EA\"}}]}"
+  as ines
+  api 200 '"\(.status): \(.difference_value.amount) \(.difference_value.currency) asked of approval request \(.workflow_request_id)"' \
+    postPhysicalInventoryDifferences -p "id=$doc" -if-match "$ETAG"
+  expect "above the tolerance" "$(field '"\(.status) \(.difference_value.amount)"')" "pending_approval 60.02"
+  approve carla "$(field .workflow_request_id)" "Bolts were scrapped without a document; recount confirmed."
+  as ines
+  api 200 '"count document \(.number): \(.status)", (.items[] | "  item \(.item_no) \(.material_number): \(.difference.value) \(.difference.unit) worth \(.difference_value.amount), material document \(.material_document_number)")' \
+    getPhysicalInventoryDocument -p "id=$doc"
+  expect "after the approval" "$(field '[.status, (.items[] | .difference_value.amount)] | join(" ")')" "posted 5.02 -55.00"
   passed
 }
 

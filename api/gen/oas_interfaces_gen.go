@@ -2065,6 +2065,10 @@ type PostParkedJournalEntryRes interface {
 	postParkedJournalEntryRes()
 }
 
+type PostPhysicalInventoryDifferencesRes interface {
+	postPhysicalInventoryDifferencesRes()
+}
+
 type PostRevaluationRunRes interface {
 	postRevaluationRunRes()
 }

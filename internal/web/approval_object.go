@@ -162,6 +162,10 @@ var objectReads = map[string]objectRead{
 		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetCreditLimitChange(ctx, gen.GetCreditLimitChangeParams{ID: id})
 		})},
+	"inventory_difference": {op: Operation{ID: "getPhysicalInventoryDocument", HiddenBy: "inventory.stock.read", PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+			return c.GetPhysicalInventoryDocument(ctx, gen.GetPhysicalInventoryDocumentParams{ID: id})
+		})},
 }
 
 // creditLimitSummary is a credit limit change as its approver judges it:
@@ -235,6 +239,14 @@ func summaryOf(res any) (*ui.ObjectSummary, bool) {
 			{Key: i18n.SummaryReason, Value: ui.Data(c.Reason)}}}, true
 	case *gen.CreditLimitChangeHeaders:
 		return creditLimitSummary(v.Response), true
+	case *gen.GetPhysicalInventoryDocumentOKHeaders:
+		d := v.Response
+		rows := []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(d.Number)},
+			{Key: i18n.SummaryTitle, Value: ui.Data(d.CompanyCode + " " + d.PlantCode + "/" + d.StorageLocationCode)}, {Key: i18n.SummaryStatus, Value: ui.Code(d.Status)}}
+		if value, ok := d.DifferenceValue.Get(); ok {
+			rows = append(rows, ui.Row{Key: i18n.SummaryTotal, Value: ui.Amount(moneyOf(value))})
+		}
+		return &ui.ObjectSummary{Rows: rows}, true
 	case *gen.GetPartnerChangeOKHeaders:
 		c := v.Response
 		return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(c.Number)}, {Key: i18n.SummaryKind, Value: ui.Code(c.Kind)},

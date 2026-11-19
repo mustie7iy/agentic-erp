@@ -33,9 +33,29 @@ func countAPI(d CountDocument, r refs) gen.PhysicalInventoryDocument {
 			item.CountedQuantity = gen.NewOptQuantity(gen.Quantity{Value: *it.Counted, Unit: m.BaseUnit})
 			item.EntryQuantity = gen.NewOptQuantity(gen.Quantity{Value: *it.Entry, Unit: *it.EntryUnit})
 		}
+		if it.Difference != nil {
+			item.Difference = gen.NewOptQuantity(gen.Quantity{Value: *it.Difference, Unit: m.BaseUnit})
+			item.DifferenceValue = gen.NewOptMoney(apitypes.Money(*it.Amount, d.Currency, d.Exponent))
+		}
+		item.MaterialDocumentID, item.MaterialDocumentNumber = apitypes.OptUUID(it.MaterialDocumentID), apitypes.OptString(it.MaterialDocumentNumber)
 		out.Items[i] = item
 	}
+	out.WorkflowRequestID = apitypes.OptUUID(d.WorkflowRequestID)
+	if d.DifferenceValue != nil {
+		out.DifferenceValue = gen.NewOptMoney(apitypes.Money(*d.DifferenceValue, d.Currency, d.Exponent))
+	}
 	return out
+}
+
+// PostPhysicalInventoryDifferences implements POST
+// /v1/physical-inventory-documents/{id}:postDifferences.
+func (e *Endpoints) PostPhysicalInventoryDifferences(ctx context.Context, params gen.PostPhysicalInventoryDifferencesParams) (gen.PostPhysicalInventoryDifferencesRes, error) {
+	d, err := e.PostDifferences(ctx, params.ID, versionOf(params.IfMatch))
+	out, tag, err := e.oneCount(ctx, d, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.EnterPhysicalInventoryCountOKHeaders{ETag: tag, Response: out}, nil
 }
 
 // oneCount is a single count document as the API gives it, with its ETag,

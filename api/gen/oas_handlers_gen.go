@@ -23099,18 +23099,20 @@ func (s *Server) handleCreateMaterialRequest(args [0]string, argsEscaped bool, w
 // Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
 // item is two, the issue and the receipt. The lines are applied in order, and each leaves its
 // location's stock at zero or more, so items that move stock round a circle out of an empty location
-// are refused though they change nothing in all. Every line is valued (S1d): its material is valued in
-// its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the
-// stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the
-// value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is
-// worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's
-// currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422
-// `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the
-// receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted
-// through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or
-// initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock
-// account against the account its movement type posts to (receipt, initial entry, consumption with the
-// item's cost center, scrapping), and price differences on its price difference account (422
+// are refused though they change nothing in all. A material at a storage location an open physical
+// inventory count document counts is not moved there (409 `inventory.posting_blocked`, naming the
+// document; S2c). Every line is valued (S1d): its material is valued in its plant (422
+// `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at
+// a standard price the rest is worth its quantity at the price; at a moving price the value in
+// proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth
+// (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency,
+// 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price`
+// while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a
+// price difference), a transfer's receipt what its issue took. The value is posted through the ledger
+// in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA`
+// otherwise; none when the document moves no value): the valuation class's stock account against the
+// account its movement type posts to (receipt, initial entry, consumption with the item's cost center,
+// scrapping), and price differences on its price difference account (422
 // `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
 // 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
 // MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
@@ -108041,6 +108043,219 @@ func (s *Server) handlePostParkedJournalEntryRequest(args [1]string, argsEscaped
 	}
 }
 
+// handlePostPhysicalInventoryDifferencesRequest handles postPhysicalInventoryDifferences operation.
+//
+// Posts the differences of a `counted` document at the caller's version (`If-Match`; ADR-0082 As built
+// S2d; SAP MI07): each item's counted quantity less its book quantity, the gains as one material
+// document of movement type `701`, the losses as one of `702` (none for an item without a difference),
+// each valued as any receipt or issue (a gain at the moving or standard price, 422
+// `inventory.no_price` while a moving price is zero; a loss at the value it takes from the stock) and
+// posted (document type `WA`) between the valuation class's stock and `difference` accounts (422
+// `inventory.no_inventory_account`; the ledger's refusals, such as 422 `ledger.period_not_open`). When
+// the value of the differences, gains and losses alike, is more than the company's
+// `inventory_difference_tolerance` (none: zero), nothing is posted: the document is
+// `pending_approval`, naming the approval request (`workflow_request_id`, object type
+// `inventory_difference`, the controller's, never the requester's) and the value asked for
+// (`difference_value`); approval posts the differences as valued then, rejection (`rejected`) or
+// withdrawal (`withdrawn`) closes the document with nothing posted, and its materials are recounted by
+// a new document. Posted, the document is `posted` and its posting block lifted: each item names its
+// difference, its value and its material document, and the book quantity is the count. A document not
+// `counted` is 409 `inventory.count_invalid_status`; one of a company the caller may not act in is not
+// found (404). Audited; each material document is published as MaterialDocumentPosted. Such a material
+// document is not reversed (409 `inventory.reverse_count`): a new count corrects the stock. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents/{id}:postDifferences
+func (s *Server) handlePostPhysicalInventoryDifferencesRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postPhysicalInventoryDifferences"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/physical-inventory-documents/{id}:postDifferences"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), PostPhysicalInventoryDifferencesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: PostPhysicalInventoryDifferencesOperation,
+			ID:   "postPhysicalInventoryDifferences",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, PostPhysicalInventoryDifferencesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodePostPhysicalInventoryDifferencesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response PostPhysicalInventoryDifferencesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    PostPhysicalInventoryDifferencesOperation,
+			OperationSummary: "Post a count's differences",
+			OperationID:      "postPhysicalInventoryDifferences",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = PostPhysicalInventoryDifferencesParams
+			Response = PostPhysicalInventoryDifferencesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackPostPhysicalInventoryDifferencesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.PostPhysicalInventoryDifferences(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.PostPhysicalInventoryDifferences(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodePostPhysicalInventoryDifferencesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handlePostRevaluationRunRequest handles postRevaluationRun operation.
 //
 // Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042,
@@ -120967,12 +121182,13 @@ func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bo
 // it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
 // nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The
 // reversal moves the stock back, so it is refused when the stock the original received has gone (409
-// `inventory.insufficient_stock`, naming the material, the location and both quantities). The material
-// may have been blocked since; the reversal is still posted. Each line is valued at what its original
-// line was, given back: what the stock does not take of it at its price now is a price difference, and
-// the value is posted through the ledger as the original's was, reversed. A document of a company the
-// caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted.
-// Human-only (`x-agent: false`).
+// `inventory.insufficient_stock`, naming the material, the location and both quantities). It is
+// refused, as a posting is, while an open count document counts one of its materials at one of its
+// storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the
+// reversal is still posted. Each line is valued at what its original line was, given back: what the
+// stock does not take of it at its price now is a price difference, and the value is posted through
+// the ledger as the original's was, reversed. A document of a company the caller may not act in is not
+// found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`).
 //
 // POST /v1/material-documents/{id}:reverse
 func (s *Server) handleReverseMaterialDocumentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

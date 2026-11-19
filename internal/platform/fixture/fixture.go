@@ -46,7 +46,7 @@ var ApprovalPermissions = []string{"workflow.request.read", "workflow.request.de
 	"procurement.requisition.approve", "partner.change.approve", "payables.invoice.approve", "config.change.approve",
 	"ledger.period.unlock.approve", "ledger.entry.approve", "procurement.order.approve", "payments.statement.clearing.approve",
 	"ledger.cost_center.approve", "procurement.gr_ir.clear.approve", "tax.return.approve", "materials.change.approve",
-	"credit.limit.approve"}
+	"credit.limit.approve", "inventory.difference.approve"}
 
 // Years are the fiscal years the fixture sets up: 2026, which tests date
 // documents in, and the current year, which numbers documents dated today.
