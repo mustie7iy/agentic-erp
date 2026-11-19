@@ -173,7 +173,7 @@ func (e *Endpoints) ResolveCase(ctx context.Context, id uuid.UUID, ifMatch func(
 	if in.Kind == CreditMemo {
 		r.memos, err = e.creditMemos(ctx, c, r)
 	} else {
-		r.entry, err = e.writeOff(ctx, le, c, r)
+		r.entry, err = e.writeOff(ctx, tx, le, c, r)
 	}
 	if err != nil {
 		return Case{}, err
@@ -358,9 +358,13 @@ func creditedItems(inv receivables.Invoice, accepted money.Minor) []receivables.
 // its local amount), so each pair balances in every currency and the
 // credit clears against the item without an exchange difference. A
 // company without the account is refused, 422
-// collections.no_write_off_account; a refusal by the ledger names the
+// collections.no_write_off_account, and so is an item of a dunning
+// charge's debit memo (dunningCharge); a refusal by the ledger names the
 // resolution (asResolution).
-func (e *Endpoints) writeOff(ctx context.Context, le tenancy.Entity, c Case, r resolved) (*ledger.Entry, error) {
+func (e *Endpoints) writeOff(ctx context.Context, tx pgx.Tx, le tenancy.Entity, c Case, r resolved) (*ledger.Entry, error) {
+	if err := dunningCharge(ctx, tx, c, r); err != nil {
+		return nil, err
+	}
 	account, ok, err := e.Resolving.Accounts.Determination(ctx, le.ID, WriteOffKey)
 	if err != nil {
 		return nil, fmt.Errorf("collections: the write-off account of company %s: %w", le.Code, err)
@@ -385,6 +389,38 @@ func (e *Endpoints) writeOff(ctx context.Context, le tenancy.Entity, c Case, r r
 		return nil, asResolution(fmt.Errorf("collections: post the write-off of dispute case %s: %w", c.ID, err), "The write-off cannot be posted: ")
 	}
 	return &entry, nil
+}
+
+// dunningCharge refuses a write-off of an item of a debit memo a dunning
+// run posted its charges with (T76h), 422
+// collections.dunning_charge_write_off naming resolution: cancelling the
+// run (T76i) reverses that memo, and since a write-off leaves the memo's
+// item open beside its credit (it need not even be open), the reversal
+// would give the customer the charge back a second time. The charge is
+// taken back by cancelling the run, or the case is closed as rejected.
+// Which memos a run posted is fixed once they are posted
+// (dunning_charge is insert-only but for its reversal), so no lock is
+// needed (batch 82 integration, ADR-0065 As built T86d).
+func dunningCharge(ctx context.Context, tx pgx.Tx, c Case, r resolved) error {
+	var years []int16
+	var entries []uuid.UUID
+	for i, it := range c.Items {
+		if r.accepted[i] != 0 {
+			years, entries = append(years, it.FiscalYear), append(entries, it.EntryID)
+		}
+	}
+	rows, _ := tx.Query(ctx, `SELECT customer_invoice_number FROM collections.dunning_charge
+		WHERE (journal_entry_year, journal_entry_id) IN (SELECT * FROM unnest($1::smallint[], $2::uuid[]))
+		ORDER BY customer_invoice_number LIMIT 1`, years, entries)
+	numbers, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return fmt.Errorf("collections: the dunning charges among dispute case %s's items: %w", c.ID, err)
+	}
+	if len(numbers) == 0 {
+		return nil
+	}
+	return problem.Invalid("collections.dunning_charge_write_off", "resolution", "Debit memo "+numbers[0]+" charged a dunning notice's charge and "+
+		"interest: it is taken back by cancelling its dunning run (cancelDunningRun), which reverses it, not written off; or close the case as rejected.")
 }
 
 // asResolution names a refusal by receivables or the ledger as the

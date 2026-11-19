@@ -32,6 +32,12 @@ var resolvingPerms = []string{"collections.dispute.resolve", "receivables.invoic
 // 690000 a write-off debits.
 func resolving(doc *config.Config) {
 	dunning(doc)
+	resolvable(doc)
+}
+
+// resolvable is resolving without the dunning levels, for a
+// configuration that sets them up its own way.
+func resolvable(doc *config.Config) {
 	de := doc.Company("2000")
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "230000", Name: "Output tax", Type: config.Liability},
 		config.Account{Number: "690000", Name: "Payment differences", Type: config.Expense})
@@ -48,7 +54,14 @@ func resolving(doc *config.Config) {
 // it takes and Northwind set up in company 2000 on 120000 with NT30.
 func setupResolving(t *testing.T) env {
 	t.Helper()
-	f := fixture.NewWith(t, nil, resolving, append(perms, resolvingPerms...)...)
+	return setupResolvingWith(t, resolving)
+}
+
+// setupResolvingWith is setupResolving with the configuration as
+// configure leaves it.
+func setupResolvingWith(t *testing.T, configure func(*config.Config)) env {
+	t.Helper()
+	f := fixture.NewWith(t, nil, configure, append(perms, resolvingPerms...)...)
 	e := env{Env: f, receivable: f.Account(t, "2000", "120000"), revenue: f.Account(t, "2000", "400000")}
 	e.north = e.customer(t, "BP70000002", "Northwind Traders")
 	e.south = e.customer(t, "BP70000001", "Southwind Ltd")
@@ -435,4 +448,45 @@ func minor(t *testing.T, m map[string]any, field string) money.Minor {
 		t.Fatal(err)
 	}
 	return v
+}
+
+// TestWriteOffOfADunningCharge: an item of a debit memo a dunning run
+// posted its charges with is not written off, before or after the run is
+// cancelled, since the cancellation reverses the memo and the write-off
+// leaves its item open: the customer would get the charge back twice;
+// nothing is posted and the case stays open; the run is cancelled all
+// the same (batch 82 integration review, ADR-0065 As built T86d).
+func TestWriteOffOfADunningCharge(t *testing.T) {
+	e := setupResolvingWith(t, func(doc *config.Config) { posting(doc); resolvable(doc) })
+	for _, c := range []uuid.UUID{e.south, e.east} {
+		e.companyData(t, c)
+	}
+	e.story(t)
+	run, tag := e.start(t, keyDate)
+	e.confirm(t, run, tag)
+	var entry uuid.UUID
+	var line int32
+	pgtest.Scan(t, `SELECT c.journal_entry_id, l.line_no FROM collections.dunning_charge c JOIN ledger.journal_line l
+		ON l.tenant_id = c.tenant_id AND l.fiscal_year = c.journal_entry_year AND l.journal_entry_id = c.journal_entry_id AND l.partner_id IS NOT NULL
+		WHERE c.tenant_id = $1 AND c.dunning_run_id = $2`, []any{e.Tenant.ID, run}, &entry, &line)
+	body := strings.Replace(disputeItems(e, []string{entry.String() + " 5.00 EUR"}, ""), `"line_no": 1`, fmt.Sprintf(`"line_no": %d`, line), 1)
+	id, caseTag := e.open(t, body)
+	for _, when := range []string{"before the cancellation", "after it"} {
+		t.Run(when, func(t *testing.T) {
+			p := e.Problem(422, "collections.dunning_charge_write_off", "POST", "/v1/dispute-cases/"+id+":resolve", `{"resolution": "write_off", "reason": "x"}`, caseTag)
+			if f := fieldOf(t, p); f != "resolution" {
+				t.Errorf("field: got %q, want resolution", f)
+			}
+			c, _ := e.Must(200, "GET", "/v1/dispute-cases/"+id, "", "")
+			if c["status"] != "open" {
+				t.Errorf("the case: got %v, want open", c["status"])
+			}
+		})
+		if when == "before the cancellation" {
+			e.cancel(t, run, e.tagOf(t, run))
+		}
+	}
+	if got := e.charges(t, run); got != "BP70000001 reversed" {
+		t.Errorf("the run's memo: got %q, want it reversed by the cancellation alone", got)
+	}
 }

@@ -1188,8 +1188,10 @@ digest.
   journal's check widened by 000404, validated by 000405), the case its
   source document: per item accepted above zero, a debit on the
   company's `payment_difference_expense` account (SAP posts a dispute's
-  write-off by payment difference reason, ZDI; reason codes with their
-  own accounts are later) and a credit to the item's account with the
+  write-off by payment difference reason, ZDI; the payment-difference
+  reasons with their own accounts that incoming payments use since T75o
+  (ADR-0063 As built) are not used by a dispute's write-off yet) and a
+  credit to the item's account with the
   customer, both with the accepted part of the item's local amount, so
   each pair balances in every currency and the credit clears against the
   item without an exchange difference. The item's account was recorded
@@ -1197,7 +1199,17 @@ digest.
   migration). No output tax is corrected by a write-off: whether a
   pilot country allows it is a question for the tax specialist. A
   company without the account is refused (422
-  `collections.no_write_off_account`). `requireOwnEntry` refuses the
+  `collections.no_write_off_account`). An item of a dunning charge's
+  debit memo (T76h; `collections.dunning_charge` names its entry) is not
+  written off (422 `collections.dunning_charge_write_off` naming
+  `resolution`), before or after its run is cancelled: the cancellation
+  (T76i) reverses the memo, and a write-off leaves the memo's item open
+  beside its credit, so together they would give the customer the charge
+  back twice. The charge is taken back by cancelling the run, or the
+  case is closed as rejected; a credit memo resolution refuses the item
+  already (`collections.no_invoice`). Which memos a run posted is fixed
+  once posted, so the check takes no lock (batch 82 integration review,
+  decided by default). `requireOwnEntry` refuses the
   entry's reversal through the ledger, as for any context without one.
 - **What stays open.** Neither document clears the invoice: each leaves
   a credit item of the customer beside it, cleared against it

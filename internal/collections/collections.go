@@ -7,9 +7,10 @@
 // publishes one event per customer (ADR-0065 §8, T76b). The collection
 // worklist, a company's customers with overdue items, is computed on read
 // from the same open items and the recorded levels and stores nothing
-// (ADR-0065 §9, T76c). A dispute case is a customer's dispute of an
-// amount of one of its open items, worked by a person and closed as
-// accepted or rejected; closing posts nothing (ADR-0065 As built, T86a).
+// (ADR-0065 §9, T76c). A dispute case is a customer's dispute of amounts
+// of one or more of its open items (T86a, T86c), worked by a person and
+// closed as accepted or rejected; closing posts nothing, and an accepted
+// case is resolved by a credit memo per item or a write-off (T86d).
 // A run charges its notices and their items as the company's dunning
 // procedure says (T76d), and leaves out the items a dunning block of the
 // item or its customer holds back (T76e) and those a customer promised to
@@ -23,9 +24,10 @@
 //
 // The context is a leaf (ADR-0065 §1): it reads the ledger's customer
 // open items, the partner context's names, the identity context's people,
-// tenancy and the configuration through the ports below, posts only
-// through receivables' published API (Invoices), and no context imports
-// it.
+// tenancy and the configuration through the ports below, and posts
+// through receivables' published API (Invoices: a run's debit memos, a
+// dispute case's credit memos) and, for a dispute case's write-off, the
+// ledger's posting port (Resolving); no context imports it.
 package collections
 
 import (
@@ -123,7 +125,9 @@ type Endpoints struct {
 	Settings      Settings
 	People        People
 	// Invoices and Accounts post a confirmed run's charges and interest
-	// as customer debit memos (T76h).
+	// as customer debit memos (T76h); Invoices also reads the invoices a
+	// dispute case's items name and posts the credit memos resolving it
+	// (T86d).
 	Invoices Invoices
 	Accounts Accounts
 	// Now is the clock a dunning block's end date is judged by, against

@@ -7918,9 +7918,12 @@ type Invoker interface {
 	// `source_context` `collections`, the case its source document, with per item accepted above zero a
 	// debit of the accepted amount on the company's `payment_difference_expense` account (422
 	// `collections.no_write_off_account` without it) and a credit to the item's account naming the
-	// customer, both at the item's booked rate. Either leaves a credit item of the customer open beside
-	// the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as any
-	// credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names
+	// customer, both at the item's booked rate. An item of a debit memo a dunning run posted its charges
+	// and interest with is not written off (422 `collections.dunning_charge_write_off` naming
+	// `resolution`): cancelling the run (`cancelDunningRun`) reverses that memo, and a write-off would
+	// give the customer the charge back a second time. Either leaves a credit item of the customer open
+	// beside the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as
+	// any credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names
 	// `resolution` (or `posting_date`), its detail led by the document that could not be posted, and
 	// leaves the case open with nothing posted. The case becomes `accepted` with `resolution`,
 	// `accepted_amount`, `local_accepted_amount` (each item's accepted part of its local disputed amount,
@@ -109388,9 +109391,12 @@ func (c *Client) sendResetIncomingPaymentApplication(ctx context.Context, reques
 // `source_context` `collections`, the case its source document, with per item accepted above zero a
 // debit of the accepted amount on the company's `payment_difference_expense` account (422
 // `collections.no_write_off_account` without it) and a credit to the item's account naming the
-// customer, both at the item's booked rate. Either leaves a credit item of the customer open beside
-// the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as any
-// credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names
+// customer, both at the item's booked rate. An item of a debit memo a dunning run posted its charges
+// and interest with is not written off (422 `collections.dunning_charge_write_off` naming
+// `resolution`): cancelling the run (`cancelDunningRun`) reverses that memo, and a write-off would
+// give the customer the charge back a second time. Either leaves a credit item of the customer open
+// beside the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as
+// any credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names
 // `resolution` (or `posting_date`), its detail led by the document that could not be posted, and
 // leaves the case open with nothing posted. The case becomes `accepted` with `resolution`,
 // `accepted_amount`, `local_accepted_amount` (each item's accepted part of its local disputed amount,
