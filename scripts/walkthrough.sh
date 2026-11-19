@@ -14953,6 +14953,103 @@ goods_issue_margin() {
   expect "the rows' cost of sales add up to the totals'" "$(field '([.items[].cost_of_sales.amount | tonumber] | add * 100 | round) == (.totals.cost_of_sales.amount | tonumber * 100 | round)')" true
 }
 
+# step_einvoice_render is E2 (ADR-0061 §9, As built E2; plan
+# einvoicing-evatra.md): Maple Gulf Trading's sales are rendered as PINT AE
+# e-invoices in the ERP. Ada gives the UAE company a customer
+# reconciliation account and its postal address in Dubai; Ruth creates a
+# UAE customer with its TRN and its legal address in Dubai, approved by
+# Carla; she posts a customer invoice of a standard-rated item in Dubai and
+# a zero-rated one and renders it: a valid tax invoice 380, every mandatory
+# field checked, its XML kept and downloaded, the seller's and buyer's TRNs,
+# endpoints and emirates in it; rendering it again answers it unchanged.
+# She posts a credit memo crediting part of it: without its reason
+# (BTAE-03) it is refused; with one it is a valid tax credit note 381
+# naming the invoice. Both are listed for the company. Nothing is sent
+# (E3).
+step_einvoice_render() {
+  heading "Step 144 — PINT AE e-invoices rendered: a UAE customer invoice as a valid tax invoice 380 with the parties' TRNs, endpoints and emirates and its VAT by category; a credit memo as a tax credit note 381 with its reason; the XML kept, read back and listed"
+  local ae base cr customer recon sales body invoice number rendered memo note sum
+  as ada
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  say "The UAE company's sales are e-invoiced in the ERP (product owner, 2026-11-19: through an accredited provider, Evatra;"
+  say "sending is E3's). A tax invoice names the seller's address with its emirate, and a customer's receivables post to"
+  say "a customer reconciliation account, which the UAE company's chart lacks: Ada proposes both, a change of the chart,"
+  say "tier 4, with its evidence and two approvers:"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"E-invoicing master data of $AE\", rationale: \"PINT AE tax invoices of the UAE company (E2)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$AE\")) |= (.chart_of_accounts += [{\"number\": \"1200\", \"name\": \"Trade receivables\", \"type\": \"asset\", \"customer_reconciliation\": true}]
+      | .postal_address = {\"line1\": \"Office 1201, Gulf Tower\", \"city\": \"Dubai\", \"region\": \"AE-DU\", \"country_code\": \"AE\"}))}" "$WORK/last.json" >"$WORK/einvoice-master.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @einvoice-master.json
+  cr=$(field .id)
+  governed "$cr" "the UAE company's e-invoicing master data"
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  recon=$(field '.items[] | select(.number == "1200") | .id')
+  sales=$(field '.items[] | select(.number == "4000") | .id')
+  as ruth
+  say "Ruth creates Desert Rose Retail, a UAE customer of $AE: its TRN (illustrative) and its legal address in Dubai,"
+  say "which its tax invoices name; Carla approves it:"
+  body="{\"kind\": \"organization\", \"name\": \"Desert Rose Retail LLC\", \"country_code\": \"AE\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$ae\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"NT30\"}], \"tax_identifiers\": [{\"scheme\": \"AE_TRN\", \"value\": \"100987654300003\"}], \"addresses\": [{\"purpose\": \"legal\", \"line1\": \"Shop 4, Al Wasl Road\", \"city\": \"Dubai\", \"region\": \"AE-DU\", \"country_code\": \"AE\", \"valid_from\": \"$YEAR-01-01\"}], \"reason\": \"Buys office furniture from Maple Gulf\"}"
+  api 201 '"business partner \(.number) \(.name): \(.status)"' createBusinessPartner -body "$body"
+  customer=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its trade licence"
+  as ruth
+  say "Ruth invoices it AED 10,000.00 of office chairs, standard-rated in Dubai (S5, 5%), and AED 2,000.00 of delivery"
+  say "to a free zone client, zero-rated (Z0), and posts the invoice:"
+  body="{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"AED\", \"items\": [{\"description\": \"Office chairs\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"10000.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}, {\"description\": \"Delivery and assembly\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"2000.00\", \"currency\": \"AED\"}, \"tax_code\": \"Z0\"}]}"
+  api 201 '"customer invoice \(.document_number): net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)"' createCustomerInvoice -body "$body"
+  invoice=$(field .id)
+  number=$(field .document_number)
+  api 200 '"customer invoice \(.document_number): \(.status) on \(.posting_date)"' postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  say "She renders it as its e-invoice: PINT AE (urn:peppol:pint:billing-1@ae-1), UBL 2.1, a tax invoice 380. Every"
+  say "mandatory field is checked before anything is kept (ADR-0061 §5's rules); it is valid, and its XML is kept"
+  say "write-once under its SHA-256:"
+  local shown='"e-invoice \(.type_code) \(.kind) of \(.customer_invoice_number), \(.company_code) to \(.customer_number) \(.customer_name): \(.status), \(.problems | length) problems, gross \(.gross_amount.amount) \(.gross_amount.currency), \(.specification)"'
+  api 201 "$shown" createOutgoingEInvoice -body "{\"customer_invoice_id\": \"$invoice\"}"
+  expect "the e-invoice" "$(field '"\(.status) \(.kind) \(.type_code) \(.customer_invoice_number) \(.problems | length) \(.gross_amount.amount)"')" "valid invoice 380 $number 0 12500.00"
+  rendered=$(field .id)
+  sum=$(field .sha256)
+  say "Ruth downloads the XML, its SHA-256 the one recorded: the seller's TRN and endpoint (0235 and the TRN's first ten"
+  say "digits), the buyer's, both emirates as PINT AE codes (DXB), and the VAT by category, S at 5% and Z at 0%:"
+  api 200 '' getOutgoingEInvoiceContent -p "id=$rendered" -out "$WORK/einvoice-$number.xml"
+  expect "the XML's SHA-256" "$(shasum -a 256 "$WORK/einvoice-$number.xml" | cut -d' ' -f1)" "$sum"
+  local xml
+  xml=$(cat "$WORK/einvoice-$number.xml")
+  for want in '<cbc:CustomizationID>urn:peppol:pint:billing-1@ae-1</cbc:CustomizationID>' '<cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>' \
+    '<cbc:EndpointID schemeID="0235">1001234567</cbc:EndpointID>' '<cbc:EndpointID schemeID="0235">1009876543</cbc:EndpointID>' \
+    '<cbc:CompanyID>100123456789003</cbc:CompanyID>' '<cbc:CompanyID>100987654300003</cbc:CompanyID>' '<cbc:CountrySubentity>DXB</cbc:CountrySubentity>' \
+    '<cbc:TaxAmount currencyID="AED">500.00</cbc:TaxAmount>' '<cbc:ID>S</cbc:ID><cbc:Percent>5</cbc:Percent>' '<cbc:ID>Z</cbc:ID><cbc:Percent>0</cbc:Percent>'; do
+    case "$xml" in *"$want"*) say "  $want" ;; *) fail "the e-invoice's XML lacks $want" ;; esac
+  done
+  say "Rendering it again answers it unchanged: a valid e-invoice is the legal document and final."
+  api 200 '"e-invoice \(.customer_invoice_number): \(.status), version \(.version)"' createOutgoingEInvoice -body "{\"customer_invoice_id\": \"$invoice\"}"
+  expect "rendered again" "$(field '"\(.id) \(.version) \(.sha256)"')" "$rendered 1 $sum"
+  say "The chairs' price is reduced by AED 1,000.00 after delivery: Ruth posts a credit memo naming the invoice. Its"
+  say "tax credit note needs its reason (BTAE-03), so without one it is refused:"
+  body="{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"kind\": \"credit_memo\", \"reference_invoice_id\": \"$invoice\", \"invoice_date\": \"$TODAY\", \"currency\": \"AED\", \"items\": [{\"description\": \"Office chairs, price reduced\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1000.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}]}"
+  api 201 '"\(.kind) \(.document_number) crediting \(.reference_invoice_number): gross \(.gross_amount.amount) \(.currency)"' createCustomerInvoice -body "$body"
+  memo=$(field .id)
+  api 200 '"\(.kind) \(.document_number): \(.status)"' postCustomerInvoice -p "id=$memo" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  refused 422 einvoicing.credit_note_reason createOutgoingEInvoice -body "{\"customer_invoice_id\": \"$memo\"}"
+  say "With the reason, its code illustrative (PINT AE's code list for it is a question for the tax specialist), it is a"
+  say "valid tax credit note 381 naming the invoice it corrects (IBT-025):"
+  api 201 "$shown"', "  reason \(.credit_note_reason.code): \(.credit_note_reason.text), crediting \(.reference_invoice_number)"' createOutgoingEInvoice \
+    -body "{\"customer_invoice_id\": \"$memo\", \"credit_note_reason\": {\"code\": \"CR-01\", \"text\": \"Price reduced after delivery\"}}"
+  expect "the credit note" "$(field '"\(.status) \(.kind) \(.type_code) \(.reference_invoice_number) \(.gross_amount.amount)"')" "valid credit_note 381 $number 1050.00"
+  note=$(field .id)
+  api 200 '' getOutgoingEInvoiceContent -p "id=$note" -out "$WORK/einvoice-note.xml"
+  grep -q "<cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>$number</cbc:ID>" "$WORK/einvoice-note.xml" || fail "the credit note's XML does not name $number"
+  grep -q '<cbc:CreditNoteTypeCode>381</cbc:CreditNoteTypeCode>' "$WORK/einvoice-note.xml" || fail "the credit note's XML is not a 381"
+  say "Read back, and listed for the company, newest first:"
+  api 200 '"e-invoice \(.customer_invoice_number): \(.status), \(.sha256[0:16])…"' getOutgoingEInvoice -p "id=$rendered"
+  expect "read back" "$(field '"\(.status) \(.sha256)"')" "valid $sum"
+  api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number) to \(.customer_name): \(.status)"' listOutgoingEInvoices -p "legal_entity_id=$ae"
+  expect "the company's e-invoices" "$(field '[.items[].id] | join(" ")')" "$note $rendered"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -16983,7 +17080,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_einvoice_render step_close'
 
 main() {
   stop_unseen
