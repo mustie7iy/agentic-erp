@@ -989,3 +989,158 @@ func TestCustomerMemoReversalRevert(t *testing.T) {
 	}
 	failsWith(t, exec(tx, down), "000381 cannot be reverted")
 }
+
+// TestIncomingPaymentTranslationRules (T75n, migration 000398; ADR-0063 §6
+// As built): an item translated into the payment's currency has its own
+// currency, a known one, its own amount with the sign of its amount in
+// the payment's currency, and a rate above zero, all three or none.
+func TestIncomingPaymentTranslationRules(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+		receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, 'IP1', gen_random_uuid(), gen_random_uuid(), 2026, gen_random_uuid(), gen_random_uuid(), '2026-03-21', 'GBP', 10000, 2026,
+			gen_random_uuid(), $1)`
+	const item = `INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
+		item_currency, item_amount, exchange_rate) VALUES ($1, $2, 1, 2026, gen_random_uuid(), 1, $3, $4, $5, $6)`
+	var noCurrency, noRate *string
+	var noAmount *int64
+	eur, unknown, rate, zero, negative := "EUR", "XXQ", "0.833333333333", "0", "-1"
+	own, credit := int64(12000), int64(-12000)
+	for _, c := range []struct {
+		name string
+		args []any // amount, item currency, item amount, rate
+		want string
+	}{
+		{"an item in the payment's currency", []any{int64(10000), noCurrency, noAmount, noRate}, ""},
+		{"an item translated", []any{int64(10000), &eur, &own, &rate}, ""},
+		{"a credit translated", []any{int64(-10000), &eur, &credit, &rate}, ""},
+		{"a currency without its amount", []any{int64(10000), &eur, noAmount, &rate}, "incoming_payment_item_translation"},
+		{"an amount without its rate", []any{int64(10000), &eur, &own, noRate}, "incoming_payment_item_translation"},
+		{"a rate without its currency", []any{int64(10000), noCurrency, noAmount, &rate}, "incoming_payment_item_translation"},
+		{"an amount of the other sign", []any{int64(10000), &eur, &credit, &rate}, "incoming_payment_item_translation"},
+		{"a rate of zero", []any{int64(10000), &eur, &own, &zero}, "incoming_payment_item_translation"},
+		{"a negative rate", []any{int64(10000), &eur, &own, &negative}, "incoming_payment_item_translation"},
+		{"an unknown currency", []any{int64(10000), &unknown, &own, &rate}, "incoming_payment_item_item_currency_fkey"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, doc := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				return all(tx, step(header, tenant, doc), step(item, append([]any{tenant, doc}, c.args...)...))
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestIncomingPaymentTranslationRevert (T75n, migration 000398's down):
+// the revert is refused while a payment holds an item it translated.
+func TestIncomingPaymentTranslationRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000398_incoming_payment_item_translation").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+			receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+			VALUES ($1, $1, 'IP1', $1, $1, 2026, gen_random_uuid(), $1, '2026-03-21', 'GBP', 6000, 2026, gen_random_uuid(), $1)`, tenant),
+		step(`INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
+			item_currency, item_amount, exchange_rate) VALUES ($1, $1, 1, 2026, gen_random_uuid(), 1, 6000, 'EUR', 7200, 1.2)`, tenant)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "reverting would show their amounts as in the payment's currency")
+}
+
+// TestIncomingPaymentWriteOffRules (T75o, migration 000399; ADR-0063 §6 As
+// built): an item's write-off is its amount, its line in the clearing
+// entry, its account and its reason together, more than zero and less than
+// the item, which the customer owed (a debit), never beside a residual,
+// with a reason of 1 to 40 and a free text of 1 to 200 characters.
+func TestIncomingPaymentWriteOffRules(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+		receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, 'IP1', gen_random_uuid(), gen_random_uuid(), 2026, gen_random_uuid(), gen_random_uuid(), '2026-03-21', 'EUR', 9600, 2026,
+			gen_random_uuid(), $1)`
+	const item = `INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
+		write_off_amount, write_off_line_no, write_off_account_id, write_off_reason, write_off_reason_text, residual_amount, residual_line_no, residual_reason)
+		VALUES ($1, $2, 1, 2026, gen_random_uuid(), 1, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+	var none *int64
+	var noLine *int32
+	var noText *string
+	var noAccount *uuid.UUID
+	amount, line, account, reason, text, zeroLine, zero := int64(400), int32(3), id(), "bank_charges", "Charged by the customer's bank", int32(0), int64(0)
+	residual, residualLine, residualReason := int64(100), int32(4), "disputed"
+	long, longText, empty := strings.Repeat("r", 41), strings.Repeat("t", 201), ""
+	cases := []struct {
+		name string
+		args []any // amount; write-off amount, line, account, reason, text; residual amount, line, reason
+		want string
+	}{
+		{"an item paid in full", []any{int64(10000), none, noLine, noAccount, noText, noText, none, noLine, noText}, ""},
+		{"a write-off with its reason and text", []any{int64(10000), &amount, &line, &account, &reason, &text, none, noLine, noText}, ""},
+		{"a write-off without its line", []any{int64(10000), &amount, noLine, &account, &reason, noText, none, noLine, noText}, "incoming_payment_item_write_off"},
+		{"a write-off without its account", []any{int64(10000), &amount, &line, noAccount, &reason, noText, none, noLine, noText}, "incoming_payment_item_write_off"},
+		{"a write-off without its reason", []any{int64(10000), &amount, &line, &account, noText, noText, none, noLine, noText}, "incoming_payment_item_write_off"},
+		{"a text without a write-off", []any{int64(10000), none, noLine, noAccount, noText, &text, none, noLine, noText}, "incoming_payment_item_write_off"},
+		{"a write-off of zero", []any{int64(10000), &zero, &line, &account, &reason, noText, none, noLine, noText}, "incoming_payment_item_write_off"},
+		{"a write-off of the whole item", []any{int64(400), &amount, &line, &account, &reason, noText, none, noLine, noText}, "incoming_payment_item_write_off"},
+		{"a write-off of a credit", []any{int64(-10000), &amount, &line, &account, &reason, noText, none, noLine, noText}, "incoming_payment_item_write_off"},
+		{"a write-off on line 0", []any{int64(10000), &amount, &zeroLine, &account, &reason, noText, none, noLine, noText}, "incoming_payment_item_write_off"},
+		{"a write-off beside a residual", []any{int64(10000), &amount, &line, &account, &reason, noText, &residual, &residualLine, &residualReason},
+			"incoming_payment_item_write_off"},
+		{"a reason of 41 characters", []any{int64(10000), &amount, &line, &account, &long, noText, none, noLine, noText}, "incoming_payment_item_write_off_reason_length"},
+		{"an empty reason", []any{int64(10000), &amount, &line, &account, &empty, noText, none, noLine, noText}, "incoming_payment_item_write_off_reason_length"},
+		{"an empty text", []any{int64(10000), &amount, &line, &account, &reason, &empty, none, noLine, noText}, "incoming_payment_item_write_off_text_length"},
+		{"a text of 201 characters", []any{int64(10000), &amount, &line, &account, &reason, &longText, none, noLine, noText},
+			"incoming_payment_item_write_off_text_length"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, doc := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				return all(tx, step(header, tenant, doc), step(item, append([]any{tenant, doc}, c.args...)...))
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestIncomingPaymentWriteOffRevert (T75o, migration 000399's down): the
+// revert is refused while an item's difference was written off by its
+// reason.
+func TestIncomingPaymentWriteOffRevert(t *testing.T) {
+	need(t)
+	down := migrationNamed(t, "000399_incoming_payment_write_off").Down
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant := id()
+	if err := all(tx, step(`INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+			receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+			VALUES ($1, $1, 'IP1', $1, $1, 2026, gen_random_uuid(), $1, '2026-03-21', 'EUR', 9600, 2026, gen_random_uuid(), $1)`, tenant),
+		step(`INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
+			write_off_amount, write_off_line_no, write_off_account_id, write_off_reason) VALUES ($1, $1, 1, 2026, gen_random_uuid(), 1, 10000, 400, 3, $1, 'bank_charges')`,
+			tenant)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "reverting would lose what was written off")
+}

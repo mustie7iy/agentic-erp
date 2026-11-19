@@ -629,3 +629,122 @@ report as CSV for a spreadsheet.
 
 **Later (still in the placeholder):** group currency; analytics metrics;
 an allowance for expected credit losses (IFRS 9, the specialist's).
+
+## rcpt
+
+Placeholder: "later: incoming payment variants" (`plan-breadth-week1.md`
+§T75c, Later; `plan-depth-1.md` §recv, Later; `plan-depth-2.md` §recv2,
+Later; ADR-0063 §6). Two variants are split here: a receipt in another
+currency than the items, and the payment-difference reason codes from
+configuration. SAP S/4HANA is the reference, stated from memory and not
+checked against a source in the lane: F-28 clears open items in another
+currency than the payment, each translated into the payment currency at
+the rate of the clearing date (rate type M), the clearing document in the
+payment currency, the items' local amounts offset as booked and the rest
+a realized exchange difference (OBA1's keys); reason codes (OBBE) are per
+company code, each with a short text, a "charge off difference" flag
+that writes the difference off to the reason's account (OBXL) instead of
+leaving a residual item, and the payment tolerances (OBA3) still bound
+what may be written off.
+
+### T75n A receipt in another currency than the items
+
+**Capability.** An AR accountant applies a receipt in one currency (a
+customer's USD transfer to the company's USD house bank) to the
+customer's items in another (its CAD invoices): each item is translated
+into the receipt's currency at the day's rate and cleared at its own
+rate, and the realized exchange difference is posted.
+
+- **Reuses:** T75c's application (`ledger.Postings.ApplyReceipt`, one DZ
+  entry offsetting the receipt and every item in local and group currency
+  at their booked amounts, the exchange difference lines on `fx_gain` /
+  `fx_loss`), T75f's residuals and tolerance, T75g's on account and later
+  application, T75h's other customers, the ledger's rate source (the
+  average rate valid on a day, either direction, `ledger.exchange_rate`)
+  and `ledger.Conversion`.
+- **Adds:** an item of `POST /v1/incoming-payments` (and of
+  `POST /v1/incoming-payments/{id}/applications`) may be in another
+  currency than the receipt: its amount is translated into the receipt's
+  currency at the average rate valid on the posting date from the item's
+  currency into the receipt's, rounded once half away from zero; the
+  clearing entry, in the receipt's currency, offsets the item at that
+  amount and at its booked local and group amounts, so the item is
+  cleared at its own rate and what is left in local or group currency is
+  the realized exchange difference; residuals, the tolerance and what is
+  left on account are in the receipt's currency as before. The payment
+  shows each item's own amount (`item_amount`, in its currency) beside
+  its amount in the payment's currency and, for an item translated, the
+  rate (`exchange_rate`). Migration: the item's currency, amount and rate
+  on `receivables.incoming_payment_item`, all three or none.
+- **Walkthrough:** `step_receipt_other_currency`: Maple invoices
+  Northwind CAD 1,000.00; Northwind pays the CAD amount at the day's
+  USD/CAD rate in USD to RBCUS (its incoming account 1040), the receipt
+  posted at that rate; Ruth applies the USD receipt to the CAD invoice:
+  the invoice is cleared, the payment shows CAD 1,000.00 and its USD
+  amount with the rate, the DZ entry is in USD and its local amounts
+  balance with the exchange difference, if any, on fx_gain / fx_loss; a
+  receipt applied on a day without a rate is refused.
+- **Acceptance:** an item in another currency without an average rate
+  valid on the posting date for its pair, in either direction, is refused
+  (422 `ledger.no_exchange_rate` naming `items[i]`) and nothing posts;
+  each item translated on its own, the items in two other currencies
+  each at its own rate; a translated item's local and group amounts in
+  the entry are its booked amounts (it realizes its difference); the
+  translated items, net of their residuals, equal the receipt within the
+  tolerance or are refused as before (422 `ledger.clearing_not_balanced`);
+  an item in the receipt's currency is applied as before, with no rate
+  shown; a residual of a translated item is in the receipt's currency at
+  the item's local rate; replays answer the same payment.
+
+### T75o Payment-difference reason codes from configuration
+
+**Capability.** A company's finance lead configures the reasons its AR
+accountants give for paying an item in part, each saying whether the
+difference stays open as a residual item or is written off and to which
+account; the accountant names a reason and the configuration decides.
+
+- **Reuses:** T75f's residual on an item (`items[i].residual`, amount,
+  reason, text), its tolerance (`companies[].receivables.payment_tolerance`)
+  and difference line, the configuration's change tiers, the chart's
+  account checks; T75g's applications and T75h's other customers take
+  the same residuals.
+- **Adds:** `companies[].receivables.payment_difference_reasons[]`:
+  `code` (lower case, digits and `_`, to 40), `description`, `treatment`
+  `residual` or `write_off`, and for `write_off` its `account`, an
+  expense account of the chart that reconciles nothing (none for a
+  residual); a tier 3 change, as the tolerance. A company that configures
+  none keeps the four reasons T75f fixed (`short_payment`, `disputed`,
+  `deduction`, `other`, all `residual`); one that configures any has
+  exactly those. An item's `residual.reason` must be one of the
+  company's reasons; a `residual` reason leaves the residual item as
+  T75f, a `write_off` reason writes the amount off instead, a debit line
+  of the clearing entry on the reason's account at the receipt's rate,
+  the item cleared; what is written off by reasons and the payment
+  difference together stay within the tolerance of their direction. The
+  payment shows the item's `write_off` (amount, reason, text, account,
+  line) in place of a residual; the customers' parts are net of both.
+  Migration: the write-off columns of `incoming_payment_item`.
+- **Walkthrough:** `step_payment_difference_reasons`: Ada configures
+  Maple's reasons (tier 3: `short_payment` and `disputed` as residuals,
+  `bank_charges` written off to 6850, the walkthrough's payment
+  difference account); Northwind pays CAD 496.00 of an invoice of 500.00,
+  its bank having charged 4.00: Ruth applies it with a residual of 4.00,
+  reason `bank_charges`; the invoice is cleared, nothing stays open, the
+  4.00 is on 6850; a reason no longer configured (`deduction`) is
+  refused.
+- **Acceptance:** a reason the company does not have is refused (422
+  `receivables.unknown_residual_reason` naming `items[i].residual.reason`);
+  a write-off reason whose account the company's chart no longer has is
+  refused (422 `receivables.no_write_off_account`); a write-off and the
+  difference beyond the tolerance are refused (422
+  `ledger.clearing_not_balanced`) and nothing posts; configuration
+  refuses a code twice, a malformed code, a treatment not listed, a
+  write-off without its account or with one not an expense, and an
+  account on a residual reason; the stored reason of an earlier payment
+  stays as it was; replays answer the same payment.
+
+**Later (still in the placeholder):** matching by rule and agent proposals
+from statement lines; receipts without a statement; direct debits;
+refunds; output tax corrected on a payment difference; resetting a
+clearing without reversing its entry and resetting clearings other than
+incoming payments'.

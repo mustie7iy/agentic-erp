@@ -1387,3 +1387,118 @@ memo (§5, plan default 3).
   reader must strip from a text cell beginning as a formula; (4) the
   totals' row only on the last page; (5) no new permission or problem
   code.
+
+### T75n A receipt in another currency than the items (migration 000398)
+A variant of §6 (`plan-depth-3.md` §T75n): a receipt in one currency is
+applied to a customer's items in another, as SAP's F-28 clears open items
+in another currency than the payment (from memory, not checked against a
+source in the lane). §6's and T75c's "in the receipt's currency" no longer
+holds for the items; it still holds for residuals, the tolerance and what
+is left on account.
+
+- **Translation** (`ledger.Postings.ApplyReceipt`,
+  `internal/ledger/receiptfx.go`): each item in another currency than the
+  receipt is translated into the receipt's at the **average rate valid on
+  the application's posting date** between the two currencies (the
+  ledger's rate source, `ledger.exchange_rate`: the latest valid that day,
+  either direction, the exact reciprocal when only the reverse pair is
+  recorded), rounded once half away from zero, each item on its own and
+  each currency read once. No rate is derived through a third currency:
+  an item without a rate for its pair that day is refused, 422
+  `ledger.no_exchange_rate` naming `items[i]`, and one that translates to
+  nothing (a minor unit of a currency worth less than half a minor unit
+  of the receipt's) 422 `ledger.item_rounds_to_zero`. The item is checked
+  as the customer's item first, so a wrong item is refused as such before
+  its rate is looked for.
+- **Posting:** the clearing entry is in the receipt's currency, at its
+  rates. It offsets each translated item at the translated amount in
+  transaction currency and at the **local and group amounts it was booked
+  at**, so the item is cleared at its own rate; what the receipt's and
+  the items' local and group amounts leave is the realized exchange
+  difference T75c already books on `fx_gain` / `fx_loss`. A residual of a
+  translated item is in the receipt's currency (T75f's rule), at the
+  item's local rate (its share of the item's booked local amount); it is
+  an open item in the receipt's currency from then on. The tolerance,
+  what is left on account and the later application of a credit on
+  account (T75g, which takes items in another currency the same way)
+  are in the receipt's currency.
+- **The payment** keeps each item's `amount` in its currency, as the
+  entry offset it, and adds `item_amount`, the item's own amount in its
+  currency (the same as `amount` for an item in the payment's currency),
+  and `exchange_rate`, the rate shown, absent for an item not translated
+  (`incoming_payment_item`'s `item_currency`, `item_amount`,
+  `exchange_rate`, all three or none, migration 000398; the down migration
+  is refused while an item was translated). IncomingPaymentApplied is
+  unchanged: it carries the payment's amounts, all in its currency.
+- **Decided by default:** (1) the average rate type, as postings and the
+  company's configured comparisons use (`Rates`), not a separate clearing
+  rate type; (2) the rate of the posting date, not of the receipt's or the
+  item's; (3) no cross rate through the company's currency, so a missing
+  pair is refused rather than derived; (4) a residual in the receipt's
+  currency, the entry having one transaction currency; (5) no opt-in: an
+  item in another currency is translated whenever the request names it,
+  the receipt's balance and the tolerance still holding the application
+  to what was paid; (6) the ledger's `items_cleared` event gives a
+  translated item's amount in the clearing entry's currency, as it gives
+  every amount.
+
+### T75o Payment-difference reason codes from configuration (migration 000399)
+A variant of §6 (`plan-depth-3.md` §T75o): the reasons an item is paid in
+part for are the company's configuration, as SAP's reason codes (OBBE)
+are per company code, each with its "charge off difference" flag and the
+account it is charged off to (OBXL) (from memory, not checked against a
+source in the lane). T75f's decision (6), a fixed open enumeration, no
+longer holds.
+
+- **Configuration:** `companies[].receivables.payment_difference_reasons[]`:
+  `code` (lower case letters, digits and `_`, to 40, once per company),
+  `description` (1 to 80), `treatment` `residual` or `write_off`, and for
+  `write_off` its `account`, an expense of the chart that reconciles
+  nothing, which joins the accounts the company posts to automatically
+  (`AutomaticAccounts`: default cost assignment, no secondary cost
+  element, no asset reconciliation); a residual reason has none. A tier 3
+  change, as the tolerance (it decides what reaches profit and loss and
+  where). A company that configures none has T75f's four,
+  `short_payment`, `disputed`, `deduction` and `other`, all `residual`
+  (`config.DefaultDifferenceReasons`), so a tenant keeps what it had until
+  it configures its own; one that configures any has exactly those.
+- **Application:** an item's `residual.reason` is one of the company's
+  reasons (422 `receivables.unknown_residual_reason`, the message listing
+  them). A `residual` reason leaves the residual item as T75f. A
+  `write_off` reason writes the amount off instead (`ledger.Residual.WriteOff`):
+  a debit line of the clearing entry on the reason's account at the
+  **receipt's rate**, as the payment difference is, the item cleared and
+  nothing of it left open; the account is found by its number in the
+  company when the payment is applied (422 `receivables.no_write_off_account`
+  should the company's accounts no longer have it), and the ledger checks
+  it can be posted (its refusal names it as "item i's write-off account").
+  Each direction is held to its own tolerance, so that one never nets
+  the other away: what reasons write off, with an underpayment the items
+  leave, to the underpayment tolerance; an overpayment not left on
+  account to the overpayment tolerance; the base being the items applied
+  net of their residual items, as T75f's; beyond either, 422
+  `ledger.clearing_not_balanced`. A write-off line takes its item's
+  trading partner, as a clearing's difference lines do (ADR-0059 §4).
+- **The payment** shows the item's `write_off` (amount, reason, text,
+  account by id, number and name, its line in the clearing entry) in place
+  of a residual; `difference` stays the payment difference alone, and the
+  customers' parts are net of residuals and write-offs, so the parts less
+  the difference and with what was left on account are still the receipt.
+  The audit records count `write_offs`; IncomingPaymentApplied and
+  IncomingPaymentOnAccountApplied are unchanged (their parts and amounts
+  already net them). Schema (000399): the write-off columns of
+  `incoming_payment_item`, all together or none, on a debit item, less than
+  it and never beside a residual; the down migration is refused while one
+  exists. The residual reason's column had no list check, so the codes need
+  no migration and a stored reason stays as it was.
+- **Decided by default:** (1) the four reasons stay the default of a
+  company that configures none, rather than leaving it without any; (2)
+  a write-off is held to the tolerance, as SAP holds charge-offs to the
+  tolerance group (from memory), rather than allowed by the reason alone;
+  (3) a write-off at the receipt's rate, as the difference; (4) an expense
+  account only (an underpayment); (5) the request keeps `residual` as the
+  one place an item's short payment is named, the reason deciding what
+  becomes of it, rather than adding a second field the reason would have
+  to agree with; (6) a tier 3 change.
+- **For the specialist:** as for T75f, whether the output tax must be
+  corrected on what is written off (the first version posts none).

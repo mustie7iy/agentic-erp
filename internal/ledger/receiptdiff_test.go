@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -360,5 +361,112 @@ func TestApplyReceiptOnAccountInForeignCurrency(t *testing.T) {
 	in.OnAccount = settleAccount(t, r.env, "2000", "120000")
 	if got, want := posted(t, r.env, r.apply(t, in).Entry.ID), "103000 9995/10995/10995; 120000 -9995/-10995/-10995"; got != want {
 		t.Errorf("lines: got %s, want %s", got, want)
+	}
+}
+
+// TestApplyReceiptWriteOff (T75o, ADR-0063 §6 As built): what of an item
+// its reason writes off is a debit of the reason's account at the
+// receipt's rate, the item cleared in full and nothing left open; together
+// with the payment difference, or alone when the rest is left on account,
+// it is held to the underpayment tolerance; the account must be postable,
+// a refusal naming it by what it is.
+func TestApplyReceiptWriteOff(t *testing.T) {
+	r := receiptSetup(t, withDifferences)
+	north := r.newCustomer(t, "BP00000031", true)
+	charges := settleAccount(t, r.env, "2000", "680000")
+	under := tolerance(500, "5")
+	for _, c := range []struct {
+		name, lines, shown string
+		receipt, owed      int64
+		writeOff           int64
+		onAccount          bool
+	}{
+		{"a write-off alone", "103000 9600/9600/9600; 120000 -10000/-10000/-10000; 680000 400/400/400", "[0] [3] 0 0", 9600, 10000, 400, false},
+		{"a write-off and a difference within the tolerance", "103000 9599/9599/9599; 120000 -10000/-10000/-10000; 680000 400/400/400; 680000 1/1/1",
+			"[0] [3] 1 0", 9599, 10000, 400, false},
+		{"a write-off with the rest on account", "103000 10000/10000/10000; 120000 -10000/-10000/-10000; 680000 400/400/400; 120000 -400/-400/-400",
+			"[0] [3] 0 400", 10000, 10000, 400, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			in := r.application(r.received(t, c.receipt, "EUR", "2026-03-20"), north, "EUR", "2026-03-21", r.owed(t, north, c.owed, "EUR", "2026-03-01"))
+			in.Under, in.Residuals = under, []ledger.Residual{{Amount: money.Minor(c.writeOff), WriteOff: charges}}
+			if c.onAccount {
+				in.OnAccount = settleAccount(t, r.env, "2000", "120000")
+			}
+			applied := r.apply(t, in)
+			if got := posted(t, r.env, applied.Entry.ID); got != c.lines {
+				t.Errorf("lines: got %s, want %s", got, c.lines)
+			}
+			if got := fmt.Sprint(applied.ResidualLines, applied.WriteOffLines, int64(applied.Difference), int64(applied.OnAccount)); got != c.shown {
+				t.Errorf("residual and write-off lines, difference, on account: got %s, want %s", got, c.shown)
+			}
+		})
+	}
+	if open := receivable(t, r.env, north); len(open) != 1 || open[0].Amount != -400 {
+		t.Errorf("the customer's open items: got %+v, want the credit left on account alone", open)
+	}
+	for _, c := range []struct {
+		name              string
+		receipt, writeOff int64
+		onAccount         bool
+		want              string
+	}{
+		{"a write-off beyond the tolerance", 9400, 600, false, "by 6.00: an underpayment beyond"},
+		{"a write-off and a difference beyond it together", 9499, 450, false, "by 5.01: an underpayment beyond"},
+		{"a write-off with the rest on account beyond it", 10000, 600, true, "by 6.00: an underpayment beyond"},
+		// Neither direction nets the other away.
+		{"a write-off an overpayment would cancel", 10000, 9999, false, "by 99.99: an underpayment beyond"},
+		{"an overpayment beside a write-off within the tolerance", 10600, 400, false, "by -10.00: an overpayment beyond"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			in := r.application(r.received(t, c.receipt, "EUR", "2026-03-20"), north, "EUR", "2026-03-21", r.owed(t, north, 10000, "EUR", "2026-03-01"))
+			in.Under, in.Over, in.Residuals = under, under, []ledger.Residual{{Amount: money.Minor(c.writeOff), WriteOff: charges}}
+			if c.onAccount {
+				in.OnAccount = settleAccount(t, r.env, "2000", "120000")
+			}
+			p := r.refusal(t, in)
+			if p.Code != "ledger.clearing_not_balanced" || !strings.Contains(p.Detail, c.want) {
+				t.Errorf("got %s (%s), want ledger.clearing_not_balanced %q", p.Code, p.Detail, c.want)
+			}
+		})
+	}
+	t.Run("failing statements", func(t *testing.T) {
+		in := r.application(r.received(t, 9600, "EUR", "2026-03-20"), north, "EUR", "2026-03-21", r.owed(t, north, 10000, "EUR", "2026-03-01"))
+		in.Under, in.Residuals = under, []ledger.Residual{{Amount: 400, WriteOff: charges}}
+		apitest.EveryFailure(t, r.ten, r.ten.Human, "apply a receipt with a write-off", func(ctx context.Context) error {
+			_, err := postings().ApplyReceipt(ctx, in)
+			return err
+		})
+	})
+	t.Run("the write-off account blocked", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE ledger.company_account SET is_posting_blocked = true, version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
+			AND account_id = $3`, r.ten.ID, r.de, charges)
+		in := r.application(r.received(t, 9600, "EUR", "2026-03-20"), north, "EUR", "2026-03-21", r.owed(t, north, 10000, "EUR", "2026-03-01"))
+		in.Under, in.Residuals = under, []ledger.Residual{{Amount: 400, WriteOff: charges}}
+		p := r.refusal(t, in)
+		if p.Code != "ledger.account_not_postable" || !strings.Contains(p.Detail, "Item 1's write-off account, its reason's cannot be posted") {
+			t.Errorf("got %s (%s), want ledger.account_not_postable naming item 1's write-off account", p.Code, p.Detail)
+		}
+	})
+}
+
+// TestApplyReceiptWriteOffTradingPartner (T75o, ADR-0059 §4): a reason's
+// write-off is a difference line of the clearing, so it takes the
+// trading partner of the item it was written off of.
+func TestApplyReceiptWriteOffTradingPartner(t *testing.T) {
+	r := receiptSetup(t, withDifferences)
+	north := r.newCustomer(t, "BP00000031", true)
+	posting := customerPosting(t, r.env, north, 10000, "2026-03-01", nil)
+	posting.Lines[0].TradingPartner = &r.us
+	invoice := r.committed(t, func(ctx context.Context) (ledger.Entry, error) { return postings().Post(ctx, posting) })
+	in := r.application(r.received(t, 9600, "EUR", "2026-03-20"), north, "EUR", "2026-03-21",
+		ledger.ItemRef{FiscalYear: invoice.FiscalYear, EntryID: invoice.ID, LineNo: 1})
+	in.Under, in.Residuals = tolerance(500, "5"), []ledger.Residual{{Amount: 400, WriteOff: settleAccount(t, r.env, "2000", "680000")}}
+	applied := r.apply(t, in)
+	var partner *uuid.UUID
+	pgtest.Scan(t, `SELECT trading_partner_id FROM ledger.journal_line WHERE tenant_id = $1 AND journal_entry_id = $2 AND line_no = $3
+		AND ledger_id = (SELECT id FROM ledger.ledger WHERE tenant_id = $1 AND is_leading)`, []any{r.ten.ID, applied.Entry.ID, applied.WriteOffLines[0]}, &partner)
+	if partner == nil || *partner != r.us {
+		t.Errorf("the write-off's trading partner: got %v, want %s, the item's", partner, r.us)
 	}
 }

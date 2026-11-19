@@ -32,7 +32,9 @@ type ReceiptApplication struct {
 	LegalEntityID uuid.UUID
 	DocumentType  string
 	PostingDate   time.Time
-	Currency      string // the receipt's, and every item's
+	// Currency is the receipt's; an item in another is translated into it
+	// at the average rate valid on PostingDate (translateItems, T75n).
+	Currency string
 	// ReceiptAccountID is the open-item managed account the receipt waits
 	// on, a house bank's incoming payments clearing account, and Receipt
 	// the entry that posted it (LineNo is unused): its one line there, a
@@ -74,16 +76,20 @@ type ReceiptApplication struct {
 }
 
 // Residual is what stays open of an item paid in part, with the text its
-// line carries (nil: the application's header text).
+// line carries (nil: the application's header text). WriteOff is the
+// account its reason writes it off to instead (T75o), uuid.Nil for a
+// residual item.
 type Residual struct {
-	Amount money.Minor
-	Text   *string
+	Amount   money.Minor
+	Text     *string
+	WriteOff uuid.UUID
 }
 
 // AppliedReceipt is a receipt applied: the clearing entry, what the
 // receipt credited (positive) and each item's amount in the order of the
 // application's Items, debit positive (a credit of the customer's is
-// negative), in the receipt's currency. The items add up to the receipt.
+// negative), in the receipt's currency, translated for an item in another
+// (Translations). The items add up to the receipt.
 type AppliedReceipt struct {
 	Entry   Entry
 	Receipt money.Minor
@@ -92,8 +98,10 @@ type AppliedReceipt struct {
 	// application's CustomerID or one of its OtherCustomers.
 	Customers []uuid.UUID
 	// ResidualLines are the entry's line of each item's residual item, in
-	// the order of Items; 0 for an item paid in full.
+	// the order of Items; 0 for an item paid in full. WriteOffLines are
+	// likewise the line of what each item's reason wrote off (T75o).
 	ResidualLines []int32
+	WriteOffLines []int32
 	// Difference is what the items, net of their residuals, exceed the
 	// receipt by and was written off: positive an underpayment, negative an
 	// overpayment, zero for none.
@@ -102,6 +110,10 @@ type AppliedReceipt struct {
 	// credit, positive; OnAccountLine its line in the entry, 0 for none.
 	OnAccount     money.Minor
 	OnAccountLine int32
+	// Translations say how each item, in the order of Items, was
+	// translated into the receipt's currency (T75n): the zero value for an
+	// item in it.
+	Translations []Translation
 }
 
 // ApplyReceipt posts the entry that applies the receipt to the customer's
@@ -173,7 +185,8 @@ func (p Postings) ApplyReceipt(ctx context.Context, in ReceiptApplication) (Appl
 		return AppliedReceipt{}, err
 	}
 	out := AppliedReceipt{Entry: entry, Receipt: -first.tc, Items: make([]money.Minor, len(in.Items)), Customers: make([]uuid.UUID, len(in.Items)),
-		ResidualLines: plan.residualLines, Difference: plan.difference, OnAccount: plan.onAccount, OnAccountLine: plan.onAccountLine}
+		ResidualLines: plan.residualLines, WriteOffLines: plan.writeOffLines, Difference: plan.difference, OnAccount: plan.onAccount, OnAccountLine: plan.onAccountLine,
+		Translations: plan.translations}
 	for i, it := range items[1:] {
 		out.Items[i], out.Customers[i] = it.tc, *it.partner // a customer's item names its customer (checkCustomerItem)
 	}
@@ -196,7 +209,8 @@ func notAReceipt(why string) *problem.Problem {
 // what is left on account or the payment difference, and the exchange
 // differences (applicationLines). The receipt is an open credit line; the
 // items are open items of the customer on customer reconciliation
-// accounts of the legal entity, in the receipt's currency and ledger; the
+// accounts of the legal entity in the receipt's ledger, each in the
+// receipt's currency or translated into it (translateItems); the
 // application is not dated before any of them was posted (notBeforeItems).
 func receiptLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid.UUID, items []item) (application, error) {
 	customer, err := customerAccounts(ctx, tx, items)
@@ -207,15 +221,21 @@ func receiptLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid
 	for _, c := range in.OtherCustomers {
 		payers[c] = true
 	}
-	lines, _, _, _, err := offsetItems(items, in.Currency, in.HeaderText, func(i int, it item) error {
-		switch {
-		case i > 0:
-			return checkCustomerItem(i-1, it, le, in.Currency, payers, customer)
-		case in.Credit:
-			return checkCredit(it, le, in, customer)
-		}
-		return checkReceipt(it)
-	})
+	if in.Credit {
+		err = checkCredit(items[0], le, in, customer)
+	} else {
+		err = checkReceipt(items[0])
+	}
+	if err != nil {
+		return application{}, err
+	}
+	translations, err := translateItems(ctx, tx, in, items, func(i int, it item) error { return checkCustomerItem(i, it, le, payers, customer) })
+	if err != nil {
+		return application{}, err
+	}
+	// Every line is checked above and every item is in the receipt's
+	// currency now (translateItems).
+	lines, _, _, _, err := offsetItems(items, in.Currency, in.HeaderText, func(int, item) error { return nil })
 	if err != nil {
 		return application{}, err
 	}
@@ -223,6 +243,7 @@ func receiptLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid
 	if err != nil {
 		return application{}, err
 	}
+	plan.translations = translations
 	// The receipt's own line counts: it is not applied before the bank posted it.
 	if err := notBeforeItems(items, in.PostingDate, "posting_date"); err != nil {
 		return application{}, err
@@ -249,11 +270,12 @@ func checkReceipt(it item) error {
 
 // checkCustomerItem checks item i of the application: an open item on a
 // reconciliation account of the legal entity that nothing holds
-// (checkItem), on a customer reconciliation account, of one of the
-// customers the receipt pays (payers) and in the receipt's currency. Every
-// refusal names the request's own field, items[i], so a client can tell
-// which item to leave out.
-func checkCustomerItem(i int, it item, le uuid.UUID, currency string, payers, customerAccount map[uuid.UUID]bool) error {
+// (checkItem), on a customer reconciliation account and of one of the
+// customers the receipt pays (payers); an item in another currency than
+// the receipt is translated into it (translateItems, T75n). Every refusal
+// names the request's own field, items[i], so a client can tell which item
+// to leave out.
+func checkCustomerItem(i int, it item, le uuid.UUID, payers, customerAccount map[uuid.UUID]bool) error {
 	field := fmt.Sprintf("items[%d]", i)
 	if err := checkItem(i, it, &le, uuid.Nil,
 		problem.FieldError{Field: field, Code: "not_an_open_item", Message: "an open item of the customer in this legal entity"}); err != nil {
@@ -263,10 +285,6 @@ func checkCustomerItem(i int, it item, le uuid.UUID, currency string, payers, cu
 	if !customerAccount[it.account] || it.partner == nil || !payers[*it.partner] {
 		return problem.Unprocessable("ledger.not_the_customers_item", "Item "+fmt.Sprint(i+1)+" is not an item of the customer, or of another customer the payment names, on a customer reconciliation account.",
 			problem.FieldError{Field: field, Code: "not_the_customers", Message: "an open item of the customer"})
-	}
-	if it.currency != currency {
-		return problem.Unprocessable("ledger.mixed_items", "Item "+fmt.Sprint(i+1)+" is in "+it.currency+", the receipt in "+currency+
-			"; a receipt is applied to items in its currency.", problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + currency})
 	}
 	return nil
 }

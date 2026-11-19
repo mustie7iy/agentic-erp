@@ -4650,7 +4650,15 @@ erDiagram
     int residual_line_no "its line in the clearing entry"
     text residual_reason
     text residual_reason_text
-    int application_no "T75g: 0 the payment's own" }
+    int application_no "T75g: 0 the payment's own"
+    char item_currency "T75n: an item in another currency"
+    bigint item_amount "its own amount, signed as amount"
+    numeric exchange_rate "the rate it was translated at"
+    bigint write_off_amount "T75o: written off by its reason"
+    int write_off_line_no "its line in the clearing entry"
+    uuid write_off_account_id "ledger: the reason's account"
+    text write_off_reason
+    text write_off_reason_text }
   incoming_payment ||--o{ incoming_payment_application : "credit applied"
   incoming_payment_application { int application_no PK
     date posting_date
@@ -4739,7 +4747,24 @@ erDiagram
   another customer the same receipt paid (indexed with the payment for
   `GET /v1/incoming-payments?customer_id=`); NULL on rows written before
   it, read as the payment's customer. The down migration is refused while
-  an item names another customer than its payment's.
+  an item names another customer than its payment's. T75n (migration
+  000398): an item in another currency than the payment's, translated
+  into it at the average rate valid on the posting date, keeps `amount`
+  in the payment's currency, as the clearing entry offset it, and adds
+  its own `item_currency` (a known currency), `item_amount` (with the sign
+  of `amount`) and `exchange_rate` (above zero), all three or none
+  (`incoming_payment_item_translation`); none for an item in the
+  payment's currency and on earlier rows. The down migration is refused
+  while an item was translated.
+  T75o (migration 000399): what an item's payment-difference reason wrote
+  off instead of leaving a residual item: `write_off_amount`, its line in
+  the clearing entry, the reason's account (ledger context) and the
+  reason's code, all together (`incoming_payment_item_write_off`), more
+  than zero and less than the item, which is a debit, never beside a
+  residual; a reason of 1 to 40 characters
+  (`incoming_payment_item_write_off_reason_length`) and a free text of 1
+  to 200 (`incoming_payment_item_write_off_text_length`). The down
+  migration is refused while a write-off exists.
 - `receivables.incoming_payment_application` (T75g): an application of a
   payment's credit on account, numbered from 1 per payment, with the
   credit line it consumed (once, `incoming_payment_application_credit_once`,

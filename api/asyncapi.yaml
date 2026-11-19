@@ -6189,18 +6189,18 @@ components:
         journal_entry_number: {type: string, description: "The clearing entry's document number."}
         item_count: {type: integer, description: "How many open items the payment was applied to, of every customer it paid."}
         residual_count: {type: integer, description: "How many of those it paid in part, leaving a residual item of the customer (T75f)."}
-        difference: {$ref: '#/components/schemas/Money', description: "The payment difference written off within the company's payment tolerance: what the items, net of their residuals, exceed the receipt by; positive an underpayment, negative an overpayment, zero for none (T75f)."}
+        difference: {$ref: '#/components/schemas/Money', description: "The payment difference written off within the company's payment tolerance: what the items, net of their residuals and of what their reasons wrote off, exceed the receipt by; positive an underpayment, negative an overpayment, zero for none (T75f)."}
         on_account_amount: {$ref: '#/components/schemas/Money', description: "What the payment left on the customer's account as a credit (T75g); zero for none."}
         customers:
           type: array
-          description: "Each customer whose items the payment applied (T75h: one receipt for several customers), the payer first, by id and number, never by name, with its part: its items net of their residuals."
+          description: "Each customer whose items the payment applied (T75h: one receipt for several customers), the payer first, by id and number, never by name, with its part: its items net of their residuals and of what their reasons wrote off."
           items:
             type: object
             required: [customer_id, customer_number, amount]
             properties:
               customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
               customer_number: {type: string, description: "The customer's business partner number."}
-              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals."}
+              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals and of what their reasons wrote off."}
     IncomingPaymentOnAccountAppliedV1:
       type: object
       required: [incoming_payment_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, application_no, posting_date, amount, difference, on_account_amount, journal_entry_id, journal_entry_year, journal_entry_number, item_count, residual_count]
@@ -6248,7 +6248,7 @@ components:
             properties:
               customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
               customer_number: {type: string, description: "The customer's business partner number."}
-              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals."}
+              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals and of what their reasons wrote off."}
     QuotationChangedV1:
       type: object
       required: [quotation_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, quotation_date, valid_until, net_amount, status, status_before, version]
