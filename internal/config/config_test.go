@@ -953,8 +953,8 @@ func TestHouseBankAccount(t *testing.T) {
 	}
 }
 
-// TestInventoryAccounts (ADR-0082 §8, S1d): a company's accounts by
-// valuation class are checked, are automatic accounts and their classes
+// TestInventoryAccounts (ADR-0082 §8, S1d, S2d): a company's accounts by
+// valuation class and its inventory difference tolerance are checked, are automatic accounts and their classes
 // need WE, WA and PR journal ranges; a class is found by its code, and a
 // company the configuration lacks has none.
 func TestInventoryAccounts(t *testing.T) {
@@ -981,6 +981,10 @@ func TestInventoryAccounts(t *testing.T) {
 		{"a receipt account unknown", inventory(InventoryAccounts{ValuationClass: "3000", Stock: "150000", Receipt: "999999"}),
 			"companies[1000].account_determination.inventory[3000].receipt"},
 		{"no WA range", inventory(good), "number_ranges[1000/journal_wa/2026]"},
+		{"an inventory difference account an asset", inventory(InventoryAccounts{ValuationClass: "3000", Stock: "150000", Difference: "150000"}),
+			"companies[1000].account_determination.inventory[3000].difference"},
+		{"an inventory difference tolerance of three decimals", func(c *Config) { c.Companies[0].InventoryDifferenceTolerance = "1.001" },
+			"companies[1000].inventory_difference_tolerance"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			cfg := fixture(t)
@@ -1007,6 +1011,9 @@ func TestInventoryAccounts(t *testing.T) {
 		t.Errorf("class 3000: got %v %v, want its stock account 150000", a, ok)
 	}
 	var none *Company
+	if got := none.InventoryTolerance(); got != "" {
+		t.Errorf("a company the configuration lacks: got tolerance %q, want none", got)
+	}
 	if _, ok := none.InventoryClass("3000"); ok {
 		t.Error("a company the configuration lacks: got a class, want none")
 	}

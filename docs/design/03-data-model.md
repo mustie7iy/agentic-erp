@@ -6534,7 +6534,7 @@ erDiagram
 
 ## 3.35 Inventory management (`inventory`)
 
-ADR-0082, S1c. Stock by location and goods movements: the context reads
+ADR-0082, S1c. Stock by location, goods movements and physical inventory: the context reads
 the materials context's published API, tenancy's companies and org units,
 the ledger's cost centers and fiscal calendar and the configuration's
 number ranges and company dates through its ports, and keeps no foreign
@@ -6675,7 +6675,48 @@ erDiagram
   below a value of zero (`valuation_value_check`). Insert-only
   (`invoice_difference_insert_only`); an invoice's are read by
   `invoice_difference_by_invoice`.
+- S2c (migration 000406): `inventory.count_document`, a physical
+  inventory count document (SAP IKPF) of one plant's storage location,
+  numbered from its company's `physical_inventory` range of its date's
+  fiscal year, 1 to 40 characters (`count_document_number_check`), once
+  per company and year (`count_document_number_once`); `status`
+  (`counting`, `counted`, `pending_approval`, `posted`, `rejected`,
+  `withdrawn`; `count_document_status_check`) moving forward only
+  (`count_document_status_flow`: counting to counted, counted to
+  pending_approval or posted, pending_approval to posted, rejected or
+  withdrawn), `version`; the application updates its status and version
+  alone. `inventory.count_item` (ISEG): items 1 to 100
+  (`count_item_item_no_check`) of the document's plant and storage
+  location (`count_item_location_fkey`, to `count_document_location`), a
+  material once per document (`count_item_material_once`), its book
+  quantity of zero or more (`count_item_book_quantity_check`), and once
+  counted the quantity counted (zero or more) with its entry, time and
+  person, all together (`count_item_count_check`); counted once and closed
+  once, what it counts never changed (`count_item_once`, a trigger also
+  for the owner); `open` until the document is posted, rejected or
+  withdrawn. One open count per material and storage location
+  (`count_item_one_open`, a partial unique index, which the posting block
+  reads); while one is open no movement of the material is written there
+  (`count_posting_block`, a trigger on `inventory.movement`). Neither is
+  deleted.
+- S2d (migrations 000407, 000408): `inventory.material_document` takes
+  the movement types `701` and `702`, a count's gains and losses, and the
+  account determination the key `inventory_difference:<class>` (both
+  widened NOT VALID, validated by 000408). `inventory.count_document`
+  gains `workflow_request_id`, `difference_value` (zero or more,
+  `count_document_difference_value_check`) and `currency`, the request
+  and the value asked for together, in the company's currency, which a
+  posted document has too (`count_document_approval`), and `closed_at`,
+  set exactly when it is posted, rejected or withdrawn
+  (`count_document_closed`). `inventory.count_item` gains `difference`,
+  `amount` and `material_document_id` (`count_item_material_document_fkey`):
+  difference and value together and only once counted, a non-zero
+  difference naming its material document and a zero one none, only once
+  the item is closed (`count_item_posted`), each set once
+  (`count_item_once`).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,
-  `inventory.valuation.read` and `.write`.
+  `inventory.valuation.read` and `.write`, `inventory.count.write` (S2c),
+  `inventory.count.post` and the approval permission
+  `inventory.difference.approve` (S2d).

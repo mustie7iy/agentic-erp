@@ -23099,18 +23099,20 @@ func (s *Server) handleCreateMaterialRequest(args [0]string, argsEscaped bool, w
 // Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
 // item is two, the issue and the receipt. The lines are applied in order, and each leaves its
 // location's stock at zero or more, so items that move stock round a circle out of an empty location
-// are refused though they change nothing in all. Every line is valued (S1d): its material is valued in
-// its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the
-// stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the
-// value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is
-// worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's
-// currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422
-// `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the
-// receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted
-// through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or
-// initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock
-// account against the account its movement type posts to (receipt, initial entry, consumption with the
-// item's cost center, scrapping), and price differences on its price difference account (422
+// are refused though they change nothing in all. A material at a storage location an open physical
+// inventory count document counts is not moved there (409 `inventory.posting_blocked`, naming the
+// document; S2c). Every line is valued (S1d): its material is valued in its plant (422
+// `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at
+// a standard price the rest is worth its quantity at the price; at a moving price the value in
+// proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth
+// (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency,
+// 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price`
+// while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a
+// price difference), a transfer's receipt what its issue took. The value is posted through the ledger
+// in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA`
+// otherwise; none when the document moves no value): the valuation class's stock account against the
+// account its movement type posts to (receipt, initial entry, consumption with the item's cost center,
+// scrapping), and price differences on its price difference account (422
 // `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
 // 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
 // MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
@@ -24997,6 +24999,224 @@ func (s *Server) handleCreatePersonalDataDeletionRunRequest(args [0]string, args
 	}
 
 	if err := encodeCreatePersonalDataDeletionRunResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleCreatePhysicalInventoryDocumentRequest handles createPhysicalInventoryDocument operation.
+//
+// Creates a count document (ADR-0082 As built S2c; SAP MI01) for materials of one storage location of
+// a plant, freezing each one's book quantity: the stock there as the document is created, in the
+// material's base unit. The plant is an active plant of a company the caller may act in (422
+// `inventory.plant_invalid`), the storage location an active one under it (422
+// `inventory.storage_location_invalid`); each material one of the tenant's (422
+// `inventory.material_invalid`), not pending (422 `inventory.material_not_usable`; a blocked
+// material's stock is still counted), kept in stock (422 `inventory.material_not_stocked`), extended
+// to the plant (422 `inventory.plant_not_extended`) and kept at the storage location (422
+// `inventory.storage_location_not_extended`), valued in the plant so its difference can be posted (422
+// `inventory.no_valuation`), and named once (422 `inventory.duplicate_material`). A material has one
+// open count per storage location (409 `inventory.count_open`, naming the open document). The posting
+// block is set: until the document is posted, rejected or withdrawn no goods movement moves its
+// materials at that storage location (409 `inventory.posting_blocked` on every movement, whatever
+// posts it). The document is dated the company's date today in its time zone and numbered from its
+// `physical_inventory` range of that date's fiscal year (422 `ledger.no_fiscal_period`,
+// `config.no_number_range`), status `counting`. Audited. A retry with the same `Idempotency-Key`
+// answers the document created. Human-only (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents
+func (s *Server) handleCreatePhysicalInventoryDocumentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createPhysicalInventoryDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/physical-inventory-documents"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreatePhysicalInventoryDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreatePhysicalInventoryDocumentOperation,
+			ID:   "createPhysicalInventoryDocument",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreatePhysicalInventoryDocumentOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreatePhysicalInventoryDocumentParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreatePhysicalInventoryDocumentRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreatePhysicalInventoryDocumentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreatePhysicalInventoryDocumentOperation,
+			OperationSummary: "Create a physical inventory count document",
+			OperationID:      "createPhysicalInventoryDocument",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *PhysicalInventoryDocumentCreate
+			Params   = CreatePhysicalInventoryDocumentParams
+			Response = CreatePhysicalInventoryDocumentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreatePhysicalInventoryDocumentParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreatePhysicalInventoryDocument(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreatePhysicalInventoryDocument(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreatePhysicalInventoryDocumentResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -35379,6 +35599,226 @@ func (s *Server) handleEndSodRuleRequest(args [1]string, argsEscaped bool, w htt
 	}
 
 	if err := encodeEndSodRuleResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleEnterPhysicalInventoryCountRequest handles enterPhysicalInventoryCount operation.
+//
+// Enters the quantities counted of a `counting` document's items at the caller's version (`If-Match`;
+// ADR-0082 As built S2c; SAP MI04), by item number (422 `inventory.unknown_item`, each once in the
+// request, 422 `inventory.duplicate_item`): each a quantity of zero or more (422
+// `inventory.invalid_quantity`; nothing found is `0`) in the material's base unit or one of its
+// alternative units (422 `inventory.unknown_unit`), converted exactly to the base unit, never rounded
+// (422 `inventory.inexact_quantity`). An item is counted once (409 `inventory.item_counted`): a
+// recount is a new document, once this one is closed. A material blocked since is still counted. Items
+// may be entered in several calls; once every item is counted the document is `counted`, its
+// differences ready to post (S2d). A document no longer `counting` takes no count (409
+// `inventory.count_invalid_status`); one of a company the caller may not act in is not found (404).
+// Audited. Human-only (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents/{id}:enterCount
+func (s *Server) handleEnterPhysicalInventoryCountRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("enterPhysicalInventoryCount"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/physical-inventory-documents/{id}:enterCount"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), EnterPhysicalInventoryCountOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: EnterPhysicalInventoryCountOperation,
+			ID:   "enterPhysicalInventoryCount",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, EnterPhysicalInventoryCountOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeEnterPhysicalInventoryCountParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeEnterPhysicalInventoryCountRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response EnterPhysicalInventoryCountRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    EnterPhysicalInventoryCountOperation,
+			OperationSummary: "Enter counted quantities",
+			OperationID:      "enterPhysicalInventoryCount",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *PhysicalInventoryCountEntry
+			Params   = EnterPhysicalInventoryCountParams
+			Response = EnterPhysicalInventoryCountRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackEnterPhysicalInventoryCountParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.EnterPhysicalInventoryCount(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.EnterPhysicalInventoryCount(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeEnterPhysicalInventoryCountResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -57623,6 +58063,196 @@ func (s *Server) handleGetPersonalDataSubjectRequest(args [2]string, argsEscaped
 	}
 
 	if err := encodeGetPersonalDataSubjectResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetPhysicalInventoryDocumentRequest handles getPhysicalInventoryDocument operation.
+//
+// One count document (ADR-0082 As built S2c) with its company, plant and storage location by code and
+// name, its status and its items, each naming its material by number and description with its book
+// quantity and, once counted, the quantity counted and as it was entered. A document of a company the
+// caller may not act in is not found (404).
+//
+// GET /v1/physical-inventory-documents/{id}
+func (s *Server) handleGetPhysicalInventoryDocumentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getPhysicalInventoryDocument"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/physical-inventory-documents/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetPhysicalInventoryDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetPhysicalInventoryDocumentOperation,
+			ID:   "getPhysicalInventoryDocument",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetPhysicalInventoryDocumentOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetPhysicalInventoryDocumentParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetPhysicalInventoryDocumentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetPhysicalInventoryDocumentOperation,
+			OperationSummary: "Get a physical inventory count document",
+			OperationID:      "getPhysicalInventoryDocument",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetPhysicalInventoryDocumentParams
+			Response = GetPhysicalInventoryDocumentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetPhysicalInventoryDocumentParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetPhysicalInventoryDocument(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetPhysicalInventoryDocument(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetPhysicalInventoryDocumentResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -91149,6 +91779,220 @@ func (s *Server) handleListPersonalDataDeletionSubjectsRequest(args [1]string, a
 	}
 }
 
+// handleListPhysicalInventoryDocumentsRequest handles listPhysicalInventoryDocuments operation.
+//
+// The count documents of the companies the caller may act in (ADR-0082 As built S2c), each as
+// `getPhysicalInventoryDocument` gives it, the latest first. Filtered by plant, storage location,
+// status and material (a document matches a material when one of its items counts it). Sortable by:
+// `created_at`.
+//
+// GET /v1/physical-inventory-documents
+func (s *Server) handleListPhysicalInventoryDocumentsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listPhysicalInventoryDocuments"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/physical-inventory-documents"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListPhysicalInventoryDocumentsOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListPhysicalInventoryDocumentsOperation,
+			ID:   "listPhysicalInventoryDocuments",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListPhysicalInventoryDocumentsOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListPhysicalInventoryDocumentsParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListPhysicalInventoryDocumentsRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListPhysicalInventoryDocumentsOperation,
+			OperationSummary: "List physical inventory count documents",
+			OperationID:      "listPhysicalInventoryDocuments",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "plant_id",
+					In:   "query",
+				}: params.PlantID,
+				{
+					Name: "storage_location_id",
+					In:   "query",
+				}: params.StorageLocationID,
+				{
+					Name: "material_id",
+					In:   "query",
+				}: params.MaterialID,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListPhysicalInventoryDocumentsParams
+			Response = ListPhysicalInventoryDocumentsRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListPhysicalInventoryDocumentsParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListPhysicalInventoryDocuments(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListPhysicalInventoryDocuments(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListPhysicalInventoryDocumentsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListPlanCategoriesRequest handles listPlanCategories operation.
 //
 // The tenant's plan categories (ADR-0050 §8), such as `PLAN` and `FORECAST`: open, or locked so their
@@ -107199,6 +108043,219 @@ func (s *Server) handlePostParkedJournalEntryRequest(args [1]string, argsEscaped
 	}
 }
 
+// handlePostPhysicalInventoryDifferencesRequest handles postPhysicalInventoryDifferences operation.
+//
+// Posts the differences of a `counted` document at the caller's version (`If-Match`; ADR-0082 As built
+// S2d; SAP MI07): each item's counted quantity less its book quantity, the gains as one material
+// document of movement type `701`, the losses as one of `702` (none for an item without a difference),
+// each valued as any receipt or issue (a gain at the moving or standard price, 422
+// `inventory.no_price` while a moving price is zero; a loss at the value it takes from the stock) and
+// posted (document type `WA`) between the valuation class's stock and `difference` accounts (422
+// `inventory.no_inventory_account`; the ledger's refusals, such as 422 `ledger.period_not_open`). When
+// the value of the differences, gains and losses alike, is more than the company's
+// `inventory_difference_tolerance` (none: zero), nothing is posted: the document is
+// `pending_approval`, naming the approval request (`workflow_request_id`, object type
+// `inventory_difference`, the controller's, never the requester's) and the value asked for
+// (`difference_value`); approval posts the differences as valued then, rejection (`rejected`) or
+// withdrawal (`withdrawn`) closes the document with nothing posted, and its materials are recounted by
+// a new document. Posted, the document is `posted` and its posting block lifted: each item names its
+// difference, its value and its material document, and the book quantity is the count. A document not
+// `counted` is 409 `inventory.count_invalid_status`; one of a company the caller may not act in is not
+// found (404). Audited; each material document is published as MaterialDocumentPosted. Such a material
+// document is not reversed (409 `inventory.reverse_count`): a new count corrects the stock. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/physical-inventory-documents/{id}:postDifferences
+func (s *Server) handlePostPhysicalInventoryDifferencesRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postPhysicalInventoryDifferences"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/physical-inventory-documents/{id}:postDifferences"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), PostPhysicalInventoryDifferencesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: PostPhysicalInventoryDifferencesOperation,
+			ID:   "postPhysicalInventoryDifferences",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, PostPhysicalInventoryDifferencesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodePostPhysicalInventoryDifferencesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response PostPhysicalInventoryDifferencesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    PostPhysicalInventoryDifferencesOperation,
+			OperationSummary: "Post a count's differences",
+			OperationID:      "postPhysicalInventoryDifferences",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = PostPhysicalInventoryDifferencesParams
+			Response = PostPhysicalInventoryDifferencesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackPostPhysicalInventoryDifferencesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.PostPhysicalInventoryDifferences(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.PostPhysicalInventoryDifferences(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodePostPhysicalInventoryDifferencesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handlePostRevaluationRunRequest handles postRevaluationRun operation.
 //
 // Values what `previewRevaluation` values and, in one transaction, posts the differences (ADR-0042,
@@ -120125,12 +121182,13 @@ func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bo
 // it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
 // nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The
 // reversal moves the stock back, so it is refused when the stock the original received has gone (409
-// `inventory.insufficient_stock`, naming the material, the location and both quantities). The material
-// may have been blocked since; the reversal is still posted. Each line is valued at what its original
-// line was, given back: what the stock does not take of it at its price now is a price difference, and
-// the value is posted through the ledger as the original's was, reversed. A document of a company the
-// caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted.
-// Human-only (`x-agent: false`).
+// `inventory.insufficient_stock`, naming the material, the location and both quantities). It is
+// refused, as a posting is, while an open count document counts one of its materials at one of its
+// storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the
+// reversal is still posted. Each line is valued at what its original line was, given back: what the
+// stock does not take of it at its price now is a price difference, and the value is posted through
+// the ledger as the original's was, reversed. A document of a company the caller may not act in is not
+// found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`).
 //
 // POST /v1/material-documents/{id}:reverse
 func (s *Server) handleReverseMaterialDocumentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

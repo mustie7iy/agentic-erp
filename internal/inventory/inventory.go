@@ -68,12 +68,17 @@ type movementType struct {
 	// order: a purchase order's goods receipt or its reversal, which
 	// procurement's goods movement posts (S1e), never a person here.
 	order bool
+	// count: a physical inventory count's difference, which posting the
+	// count's differences posts (S2d), never a person here, and which is
+	// not reversed: a new count corrects it.
+	count bool
 }
 
 // movementTypes are the forward movement types a person posts and their
-// reversals, which only reverseMaterialDocument posts, and a purchase
+// reversals, which only reverseMaterialDocument posts, a purchase
 // order's goods receipt and its reversal, which procurement posts
-// (ReceiveForOrder, ReverseForOrder).
+// (ReceiveForOrder, ReverseForOrder), and a count's differences, which
+// PostDifferences posts (S2d).
 var movementTypes = map[string]movementType{
 	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true},
 	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true},
@@ -89,6 +94,8 @@ var movementTypes = map[string]movementType{
 	"312": {name: "Reversal of a transfer between storage locations", sign: 1, transfer: betweenStorageLocations, reverses: "311"},
 	"301": {name: "Transfer between plants", sign: -1, transfer: betweenPlants, reversal: "302"},
 	"302": {name: "Reversal of a transfer between plants", sign: 1, transfer: betweenPlants, reverses: "301"},
+	"701": {name: "Physical inventory surplus", sign: 1, count: true},
+	"702": {name: "Physical inventory shortage", sign: -1, count: true},
 }
 
 func init() {
@@ -165,6 +172,9 @@ type Endpoints struct {
 	Settings      Settings
 	Postings      Postings
 	Accounts      Accounts
+	// Requests opens the approval requests of count differences above a
+	// company's tolerance (S2d).
+	Requests Opener
 	// Now is the clock a document is dated by, in its company's time
 	// zone; nil: the wall clock.
 	Now func() time.Time

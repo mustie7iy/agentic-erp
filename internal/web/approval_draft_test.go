@@ -222,6 +222,9 @@ func TestSummaries(t *testing.T) {
 			ValidFrom: gen.NewOptDate(day), ValidTo: gen.NewOptDate(day), Status: "pending"}},
 			[]string{"Kind of change change", "Title BP1 Northwind, 3000", "Total before the change", "5,000.00", "Total after the change", "7,500.00",
 				"From 2026-10-22", "To 2026-10-22", "Status pending"}, ""},
+		"inventory differences": {&gen.GetPhysicalInventoryDocumentOKHeaders{Response: gen.PhysicalInventoryDocument{Number: "PI1", CompanyCode: "3000",
+			PlantCode: "P100", StorageLocationCode: "SL01", Status: "pending_approval", DifferenceValue: gen.NewOptMoney(gen.Money{Amount: "60.02", Currency: "CAD"})}},
+			[]string{"Number PI1", "Title 3000 P100/SL01", "Status pending_approval", "60.02"}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			sum, ok := summaryOf(tc.res)

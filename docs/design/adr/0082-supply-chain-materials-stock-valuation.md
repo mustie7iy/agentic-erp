@@ -719,7 +719,6 @@ catalog's keys mapped), plan-supply-chain.md §S1f.
   part (S1f1), then a requisition item by material and the catalog mapped
   (S1f2).
 
-
 ### S2o (2026-11-19)
 
 The SAP migration run (ADR-0012, ADR-0050 §10's pattern, docs/migration.md
@@ -798,3 +797,123 @@ migration: the external references are `integration.external_ref`'s.
   leaf split from S2o).
 - Walkthrough: `migrated_materials` in step 3, `step_migrate`, with the six
   checks among the run's.
+
+### S2c (2026-11-19)
+
+- Migration 000406: `inventory.count_document` (SAP IKPF) and
+  `inventory.count_item` (ISEG), the rules of 03 §3.35 under schema tests
+  (`db/physical_inventory_test.go`, the triggers also as the owner); the
+  permission `inventory.count.write` (reads under `inventory.stock.read`).
+  Fixture companies number count documents `PI`; the walkthrough's pilot
+  settings add Maple's `PI` range (`physical_inventory`; no pack ships it).
+- `POST /v1/physical-inventory-documents` (SAP MI01), `GET` (plant,
+  storage location, material, status; the latest first) and `/{id}`,
+  `:enterCount` (MI04, `If-Match`). Writes are human-only
+  (`x-agent: false`); no agent's never-list names them, as no agent counts.
+- **One storage location per document**, up to 100 items, one per
+  material: a stocked material of the tenant, `active` or `blocked` (a
+  blocked material's stock is still counted, as a blocked material's
+  document is still reversed, S1c), never `pending`; extended to the
+  plant, kept at the storage location and valued in the plant, so its
+  difference can be posted (422 `inventory.no_valuation` at creation, not
+  at posting). Decided by default.
+- **The book quantity is frozen** as the document is created: the
+  valuations and then the stock rows of its materials are locked in the
+  order every posting takes them (S1d's Locks; a row with no quantity
+  written for a material never moved there), and each item's book
+  quantity is the stock row's quantity under that lock.
+- **The posting block is always set** (SAP's MI01 indicator, optional
+  there; here the safer default): while an item is `open` no goods
+  movement of any kind moves its material at that storage location.
+  `takeStock`, which every posting passes (a person's, a reversal, a goods
+  receipt, the migration's initial entries, S2b's goods issue), refuses it
+  under the stock rows' locks, naming the material, the location and the
+  document (409 `inventory.posting_blocked`); the database's
+  `count_posting_block` refuses what passes it. A count takes the same
+  stock rows' locks before it writes its items, so a posting and a count
+  of one location serialize: the posting that came first is in the book
+  quantity, one that comes after is refused (`TestCountAndIssueAtOnce`).
+  The book quantity frozen is therefore the book quantity when the
+  differences are posted (S2d). Counting while goods move, and a book
+  quantity frozen at a past date, are Later.
+- **One open count per material and storage location** (409
+  `inventory.count_open`, naming the open document, checked under the
+  same locks; `count_item_one_open`): a recount is a new document once
+  the first is closed (posted, rejected or withdrawn, S2d).
+- **Counts** are entered by item number, in the material's base unit or
+  an alternative unit, converted exactly (`inventory.inexact_quantity`),
+  zero included: a zero count is entered as `0`, in any unit of the
+  material. An item is counted once (409 `inventory.item_counted`;
+  `count_item_once`); entries may come in several calls under the
+  document's row lock and `If-Match`; the document is `counted` once every
+  item is. A document no longer `counting` takes no count (409
+  `inventory.count_invalid_status`).
+- **Audited at each step** (`inventory.count_document.create`, `.count`),
+  naming its items' materials and quantities; no event, as for credit
+  limit changes: the stock moves only by the material documents of S2d,
+  which publish `MaterialDocumentPosted`.
+- Walkthrough step 141, `step_count`.
+
+### S2d (2026-11-19)
+
+- Migrations 000407 and 000408: the movement types `701` and `702`, the
+  account determination key `inventory_difference:<class>` (widened NOT
+  VALID, validated by 000408), the count document's approval, value and
+  closing, the item's difference, value and material document, the rules
+  of 03 §3.35 under schema tests (`TestDifferenceRules`); the permissions
+  `inventory.count.post` and `inventory.difference.approve` (an approval
+  permission, which agents never hold).
+- `POST /v1/physical-inventory-documents/{id}:postDifferences` (SAP MI07,
+  `If-Match`), human-only. A document is posted whole, once every item is
+  counted (`counted`); posting some items of it is Later.
+- **Gains and losses apart:** the gains as one material document of
+  `701`, the losses as one of `702`, as one movement type per document
+  holds (As built S1c; SAP's MI07 posts both in one, from memory). Their
+  item numbers are the count document's; neither is posted by
+  `POST /v1/material-documents` (422 `inventory.unknown_movement_type`)
+  nor reversed (409 `inventory.reverse_count`): a count is the record of
+  what was there, and a new count corrects it (decided by default; SAP
+  allows no cancellation of an MI07 posting either, from memory, for the
+  specialist).
+- **Valued at the material's price** as any receipt or issue is (S1d's
+  `valueLines`): a gain at the moving price or what the standard price
+  makes of the stock (422 `inventory.no_price` while a moving price is
+  zero), a loss at the value it takes from the stock; posted as `WA`
+  between the class's stock account and its new `difference` account
+  (`companies[].account_determination.inventory[].difference`, an expense
+  holding gains and losses alike; SAP's GBB with modifier INV, from
+  memory), 422 `inventory.no_inventory_account` without it.
+- **Tolerance:** `companies[].inventory_difference_tolerance`, an amount
+  in the company's currency, the limit of a document's differences
+  valued gains and losses alike (SAP's tolerance group's limit per
+  document, OMJ2, from memory; per item and per user group are Later).
+  None is zero: every difference of any value is approved (the safer
+  default, as a missing manual entry limit, T35). Above it the document
+  waits (`pending_approval`) on an approval request of object type
+  `inventory_difference` for the fixed role `controller`
+  (`approvals.DefaultInventoryDifferenceRole`, as GR/IR clearings, whose
+  differences reach profit and loss too), naming the value asked for; the
+  requester never approves (the approvals context). Approval posts the
+  differences as valued then, in the approver's transaction on the
+  company's date then; rejection (`rejected`) or the requester's
+  withdrawal (`withdrawn`) posts nothing and closes the document, lifting
+  the posting block: the materials are recounted by a new document
+  (MI11's link between the two is Later). The posting block holds while
+  the differences wait, so the book quantity is still the frozen one.
+- **Locks:** the count document's row, then the valuations and stock rows
+  of every item with a difference in the order every posting takes them
+  (`lockCount`, so the second material document locks nothing new), then
+  numbers and the ledger. The document's items are closed before its
+  material documents are written, so its own block does not refuse them;
+  a posting of another document never locks a count document, so no
+  cycle. Two postings of one document at once post once
+  (`TestPostDifferencesAtOnce`).
+- `inventory` imports `approvals` (its request type and object types), a
+  new direction decided here, as `materials` and `credit` do (no cycle:
+  approvals imports no context).
+- Each material document is published as `MaterialDocumentPosted`, its
+  audit naming the count document; the count document's steps are audited
+  (`.request`, `.post`, `.reject`, `.withdraw`). The web workspace names
+  the object type, headless otherwise.
+- Walkthrough step 141 extended: the pilot's settings add account 5198,
+  the class's `difference` account, and a tolerance of CAD 50.00.

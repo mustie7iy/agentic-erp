@@ -237,6 +237,13 @@ type Company struct {
 	// debits in the company's currency, that people post without approval
 	// (T35); above it the controller approves the entry first.
 	ManualEntryApprovalLimit string `yaml:"manual_entry_approval_limit" json:"manual_entry_approval_limit"`
+	// InventoryDifferenceTolerance is the largest value of a physical
+	// inventory count's differences, gains and losses alike, in the
+	// company's currency, posted without approval (S2d; SAP's tolerance
+	// group's limit per document, from memory); above it the controller
+	// approves them first. Empty: zero, so every difference of any value
+	// is approved.
+	InventoryDifferenceTolerance string `yaml:"inventory_difference_tolerance,omitempty" json:"inventory_difference_tolerance,omitempty"`
 	// ServicePostingLimit is the largest journal entry, by its debits in
 	// the company's currency, that a service principal (an integration such
 	// as a billing system) posts through the API; above it the entry is
@@ -559,6 +566,9 @@ type InventoryAccounts struct {
 	// expenses, holding gains and losses alike.
 	PriceDifference string `yaml:"price_difference,omitempty" json:"price_difference,omitempty"`
 	Revaluation     string `yaml:"revaluation,omitempty" json:"revaluation,omitempty"`
+	// Difference takes a physical inventory count's differences, gains
+	// (701) and losses (702) alike (S2d; GBB INV): an expense.
+	Difference string `yaml:"difference,omitempty" json:"difference,omitempty"`
 }
 
 // The kinds of a valuation class's accounts (InventoryAccounts.Accounts).
@@ -570,6 +580,7 @@ const (
 	InventoryScrapping       = "scrapping"
 	InventoryPriceDifference = "price_difference"
 	InventoryRevaluation     = "revaluation"
+	InventoryDifference      = "difference"
 )
 
 // InventoryKey is the account determination key of a valuation class's
@@ -579,12 +590,13 @@ func InventoryKey(kind, valuationClass string) string {
 }
 
 // Accounts are the class's accounts by kind (stock, receipt,
-// initial_entry, consumption, scrapping, price_difference, revaluation),
+// initial_entry, consumption, scrapping, price_difference, revaluation,
+// difference),
 // in that order, the empty ones too.
 func (a InventoryAccounts) Accounts() [][2]string {
 	return [][2]string{{InventoryStock, a.Stock}, {InventoryReceipt, a.Receipt}, {InventoryInitialEntry, a.InitialEntry},
 		{InventoryConsumption, a.Consumption}, {InventoryScrapping, a.Scrapping}, {InventoryPriceDifference, a.PriceDifference},
-		{InventoryRevaluation, a.Revaluation}}
+		{InventoryRevaluation, a.Revaluation}, {InventoryDifference, a.Difference}}
 }
 
 // InventoryClass is the company's valuation class with the code, ok =
@@ -901,6 +913,15 @@ func (co *Company) ServiceLimit() string {
 		return co.ServicePostingLimit
 	}
 	return strings.TrimSpace(co.ManualEntryApprovalLimit)
+}
+
+// InventoryTolerance is the company's inventory difference tolerance, ""
+// for a company the document does not name (nil).
+func (co *Company) InventoryTolerance() string {
+	if co == nil {
+		return ""
+	}
+	return co.InventoryDifferenceTolerance
 }
 
 func (c *Config) Company(code string) *Company {

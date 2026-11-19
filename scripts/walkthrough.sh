@@ -1717,8 +1717,10 @@ migrated_down_payment() {
 # CAD 1.00 and 0.5% kept; no pack ships them), valuation class 3100 of
 # trading goods with its inventory accounts (S1d, ADR-0082 §8; 1416 stock,
 # 2196 receipts without an order, 3996 initial entries, 5116 consumption,
-# 5126 scrapping, 5196 price differences, 5197 revaluation; no pack ships
-# them), and two codes of tax alone for the return's adjustments (kind adjustment,
+# 5126 scrapping, 5196 price differences, 5197 revaluation, 5198
+# inventory differences, S2d; no pack ships them), the inventory difference
+# tolerance of CAD 50.00 (S2d) and the physical_inventory range PI (S2c; no
+# pack ships it), and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
 # instalment paid (line 110) on 2300.
@@ -1759,7 +1761,8 @@ PILOT_SETTINGS='
       {"number": "5116", "name": "Consumption of materials", "type": "expense"},
       {"number": "5126", "name": "Scrapped materials", "type": "expense"},
       {"number": "5196", "name": "Inventory price differences", "type": "expense"},
-      {"number": "5197", "name": "Inventory revaluation", "type": "expense"}]
+      {"number": "5197", "name": "Inventory revaluation", "type": "expense"},
+      {"number": "5198", "name": "Inventory differences", "type": "expense"}]
     | .account_determination.right_of_use_asset = "1660"
     | .account_determination.lease_liability = "2650"
     | .account_determination.lease_interest = "6720"
@@ -1768,7 +1771,8 @@ PILOT_SETTINGS='
     | .account_determination.payment_difference_expense = "6850"
     | .account_determination.payment_difference_revenue = "4850"
     | .account_determination.inventory = [{"valuation_class": "3100", "stock": "1416", "receipt": "2196", "initial_entry": "3996",
-        "consumption": "5116", "scrapping": "5126", "price_difference": "5196", "revaluation": "5197"}]
+        "consumption": "5116", "scrapping": "5126", "price_difference": "5196", "revaluation": "5197", "difference": "5198"}]
+    | .inventory_difference_tolerance = "50.00"
     | .receivables.payment_tolerance = {"underpayment_amount": "5.00", "underpayment_percent": "1", "overpayment_amount": "1.00",
         "overpayment_percent": "0.5"}
     | .tax_codes = ((.tax_codes // []) + [{"code": "GO5", "description": "GST 5% on sales (walkthrough; the Canada pack codes purchases)",
@@ -1793,7 +1797,8 @@ PILOT_SETTINGS='
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
-| .number_ranges += [{"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999}]'
+| .number_ranges += [{"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
+    {"company": "@CC@", "document_type": "physical_inventory", "fiscal_year": @YEAR@, "prefix": "PI", "first": 1, "last": 9999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -14702,6 +14707,82 @@ step_dispute_resolution() {
   passed
 }
 
+# step_count is S2c (ADR-0082 As built S2c, plan-supply-chain.md): Wade
+# counts the brackets and the bolts of Toronto's main store. The count
+# document freezes their book quantities and blocks their postings there
+# until it is closed; a second count of the brackets there is refused. He
+# enters the bracket's count, which is not entered twice, and the bolts'
+# in a second entry; the document is then counted.
+step_count() {
+  local loss brackets
+  heading "Step 141 — Physical inventory: a count document of the main store's brackets and bolts freezing their book quantities and blocking their postings; a second count of them refused; the counts entered in two entries, each item once; the differences posted (701, 702) within the tolerance at once and above it once the controller approves"
+  local doc book
+  [ -n "$BOLT" ] || fail "step 124's valuations are not there"
+  as wade
+  say "Wade counts the main store's brackets and bolts (SAP MI01): the count document freezes their book quantities"
+  say "and blocks their postings there until it is closed:"
+  api 201 '"count document \(.number): \(.status) at \(.plant_code)/\(.storage_location_code)", (.items[] | "  item \(.item_no): \(.material_number) \(.material_description), book \(.book_quantity.value) \(.book_quantity.unit)")' \
+    createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"items\": [{\"material_id\": \"$MATERIAL\"},
+      {\"material_id\": \"$BOLT\"}]}"
+  case "$(field .number)" in PI*) ;; *) fail "the count document's number: got $(field .number), want one of the PI range" ;; esac
+  doc=$(field .id)
+  book=$(field '.items[0].book_quantity.value')
+  brackets=$book
+  expect "the bracket's book quantity" "$book EA" "$(stock_at "$MAIN_STORE")"
+  say "While it is counted no bracket leaves the main store, whatever posts it:"
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  refused 409 inventory.posting_blocked createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$MATERIAL\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"cost_center_id\": \"$(field '.items[0].id')\"}]}"
+  say "A material is counted at a storage location by one open document at a time:"
+  refused 409 inventory.count_open createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"items\": [{\"material_id\": \"$MATERIAL\"}]}"
+  say "Wade finds $((book - 8)) brackets on the shelves, 8 fewer than the book, and enters them (SAP MI04):"
+  QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
+  api 200 '"\(.status): " + ([.items[] | "item \(.item_no) \(.counted_quantity.value // "-")"] | join(", "))' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
+    -body "{\"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"$((book - 8))\", \"unit\": \"EA\"}}]}"
+  say "An item is counted once; a recount is a new document:"
+  refused 409 inventory.item_counted enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
+    -body '{"items": [{"item_no": 1, "quantity": {"value": "1", "unit": "BOX"}}]}'
+  QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
+  book=$(field '.items[1].book_quantity.value')
+  say "He counts the bolts as the book has them, $book:"
+  api 200 '"\(.status): " + ([.items[] | "item \(.item_no) \(.counted_quantity.value) \(.counted_quantity.unit)"] | join(", "))' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" \
+    -body "{\"items\": [{\"item_no\": 2, \"quantity\": {\"value\": \"$book\", \"unit\": \"EA\"}}]}"
+  expect "the count document" "$(field .status)" counted
+  as ines
+  say "Ines posts the differences (SAP MI07): the 8 missing brackets as a 702 valued at their moving price, against"
+  say "the inventory differences account 5198; within Maple's tolerance of 50.00 CAD, so at once. The book is the count:"
+  QUIET=1 api 200 '' getPhysicalInventoryDocument -p "id=$doc"
+  api 200 '"count document \(.number): \(.status)", (.items[] | "  item \(.item_no) \(.material_number): difference \(.difference.value) \(.difference.unit) worth \(.difference_value.amount) \(.difference_value.currency), material document \(.material_document_number // "none")")' \
+    postPhysicalInventoryDifferences -p "id=$doc" -if-match "$ETAG"
+  expect "the count document" "$(field .status)" posted
+  loss=$(field '.items[0].material_document_id')
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(QUIET=1 api 200 '' getMaterialDocument -p "id=$loss"; field .journal_entry_id)"
+  expect "the main store's brackets, the count" "$(stock_at "$MAIN_STORE")" "$((brackets - 8)) EA"
+  say "The count's material document is not reversed; a new count corrects the stock:"
+  QUIET=1 api 200 '' getMaterialDocument -p "id=$loss"
+  refused 409 inventory.reverse_count reverseMaterialDocument -p "id=$loss" -if-match "$ETAG"
+  as wade
+  say "A month on, Wade counts the bolts again and finds 100 missing, 55.00 CAD at their standard price, and 2 more"
+  say "brackets than the book: 60.02 CAD of differences, above the tolerance, so they wait for Carla, the controller:"
+  api 201 '"count document \(.number): \(.status)"' createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"items\": [{\"material_id\": \"$MATERIAL\"}, {\"material_id\": \"$BOLT\"}]}"
+  doc=$(field .id)
+  api 200 '"\(.status)"' enterPhysicalInventoryCount -p "id=$doc" -if-match "$ETAG" -body "{\"items\": [
+      {\"item_no\": 1, \"quantity\": {\"value\": \"$(( $(field '.items[0].book_quantity.value') + 2 ))\", \"unit\": \"EA\"}},
+      {\"item_no\": 2, \"quantity\": {\"value\": \"$(( $(field '.items[1].book_quantity.value') - 100 ))\", \"unit\": \"EA\"}}]}"
+  as ines
+  api 200 '"\(.status): \(.difference_value.amount) \(.difference_value.currency) asked of approval request \(.workflow_request_id)"' \
+    postPhysicalInventoryDifferences -p "id=$doc" -if-match "$ETAG"
+  expect "above the tolerance" "$(field '"\(.status) \(.difference_value.amount)"')" "pending_approval 60.02"
+  approve carla "$(field .workflow_request_id)" "Bolts were scrapped without a document; recount confirmed."
+  as ines
+  api 200 '"count document \(.number): \(.status)", (.items[] | "  item \(.item_no) \(.material_number): \(.difference.value) \(.difference.unit) worth \(.difference_value.amount), material document \(.material_document_number)")' \
+    getPhysicalInventoryDocument -p "id=$doc"
+  expect "after the approval" "$(field '[.status, (.items[] | .difference_value.amount)] | join(" ")')" "posted 5.02 -55.00"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -16732,7 +16813,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_close'
 
 main() {
   stop_unseen

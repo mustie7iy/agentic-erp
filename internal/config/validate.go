@@ -267,6 +267,9 @@ func (v *validator) company(p string, co *Company) {
 		v.taxSettings(p+".tax_settings", co.TaxSettings, exp)
 		v.amount(p+".auto_post_limit", co.AutoPostLimit, exp)
 		v.amount(p+".manual_entry_approval_limit", co.ManualEntryApprovalLimit, exp)
+		if co.InventoryDifferenceTolerance != "" {
+			v.amount(p+".inventory_difference_tolerance", co.InventoryDifferenceTolerance, exp)
+		}
 		if co.ReleaseDualLimit != "" { // optional: no run then needs a second person
 			v.amount(p+".release_dual_limit", co.ReleaseDualLimit, exp)
 		}
@@ -783,8 +786,8 @@ var valuationClassRe = regexp.MustCompile(`^[0-9A-Z]{1,4}$`)
 
 // inventoryAccounts checks the company's accounts by valuation class
 // (ADR-0082 §8): each class once and well formed, its stock account an
-// asset, its consumption, scrapping, price difference and revaluation
-// accounts expenses, its receipt and initial entry accounts of any type;
+// asset, its consumption, scrapping, price difference, revaluation and
+// inventory difference accounts expenses, its receipt and initial entry accounts of any type;
 // none a reconciliation account.
 func (v *validator) inventoryAccounts(p string, co *Company) {
 	seen := map[string]bool{}
@@ -796,7 +799,7 @@ func (v *validator) inventoryAccounts(p string, co *Company) {
 		seen[inv.ValuationClass] = true
 		v.account(ip+".stock", co, inv.Stock, Asset, false)
 		for _, a := range []struct{ field, number string }{{"consumption", inv.Consumption}, {"scrapping", inv.Scrapping},
-			{"price_difference", inv.PriceDifference}, {"revaluation", inv.Revaluation}} {
+			{"price_difference", inv.PriceDifference}, {"revaluation", inv.Revaluation}, {"difference", inv.Difference}} {
 			if a.number != "" {
 				v.account(ip+"."+a.field, co, a.number, Expense, false)
 			}

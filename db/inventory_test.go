@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestInventoryPermissions (S1c, migration 000376, and S1d, 000377;
+// TestInventoryPermissions (S1c, migration 000376, S1d, 000377, S2c, 000406, and S2d, 000407;
 // ADR-0082 §7-§8): the permissions of inventory are seeded and are no
 // approval permissions.
 func TestInventoryPermissions(t *testing.T) {
@@ -22,7 +22,7 @@ func TestInventoryPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "inventory.movement.post inventory.stock.read inventory.valuation.read inventory.valuation.write"; got != want {
+	if got, want := strings.Join(codes, " "), "inventory.count.post inventory.count.write inventory.movement.post inventory.stock.read inventory.valuation.read inventory.valuation.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -470,7 +470,7 @@ func TestValuationTriggersAsOwner(t *testing.T) {
 func TestInventoryKeys(t *testing.T) {
 	need(t)
 	ctx := context.Background()
-	for _, c := range []struct{ key, want string }{{"inventory_stock:3000", ""}, {"inventory_revaluation:A1", ""},
+	for _, c := range []struct{ key, want string }{{"inventory_stock:3000", ""}, {"inventory_revaluation:A1", ""}, {"inventory_difference:3000", ""},
 		{"inventory_bogus:3000", "account_determination_key_check"}, {"inventory_stock:30000", "account_determination_key_check"}} {
 		t.Run(c.key, func(t *testing.T) {
 			tx, err := testDB.Begin(ctx)
