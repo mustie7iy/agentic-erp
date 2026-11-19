@@ -80,6 +80,9 @@ func (e *Endpoints) reconcile(ctx context.Context, ext *sap.Extract, t target, r
 		codes, currency[c.BUKRS] = append(codes, c.BUKRS), c.WAERS
 	}
 	slices.Sort(codes)
+	if _, err := rc.readStock(ctx); err != nil {
+		return rc.rec, err
+	}
 	for _, cc := range codes {
 		if err := rc.company(ctx, cc, currency[cc]); err != nil {
 			return rc.rec, err
@@ -105,6 +108,8 @@ type reconciler struct {
 	// materials are the material master's two sides, read once
 	// (readMaterials).
 	materials *materialStates
+	// stock is the stock's two sides, read once (readStock).
+	stock *stockStates
 	// partnerOf is each vendor's trading partner, the company ID its master
 	// names (LFA1-VBUND, sap.CompanyID), "" for none.
 	partnerOf map[string]string
@@ -193,6 +198,9 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	if err := rc.materialMaster(ctx, s); err != nil {
 		return err
 	}
+	if err := rc.stockControls(ctx, s); err != nil {
+		return err
+	}
 	if err := rc.bankAccounts(ctx, s); err != nil {
 		return err
 	}
@@ -278,6 +286,9 @@ func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (sapJour
 	sapTB, sapDebits, documents := j.tb, j.debits, j.documents
 	totals, err := rc.e.Reports.Totals(ctx, s.le, int16(rc.t.year))
 	if err != nil {
+		return j, err
+	}
+	if totals, err = rc.withoutTakeOver(ctx, s, totals); err != nil {
 		return j, err
 	}
 	tb := diffs(s.cc, sapTB, totals.ByAccount, s.format)

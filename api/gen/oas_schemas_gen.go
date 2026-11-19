@@ -73308,9 +73308,12 @@ type MigrationExtractCounts struct {
 	Marm int `json:"marm"`
 	// Rows of SAP table MARC (the materials' plant data at the scope's plants; S2o).
 	Marc int `json:"marc"`
-	// Rows of SAP table MARD (the materials' storage location data at the scope's plants, the assignment
-	// only; S2o).
+	// Rows of SAP table MARD (the materials' storage location data at the scope's plants: the assignment,
+	// S2o, and the unrestricted stock, S2p).
 	Mard int `json:"mard"`
+	// Rows of SAP table MBEW (the materials' valuations in the valuation areas of the scope's plants:
+	// price control, price, valuation class, stock and value; S2p).
+	Mbew int `json:"mbew"`
 	// Rows of SAP table T001W (the plants of the scope's company codes; S2o).
 	T001w int `json:"t001w"`
 	// Rows of SAP table T001L (the storage locations of those plants; S2o).
@@ -73505,6 +73508,11 @@ func (s *MigrationExtractCounts) GetMarc() int {
 // GetMard returns the value of Mard.
 func (s *MigrationExtractCounts) GetMard() int {
 	return s.Mard
+}
+
+// GetMbew returns the value of Mbew.
+func (s *MigrationExtractCounts) GetMbew() int {
+	return s.Mbew
 }
 
 // GetT001w returns the value of T001w.
@@ -73707,6 +73715,11 @@ func (s *MigrationExtractCounts) SetMard(val int) {
 	s.Mard = val
 }
 
+// SetMbew sets the value of Mbew.
+func (s *MigrationExtractCounts) SetMbew(val int) {
+	s.Mbew = val
+}
+
 // SetT001w sets the value of T001w.
 func (s *MigrationExtractCounts) SetT001w(val int) {
 	s.T001w = val
@@ -73847,6 +73860,13 @@ type MigrationLoadedCounts struct {
 	// Materials an earlier run created that this run extended to more plants or storage locations, each by
 	// an update change applied at once (S2o).
 	MaterialsExtended OptInt `json:"materials_extended"`
+	// Materials valued at a plant as SAP values them (MBEW: price control, price per price unit, valuation
+	// class), each once: a valuation an earlier run took over is kept (S2p).
+	MaterialValuations OptInt `json:"material_valuations"`
+	// Initial entries of stock (movement type 561) posting SAP's unrestricted stock of a material at its
+	// plant's storage locations (MARD) at SAP's value, on the valuation class's stock account against its
+	// initial entry account, the migration clearing account (S2p).
+	InitialEntries OptInt `json:"initial_entries"`
 }
 
 // GetSuppliers returns the value of Suppliers.
@@ -73964,6 +73984,16 @@ func (s *MigrationLoadedCounts) GetMaterialsExtended() OptInt {
 	return s.MaterialsExtended
 }
 
+// GetMaterialValuations returns the value of MaterialValuations.
+func (s *MigrationLoadedCounts) GetMaterialValuations() OptInt {
+	return s.MaterialValuations
+}
+
+// GetInitialEntries returns the value of InitialEntries.
+func (s *MigrationLoadedCounts) GetInitialEntries() OptInt {
+	return s.InitialEntries
+}
+
 // SetSuppliers sets the value of Suppliers.
 func (s *MigrationLoadedCounts) SetSuppliers(val OptInt) {
 	s.Suppliers = val
@@ -74077,6 +74107,16 @@ func (s *MigrationLoadedCounts) SetMaterials(val OptInt) {
 // SetMaterialsExtended sets the value of MaterialsExtended.
 func (s *MigrationLoadedCounts) SetMaterialsExtended(val OptInt) {
 	s.MaterialsExtended = val
+}
+
+// SetMaterialValuations sets the value of MaterialValuations.
+func (s *MigrationLoadedCounts) SetMaterialValuations(val OptInt) {
+	s.MaterialValuations = val
+}
+
+// SetInitialEntries sets the value of InitialEntries.
+func (s *MigrationLoadedCounts) SetInitialEntries(val OptInt) {
+	s.InitialEntries = val
 }
 
 // Merged schema.
@@ -81797,7 +81837,8 @@ type OrgUnit struct {
 	// Kind of unit. Immutable. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Kind string `json:"kind"`
-	// Code, unique per legal entity and kind. Immutable.
+	// Code, unique per legal entity and kind, a storage location's under its plant (its parent), as SAP
+	// keys a storage location by its plant. Immutable.
 	Code string `json:"code"`
 	// Name.
 	Name string `json:"name"`
@@ -81937,7 +81978,8 @@ type OrgUnitCreate struct {
 	// Kind of unit. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
 	Kind string `json:"kind"`
-	// Code, unique per legal entity and kind.
+	// Code, unique per legal entity and kind, a storage location's under its plant (its parent), as SAP
+	// keys a storage location by its plant.
 	Code string `json:"code"`
 	// Name.
 	Name string `json:"name"`

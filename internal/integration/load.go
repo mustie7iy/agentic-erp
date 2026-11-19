@@ -66,6 +66,10 @@ type loader struct {
 	// positions it takes over (T72f, takeOverGRIR).
 	grir    map[string]*grirPosition
 	viaGRIR map[string]bool
+	// grirLocked is what lockGRIR read under the GR/IR locks.
+	grirLocked grirLock
+	// stocks are the valuations and stock lockStock planned to take over.
+	stocks []sapStock
 	// foreign are the documents posted in their foreign document currency,
 	// with that currency (foreignDocuments).
 	foreign map[string]string
@@ -151,7 +155,16 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 // hold until the load commits. So the load takes every one of those item
 // locks at once, in the order a goods movement takes them
 // (lockOrderItems), before the take-over and the first receipt; it never
-// waits for an order item while it holds a range. Before it the load
+// waits for an order item while it holds a range. After the receipts it
+// takes the material_document range of each company whose stock it takes
+// over (lockStock), then the GR/IR locks of the orders it posts GR/IR
+// lines on (lockGRIR), and only then posts (stock, takeOverGRIR, the
+// invoices and the journal): order items, goods_receipt,
+// material_document, GR/IR, then the journal's ranges, the order of a
+// goods receipt into stock, which every other posting's order is a part
+// of (a GR/IR clearing: GR/IR, journal_we; a goods movement:
+// material_document, journal_we; an invoice: items, GR/IR, the journal;
+// ADR-0082 As built S2p, Locks). Before the item locks the load
 // holds only the partner, material and purchase order ranges, the
 // material changes' numbers and the materials it extends (locked first,
 // materialMaster), which nothing that locks order items takes, and its
@@ -170,7 +183,7 @@ func (l *loader) load(ctx context.Context) error {
 	l.foreign, _ = foreignDocuments(l.ext, l.t) // the quality gate refused the conflicts
 	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
 	l.lines = lineCentersOf(l.ext)
-	for _, fn := range []func(context.Context) error{l.centers, l.partners, l.materialMaster, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
+	for _, fn := range []func(context.Context) error{l.centers, l.partners, l.materialMaster, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.lockStock, l.lockGRIR, l.stock, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
 		l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err

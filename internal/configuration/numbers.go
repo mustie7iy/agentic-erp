@@ -36,13 +36,7 @@ func (Numbers) Next(ctx context.Context, legalEntity uuid.UUID, documentType str
 	var pg *pgconn.PgError
 	switch {
 	case errors.As(err, &pg) && pg.Code == "P0002": // no_data_found
-		// No field error: the many operations that draw a number (an
-		// invoice's posting, a payment run's) have no document_type field,
-		// so the detail names the document type and fiscal year instead
-		// (REVIEW.md, API-consumer classes: a field error names the
-		// request's own field).
-		return "", problem.Unprocessable("config.no_number_range",
-			fmt.Sprintf("The configuration has no %s number range for this legal entity in fiscal year %d; add one through a change request.", documentType, fiscalYear))
+		return "", noNumberRange(documentType, fiscalYear)
 	case errors.As(err, &pg) && pg.Code == "23514": // the function's exhausted range
 		return "", problem.Conflict("config.number_range_exhausted",
 			fmt.Sprintf("The %s number range of fiscal year %d is exhausted; raise its last number through a change request.", documentType, fiscalYear))
@@ -51,6 +45,40 @@ func (Numbers) Next(ctx context.Context, legalEntity uuid.UUID, documentType str
 		return "", fmt.Errorf("configuration: next %s number for legal entity %s in fiscal year %d: %w", documentType, legalEntity, fiscalYear, err)
 	}
 	return n, nil
+}
+
+// noNumberRange is the refusal of a document type and fiscal year
+// without a range. No field error: the many operations that draw a
+// number (an invoice's posting, a payment run's) have no document_type
+// field, so the detail names the document type and fiscal year instead
+// (REVIEW.md, API-consumer classes: a field error names the request's own
+// field).
+func noNumberRange(documentType string, fiscalYear int16) error {
+	return problem.Unprocessable("config.no_number_range",
+		fmt.Sprintf("The configuration has no %s number range for this legal entity in fiscal year %d; add one through a change request.", documentType, fiscalYear))
+}
+
+// Lock takes the legal entity's range for the document type and fiscal
+// year as drawing a number does, its row locked until the transaction
+// ends, without drawing one: a long transaction that draws from it later
+// takes it before locks that a posting drawing from it takes after it
+// (ADR-0008; a migration run's stock take-over, ADR-0082 As built S2p).
+// Without a range the answer is Next's 422 config.no_number_range.
+func (Numbers) Lock(ctx context.Context, legalEntity uuid.UUID, documentType string, fiscalYear int16) error {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return err
+	}
+	var held bool
+	err = tx.QueryRow(ctx, `SELECT true FROM config.number_range WHERE tenant_id = $1 AND legal_entity_id = $2 AND document_type = $3 AND fiscal_year = $4
+		FOR UPDATE`, p.TenantID, legalEntity, documentType, fiscalYear).Scan(&held)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return noNumberRange(documentType, fiscalYear)
+	case err != nil:
+		return fmt.Errorf("configuration: lock the %s number range of legal entity %s in fiscal year %d: %w", documentType, legalEntity, fiscalYear, err)
+	}
+	return nil
 }
 
 // Settings reads the tenant's active configuration for other contexts:

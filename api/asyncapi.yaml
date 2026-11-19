@@ -8237,6 +8237,8 @@ components:
         storage_locations: {type: integer, minimum: 1, description: 'SAP storage locations (T001L) recorded under their plant: found by their code or created active (S2o).'}
         materials: {type: integer, minimum: 1, description: 'Materials created from SAP''s material master, active at once (S2o).'}
         materials_extended: {type: integer, minimum: 1, description: 'Materials an earlier run created that this run extended to more plants or storage locations (S2o).'}
+        material_valuations: {type: integer, minimum: 1, description: 'Materials valued at a plant as SAP values them (MBEW), each once (S2p).'}
+        initial_entries: {type: integer, minimum: 1, description: 'Initial entries of stock (561) posting SAP''s unrestricted stock at its value (MARD, MBEW; S2p).'}
 
     # --------------------------------------------------------------- agents
     RecommendationMadeV1:

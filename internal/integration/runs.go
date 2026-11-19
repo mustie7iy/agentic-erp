@@ -229,7 +229,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, tenant uuid.UUID, r 
 		return target{}, nil, c, problem.Conflict("integration.connector_disabled", "The run's connector is disabled.")
 	}
 	t := target{charts: map[string]map[string]ledger.ChartAccount{}, terms: map[string]bool{}, ranges: map[string]bool{},
-		taxes: map[string]map[string]config.TaxCode{}, methods: map[string]map[string]bool{}, categories: map[string]bool{}, year: r.Scope.FiscalYear, balances: r.Mode == "balances"}
+		taxes: map[string]map[string]config.TaxCode{}, methods: map[string]map[string]bool{}, categories: map[string]bool{}, classes: map[string]map[string]config.InventoryAccounts{}, year: r.Scope.FiscalYear, balances: r.Mode == "balances"}
 	if t.entities, err = e.entities(ctx, r.Scope); err != nil {
 		return t, nil, c, err
 	}
@@ -280,7 +280,7 @@ func extractScope(entities map[string]tenancy.Entity, year int32) sap.Scope {
 
 // configure gives the target what the active configuration says of the
 // run's scope: its payment terms, number ranges, cost center categories,
-// each company's tax codes and payment methods, and each company's day at
+// each company's tax codes, payment methods and valuation classes, and each company's day at
 // instant now in its time zone (companyDays).
 func (t *target) configure(doc *config.Config, now time.Time) error {
 	for _, term := range doc.PaymentTerms {
@@ -300,6 +300,10 @@ func (t *target) configure(doc *config.Config, now time.Time) error {
 		t.methods[co.Code] = map[string]bool{}
 		for _, m := range co.PaymentMethods {
 			t.methods[co.Code][m.Code] = true
+		}
+		t.classes[co.Code] = map[string]config.InventoryAccounts{}
+		for _, c := range co.AccountDetermination.Inventory {
+			t.classes[co.Code][c.ValuationClass] = c
 		}
 	}
 	var err error

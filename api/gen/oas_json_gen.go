@@ -192838,6 +192838,10 @@ func (s *MigrationExtractCounts) encodeFields(e *jx.Encoder) {
 		e.Int(s.Mard)
 	}
 	{
+		e.FieldStart("mbew")
+		e.Int(s.Mbew)
+	}
+	{
 		e.FieldStart("t001w")
 		e.Int(s.T001w)
 	}
@@ -192847,7 +192851,7 @@ func (s *MigrationExtractCounts) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMigrationExtractCounts = [40]string{
+var jsonFieldsNameOfMigrationExtractCounts = [41]string{
 	0:  "t001",
 	1:  "skb1",
 	2:  "lfa1",
@@ -192886,8 +192890,9 @@ var jsonFieldsNameOfMigrationExtractCounts = [40]string{
 	35: "marm",
 	36: "marc",
 	37: "mard",
-	38: "t001w",
-	39: "t001l",
+	38: "mbew",
+	39: "t001w",
+	40: "t001l",
 }
 
 // Decode decodes MigrationExtractCounts from json.
@@ -192895,7 +192900,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode MigrationExtractCounts to nil")
 	}
-	var requiredBitSet [5]uint8
+	var requiredBitSet [6]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -193355,8 +193360,20 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"mard\"")
 			}
-		case "t001w":
+		case "mbew":
 			requiredBitSet[4] |= 1 << 6
+			if err := func() error {
+				v, err := d.Int()
+				s.Mbew = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"mbew\"")
+			}
+		case "t001w":
+			requiredBitSet[4] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int()
 				s.T001w = int(v)
@@ -193368,7 +193385,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"t001w\"")
 			}
 		case "t001l":
-			requiredBitSet[4] |= 1 << 7
+			requiredBitSet[5] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int()
 				s.T001l = int(v)
@@ -193388,12 +193405,13 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [5]uint8{
+	for i, mask := range [6]uint8{
 		0b11111111,
 		0b11111111,
 		0b11111111,
 		0b11111111,
 		0b11111111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -193733,9 +193751,21 @@ func (s *MigrationLoadedCounts) encodeFields(e *jx.Encoder) {
 			s.MaterialsExtended.Encode(e)
 		}
 	}
+	{
+		if s.MaterialValuations.Set {
+			e.FieldStart("material_valuations")
+			s.MaterialValuations.Encode(e)
+		}
+	}
+	{
+		if s.InitialEntries.Set {
+			e.FieldStart("initial_entries")
+			s.InitialEntries.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMigrationLoadedCounts = [23]string{
+var jsonFieldsNameOfMigrationLoadedCounts = [25]string{
 	0:  "suppliers",
 	1:  "suppliers_extended",
 	2:  "suppliers_blocked",
@@ -193759,6 +193789,8 @@ var jsonFieldsNameOfMigrationLoadedCounts = [23]string{
 	20: "storage_locations",
 	21: "materials",
 	22: "materials_extended",
+	23: "material_valuations",
+	24: "initial_entries",
 }
 
 // Decode decodes MigrationLoadedCounts from json.
@@ -193998,6 +194030,26 @@ func (s *MigrationLoadedCounts) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"materials_extended\"")
+			}
+		case "material_valuations":
+			if err := func() error {
+				s.MaterialValuations.Reset()
+				if err := s.MaterialValuations.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_valuations\"")
+			}
+		case "initial_entries":
+			if err := func() error {
+				s.InitialEntries.Reset()
+				if err := s.InitialEntries.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"initial_entries\"")
 			}
 		default:
 			return d.Skip()

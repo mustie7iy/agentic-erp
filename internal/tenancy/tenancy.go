@@ -48,8 +48,14 @@ func init() {
 		return problem.Unprocessable("tenancy.unknown_currency", "The currency code is not known.",
 			problem.FieldError{Field: "local_currency", Code: "unknown", Message: "not an ISO 4217 currency in the reference data"})
 	})
-	problem.RegisterConstraint("org_unit_tenant_id_legal_entity_id_kind_code_key", func() *problem.Problem {
+	// An org unit's code is unique in its legal entity and kind, a storage
+	// location's under its plant, as SAP keys LGORT within its WERKS
+	// (migrations 000412-000414; ADR-0082 As built, storage location codes).
+	problem.RegisterConstraint("org_unit_code_once", func() *problem.Problem {
 		return problem.Conflict("tenancy.org_unit_code_taken", "The legal entity already has an org unit of this kind with this code.")
+	})
+	problem.RegisterConstraint("storage_location_code_once", func() *problem.Problem {
+		return problem.Conflict("tenancy.org_unit_code_taken", "The plant already has a storage location with this code.")
 	})
 }
 

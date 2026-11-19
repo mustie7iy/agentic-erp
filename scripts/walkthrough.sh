@@ -971,7 +971,8 @@ step_migrate() {
     'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences' \
     'Cost center totals: centers with differences' 'Profit center totals: centers with differences' 'Segment totals: segments with differences' \
     'Plants' 'Plants: plants with differences' 'Storage locations' 'Storage locations: storage locations with differences' \
-    'Materials' 'Materials: materials with differences'; do
+    'Materials' 'Materials: materials with differences' 'Stock' 'Stock: valuations with differences' 'Stock value total' \
+    'Stock accounts: accounts with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
@@ -1022,6 +1023,7 @@ step_migrate() {
   migrated_trading_partner
   migrated_centers
   migrated_materials
+  migrated_stock
   migrated_default_assignment
   migrated_line_centers
   migrated_down_payment
@@ -1246,13 +1248,15 @@ migrated_centers() {
 # was left out. The reconciliation compared the plants, storage locations
 # and materials by SAP key (step_migrate's checks).
 migrated_materials() {
-  say "SAP's plants and storage locations came over as Maple's org units, active (T001W, T001L; S2o):"
+  say "SAP's plants and storage locations came over as Maple's org units, active (T001W, T001L; S2o). A storage location"
+  say "is keyed by its plant, as SAP keys LGORT within its WERKS: both plants have a raw materials store 0001."
   jq -r --arg cc "$CC" '.T001W[] | select(.BUKRS == $cc) | "     T001W \(.WERKS) \(.NAME1), company \(.BUKRS)"' "$WORK/data/extract.json"
+  jq -r '.T001L[] | "     T001L \(.WERKS)/\(.LGORT) \(.LGOBE)"' "$WORK/data/extract.json"
   as ada
   api 200 '.items[] | select(.code | test("^(3[12]00|000[1-3])$")) | "\(.kind) \(.code) \(.name): \(.status)"' listOrgUnits -p page_size=100
   expect "the migrated plants and storage locations" \
     "$(field '[.items[] | select(.code | test("^(3[12]00|000[1-3])$")) | "\(.kind) \(.code) \(.status)"] | sort | join(", ")')" \
-    "plant 3100 active, plant 3200 active, storage_location 0001 active, storage_location 0002 active, storage_location 0003 active"
+    "plant 3100 active, plant 3200 active, storage_location 0001 active, storage_location 0001 active, storage_location 0002 active, storage_location 0003 active"
   say "And SAP's material master as materials (MARA, MAKT, MARM, MARC, MARD), active at once and numbered from Maple's"
   say "material range; SAP's conversions are exact (MARM: one alternative unit is UMREZ / UMREN base units):"
   jq -r '.MARM[] | select(.UMREZ != "1" or .UMREN != "1") | "     MARM \(.MATNR) \(.MEINH): \(.UMREZ)/\(.UMREN)"' "$WORK/data/extract.json"
@@ -1260,7 +1264,7 @@ migrated_materials() {
     listMaterials -p page_size=50
   expect "the migrated materials" \
     "$(field '[.items[] | "\(.description): \(.material_type) \(.base_unit) \(.status) \([.plants[] | "\(.plant_code)/\([.storage_locations[].code] | join("+"))"] | join(" ")) \([.alternative_units[] | "\(.unit)=\(.numerator)/\(.denominator)"] | join(" "))"] | sort | join("; ")')" \
-    "Hex bolt M8: trading_good PC active 3200/0003 ; Shelving unit, 5 tiers: finished_good EA active 3100/0002 3200/0003 BOX=4/1; Steel sheet 2 mm: raw_material KG active 3100/0001 T=1000/1"
+    "Hex bolt M8: trading_good PC active 3200/0001+0003 ; Shelving unit, 5 tiers: finished_good EA active 3100/0002 3200/0003 BOX=4/1; Steel sheet 2 mm: raw_material KG active 3100/0001 T=1000/1"
   local steel
   steel=$(field '.items[] | select(.description == "Steel sheet 2 mm") | .id')
   say "Each one's creation is a material change the run applied, with no approval request of its own; its reason names"
@@ -1275,6 +1279,50 @@ migrated_materials() {
   expect "the materials held back" "$(grep -c '\[warning\] MARA .*: held back:' "$WORK/migrate.out" || true)" 2
   expect "the materials flagged for deletion" "$(grep -c '\[warning\] MARA .*: flagged for deletion' "$WORK/migrate.out" || true)" 1
   grep -E 'Plants|Storage locations|Materials' "$WORK/migrate.out" | sed 's/^/     /'
+}
+
+# migrated_stock is S2p (ADR-0082 As built S2p): the stock of the
+# migrated materials came over as SAP holds it at the cutover, each
+# material valued at its plant as MBEW values it (price control, price
+# per price unit, valuation class 3100) and its unrestricted stock at the
+# plant's storage locations (MARD LABST) posted as one initial entry (561)
+# at SAP's value, on the class's stock account 1416 against its initial
+# entry account 3996, the migration clearing account. The washer is held
+# back, so its stock is a warning and is not taken over. The reconciliation
+# compares each valuation, the total value and the stock account with
+# SAP's, the trial balance leaving the take-over out.
+migrated_stock() {
+  say "SAP's stock came over at its value (MBEW, MARD; S2p): each material valued at its plant as SAP values it,"
+  say "its unrestricted stock at the plant's storage locations posted as one initial entry (561) at SAP's value:"
+  jq -r '.MBEW[] | "     MBEW \(.BWKEY) \(.MATNR): price control \(.VPRSV), \(if .VPRSV == "S" then .STPRS else .VERPR end) per \(.PEINH), class \(.BKLAS), stock \(.LBKUM) worth \(.SALK3)"' \
+    "$WORK/data/extract.json"
+  as ada
+  local m bolt doc valued=()
+  QUIET=1 api 200 '' listMaterials -p page_size=50
+  bolt=$(field '.items[] | select(.description == "Hex bolt M8") | .id')
+  for m in $(field '.items[] | select(.description | test("^(Steel sheet|Shelving unit|Hex bolt)")) | .id'); do
+    api 200 '.items[] | "valuation of \(.material_number) in \(.plant_code): \(.price_control), class \(.valuation_class), \(.price.amount) \(.price.currency) per \(.price_unit), stock \(.quantity.value) \(.quantity.unit) worth \(.value.amount)"' \
+      listMaterialValuations -p "material_id=$m"
+    mapfile -t -O "${#valued[@]}" valued < <(field '.items[] | "\(.plant_code) \(.quantity.value) \(.value.amount)"')
+  done
+  expect "the migrated valuations' stock and value" "$(printf '%s\n' "${valued[@]}" | sort | paste -sd, - | sed 's/,/, /g')" \
+    "3100 1200 3000.00, 3100 40 3400.00, 3200 12 1020.00, 3200 6500 780.00"
+  say "The hex bolts are kept in Laval's two stores, both coded in their plant (0001 is Mississauga's code too):"
+  api 200 '.items[] | "stock of \(.material_number) at \(.plant_code)/\(.storage_location_code): \(.quantity.value) \(.quantity.unit)"' listStock -p "material_id=$bolt"
+  expect "the hex bolts by storage location" "$(field '[.items[] | "\(.storage_location_code) \(.quantity.value)"] | sort | join(", ")')" "0001 1500, 0003 5000"
+  api 200 '.items[] | "material document \(.number): \(.movement_type), \(.header_text), journal entry \(.journal_entry_number)"' \
+    listMaterialDocuments -p "material_id=$bolt"
+  doc=$(field '.items[0].journal_entry_id')
+  expect "the hex bolts' initial entry" "$(field '.items[0] | "\(.movement_type) \(.header_text | test(": SAP stock of material 000000000000300001 at plant 3200$"))"')" "561 true"
+  say "Its value is on the stock account 1416 of class 3100, against the initial entry account 3996 (the migration"
+  say "clearing account), each storage location's share of SAP's value by quantity:"
+  api 200 '.lines[] | "entry line \(.line_no): \(.amount.amount) \(.amount.currency)\(if .quantity then ", \(.quantity.value) \(.quantity.unit)" else "" end)"' \
+    getJournalEntry -p "id=$doc" -p "fiscal_year=$YEAR"
+  expect "the initial entry's amounts" "$(field '[.lines[].amount.amount] | sort | join(" ")')" "-180.00 -600.00 180.00 600.00"
+  say "The washer is held back, so its stock is not taken over, a warning; the checks compare the stock with SAP's:"
+  grep -E '\[warning\] MBEW ' "$WORK/migrate.out" | sed 's/^/     /'
+  expect "the stock not taken over" "$(grep -c '\[warning\] MBEW .*: the stock of .* is not taken over' "$WORK/migrate.out" || true)" 1
+  grep -E 'Stock' "$WORK/migrate.out" | sed 's/^/     /'
 }
 
 # migrated_line_centers shows SAP's account assignment on the migrated

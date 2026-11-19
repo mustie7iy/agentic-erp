@@ -745,3 +745,42 @@ func TestFailures(t *testing.T) {
 		})
 	}
 }
+
+// TestStorageLocationCodesPerPlant: a storage location's code is unique
+// under its plant, as SAP keys LGORT within its WERKS (tracker leaf
+// "Storage location codes unique per plant"): two plants of a company each
+// have an S1, a third S1 at a plant that has one is refused, and so is a
+// move of a storage location under a plant that has its code.
+func TestStorageLocationCodesPerPlant(t *testing.T) {
+	ten := org(t)
+	c := newClient(t, ten, ten.Human)
+	de := c.legalEntity("DE01")
+	unit := func(kind, code, parent string) (int, map[string]any) {
+		body := fmt.Sprintf(`{"legal_entity_id": %q, "kind": %q, "code": %q, "name": "Unit %s"`, de["id"], kind, code, code)
+		if parent != "" {
+			body += fmt.Sprintf(`, "parent_id": %q`, parent)
+		}
+		status, m, _ := c.Do("POST", "/v1/org-units", body+"}", "")
+		return status, m
+	}
+	_, p1 := unit("plant", "P1", "")
+	_, p2 := unit("plant", "P2", "")
+	if status, s1 := unit("storage_location", "S1", p1["id"].(string)); status != 201 {
+		t.Fatalf("S1 at P1: got %d %v, want 201", status, s1)
+	}
+	status, s2 := unit("storage_location", "S1", p2["id"].(string))
+	if status != 201 {
+		t.Fatalf("S1 at P2: got %d %v, want 201", status, s2)
+	}
+	if status, m := unit("storage_location", "S1", p1["id"].(string)); status != 409 || m["code"] != "tenancy.org_unit_code_taken" ||
+		m["detail"] != "The plant already has a storage location with this code." {
+		t.Errorf("S1 again at P1: got %d %v %v, want 409 tenancy.org_unit_code_taken naming the plant", status, m["code"], m["detail"])
+	}
+	if status, m := unit("plant", "P1", ""); status != 409 || m["code"] != "tenancy.org_unit_code_taken" {
+		t.Errorf("P1 again: got %d %v, want 409 tenancy.org_unit_code_taken", status, m["code"])
+	}
+	status, m, _ := c.Do("PATCH", "/v1/org-units/"+s2["id"].(string), fmt.Sprintf(`{"parent_id": %q}`, p1["id"]), `"1"`)
+	if status != 409 || m["code"] != "tenancy.org_unit_code_taken" {
+		t.Errorf("P2's S1 moved under P1: got %d %v, want 409 tenancy.org_unit_code_taken", status, m["code"])
+	}
+}

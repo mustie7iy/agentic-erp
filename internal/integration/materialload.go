@@ -23,7 +23,7 @@ type Materials interface {
 // OrgUnits finds and creates the plants and storage locations a run loads
 // and reads them back (tenancy.OrgUnitMigration).
 type OrgUnits interface {
-	OrgUnitByCode(ctx context.Context, legalEntity uuid.UUID, kind, code string) (tenancy.Unit, bool, error)
+	OrgUnitByCode(ctx context.Context, legalEntity uuid.UUID, kind, code string, parent *uuid.UUID) (tenancy.Unit, bool, error)
 	CreateActiveOrgUnit(ctx context.Context, in tenancy.NewOrgUnit) (tenancy.Unit, error)
 	OrgUnits(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]tenancy.Unit, error)
 }
@@ -103,7 +103,7 @@ func (l *loader) materialNumbers(ctx context.Context, mats []sapMaterial, compan
 }
 
 // plant loads a plant and its storage locations: found by its code in its
-// company, or created active.
+// company (a storage location under the plant), or created active.
 func (l *loader) plant(ctx context.Context, p sapPlant) error {
 	le := l.t.entities[p.company].ID
 	id, ok := l.refs["T001W/"+p.werks]
@@ -135,20 +135,17 @@ func (l *loader) plant(ctx context.Context, p sapPlant) error {
 }
 
 // orgUnit records the org unit of the company with the kind and code as
-// the SAP key's: an active one the company has, a storage location under
-// the plant given, or else one created active. One the company has that
-// is not active, or a storage location under another plant, refuses the
+// the SAP key's: an active one the company has (a storage location under
+// the plant given, as SAP keys LGORT within its WERKS), or else one
+// created active. One the company has that is not active refuses the
 // key, as does a creation tenancy refuses; the id is uuid.Nil then.
 func (l *loader) orgUnit(ctx context.Context, table, key string, in tenancy.NewOrgUnit) (uuid.UUID, error) {
-	u, found, err := l.e.OrgUnits.OrgUnitByCode(ctx, in.LegalEntityID, in.Kind, in.Code)
+	u, found, err := l.e.OrgUnits.OrgUnitByCode(ctx, in.LegalEntityID, in.Kind, in.Code, in.ParentID)
 	switch {
 	case err != nil:
 		return uuid.Nil, err
 	case found && u.Status != tenancy.Active:
 		l.issue(table, key, "the company's "+kindName(in.Kind)+" "+in.Code+" is "+u.Status+"; activate it, or give SAP's another code")
-		return uuid.Nil, nil
-	case found && in.ParentID != nil && (u.ParentID == nil || *u.ParentID != *in.ParentID):
-		l.issue(table, key, "the company's storage location "+in.Code+" is under another plant")
 		return uuid.Nil, nil
 	}
 	id := u.ID

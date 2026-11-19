@@ -764,15 +764,12 @@ migration: the external references are `integration.external_ref`'s.
   and LGORT, a plant in the company code T001W names (BUKRS flattened in
   from T001K by BWKEY), a storage location under its plant; an active one
   the company already has with that code (under that plant) is taken
-  instead of created, one that is not active or under another plant
-  refuses its key. Tenancy keeps a storage location's code unique in its
-  company where SAP keys it by its plant, so one LGORT at two plants of a
-  company code refuses the run, the quality error naming the LGORT, both
-  plants and the company code. Coordinator decision (batch 83): storage
-  locations are to be keyed by their plant, as SAP keys LGORT within its
-  WERKS; that change needs tenancy and inventory and is a slice of its own
-  (tracker leaf "storage location codes unique per plant"), so S2o keeps
-  the refusal until it lands.
+  instead of created, one that is not active refuses its key. Since
+  batch 84 a storage location's code is unique under its plant, as SAP
+  keys LGORT within its WERKS (below, "Storage location codes"), so one
+  LGORT at two plants of a company code loads as two storage locations;
+  until then tenancy kept it unique in the company and the run refused it
+  (coordinator decision, batch 83).
 - **Held back, not refused:** a material whose base or alternative unit is
   none of `ref.unit_of_measure`'s, whose conversion (MARM UMREZ/UMREN) is
   not whole numbers from 1 to 1,000,000 (a value with decimals of zero
@@ -800,6 +797,141 @@ migration: the external references are `integration.external_ref`'s.
   leaf split from S2o).
 - Walkthrough: `migrated_materials` in step 3, `step_migrate`, with the six
   checks among the run's.
+
+### Storage location codes (2026-11-19)
+
+Tracker leaf "Storage location codes unique per plant" (review:batch83):
+a storage location's code is unique under its plant (its parent org
+unit), as SAP keys LGORT within its WERKS (T001L, from memory), not
+within its company; every other org unit's code stays unique in its
+legal entity and kind.
+
+- **Expand, contract** (06 §6.4): migrations 000412 and 000413 build
+  `org_unit_code_once` (legal entity, kind, code; every kind but storage
+  locations) and `storage_location_code_once` (legal entity, parent,
+  code; `NULLS NOT DISTINCT`, so a storage location without a plant stays
+  unique in its legal entity) concurrently; 000414 then drops 000002's
+  key. No row migrates: the company key held every storage location the
+  plant key holds. Both map to 409 `tenancy.org_unit_code_taken`, a
+  storage location's naming the plant; a move under a plant that has the
+  code is refused the same way (`PATCH /v1/org-units/{id}`).
+- **Reads by code.** `tenancy.OrgUnitMigration.OrgUnitByCode` takes the
+  parent: a storage location is found under the plant SAP names it at.
+  Inventory and materials read org units by id only, and every response
+  naming a storage location's code names its plant's code beside it, so
+  nothing else reads by code (decided by default: no change there).
+- **The SAP migration** (S2o) no longer refuses one LGORT at two plants
+  of a company code, and no longer refuses a storage location the company
+  has under another plant: SAP's is created under its own plant. The
+  mock's Laval plant 3200 has a raw materials store 0001, as Mississauga's
+  3100 has (`migrated_materials`, step 3).
+
+### S2p (2026-11-19)
+
+The SAP migration run takes the stock over at the cutover (plan-supply-chain.md
+§S2p; docs/migration.md "Stock and values"). No migration: the external
+references are `integration.external_ref`'s.
+
+- **A new dependency direction, `integration → inventory`**, through
+  `inventory.Endpoints.TakeOver` and `TakenOver` (`internal/inventory/takeover.go`,
+  the context's published API; integration declares the port `Stock`).
+  Inventory imports nothing new, so there is no cycle; the `internal/layout`
+  row names this section.
+- **What is taken over.** SAP's valuation of a material that loads at one
+  of its plants (MBEW: VPRSV S or V as `standard` or `moving_average`, the
+  price STPRS or VERPR per price unit PEINH, the valuation class BKLAS,
+  which must be one of the company's `companies[].account_determination.inventory`)
+  becomes inventory's valuation, created as `POST /v1/material-valuations`
+  creates one; its unrestricted stock at the plant's storage locations
+  (MARD LABST) one initial entry (561) dated the company's date today, its
+  header text "Migration run <id>: SAP stock of material <MATNR> at plant
+  <WERKS>" (a 561 takes no reference, `material_document_reference`). At a
+  moving price each storage location is worth its share of SALK3 by
+  quantity (`money.Allocate`, so the shares add up to SAP's value); at a
+  standard price the stock is worth its quantity at the price, as every
+  standard-priced receipt is. The valuation is kept as `MBEW/<BWKEY>/<MATNR>`,
+  the document as `MKPF/<BWKEY>/<MATNR>`; a later run keeps both as they
+  are (the stock is taken over once, at the cutover). Report counts
+  `material_valuations` and `initial_entries`, extract count `mbew`.
+- **The migration clearing account.** The entry posts the stock on the
+  class's stock account against its `initial_entry` account (GBB BSA, §8),
+  which a tenant names its migration clearing account for the cutover
+  (SAP's practice, from memory). SAP's journal brings SAP's G/L balance of
+  its stock accounts with it, so the books are right when that balance is
+  on the clearing account too: SAP's stock account (as the journal loads
+  it) is the class's `initial_entry` account and the class's `stock`
+  account another, which the take-over fills; the clearing then nets to
+  zero. Decided by default, the safer of the two: the take-over never
+  redirects SAP's journal, and a setup that holds the stock twice (the
+  class's stock account also SAP's G/L stock account) fails the control
+  "Stock accounts" below instead of loading silently.
+- **Reconciliation** per company code: `Stock` and `Stock: valuations
+  with differences` (each valuation by `stock <BWKEY>/<MATNR>`: class,
+  price control, stock, value and stock per storage location), `Stock
+  value total` and `Stock accounts: accounts with differences` (per stock
+  account of the classes, SAP's values against the account's balance on
+  the platform in the run's fiscal year, which is the take-over's: a
+  take-over in another fiscal year is refused. The balance is read from
+  the year's journal lines, so a reconciliation of a run of a later
+  fiscal year, whose opening balance a carry-forward holds outside them
+  (ADR-0060 §5), would show the taken-over value as a difference; the
+  stock is taken over once, at the cutover, and reading the carried-forward
+  balance into the check is Later). The trial balance and the total
+  debits leave the initial entries out (`ledger.Reports.EntryTotals`
+  taken off `Totals`), as SAP's journal has no document of them: the
+  stock controls reconcile them.
+- **Refused, an error** (a stock left out would pass a reconciliation that
+  leaves it out too): a valuation twice, a valuation area that is not one
+  plant's (valuation at company code level), split valuation (BWTAR), a
+  price control other than S and V, a class the company lacks, a price
+  unit outside 1 to 10,000, a price or value that is no amount, a standard
+  price of zero, a stock (LBKUM) that is not the sum of the storage
+  locations' LABST (stock in quality inspection, blocked or in transfer is
+  not taken over: SAP's INSME, SPEME, UMLME are not extracted), stock at a
+  storage location flagged for deletion, a value without stock, MARD stock
+  without a valuation, and stock of a material type that keeps none. The
+  stock of a material that does not load (held back, flagged for deletion
+  or not extended to the plant) is a warning naming what is not taken
+  over. The services' refusals (no initial entry account, a valuation the
+  plant has already, no `material_document` range) are load refusals, and
+  so is a take-over whose entry falls in another fiscal year than the
+  run's.
+- **Locks** (ADR-0008, review rounds 1 to 3; coordinator's decision of
+  19 Nov after round 3). One global order, which every posting's order is a
+  part of: order items, `goods_receipt`, `material_document`, an order's
+  GR/IR lock, then the journal's ranges (`journal_we` first). It is a goods
+  receipt into stock's order (`POST /v1/goods-receipts`: item,
+  `goods_receipt`, valuations, `material_document`, GR/IR, `journal_we`); a
+  GR/IR clearing takes GR/IR then `journal_we`, a goods movement or count
+  `material_document` then the journal, an invoice items, GR/IR, the
+  journal. The run follows it: it locks the order items it moves
+  (`lockOrderItems`), loads the receipts (`goods_receipt`; a loaded receipt
+  posts no entry, `PostLoadedReceipt`, and the invoiced take-over none),
+  takes the `material_document` range of each company whose stock it posts
+  without drawing a number (`lockStock`: `Stock.LockNumbers`, inventory's
+  port over `configuration.Numbers.Lock`, in company code order), then the
+  GR/IR locks of the orders it posts GR/IR lines on (`lockGRIR`, split out
+  of `takeOverGRIR`), and only then posts (`stock`, `takeOverGRIR`, the
+  invoices, the journal). Taking the range before the GR/IR locks, rather
+  than locking every item of the GR/IR orders, also covers an item added on
+  the platform and not in the extract. Tests in
+  `internal/integration/stocklock_test.go` force each opposite posting to
+  hold its first lock while the run starts (a goods receipt on a migrated
+  order; a GR/IR clearing; a goods receipt into stock, holding
+  `material_document` and then taking the GR/IR lock): the run waits, and
+  both finish; each fails on the order it replaced. The valuations and
+  stock rows the run writes are new; a valuation the plant has already is
+  refused.
+- **Mock:** company 3000's steel sheet (moving, 1,200 KG worth 3,000.00 at
+  3100/0001), shelving (standard 85.00 at both plants) and hex bolts
+  (moving 12.00 per 100, 6,500 PC worth 780.00 at 3200/0001 and 0003), all
+  of class 3100; the held-back washer's 300 pieces are a warning.
+  Walkthrough `migrated_stock` in step 3.
+- **Not built** (Later, plan §S2p): split valuation, valuation at company
+  code level, SAP's other stock types (quality inspection, blocked,
+  returns, in transfer), special stocks (consignment, sales order and
+  project stock), batches and serial numbers, the stock over OData, and
+  topping a taken-over stock up to SAP's in a later run.
 
 ### S2c (2026-11-19)
 
