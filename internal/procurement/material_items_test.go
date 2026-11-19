@@ -332,8 +332,8 @@ func TestCatalogMappingsWait(t *testing.T) {
 		t.Fatalf("begin the first mapping: %v", err)
 	}
 	second := make(chan map[string]any, 1)
-	drained := false
-	defer func() { // release the second mapping, then wait for it, however the test ends
+	drained := true // nothing to drain until the second mapping starts
+	defer func() {  // release the second mapping, then wait for it, however the test ends
 		_ = first.Rollback(context.WithoutCancel(ctx)) // after a commit there is nothing to roll back
 		if !drained {
 			<-second
@@ -352,6 +352,7 @@ func TestCatalogMappingsWait(t *testing.T) {
 		t.Fatalf("the first mapping: got %d mapped, want 1", n)
 	}
 	auth := http.Header{"Authorization": {"Bearer " + e.API.Issuer.Token(t, e.Tenant.ID, e.Tenant.Human.Subject, nil)}}
+	drained = false
 	go func() {
 		r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/catalog-material-mappings", Key: apitest.NewKey(), Header: auth,
 			Body: fmt.Sprintf(`{"legal_entity_id": %q}`, e.DE)})
