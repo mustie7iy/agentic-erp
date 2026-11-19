@@ -82,7 +82,7 @@ func (c itemCheck) material(field string, it ItemInput) (ItemInput, error) {
 	if it.Description == "" {
 		it.Description = m.Description
 	}
-	if money.PositiveQuantity(it.Quantity) != nil {
+	if !validQuantity(it.Quantity) {
 		return it, nil // refused as any item's quantity, by itemCheck.item
 	}
 	if _, err := m.Convert(money.ParseRat(it.Quantity), it.Unit); err != nil {
@@ -94,3 +94,7 @@ func (c itemCheck) material(field string, it ItemInput) (ItemInput, error) {
 	}
 	return it, nil
 }
+
+// validQuantity says whether a quantity is a plain decimal more than zero
+// that can be converted; any other is refused by itemCheck.item.
+func validQuantity(q string) bool { return money.PositiveQuantity(q) == nil }
