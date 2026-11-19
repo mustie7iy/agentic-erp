@@ -5432,6 +5432,13 @@
      },
      {
       "s": "T",
+      "t": "Storage location codes unique per plant: a storage location's code is unique within its plant, as SAP keys LGORT within its WERKS, not within its company (tenancy's org unit key and inventory's reads by code), so the SAP migration no longer refuses one LGORT at two plants of a company code",
+      "r": "S2o · ADR-0082 As built S2o · tenancy.org_unit · internal/integration plantsOf",
+      "src": "review:batch83",
+      "c": []
+     },
+     {
+      "s": "T",
       "t": "SAP migration over OData: the material master (MARA, MAKT, MARM, MARC, MARD's assignments) and the plants and storage locations (T001W with T001K's company code, T001L) mapped onto the released product and plant read APIs, their service and entity names taken from the pilot's $metadata (S2o loads them from a file extract only)",
       "r": "S2o · docs/design/plan-supply-chain.md §S2o, Later · ADR-0082 As built S2o",
       "src": "po:2026-11-17",

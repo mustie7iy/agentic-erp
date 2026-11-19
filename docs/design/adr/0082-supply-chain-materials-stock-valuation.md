@@ -761,8 +761,12 @@ migration: the external references are `integration.external_ref`'s.
   instead of created, one that is not active or under another plant
   refuses its key. Tenancy keeps a storage location's code unique in its
   company where SAP keys it by its plant, so one LGORT at two plants of a
-  company code refuses the run (product owner question in the batch
-  digest: plant-scoped storage location codes in tenancy).
+  company code refuses the run, the quality error naming the LGORT, both
+  plants and the company code. Coordinator decision (batch 83): storage
+  locations are to be keyed by their plant, as SAP keys LGORT within its
+  WERKS; that change needs tenancy and inventory and is a slice of its own
+  (tracker leaf "storage location codes unique per plant"), so S2o keeps
+  the refusal until it lands.
 - **Held back, not refused:** a material whose base or alternative unit is
   none of `ref.unit_of_measure`'s, whose conversion (MARM UMREZ/UMREN) is
   not whole numbers from 1 to 1,000,000 (a value with decimals of zero
