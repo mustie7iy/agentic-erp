@@ -5369,8 +5369,15 @@
      },
      {
       "s": "T",
-      "t": "Sales and procurement items (quotation, sales order, billing, requisition, RFQ, catalog) may name a material instead of a free-text key, taking its description and unit, and the tenant's existing item keys are mapped onto materials once",
-      "r": "S1f · docs/design/plan-supply-chain.md §S1f · ADR-0082",
+      "t": "A sales clerk enters a quotation's or sales order's item (or one an order change adds) by its material: the material's description unless one is given, its number as the item key (so prices by key find it), a unit of the material converting exactly to its base unit; the order and its billing documents name the material",
+      "r": "S1f1 · docs/design/plan-supply-chain.md §S1f1 · ADR-0082",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Requisition, RFQ and catalog items may name a material with the sales item's rules, the material carried from catalog to requisition to RFQ to contract; a company's catalog items keyed by a material's number are mapped onto it once, with a report of the keys that match none",
+      "r": "S1f2 · docs/design/plan-supply-chain.md §S1f2 · ADR-0082",
       "src": "po:2026-11-17",
       "c": []
      },
