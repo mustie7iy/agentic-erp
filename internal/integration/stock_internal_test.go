@@ -181,7 +181,7 @@ func (f *lockedStock) LockNumbers(_ context.Context, company uuid.UUID) (time.Ti
 func TestTakeOverOnTheLockedDay(t *testing.T) {
 	company, m, p1, p2 := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	x := stockExtract(map[string]string{"P1/S1": "60", "P1/S2": "40", "P2/S3": "0", "NL": "0"}, moving("P1", "100", "250.01"))
-	refs := refs{"MARA/M-1": m, "T001W/P1": p1, "T001W/P2": p2, "T001L/P1/S1": uuid.New(), "T001L/P1/S2": uuid.New()}
+	loaded := refs{"MARA/M-1": m, "T001W/P1": p1, "T001W/P2": p2, "T001L/P1/S1": uuid.New(), "T001L/P1/S2": uuid.New()}
 	lastDay := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
 	for name, c := range map[string]struct {
 		stock *lockedStock
@@ -196,7 +196,7 @@ func TestTakeOverOnTheLockedDay(t *testing.T) {
 			e := tg.entities["2000"]
 			e.ID = company
 			tg.entities["2000"] = e
-			l := &loader{e: &Endpoints{Stock: c.stock}, ext: x, t: tg, refs: refs}
+			l := &loader{e: &Endpoints{Stock: c.stock}, ext: x, t: tg, refs: loaded}
 			if err := l.lockStock(context.Background()); err != nil {
 				t.Fatal(err)
 			}

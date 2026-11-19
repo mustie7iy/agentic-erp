@@ -195,9 +195,7 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	if err := rc.centerTotals(ctx, s, st); err != nil {
 		return err
 	}
-	if err := rc.materialMaster(ctx, s); err != nil {
-		return err
-	}
+	rc.materialMaster(s) // reads what readStock read once, so it cannot fail
 	if err := rc.stockControls(ctx, s); err != nil {
 		return err
 	}

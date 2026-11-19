@@ -72,7 +72,7 @@ func (rc *reconciler) readMaterials(ctx context.Context) (*materialStates, error
 // compares by its type, group, base unit, status, description, plants
 // and storage locations in the company, and alternative units; SAP's
 // held back or flagged for deletion are left out (materialsOf).
-func (rc *reconciler) materialMaster(ctx context.Context, s companyScope) error {
+func (rc *reconciler) materialMaster(s companyScope) {
 	st := rc.materials
 	sapPlants, sapLocations := map[string]string{}, map[string]string{}
 	company := map[string]bool{}
@@ -111,7 +111,6 @@ func (rc *reconciler) materialMaster(ctx context.Context, s companyScope) error 
 		}
 	}
 	rc.compareKeyed(s.cc, "Materials", "materials", "material ", sapMaterials, platformMaterials)
-	return nil
 }
 
 // unitText is an org unit as a difference shows it: its code after its
