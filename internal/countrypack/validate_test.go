@@ -57,6 +57,7 @@ func TestValidate(t *testing.T) {
 		{"document type", func(p *Pack) { p.Numbering.NumberRanges[1].DocumentType = "supplier_invoice" }, "numbering.yaml: number_ranges[supplier_invoice]"},
 		{"prefix", func(p *Pack) { p.Numbering.NumberRanges[0].Prefix = "si" }, "numbering.yaml: number_ranges[supplier_invoice].prefix"},
 		{"range bounds", func(p *Pack) { p.Numbering.NumberRanges[0].Last = 0 }, "numbering.yaml: number_ranges[supplier_invoice]"},
+		{"range numbered across the tenant", func(p *Pack) { p.Numbering.NumberRanges[1].DocumentType = "material" }, "numbering.yaml: number_ranges[material]"},
 		{"duplicate payment term", func(p *Pack) { p.Payments.PaymentTerms = append(p.Payments.PaymentTerms, p.Payments.PaymentTerms[0]) }, "payments.yaml: payment_terms[NET30]"},
 		{"liquidity item's parent", func(p *Pack) {
 			p.Cash.LiquidityItems = []config.LiquidityItem{{Code: "OP", Name: "Op", Direction: config.DirectionBoth, Parent: "TOP"}}

@@ -107,7 +107,9 @@ mean, or what happens when the tax changes between entry and posting.
   number or code and name as they are now, and a line's expense type by
   its name in the configuration while it is configured. The Canada and
   UAE packs bring no `expense_report` range: the walkthrough's pilot
-  settings add one, as they add the returns orders'.
+  settings add one, as they add the returns orders'. Since batch 83
+  Canada 2026.11 and UAE 2026.8 bring it (ADR-0048 As built, the pilot's
+  ranges).
 - **Each line's tax date (product owner 2026-11-13).** The lines' tax is
   calculated per expense date, one calculation per date with that date's
   rates and the company's rounding (`calculateExpenses`), on entry and

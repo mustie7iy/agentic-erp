@@ -192,6 +192,13 @@ func (v *validator) numberRanges(rs []NumberRange) {
 		if r.First < 1 || r.Last < r.First {
 			v.err(p, "the range %d-%d must start at 1 or above and not end below its start", r.First, r.Last)
 		}
+		// A pack gives every company that adopts it the same range, and a
+		// type numbered across the tenant may not repeat another company's
+		// numbers (config.RangeRepeats): the second company's adoption would
+		// be refused, so each company sets that range itself.
+		if config.NumberedPerTenant(r.DocumentType) {
+			v.err(p, "%s numbers are unique in the tenant, so a pack cannot ship one range for every company; each company sets its own", r.DocumentType)
+		}
 	}
 }
 

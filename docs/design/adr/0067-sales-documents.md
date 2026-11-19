@@ -1277,7 +1277,9 @@ quantity; no stock, no posting.
   order 20 returned at a new version; 101 more and an unknown reason
   are refused naming their fields; she confirms it, once; Northwind's
   open items and credit exposure are as they were. The pilot's settings
-  (step 2) add the `returns_order` number range.
+  (step 2) add the `returns_order` number range; since batch 83 Canada
+  2026.11 brings it, and the `credit_memo_request` range (ADR-0048 As
+  built, the pilot's ranges).
 - **Decided by default:** (1) every returns order of a billing
   document takes its quantity when it is created, a draft included,
   since a returns order is not changed or cancelled in the first
