@@ -1961,6 +1961,10 @@ type LockProfitCenterRes interface {
 	lockProfitCenterRes()
 }
 
+type MapCatalogItemMaterialsRes interface {
+	mapCatalogItemMaterialsRes()
+}
+
 type MatchBankStatementLineRes interface {
 	matchBankStatementLineRes()
 }

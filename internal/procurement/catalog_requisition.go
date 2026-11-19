@@ -55,7 +55,7 @@ func fromCatalog(ctx context.Context, tx pgx.Tx, le uuid.UUID, currency string, 
 		if err := noOverride(it, c, field); err != nil {
 			return nil, nil, err
 		}
-		out[i].Description, out[i].MaterialKey, out[i].PriceUnit = c.Description, c.ItemKey, c.PriceUnit
+		out[i].Description, out[i].MaterialKey, out[i].PriceUnit, out[i].MaterialID = c.Description, c.ItemKey, c.PriceUnit, c.MaterialID
 		out[i].Price, out[i].Currency = c.UnitPrice.Plain(c.Exponent), c.Currency
 		used = append(used, catalogUse{field: field + ".catalog_item_id", item: c})
 	}
@@ -103,6 +103,8 @@ func noOverride(it ItemInput, c CatalogItem, field string) error {
 		return problem.Invalid(code, field+".description", "the description is catalog item "+c.ItemKey+"'s; send that or none")
 	case it.Unit != c.Unit:
 		return problem.Invalid(code, field+".quantity.unit", "catalog item "+c.ItemKey+" is ordered in "+c.Unit)
+	case it.MaterialID != nil && (c.MaterialID == nil || *it.MaterialID != *c.MaterialID):
+		return problem.Invalid(code, field+".material_id", "the material is catalog item "+c.ItemKey+"'s; send that or none")
 	}
 	return nil
 }

@@ -10964,8 +10964,11 @@ paths:
         - procurement.invalid_catalog_item
         - procurement.invalid_contract
         - procurement.invalid_item_no
+        - procurement.invalid_material_quantity
         - procurement.invalid_quantity
+        - procurement.key_not_material
         - procurement.legal_entity_not_active
+        - procurement.material_not_usable
         - procurement.supplier_not_usable
         - procurement.unknown_currency
         - procurement.unknown_unit
@@ -11063,8 +11066,11 @@ paths:
         - procurement.invalid_catalog_item
         - procurement.invalid_contract
         - procurement.invalid_item_no
+        - procurement.invalid_material_quantity
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.key_not_material
+        - procurement.material_not_usable
         - procurement.not_requester
         - procurement.supplier_not_usable
         - procurement.unknown_currency
@@ -12233,7 +12239,10 @@ paths:
         - procurement.invalid_contract
         - procurement.invalid_contract_item
         - procurement.invalid_item_key
+        - procurement.invalid_material_quantity
+        - procurement.key_not_material
         - procurement.legal_entity_not_active
+        - procurement.material_not_usable
         - procurement.supplier_not_usable
         - procurement.unknown_currency
         - procurement.unknown_unit
@@ -12262,6 +12271,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CatalogItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/catalog-material-mappings:
+    post:
+      operationId: mapCatalogItemMaterials
+      tags:
+        - procurement
+      summary: Map a company's catalog item keys onto materials
+      description: "Maps the item keys of a company's catalog onto the material master once (S1f2, ADR-0082 As built S1f): each `active` catalog item of the company that names no material and whose `item_key` is the number of an `active` material of the tenant, in whose base unit or one of whose alternative units it is ordered, is given that material (`material_id`), its key and everything else unchanged; a catalog item's material, once set, never changes. A requisition item taken from it afterwards names the material too; requisitions, RFQs, contracts and orders already made keep their items as they are, and nothing is posted. The answer reports, by item key in order, every key of the company's active catalog items still without a material before the run: `mapped` (its items were given the material), `no_material` (no material has that number: the key stays a free-text key) or `not_mappable` (the material is not active, or an item is ordered in a unit that is none of the material's: `reason` says which, and those items keep no material), with the count of its items. A second run maps nothing twice and reports the keys still unmapped. Each item mapped is audited and published as `CatalogItemChanged`, its version raised. The items are locked in the order of their keys and ids, so two runs of one company wait for each other."
+      x-permission: procurement.catalog.manage
+      x-problem-codes:
+        # The database's answers to a second active item of a key (catalog_item_active_key) and to an unknown unit
+        # (catalog_item_uom_code_fkey), which TestProblemCodes lists for every operation that writes catalog items; this one
+        # cannot reach them, as it sets the material of items already loaded and changes neither their key nor their unit.
+        - procurement.catalog_item_exists
+        - procurement.legal_entity_not_active
+        - procurement.unknown_unit
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The company whose catalog is mapped.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CatalogMaterialMapping"
+      responses:
+        "200":
+          description: "The mapping's report."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogMaterialMappingReport"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -13091,9 +13150,12 @@ paths:
         - procurement.account_not_postable
         - procurement.duplicate_material_key
         - procurement.invalid_item_no
+        - procurement.invalid_material_quantity
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.key_not_material
         - procurement.legal_entity_not_active
+        - procurement.material_not_usable
         - procurement.requisition_mismatch
         - procurement.requisition_on_contract
         - procurement.rfq_due_date_past
@@ -21648,7 +21710,7 @@ paths:
       tags:
         - sales
       summary: Create a quotation
-      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
+      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422 `request.reference_not_found` naming `items[i].material_id`) that is `active` (422 `sales.material_not_usable`), whose number is then the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the material's base unit or one of its alternative units and converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
       x-permission: sales.quotation.write
       x-agent: false
       x-problem-codes:
@@ -21663,9 +21725,12 @@ paths:
         - sales.amount_too_large
         - sales.currency_mismatch
         - sales.customer_not_usable
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
         - sales.invalid_validity
+        - sales.item_key_not_material
         - sales.items_required
+        - sales.material_not_usable
         - sales.no_price
         - sales.tax_jurisdiction_not_supported
         - sales.unknown_currency
@@ -21939,9 +22004,12 @@ paths:
         - sales.amount_too_large
         - sales.currency_mismatch
         - sales.customer_not_usable
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
         - sales.invalid_requested_delivery_date
+        - sales.item_key_not_material
         - sales.items_required
+        - sales.material_not_usable
         - sales.no_price
         - sales.quotation_not_accepted
         - sales.quotation_or_items
@@ -22040,8 +22108,11 @@ paths:
         - sales.capture_customer_unknown
         - sales.currency_mismatch
         - sales.customer_not_usable
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
+        - sales.item_key_not_material
         - sales.items_required
+        - sales.material_not_usable
         - sales.no_price
         - sales.quotation_not_accepted
         - sales.quotation_or_items
@@ -22730,10 +22801,13 @@ paths:
         - sales.amount_not_positive
         - sales.amount_too_large
         - sales.currency_mismatch
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
         - sales.invalid_requested_delivery_date
         - sales.invalid_status
+        - sales.item_key_not_material
         - sales.item_repeated
+        - sales.material_not_usable
         - sales.no_price
         - sales.nothing_changed
         - sales.order_billed
@@ -50219,7 +50293,7 @@ components:
         material_id:
           type: string
           format: uuid
-          description: Material (product context, later phases).
+          description: "The material needed (S1f2, `GET /v1/materials/{id}`); absent for an item described by the requester alone. An RFQ or a purchase order from the requisition names it too."
         description:
           type: string
           description: What is needed.
@@ -50258,7 +50332,7 @@ components:
           readOnly: true
         item_key:
           type: string
-          description: "That catalog item's key; absent for an item the requester described."
+          description: "That catalog item's key, or, for an item of a material without one, the material's number (S1f2); absent for an item the requester described without a material."
           readOnly: true
       examples:
         - description: Office chairs, ergonomic
@@ -50288,10 +50362,10 @@ components:
         material_id:
           type: string
           format: uuid
-          description: Material (product context, later phases).
+          description: "The material needed (S1f2, `GET /v1/materials/{id}`): an `active` material of the tenant (422 `request.reference_not_found`, `procurement.material_not_usable`), the quantity in its base unit or one of its alternative units, converting to the base unit exactly (422 `procurement.invalid_material_quantity` naming `items[i].quantity.unit`); its description is the item's when it sends none. An item from the catalog takes the catalog item's material: sent with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise)."
         description:
           type: string
-          description: "What is needed. Required unless the item names a catalog item, whose description it then takes; sent with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise)."
+          description: "What is needed. Required unless the item names a catalog item, whose description it then takes, or a material, whose description it then takes when it sends none; sent with a catalog item, it is the catalog item's (422 `procurement.catalog_item_override` otherwise)."
           minLength: 1
           maxLength: 200
         quantity:
@@ -51181,13 +51255,14 @@ components:
     CatalogItemCreate:
       type: object
       description: "Load one item of a supplier into a company's catalog. It is created `active`."
-      required: [legal_entity_id, supplier_id, item_key, description, unit, unit_price]
+      required: [legal_entity_id, supplier_id, unit, unit_price]
       additionalProperties: false
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company whose catalog the item is loaded into: an active legal entity the caller may act in."}
         supplier_id: {type: string, format: uuid, description: "The supplier (business partner id): one that can be ordered from in the company."}
-        item_key: {type: string, minLength: 1, maxLength: 40, description: "The supplier's or the company's key of the item, without leading or trailing white space; the supplier's once among the company's active items."}
-        description: {type: string, minLength: 1, maxLength: 200, description: "What the item is; a requisition item from it takes this description."}
+        item_key: {type: string, minLength: 1, maxLength: 40, description: "The supplier's or the company's key of the item, without leading or trailing white space; the supplier's once among the company's active items. Required for an item without `material_id` (422 `procurement.invalid_item_key`); the material's number for an item of a material: absent, it is taken, another is refused (422 `procurement.key_not_material`)."}
+        material_id: {type: string, format: uuid, description: "The material the item is of (S1f2, `GET /v1/materials/{id}`): an `active` material of the tenant (422 `request.reference_not_found`, `procurement.material_not_usable`) of which `unit` is the base unit or an alternative unit (422 `procurement.invalid_material_quantity` naming `unit`). A requisition item taken from the catalog item names it too. Absent: the item is known by its `item_key` alone, until a mapping (`mapCatalogItemMaterials`) finds a material of that number."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the item is; a requisition item from it takes this description. Required for an item without `material_id` (422 `request.validation_failed`); the material's when absent."}
         unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "Unit of measure code (reference data) the item is ordered in."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The price per `price_unit`, in its own currency; positive."}
         price_unit: {type: integer, format: int32, minimum: 1, default: 1, description: "Quantity the unit price refers to."}
@@ -51200,6 +51275,46 @@ components:
           description: Office chair, ergonomic
           unit: EA
           unit_price: {amount: "450.00", currency: CAD}
+    CatalogMaterialMapping:
+      type: object
+      description: "A mapping of a company's catalog item keys onto materials (`mapCatalogItemMaterials`)."
+      required: [legal_entity_id]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose catalog is mapped: an active legal entity the caller may act in."}
+    CatalogMaterialMappingReport:
+      type: object
+      description: "What a mapping of a company's catalog item keys onto materials did, by item key."
+      required: [legal_entity_id, company_code, company_name, mapped_items, no_material_items, not_mappable_items, keys]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose catalog was mapped.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name.", readOnly: true}
+        mapped_items: {type: integer, format: int32, minimum: 0, description: "The catalog items this run gave a material: the sum of the `mapped` keys' `items`.", readOnly: true}
+        no_material_items: {type: integer, format: int32, minimum: 0, description: "The active catalog items left without a material because no material has their key as its number: the sum of the `no_material` keys' `items`.", readOnly: true}
+        not_mappable_items: {type: integer, format: int32, minimum: 0, description: "The active catalog items left without a material because the material of their key's number is not active or they are ordered in none of its units: the sum of the `not_mappable` keys' `items`.", readOnly: true}
+        keys:
+          type: array
+          maxItems: 100000
+          items: {$ref: "#/components/schemas/CatalogKeyMapping"}
+          description: "Every item key of the company's active catalog items that named no material before the run, in the order of the keys; a key whose items were partly mapped is listed once per outcome."
+          readOnly: true
+    CatalogKeyMapping:
+      type: object
+      description: "One item key of a catalog mapping: whether its items were given a material."
+      required: [item_key, outcome, items]
+      properties:
+        item_key: {type: string, description: "The item key.", readOnly: true}
+        outcome:
+          type: string
+          x-extensible-enum: [mapped, no_material, not_mappable]
+          description: "`mapped`: the key's items were given the material of that number; `no_material`: no material has that number, so the key stays a free-text key; `not_mappable`: a material has that number but is not active, or the key's items are ordered in a unit that is none of its units (`reason`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        material_id: {type: string, format: uuid, description: "The material of that number (`GET /v1/materials/{id}`); absent for `no_material`.", readOnly: true}
+        material_number: {type: string, description: "Its number, the item key; absent for `no_material`.", readOnly: true}
+        material_description: {type: string, description: "Its description; absent for `no_material`.", readOnly: true}
+        reason: {type: string, description: "Why the key's items were not mapped, for `not_mappable`: the material's status, or the units its items are ordered in that are none of the material's.", readOnly: true}
+        items: {type: integer, format: int32, minimum: 1, description: "The key's catalog items: those mapped, or those left without a material.", readOnly: true}
     CatalogItem:
       description: "A catalog item (procurement, ADR-0071): a supplier's item in a company's catalog, with one price."
       allOf:
@@ -51211,7 +51326,8 @@ components:
             supplier_id: {type: string, format: uuid, description: "The supplier (`GET /v1/business-partners/{id}`).", readOnly: true}
             supplier_number: {type: string, description: "The supplier's business partner number.", readOnly: true}
             supplier_name: {type: string, description: "The supplier's name, as it is now.", readOnly: true}
-            item_key: {type: string, description: "The item's key, the supplier's once among the company's active items.", readOnly: true}
+            item_key: {type: string, description: "The item's key, the supplier's once among the company's active items; the material's number for an item of a material.", readOnly: true}
+            material_id: {type: string, format: uuid, description: "The material the item is of (S1f2, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item known by its key alone. Set once, at creation or by a mapping (`mapCatalogItemMaterials`), and never changed.", readOnly: true}
             description: {type: string, description: "What the item is.", readOnly: true}
             unit: {type: string, description: "Unit of measure code the item is ordered in.", readOnly: true}
             unit_price: {$ref: "#/components/schemas/Money", description: "The price per `price_unit`, in its own currency."}
@@ -51731,10 +51847,8 @@ components:
           minimum: 0
     RfqItemInput:
       type: object
-      description: "An item of a request for quotation as it is created: what is asked for, without a price."
+      description: "An item of a request for quotation as it is created: what is asked for, without a price. It names what is asked for by `material_key` and `description`, or by `material_id` (S1f2): a material of the tenant (422 `request.reference_not_found`) that is `active` (422 `procurement.material_not_usable`), whose number is its `material_key` (another is refused, 422 `procurement.key_not_material`) and whose description is its own when it sends none, its quantity in the material's base unit or one of its alternative units, converting to the base unit exactly (422 `procurement.invalid_material_quantity` naming `items[i].quantity.unit`)."
       required:
-        - material_key
-        - description
         - quantity
         - account_id
       properties:
@@ -51745,12 +51859,16 @@ components:
           minimum: 1
         material_key:
           type: string
-          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by."
+          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by. Required for an item without `material_id` (422 `request.validation_failed`); the material's number for an item of a material."
           minLength: 1
           maxLength: 40
+        material_id:
+          type: string
+          format: uuid
+          description: "The material asked for (S1f2, `GET /v1/materials/{id}`); its award's contract item, and the order an award creates, name it too. Absent: the item is described by `material_key` and `description` alone."
         description:
           type: string
-          description: Description.
+          description: "Description. Required for an item without `material_id` (422 `request.validation_failed`); the material's when absent for an item of a material."
           minLength: 1
           maxLength: 200
         quantity:
@@ -51790,9 +51908,13 @@ components:
           minimum: 1
         material_key:
           type: string
-          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by."
+          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by; the material's number for an item of a material."
           minLength: 1
           maxLength: 40
+        material_id:
+          type: string
+          format: uuid
+          description: "The material asked for (S1f2, `GET /v1/materials/{id}`), whose number is `material_key`; absent for an item without one. An RFQ from a requisition takes its item's material, keyed by its number, unless another of the requisition's items has the same key (the same material, or a catalog item keyed by that number): then each of them is asked for by the requisition's number and its item number, without the material."
         description:
           type: string
           description: Description.
@@ -60228,11 +60350,12 @@ components:
     SalesItemCreate:
       type: object
       description: "An item of a quotation or a sales order to create (ADR-0067 §3): a quantity of what is sold at a unit price, entered with it or taken from the company's price records by its item key (§10), with the revenue account and output tax code its billing posts with."
-      required: [description, quantity, account_id]
+      required: [quantity, account_id]
       additionalProperties: false
       properties:
-        item_key: {type: string, minLength: 1, maxLength: 40, description: "A free-text key naming what is sold, as the company calls it; there is no material master. An item without a `unit_price` is priced by it (`createSalesPrice`)."}
-        description: {type: string, minLength: 1, maxLength: 200, description: "What is sold."}
+        item_key: {type: string, minLength: 1, maxLength: 40, description: "A free-text key naming what is sold, as the company calls it. An item without a `unit_price` is priced by it (`createSalesPrice`). An item of a material has the material's number as its key: absent, it is taken; another is refused (422 `sales.item_key_not_material`)."}
+        material_id: {type: string, format: uuid, description: "The material sold (S1f1, `GET /v1/materials/{id}`): an `active` material of the tenant. Its number is the item's `item_key`, so the price records find it by that number, and its description the item's when `description` is absent; `quantity` is in its base unit or one of its alternative units, converting to the base unit exactly. Absent: the item is described by `description` and `item_key` alone."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What is sold. Required for an item without `material_id` (422 `request.validation_failed`); for an item of a material it is the material's description when absent."}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity, more than zero, in a unit of measure of the reference data."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`, in the document's currency; it stays as entered, whatever the price records say (`price_source` `manual`), and is the item's final net price: the pricing procedure takes no discount off it. Absent: the item takes the price recorded for its `item_key`, valid on the document's date, in the item's unit and the document's currency: the customer's before the general one, then the latest `valid_from` (`price_source` `price_list`); an item with neither is refused (422 `sales.no_price`)."}
         price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the unit price refers to; 1 when absent. It is sent with `unit_price` alone: a price from the price records comes with its own, so an item that sends `price_unit` without `unit_price` is refused (422 `request.validation_failed` naming `items[i].price_unit`)."}
@@ -60244,7 +60367,8 @@ components:
       required: [item_no, description, quantity, unit_price, price_unit, price_source, conditions, net_amount, account_id, account_number, account_name]
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the document.", readOnly: true}
-        item_key: {type: string, description: "The free-text key naming what is sold; absent when none was given.", readOnly: true}
+        item_key: {type: string, description: "The free-text key naming what is sold, the material's number for an item of a material; absent when none was given.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material sold (S1f1, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item without one. A billing document's item has its order item's.", readOnly: true}
         description: {type: string, description: "What is sold.", readOnly: true}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity and its unit of measure."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`."}
@@ -60451,7 +60575,7 @@ components:
       additionalProperties: false
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The order's item that changes."}
-        quantity: {$ref: "#/components/schemas/Quantity", description: "The new quantity, more than zero, in the item's own unit, and not below what is delivered of it. Absent: the quantity stays."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The new quantity, more than zero, in the item's own unit, and not below what is delivered of it. An item of a material keeps its material, whatever its status since, and its new quantity converts to the material's base unit exactly (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). Absent: the quantity stays."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The new net price per `price_unit`, in the order's currency, entered (`price_source` `manual`) and final, as an entered price is (`SalesItemCreate`). Absent: an entered price stays, and a price from the price records is taken again on the order's date."}
         price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the new unit price refers to; 1 when absent. It is sent with `unit_price` alone (422 `request.validation_failed` naming `items[i].price_unit`)."}
     SalesOrderChange:

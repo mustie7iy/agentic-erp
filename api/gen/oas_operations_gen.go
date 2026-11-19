@@ -496,6 +496,7 @@ const (
 	LockFiscalPeriodOperation                      OperationName = "LockFiscalPeriod"
 	LockPlanCategoryOperation                      OperationName = "LockPlanCategory"
 	LockProfitCenterOperation                      OperationName = "LockProfitCenter"
+	MapCatalogItemMaterialsOperation               OperationName = "MapCatalogItemMaterials"
 	MatchBankStatementOperation                    OperationName = "MatchBankStatement"
 	MatchBankStatementLineOperation                OperationName = "MatchBankStatementLine"
 	MatchSupplierInvoiceOperation                  OperationName = "MatchSupplierInvoice"

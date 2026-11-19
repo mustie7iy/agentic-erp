@@ -22,7 +22,7 @@ import (
 func catalogItemToAPI(c CatalogItem, names map[uuid.UUID]partner.Named) gen.CatalogItem {
 	return gen.CatalogItem{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), LegalEntityID: c.LegalEntityID, SupplierID: c.SupplierID,
-		SupplierNumber: names[c.SupplierID].Number, SupplierName: names[c.SupplierID].Name, ItemKey: c.ItemKey, Description: c.Description,
+		SupplierNumber: names[c.SupplierID].Number, SupplierName: names[c.SupplierID].Name, ItemKey: c.ItemKey, MaterialID: apitypes.OptUUID(c.MaterialID), Description: c.Description,
 		Unit: c.Unit, UnitPrice: apitypes.Money(c.UnitPrice, c.Currency, c.Exponent), PriceUnit: c.PriceUnit,
 		ContractID: apitypes.OptUUID(c.ContractID), ContractNumber: apitypes.OptString(c.ContractNumber),
 		ContractItemNo: apitypes.OptInt32(c.ContractItemNo), Status: c.Status}
@@ -49,8 +49,8 @@ func (e *Endpoints) catalogItemOut(ctx context.Context, c CatalogItem) (gen.Cata
 
 // CreateCatalogItem implements POST /v1/catalog-items.
 func (e *Endpoints) CreateCatalogItem(ctx context.Context, req *gen.CatalogItemCreate, _ gen.CreateCatalogItemParams) (gen.CreateCatalogItemRes, error) {
-	c, err := e.createCatalogItem(ctx, NewCatalogItem{LegalEntityID: req.LegalEntityID, SupplierID: req.SupplierID, ItemKey: req.ItemKey,
-		Description: req.Description, Unit: req.Unit, Price: req.UnitPrice.Amount, Currency: req.UnitPrice.Currency, PriceUnit: req.PriceUnit.Value,
+	c, err := e.createCatalogItem(ctx, NewCatalogItem{LegalEntityID: req.LegalEntityID, SupplierID: req.SupplierID, ItemKey: req.ItemKey.Value,
+		MaterialID: apitypes.Ptr[uuid.UUID](req.MaterialID), Description: req.Description.Value, Unit: req.Unit, Price: req.UnitPrice.Amount, Currency: req.UnitPrice.Currency, PriceUnit: req.PriceUnit.Value,
 		ContractID: apitypes.Ptr[uuid.UUID](req.ContractID), ContractItemNo: apitypes.Ptr[int32](req.ContractItemNo)})
 	if err != nil {
 		return nil, err

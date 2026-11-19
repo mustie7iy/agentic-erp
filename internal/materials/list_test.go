@@ -100,6 +100,10 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := materials.Materials{}.Materials(ctx, []uuid.UUID{id})
 			return err
 		},
+		"the published API by number": func(ctx context.Context) error {
+			_, err := materials.Materials{}.ByNumber(ctx, []string{"MA1"})
+			return err
+		},
 		"change": func(ctx context.Context) error {
 			_, err := h.UpdateMaterial(ctx, &gen.MaterialUpdate{Description: gen.NewOptString("Bolt"), Plants: where, AlternativeUnits: box},
 				gen.UpdateMaterialParams{ID: id, IfMatch: `"2"`})

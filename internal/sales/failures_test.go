@@ -21,9 +21,9 @@ func TestDatabaseFailures(t *testing.T) {
 	accepted, rejected := uuid.MustParse(e.quoted(t)), uuid.MustParse(e.quoted(t))
 	create := &gen.QuotationCreate{LegalEntityID: e.DE, CustomerID: e.customer, ValidUntil: instant(t, far+"T00:00:00Z"), Currency: "EUR",
 		Items: []gen.SalesItemCreate{
-			{ItemKey: gen.NewOptString("BRACKET-M8"), Description: "Bracket", Quantity: gen.Quantity{Value: "2", Unit: "EA"},
+			{ItemKey: gen.NewOptString("BRACKET-M8"), Description: gen.NewOptString("Bracket"), Quantity: gen.Quantity{Value: "2", Unit: "EA"},
 				UnitPrice: gen.NewOptMoney(gen.Money{Amount: "10.00", Currency: "EUR"}), AccountID: e.revenue, TaxCode: gen.NewOptString("A1")},
-			{Description: "Freight", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, UnitPrice: gen.NewOptMoney(gen.Money{Amount: "5.00", Currency: "EUR"}),
+			{Description: gen.NewOptString("Freight"), Quantity: gen.Quantity{Value: "1", Unit: "EA"}, UnitPrice: gen.NewOptMoney(gen.Money{Amount: "5.00", Currency: "EUR"}),
 				PriceUnit: gen.NewOptInt32(1), AccountID: e.other, TaxCode: gen.NewOptString("A1")}}}
 	quotation := uuid.MustParse(e.accepted(t, e.customer, e.item(line{code: "A1"})))
 	order, draft := uuid.MustParse(e.ordered(t)), uuid.MustParse(e.ordered(t))
@@ -140,7 +140,7 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"add and remove an order's items and change its payment term": func(ctx context.Context) error {
 			_, err := h.ChangeSalesOrder(ctx, &gen.SalesOrderChangeRequest{PaymentTermCode: gen.NewOptString("NT14"), RemovedItems: []int32{2},
-				NewItems: []gen.SalesItemCreate{{Description: "Freight", Quantity: gen.Quantity{Value: "1", Unit: "EA"},
+				NewItems: []gen.SalesItemCreate{{Description: gen.NewOptString("Freight"), Quantity: gen.Quantity{Value: "1", Unit: "EA"},
 					UnitPrice: gen.NewOptMoney(gen.Money{Amount: "5.00", Currency: "EUR"}), AccountID: e.revenue}}},
 				gen.ChangeSalesOrderParams{ID: reshaped, IfMatch: `"2"`})
 			return err

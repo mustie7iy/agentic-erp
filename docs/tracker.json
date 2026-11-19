@@ -5368,9 +5368,16 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Sales and procurement items (quotation, sales order, billing, requisition, RFQ, catalog) may name a material instead of a free-text key, taking its description and unit, and the tenant's existing item keys are mapped onto materials once",
-      "r": "S1f · docs/design/plan-supply-chain.md §S1f · ADR-0082",
+      "s": "D",
+      "t": "A sales clerk enters a quotation's or sales order's item (or one an order change adds) by its material: the material's description unless one is given, its number as the item key (so prices by key find it), a unit of the material converting exactly to its base unit; the order and its billing documents name the material",
+      "r": "S1f1 · docs/design/plan-supply-chain.md §S1f1 · ADR-0082 As built S1f · ADR-0067 As built S1f1 · db/migrations/000395, 000396 · sales.quotation_item.material_id, sales.sales_order_item.material_id · SalesItemCreate.material_id · SalesItem.material_id · sales.material_not_usable, sales.item_key_not_material, sales.invalid_material_quantity · walkthrough step_material_items",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Requisition, RFQ and catalog items may name a material with the sales item's rules, the material carried from catalog to requisition to RFQ to contract; a company's catalog items keyed by a material's number are mapped onto it once, with a report of the keys that match none",
+      "r": "S1f2 · docs/design/plan-supply-chain.md §S1f2 · ADR-0082 As built S1f · ADR-0071 As built S1f2 · db/migrations/000397 · procurement.rfq_item.material_id, procurement.catalog_item.material_id, requisition_item.material_id checked and .material_number · catalog_item_material_fixed · materials.Material.ForItem, Materials.ByNumber · POST /v1/catalog-material-mappings · CatalogItemChanged.material_id · procurement.material_not_usable, procurement.key_not_material, procurement.invalid_material_quantity · walkthrough step_material_items",
       "src": "po:2026-11-17",
       "c": []
      },

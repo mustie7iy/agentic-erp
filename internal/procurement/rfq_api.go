@@ -24,7 +24,8 @@ import (
 func rfqInputs(items []gen.RfqItemInput) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
-		out[i] = ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialKey: it.MaterialKey, Description: it.Description, Quantity: it.Quantity.Value,
+		out[i] = ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialKey: it.MaterialKey.Value, MaterialID: apitypes.Ptr[uuid.UUID](it.MaterialID),
+			Description: it.Description.Value, Quantity: it.Quantity.Value,
 			Unit: it.Quantity.Unit, AccountID: it.AccountID, DeliveryDate: apitypes.Ptr[time.Time](it.DeliveryDate)}
 	}
 	return out
@@ -40,7 +41,7 @@ func rfqToAPI(r RFQ) gen.Rfq {
 		AwardReason: apitypes.OptString(r.AwardReason), ClosingReason: apitypes.OptString(r.ClosingReason),
 		Items: make([]gen.RfqItem, len(r.Items)), Suppliers: make([]gen.RfqSupplier, len(r.Suppliers))}
 	for i, it := range r.Items {
-		out.Items[i] = gen.RfqItem{ItemNo: gen.NewOptInt32(it.No), MaterialKey: it.MaterialKey, Description: it.Description,
+		out.Items[i] = gen.RfqItem{ItemNo: gen.NewOptInt32(it.No), MaterialKey: it.MaterialKey, MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,
 			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, AccountID: it.AccountID,
 			AccountNumber: r.Accounts[it.AccountID].Number, AccountName: r.Accounts[it.AccountID].Name,
 			DeliveryDate: apitypes.OptDate(it.DeliveryDate), RequisitionItemNo: apitypes.OptInt32(it.RequisitionItemNo)}
