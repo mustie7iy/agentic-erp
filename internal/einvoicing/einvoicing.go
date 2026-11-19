@@ -25,11 +25,15 @@
 // runs the same steps; a message recorded before whose bytes differ is
 // recorded as changed (changed_hash, once per different bytes), the first
 // bytes kept as the legal original, which GetEInvoiceContent serves,
-// compared with their hash. The provider's only adapter is the
-// stand-in (StandIn), which production refuses; the ERP polls and opens
-// no endpoint for a provider (ADR-0061 Q1, Q3). Validation, entering,
-// credit notes and people's resolution of held documents follow in
-// T65c-T65f.
+// compared with their hash.
+//
+// E1 (po:2026-11-19) adds Evatra, the first accredited provider, as an
+// adapter (Evatra: its login and token, its received documents' listing
+// and content; acknowledgement local only); the stand-in (StandIn) stays
+// for tests and the walkthrough, and production refuses it. The ERP polls
+// and opens no endpoint for a provider (ADR-0061 Q3). Validation,
+// entering, credit notes and people's resolution of held documents follow
+// in T65c-T65f, sending in E3-E4.
 package einvoicing
 
 import (
@@ -71,13 +75,16 @@ func Fetcher(tenant uuid.UUID) reqctx.Principal {
 }
 
 // Connector is an einvoice_provider connector resolved for use (ADR-0061
-// §3): the adapter, the provider's base URL, each company's participant
-// identifier by company code, the format and the credentials.
+// §3): the adapter, the stand-in's base URL or Evatra's environment and
+// company id, each company's participant identifier by company code, the
+// format and the credentials.
 type Connector struct {
 	ID           uuid.UUID
 	Name         string
 	Adapter      string
-	BaseURL      string
+	BaseURL      string            // the stand-in's
+	Environment  string            // Evatra's: stage or prod
+	CompanyID    string            // the company's id at Evatra
 	Participants map[string]string // company code -> participant identifier
 	Format       string
 	Secret       string

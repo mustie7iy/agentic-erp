@@ -584,13 +584,18 @@ hook_stub() {
 # certificate it made (ERP_WALKTHROUGH_PROVIDER, _CA; development only). It
 # serves the documents of provider/inbox to requests bearing the token in
 # provider/token, which the connector's secret_ref names, and records each
-# acknowledgement there.
+# acknowledgement there; and it emulates Evatra's API under /evatra for the
+# account of provider/evatra.json over the documents of provider/evatra
+# (step_evatra_inbound, ADR-0061 As built E1), which erp-server reaches in
+# place of Evatra's hosts in the walkthrough alone.
 provider_stub() {
   stub providerstub internal/einvoicing/einvoicetest/providerstub
   rm -rf "$WORK/provider"
-  mkdir -p "$WORK/provider/inbox"
+  mkdir -p "$WORK/provider/inbox" "$WORK/provider/evatra"
   head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$WORK/provider/token"
-  "$STUB" -addr "$PROVIDER_ADDR" -ca "$WORK/provider/provider.pem" -token "$WORK/provider/token" -inbox "$WORK/provider/inbox" >"$WORK/provider.log" 2>&1 &
+  printf '{"apiKey": "%s", "email": "ap@maple-gulf.example", "companyId": "WALK-AE-5000"}\n' "$(head -c 24 /dev/urandom | base64 | tr -d '/+=')" >"$WORK/provider/evatra.json"
+  "$STUB" -addr "$PROVIDER_ADDR" -ca "$WORK/provider/provider.pem" -token "$WORK/provider/token" -inbox "$WORK/provider/inbox" \
+    -evatra "$WORK/provider/evatra.json" -evatra-inbox "$WORK/provider/evatra" >"$WORK/provider.log" 2>&1 &
   PROVIDER_PID=$!
   wait_file "$WORK/provider/provider.pem" "$PROVIDER_PID" "the e-invoicing provider's stand-in" "$WORK/provider.log" "is $PROVIDER_ADDR free? set WALKTHROUGH_PROVIDER_ADDR"
   export ERP_WALKTHROUGH_PROVIDER="$PROVIDER_ADDR" ERP_WALKTHROUGH_PROVIDER_CA="$WORK/provider/provider.pem"
@@ -14956,6 +14961,74 @@ goods_issue_margin() {
   expect "the rows' cost of sales add up to the totals'" "$(field '([.items[].cost_of_sales.amount | tonumber] | add * 100 | round) == (.totals.cost_of_sales.amount | tonumber * 100 | round)')" true
 }
 
+# step_evatra_inbound is E1 (ADR-0061 §3 and As built E1, po:2026-11-19):
+# Ada connects the UAE company to Evatra, the accredited service provider
+# the product owner chose, an einvoice_provider connector of the adapter
+# evatra in its sandbox environment (Evatra's host derived from it; the
+# walkthrough's server reaches the stand-in's emulation of Evatra's API in
+# its place), Evatra's id of the company, its participant 0235: and its TIN,
+# and the API key and email as the tenant's secret; Evatra has received a
+# supplier's PINT AE e-invoice for the company; Alex fetches, the adapter
+# logs in, lists the company's received documents by its TIN and reads the
+# document in Base64, and the document is received through the existing
+# path (recorded once, kept write-once, acknowledged locally, since Evatra
+# keeps no acknowledgement); its download is the document; a second fetch
+# leaves it out, recorded and acknowledged.
+step_evatra_inbound() {
+  heading "Step 144 — E-invoices received through Evatra: the UAE company connected to Evatra's sandbox, a supplier's PINT AE e-invoice listed by the company's TIN, read in Base64, recorded once and acknowledged locally, downloaded as received; a second fetch leaves it out"
+  local connector op doc sum tin
+  tin=1001234567
+  as ada
+  say "The product owner chose Evatra (Hamt Information Technology L.L.C, accredited service provider 144576) to send and"
+  say "receive the UAE company's e-invoices inside the ERP. Ada connects $AE to Evatra's sandbox: the adapter evatra, the"
+  say "environment stage (its host derived from it, one of Evatra's two; production takes prod and refuses stage), Evatra's"
+  say "id of the company, its Peppol participant 0235: and its TIN (the first 10 digits of its TRN), and the API key and"
+  say "email held as the tenant's secret. Here the server reaches the stand-in's emulation of Evatra's API in its place."
+  sed -n 's/.*"apiKey": "\([^"]*\)".*/{"apiKey": "\1", "email": "ap@maple-gulf.example"}/p' "$WORK/provider/evatra.json" >"$WORK/provider/evatra-secret.json"
+  vault_put evatra "$WORK/provider/evatra-secret.json"
+  api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter) \(.settings.environment), Evatra company \(.settings.company_id), participants \(.settings.participants | to_entries | map("\(.key) \(.value)") | join(", "))"' \
+    createConnector -body "{\"kind\": \"einvoice_provider\", \"name\": \"Maple Gulf on Evatra\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"evatra\", \"environment\": \"stage\", \"company_id\": \"WALK-AE-5000\", \"participants\": {\"$AE\": \"0235:$tin\"}, \"format\": \"pint_ae\"}}"
+  connector=$(field .id)
+  say "Gulf Office Interiors sends its invoice GOI-2002 as a PINT AE e-invoice; Evatra receives it for 0235:$tin (an"
+  say "illustrative document; validating and entering it as a supplier invoice are T65c and T65d):"
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<!-- Illustrative only: not a validated PINT AE document. -->\n'
+    printf '<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2">'
+    printf '<cbc:CustomizationID>urn:peppol:pint:billing-1@ae-1</cbc:CustomizationID><cbc:ProfileID>urn:peppol:bis:billing</cbc:ProfileID>'
+    printf '<cbc:ID>GOI-2002</cbc:ID><cbc:IssueDate>%s</cbc:IssueDate><cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode><cbc:DocumentCurrencyCode>AED</cbc:DocumentCurrencyCode>' "$TODAY"
+    printf '<cac:AccountingCustomerParty><cac:Party><cbc:EndpointID schemeID="0235">%s</cbc:EndpointID></cac:Party></cac:AccountingCustomerParty></Invoice>\n' "$tin"
+  } >"$WORK/provider/evatra/EVA-77001.xml"
+  printf '0235:%s\n' "$tin" >"$WORK/provider/evatra/EVA-77001.receiver"
+  sum=$(shasum -a 256 "$WORK/provider/evatra/EVA-77001.xml" | cut -d' ' -f1)
+  say "  Evatra's document EVA-77001 for 0235:$tin, SHA-256 ${sum:0:16}…"
+  as alex
+  say "Alex fetches: the adapter logs in to Evatra, sends its token as R-Auth, lists the documents Evatra received for the"
+  say "company's TIN and reads each in Base64; the document is recorded as any provider's, kept write-once, and acknowledged"
+  say "locally, as Evatra keeps no acknowledgement:"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  op=$(field .id)
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded); its documents at \(.resource)"'
+  expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "1 0"
+  api 200 '.items[] | "  \(.message_id) for \(.company_code) \(.company_name) (\(.receiver)): \(.status), \(.size) bytes, through \(.connector_name), acknowledged \(.acknowledged_at != null)"' \
+    listEInvoices -p "fetch_operation_id=$op"
+  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.receiver) \(.status)"] | join(", ")')" "EVA-77001 $AE 0235:$tin received"
+  expect "its bytes, Evatra's decoded" "$(field '.items[0].sha256')" "$sum"
+  expect "acknowledged locally" "$(field '.items[0].acknowledged_at != null')" true
+  doc=$(field '.items[0].id')
+  api 200 '' getEInvoiceContent -p "id=$doc" -out "$WORK/provider/EVA-77001.downloaded.xml"
+  expect "the download, the document Evatra received" "$(shasum -a 256 "$WORK/provider/EVA-77001.downloaded.xml" | cut -d' ' -f1)" "$sum"
+  say "Evatra still lists EVA-77001 (it keeps no acknowledgement); the next fetch leaves it out, recorded and acknowledged:"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded)"'
+  expect "the second fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "0 0"
+  QUIET=1 api 200 '' listEInvoices -p "connector_id=$connector"
+  expect "the connector's documents" "$(field '[.items[].message_id] | join(" ")')" "EVA-77001"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -16986,7 +17059,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_close'
 
 main() {
   stop_unseen
