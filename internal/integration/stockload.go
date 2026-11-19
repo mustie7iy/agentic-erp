@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -15,7 +16,7 @@ import (
 // S2p).
 type Stock interface {
 	TakeOver(ctx context.Context, in inventory.StockTakeOver) (inventory.TakenOverStock, error)
-	LockNumbers(ctx context.Context, company uuid.UUID) error
+	LockNumbers(ctx context.Context, company uuid.UUID) (time.Time, error)
 	TakenOver(ctx context.Context, valuations, documents []uuid.UUID) (map[uuid.UUID]inventory.HeldStock, map[uuid.UUID]uuid.UUID, error)
 }
 
@@ -43,12 +44,15 @@ func (l *loader) lockStock(ctx context.Context) error {
 			posts[s.company] = true
 		}
 	}
+	l.stockDays = map[string]time.Time{}
 	for _, company := range sortedKeys(posts) {
 		// A refusal (the company has no material_document range) locks
 		// nothing: each of its take-overs is refused for it (takeOver).
-		if err := l.e.Stock.LockNumbers(ctx, l.t.entities[company].ID); err != nil && problem.From(err).Status >= 500 {
+		day, err := l.e.Stock.LockNumbers(ctx, l.t.entities[company].ID)
+		if err != nil && problem.From(err).Status >= 500 {
 			return err
 		}
+		l.stockDays[company] = day
 	}
 	return nil
 }
@@ -70,8 +74,9 @@ func (l *loader) stock(ctx context.Context) error {
 // initial entry, keeping the valuation as MBEW/<BWKEY>/<MATNR> and the
 // material document as MKPF/<BWKEY>/<MATNR>. A take-over the services
 // refuse is a load refusal, and so is one whose entry falls in another
-// fiscal year than the run's: the entry is dated the company's date today,
-// and the run's trial balance and stock controls are of its fiscal year.
+// fiscal year than the run's: the entry is dated the day lockStock locked
+// the company's range for (its date today then), and the run's trial
+// balance and stock controls are of its fiscal year.
 func (l *loader) takeOver(ctx context.Context, s sapStock) error {
 	material, plant := l.refs["MARA/"+s.matnr], l.refs["T001W/"+s.werks]
 	if material == uuid.Nil || plant == uuid.Nil {
@@ -81,7 +86,7 @@ func (l *loader) takeOver(ctx context.Context, s sapStock) error {
 	cur := l.t.entities[s.company].LocalCurrency
 	in := inventory.StockTakeOver{Valuation: inventory.ValuationInput{MaterialID: material, PlantID: plant, ValuationClass: s.class,
 		PriceControl: s.control, Price: l.plain(s.price, cur), Currency: cur, PriceUnit: s.priceUnit},
-		HeaderText: "Migration run " + l.run.ID.String() + ": SAP stock of material " + s.matnr + " at plant " + s.werks}
+		HeaderText: "Migration run " + l.run.ID.String() + ": SAP stock of material " + s.matnr + " at plant " + s.werks, Day: l.stockDays[s.company]}
 	for _, at := range s.locations {
 		id, ok := l.refs["T001L/"+s.werks+"/"+at.lgort]
 		if !ok {

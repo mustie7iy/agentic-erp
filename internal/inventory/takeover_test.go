@@ -3,6 +3,7 @@ package inventory_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -127,7 +128,7 @@ func TestTakeOverDatabaseFailures(t *testing.T) {
 			_, _, err := h.TakenOver(ctx, []uuid.UUID{taken.Valuation.ID}, []uuid.UUID{taken.Document.ID})
 			return err
 		},
-		"lock numbers": func(ctx context.Context) error { return h.LockNumbers(ctx, e.DE) },
+		"lock numbers": func(ctx context.Context) error { _, err := h.LockNumbers(ctx, e.DE); return err },
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
@@ -140,24 +141,66 @@ func TestTakeOverDatabaseFailures(t *testing.T) {
 }
 
 // TestLockNumbers: LockNumbers takes the company's material_document
-// range of its year today and draws no number from it; a company that is
-// none is refused.
+// range of its year today, answers that day and draws no number from the
+// range of that day's year; a company that is none is refused.
 func TestLockNumbers(t *testing.T) {
 	e := setup(t)
 	h := endpoints(t)
-	next := func() (n int64) {
+	next := func(year int) (n int64) {
 		pgtest.Scan(t, `SELECT next_value FROM config.number_range WHERE tenant_id = $1 AND legal_entity_id = $2 AND document_type = 'material_document'
-			ORDER BY fiscal_year DESC LIMIT 1`, []any{e.Tenant.ID, e.DE}, &n)
+			AND fiscal_year = $3`, []any{e.Tenant.ID, e.DE, year}, &n)
 		return n
 	}
-	before := next()
-	if err := e.inRequest(t, func(ctx context.Context) error { return h.LockNumbers(ctx, e.DE) }); err != nil {
+	var day time.Time
+	if err := e.inRequest(t, func(ctx context.Context) (err error) { day, err = h.LockNumbers(ctx, e.DE); return err }); err != nil {
 		t.Fatalf("lock the range: %v", err)
 	}
-	if after := next(); after != before {
-		t.Errorf("next number after the lock: got %d, want %d", after, before)
+	if day.IsZero() {
+		t.Fatal("the locked day: got none, want the company's date today")
 	}
-	if err := e.inRequest(t, func(ctx context.Context) error { return h.LockNumbers(ctx, uuid.New()) }); err == nil {
+	before := next(day.Year()) // the fixture's fiscal years are calendar years
+	if err := e.inRequest(t, func(ctx context.Context) error { _, err := h.LockNumbers(ctx, e.DE); return err }); err != nil {
+		t.Fatalf("lock the range again: %v", err)
+	}
+	if after := next(day.Year()); after != before {
+		t.Errorf("next number of %d after the lock: got %d, want %d", day.Year(), after, before)
+	}
+	if err := e.inRequest(t, func(ctx context.Context) error { _, err := h.LockNumbers(ctx, uuid.New()); return err }); err == nil {
 		t.Error("a company that is none: got nil error, want an error")
+	}
+}
+
+// TestTakeOverOnTheLockedDay (batch 84 integration): a run locks the
+// range on the last day of a fiscal year and takes the stock over after
+// the company's midnight; given the day LockNumbers answered, the initial
+// entry is dated it and numbered from the range of the year it locked.
+func TestTakeOverOnTheLockedDay(t *testing.T) {
+	e := setup(t)
+	at := func(now time.Time) *inventory.Endpoints {
+		h := endpoints(t)
+		h.Now = func() time.Time { return now }
+		return h
+	}
+	m := e.material(t, "Year-end bracket", "trading_good", true)
+	var taken inventory.TakenOverStock
+	err := e.inRequest(t, func(ctx context.Context) error {
+		day, err := at(time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)).LockNumbers(ctx, e.DE)
+		if err != nil {
+			return err
+		}
+		in := e.takeOver(m, inventory.MovingAverage, "1.00",
+			inventory.TakeOverItem{StorageLocationID: e.s1, Quantity: "1", Amount: &inventory.Amount{Value: "1.00", Currency: "EUR"}})
+		in.Day = day
+		taken, err = at(time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC)).TakeOver(ctx, in)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := taken.Document.PostingDate.Format(time.DateOnly); got != "2026-12-31" {
+		t.Errorf("the entry's date: got %s, want 2026-12-31", got)
+	}
+	if got := taken.Document.FiscalYear; got != 2026 {
+		t.Errorf("the document's number range year: got %d, want 2026", got)
 	}
 }

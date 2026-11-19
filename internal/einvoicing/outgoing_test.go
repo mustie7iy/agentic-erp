@@ -335,7 +335,7 @@ func TestRenderForeignCurrency(t *testing.T) {
 	for _, p := range got["problems"].([]any) {
 		terms = append(terms, p.(map[string]any)["term"].(string))
 	}
-	check(t, "problems", terms, "[BTAE-08]")
+	check(t, "problems", terms, "[BTAE-08 BTAE-10]")
 }
 
 // TestRenderRefusals: what the format does not render is refused before

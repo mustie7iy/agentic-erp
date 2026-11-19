@@ -392,19 +392,23 @@ func TestEvatraTokensKept(t *testing.T) {
 
 // TestEvatraListing: documentId is read as a string or an integer, and a
 // document a later page lists again (the pages shifted by a document
-// received meanwhile) is listed once, where it was first.
+// received meanwhile) is listed once, where it was first, and is not
+// counted twice: the listing reads on to the page holding the document
+// the shift pushed there (batch 84 integration).
 func TestEvatraListing(t *testing.T) {
 	var page atomic.Int32
+	pages := []string{`{"totalCount": 4, "invoiceList": [{"documentId": "A"}, {"documentId": 17}]}`,
+		`{"totalCount": 4, "invoiceList": [{"documentId": 17}, {"documentId": "C"}]}`, // 17 again
+		`{"totalCount": 4, "invoiceList": [{"documentId": "D"}]}`, `{"totalCount": 4, "invoiceList": []}`}
 	p := fakeEvatra(t, map[string]http.HandlerFunc{"POST /invoice/search-documents": func(w http.ResponseWriter, _ *http.Request) {
-		body := `{"totalCount": 3, "invoiceList": [{"documentId": "A"}, {"documentId": 17}]}` // page 1
-		if page.Add(1) > 1 {
-			body = `{"totalCount": 3, "invoiceList": [{"documentId": 17}, {"documentId": "C"}]}` // page 2, 17 again
-		}
-		_, _ = w.Write([]byte(body)) // the client's read is checked
+		_, _ = w.Write([]byte(pages[min(int(page.Add(1)), len(pages))-1])) // the client's read is checked
 	}})
 	ms, err := p.Pending(context.Background())
-	if got := fmt.Sprint(ms); err != nil || got != "[{A "+usTIN+"} {17 "+usTIN+"} {C "+usTIN+"}]" {
-		t.Errorf("got %s %v, want A, 17 and C once each", got, err)
+	if got := fmt.Sprint(ms); err != nil || got != "[{A "+usTIN+"} {17 "+usTIN+"} {C "+usTIN+"} {D "+usTIN+"}]" {
+		t.Errorf("got %s %v, want A, 17, C and D once each", got, err)
+	}
+	if got := page.Load(); got != 3 {
+		t.Errorf("pages read: got %d, want 3 (the count reached on the third)", got)
 	}
 }
 

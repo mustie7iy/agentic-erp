@@ -77,19 +77,23 @@ func buildDocument(s Sale, seller Seller, buyer Buyer, reason *Reason) (Document
 // does not render yet (ADR-0061 As built E2, questions for the tax
 // specialist), so such a document stays invalid rather than be kept as a
 // valid, final tax invoice the provider would reject: a document not in
-// AED needs each line's VAT and amount in AED (BTAE-08, BTAE-10; the
-// Ministry's field list #48 and #49, C5), and an exempt, out-of-scope or
-// reverse-charge line its exemption reason (IBT-120, IBT-121).
+// AED needs each line's VAT in AED (BTAE-08) and its amount in AED
+// (BTAE-10; the Ministry's field list #48 and #49, C5), one finding each
+// as each is a term of its own, and an exempt, out-of-scope or
+// reverse-charge line its exemption reason, as text or as a code (IBT-120
+// or IBT-121, one finding: either term carries it).
 func unrendered(d Document) []Finding {
 	var out []Finding
 	if d.Currency != accountingCurrency {
 		out = append(out, Finding{Rule: "einvoicing.pint_ae.not_rendered", Term: "BTAE-08",
-			Message: "a document not in AED needs each line's VAT and amount in AED (BTAE-08, BTAE-10), which the ERP does not render yet"})
+			Message: "a document not in AED needs each line's VAT in AED (BTAE-08), which the ERP does not render yet"},
+			Finding{Rule: "einvoicing.pint_ae.not_rendered", Term: "BTAE-10",
+				Message: "a document not in AED needs each line's amount in AED (BTAE-10), which the ERP does not render yet"})
 	}
 	for i, l := range d.Lines {
 		if l.Category == "E" || l.Category == "O" || l.Category == "AE" {
 			out = append(out, Finding{Rule: "einvoicing.pint_ae.not_rendered", Term: "IBT-120",
-				Message: fmt.Sprintf("line %d: a line of category %s needs its exemption reason (IBT-120, IBT-121), which the ERP does not render yet", i+1, l.Category)})
+				Message: fmt.Sprintf("line %d: a line of category %s needs its exemption reason, as text or as a code (IBT-120 or IBT-121), which the ERP does not render yet", i+1, l.Category)})
 		}
 	}
 	return out

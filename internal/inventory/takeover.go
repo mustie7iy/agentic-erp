@@ -31,11 +31,15 @@ type TakeOverItem struct {
 
 // StockTakeOver is a material's valuation in a plant and its stock there,
 // the initial entry's header text naming where it comes from. No items:
-// the material is valued with no stock.
+// the material is valued with no stock. Day is the initial entry's date:
+// the day LockNumbers locked the company's range for, so a run that
+// crosses midnight into a new fiscal year posts in the year whose range
+// it holds (zero: the company's date today).
 type StockTakeOver struct {
 	Valuation  ValuationInput
 	HeaderText string
 	Items      []TakeOverItem
+	Day        time.Time
 }
 
 // TakenOverStock is what a take-over created: the valuation, and the
@@ -47,7 +51,7 @@ type TakenOverStock struct {
 
 // TakeOver values the material in the plant (CreateValuation) and posts
 // its stock as a 561 material document in the request's transaction,
-// dated the company's date today and numbered from its material_document
+// dated in.Day (the company's date today when zero) and numbered from its material_document
 // range, each item checked as an initial entry's is (an active material
 // kept at an active storage location of the plant), valued at what it is
 // worth or at the standard price, its value posted on the class's stock
@@ -85,7 +89,11 @@ func (e *Endpoints) TakeOver(ctx context.Context, in StockTakeOver) (TakenOverSt
 	if err != nil {
 		return TakenOverStock{}, err
 	}
-	d, err := e.write(ctx, tx, p, posting{company: c.le, movementType: "561", day: c.day.Date, headerText: &in.HeaderText, lines: lines, items: items}, r)
+	day := c.day.Date
+	if !in.Day.IsZero() {
+		day = in.Day
+	}
+	d, err := e.write(ctx, tx, p, posting{company: c.le, movementType: "561", day: day, headerText: &in.HeaderText, lines: lines, items: items}, r)
 	if err != nil {
 		return TakenOverStock{}, err
 	}
@@ -100,23 +108,25 @@ func (e *Endpoints) TakeOver(ctx context.Context, in StockTakeOver) (TakenOverSt
 
 // LockNumbers takes the company's material_document range of the fiscal
 // year of its date today, the range TakeOver draws from, without drawing
-// a number (ADR-0082 As built S2p, Locks): a migration run takes it
-// before the GR/IR locks it posts under, as a goods receipt into stock
-// takes its material document number before its order's GR/IR lock, so
-// the two never wait on each other in a cycle.
-func (e *Endpoints) LockNumbers(ctx context.Context, company uuid.UUID) error {
+// a number, and answers that day (ADR-0082 As built S2p, Locks): a
+// migration run takes it before the GR/IR locks it posts under, as a
+// goods receipt into stock takes its material document number before its
+// order's GR/IR lock, so the two never wait on each other in a cycle; the
+// run dates its take-overs that day (StockTakeOver.Day), so they draw from
+// the range it locked even when the company's day turns meanwhile.
+func (e *Endpoints) LockNumbers(ctx context.Context, company uuid.UUID) (time.Time, error) {
 	c, err := e.companyOf(ctx, company)
 	if err != nil {
-		return err
+		return time.Time{}, err
 	}
 	year, err := e.Calendar.FiscalYear(ctx, company, c.day.Date)
 	if err != nil {
-		return fmt.Errorf("inventory: fiscal year of %s in company %s: %w", c.day.Date.Format(time.DateOnly), c.le.Code, err)
+		return time.Time{}, fmt.Errorf("inventory: fiscal year of %s in company %s: %w", c.day.Date.Format(time.DateOnly), c.le.Code, err)
 	}
 	if err := e.Numbers.Lock(ctx, company, NumberRange, year); err != nil {
-		return fmt.Errorf("inventory: lock the material document range of company %s: %w", c.le.Code, err)
+		return time.Time{}, fmt.Errorf("inventory: lock the material document range of company %s: %w", c.le.Code, err)
 	}
-	return nil
+	return c.day.Date, nil
 }
 
 // HeldStock is a valuation as it is now with the stock of its material

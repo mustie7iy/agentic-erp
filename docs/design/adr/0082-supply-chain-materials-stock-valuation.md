@@ -843,7 +843,8 @@ references are `integration.external_ref`'s.
   which must be one of the company's `companies[].account_determination.inventory`)
   becomes inventory's valuation, created as `POST /v1/material-valuations`
   creates one; its unrestricted stock at the plant's storage locations
-  (MARD LABST) one initial entry (561) dated the company's date today, its
+  (MARD LABST) one initial entry (561) dated the company's date today as
+  the run read it when it locked the company's range (below), its
   header text "Migration run <id>: SAP stock of material <MATNR> at plant
   <WERKS>" (a 561 takes no reference, `material_document_reference`). At a
   moving price each storage location is worth its share of SALK3 by
@@ -909,7 +910,11 @@ references are `integration.external_ref`'s.
   posts no entry, `PostLoadedReceipt`, and the invoiced take-over none),
   takes the `material_document` range of each company whose stock it posts
   without drawing a number (`lockStock`: `Stock.LockNumbers`, inventory's
-  port over `configuration.Numbers.Lock`, in company code order), then the
+  port over `configuration.Numbers.Lock`, in company code order; it
+  answers the company's date today it locked the fiscal year's range for,
+  and the run dates that company's take-overs that day, so a run crossing
+  midnight into a new fiscal year still draws from the range it holds,
+  batch 84 integration), then the
   GR/IR locks of the orders it posts GR/IR lines on (`lockGRIR`, split out
   of `takeOverGRIR`), and only then posts (`stock`, `takeOverGRIR`, the
   invoices, the journal). Taking the range before the GR/IR locks, rather

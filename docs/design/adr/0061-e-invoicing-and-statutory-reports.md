@@ -1097,7 +1097,9 @@ Evatra. Decided by default:
   message id (the name get-document's path gives it) and the participant
   asked for its receiver, so the document takes that company; a document
   listed again on a later page (the pages shifted by one received
-  meanwhile) is listed once, where it was first (review round 1).
+  meanwhile) is listed once, where it was first (review round 1), and
+  counted once against `totalCount`, so the listing reads on to the page
+  the shift pushed a document to (batch 84 integration).
   Twenty-five pages (5,000 documents of one company in the lookback) fail
   the step rather than read on: one fetch workflow records a document per
   activity, about six history events each, within the engine's 51,200. The 60 days bound the listing, as
@@ -1210,8 +1212,10 @@ default:
   mandatory by the Ministry, C5, their UBL paths unknown here), BTAE-20,
   BTAE-13, BTAE-15/16, IBT-030, exemption reasons (IBT-120/121) and
   IBT-026. A mandatory term not rendered keeps the document invalid
-  (review round 1): a document not in AED is invalid naming BTAE-08 and
-  BTAE-10, and an E, O or AE line naming IBT-120 and IBT-121
+  (review round 1): a document not in AED is invalid with a finding for
+  BTAE-08 and one for BTAE-10, and an E, O or AE line with one naming
+  IBT-120 or IBT-121 (either carries the reason in EN 16931, to confirm
+  for PINT AE)
   (`einvoicing.pint_ae.not_rendered`), so no e-invoice the provider would
   reject is kept as valid and final; they become valid once the
   specialist confirms the terms and a slice renders them. E2 therefore

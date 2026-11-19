@@ -305,12 +305,16 @@ func (e *Evatra) Pending(ctx context.Context) ([]Message, error) {
 }
 
 // received lists the documents Evatra received for one participant in the
-// lookback (its TIN, after the scheme 0235:).
+// lookback (its TIN, after the scheme 0235:), each once: a document a
+// later page lists again (the pages shifted by one received meanwhile)
+// is not counted twice against Evatra's count, so the listing reads on
+// to the page holding the document the shift pushed there.
 func (e *Evatra) received(ctx context.Context, participant string) ([]Message, error) {
 	now := e.Now().UTC()
 	req := searchRequest{CompanyID: e.CompanyID, TIN: strings.TrimPrefix(participant, "0235:"), DocumentType: "INCOMING",
 		StartDate: now.Add(-EvatraLookback).Format(time.DateOnly), EndDate: now.AddDate(0, 0, 1).Format(time.DateOnly), Size: EvatraPage}
 	var out []Message
+	seen := map[string]bool{}
 	for req.Page = 1; req.Page <= evatraMaxPages; req.Page++ {
 		page, err := e.search(ctx, req)
 		if err != nil {
@@ -321,7 +325,10 @@ func (e *Evatra) received(ctx context.Context, participant string) ([]Message, e
 			if !ok {
 				return nil, fmt.Errorf("einvoicing: evatra search-documents: a document without its documentId")
 			}
-			out = append(out, Message{ID: id, Receiver: participant})
+			if !seen[id] {
+				seen[id] = true
+				out = append(out, Message{ID: id, Receiver: participant})
+			}
 		}
 		if len(page.InvoiceList) == 0 || len(out) >= page.TotalCount {
 			return out, nil

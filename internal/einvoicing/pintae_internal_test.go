@@ -45,8 +45,12 @@ func valid(t *testing.T) Document {
 	if f := Check(d); len(f) > 0 {
 		t.Fatalf("Check of the valid document: got %v, want none", f)
 	}
-	if got := fmt.Sprint(found); !strings.Contains(got, "BTAE-08") || len(found) != 1 {
-		t.Fatalf("its findings: got %s, want BTAE-08 alone", got)
+	var terms []string
+	for _, f := range found {
+		terms = append(terms, f.Term)
+	}
+	if got := strings.Join(terms, " "); got != "BTAE-08 BTAE-10" {
+		t.Fatalf("its findings: got %s, want BTAE-08 BTAE-10", got)
 	}
 	if d.AccountingTax == nil {
 		t.Fatal("its VAT in AED: got none, want 36725")
@@ -158,8 +162,8 @@ func TestBuildFindings(t *testing.T) {
 	for _, f := range found {
 		got = append(got, f.Term)
 	}
-	if strings.Join(got, " ") != "IBT-034 IBG-07 BTAE-08" {
-		t.Errorf("findings: got %v, want IBT-034 IBG-07 BTAE-08", got)
+	if strings.Join(got, " ") != "IBT-034 IBG-07 BTAE-08 BTAE-10" {
+		t.Errorf("findings: got %v, want IBT-034 IBG-07 BTAE-08 BTAE-10", got)
 	}
 	exempt := sale()
 	exempt.Currency = "AED"

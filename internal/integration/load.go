@@ -68,8 +68,11 @@ type loader struct {
 	viaGRIR map[string]bool
 	// grirLocked is what lockGRIR read under the GR/IR locks.
 	grirLocked grirLock
-	// stocks are the valuations and stock lockStock planned to take over.
-	stocks []sapStock
+	// stocks are the valuations and stock lockStock planned to take over,
+	// and stockDays the day it locked each company's material_document
+	// range for, which dates the company's initial entries.
+	stocks    []sapStock
+	stockDays map[string]time.Time
 	// foreign are the documents posted in their foreign document currency,
 	// with that currency (foreignDocuments).
 	foreign map[string]string
