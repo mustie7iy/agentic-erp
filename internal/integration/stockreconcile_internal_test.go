@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/inventory"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 )
@@ -45,5 +48,44 @@ func TestWithoutTakeOverOutOfRange(t *testing.T) {
 				t.Errorf("got %v, want %v", err, c.wantErr)
 			}
 		})
+	}
+}
+
+// totalsReports answers the run's fiscal year's totals.
+type totalsReports struct {
+	Reports
+	totals ledger.Totals
+}
+
+func (r totalsReports) Totals(context.Context, uuid.UUID, int16) (ledger.Totals, error) {
+	return r.totals, nil
+}
+
+// TestStockControlsOfAClassNoLongerConfigured: a valuation taken over in a
+// class the active configuration no longer has is a difference of its
+// own, and adds no stock account without a number to the account check.
+func TestStockControlsOfAClassNoLongerConfigured(t *testing.T) {
+	le := uuid.New()
+	held := inventory.HeldStock{Valuation: inventory.Valuation{LegalEntityID: le, ValuationClass: "3000", PriceControl: "moving_average", Quantity: "1", Value: 100}}
+	rc := &reconciler{e: &Endpoints{Reports: totalsReports{totals: ledger.Totals{ByAccount: map[string]money.Minor{}}}},
+		t:         target{classes: map[string]map[string]config.InventoryAccounts{"2000": {}}},
+		stock:     &stockStates{held: map[string]inventory.HeldStock{"P1/M-1": held}},
+		materials: &materialStates{}}
+	format := func(m money.Minor) string { return strconv.FormatInt(int64(m), 10) }
+	if err := rc.stockControls(context.Background(), companyScope{cc: "2000", le: le, format: format}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range rc.rec.Checks {
+		if c.Name == "Stock accounts: accounts with differences" && c.Platform != "0" {
+			t.Errorf("stock accounts with differences: got %s, want 0", c.Platform)
+		}
+	}
+	for _, d := range rc.rec.Diffs {
+		if d.Key == "stock account " {
+			t.Errorf("differences: got a stock account without a number")
+		}
+	}
+	if len(rc.rec.Diffs) == 0 {
+		t.Errorf("differences: got none, want the valuation's")
 	}
 }

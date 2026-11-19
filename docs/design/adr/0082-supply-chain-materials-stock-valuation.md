@@ -870,7 +870,13 @@ references are `integration.external_ref`'s.
   price control, stock, value and stock per storage location), `Stock
   value total` and `Stock accounts: accounts with differences` (per stock
   account of the classes, SAP's values against the account's balance on
-  the platform in the run's fiscal year). The trial balance and the total
+  the platform in the run's fiscal year, which is the take-over's: a
+  take-over in another fiscal year is refused. The balance is read from
+  the year's journal lines, so a reconciliation of a run of a later
+  fiscal year, whose opening balance a carry-forward holds outside them
+  (ADR-0060 §5), would show the taken-over value as a difference; the
+  stock is taken over once, at the cutover, and reading the carried-forward
+  balance into the check is Later). The trial balance and the total
   debits leave the initial entries out (`ledger.Reports.EntryTotals`
   taken off `Totals`), as SAP's journal has no document of them: the
   stock controls reconcile them.
@@ -890,11 +896,20 @@ references are `integration.external_ref`'s.
   plant has already, no `material_document` range) are load refusals, and
   so is a take-over whose entry falls in another fiscal year than the
   run's.
-- **Locks** (ADR-0008): the stock is taken over after the material master
-  and before anything posts to the ledger (GR/IR take-overs, the journal),
-  so the run takes the `material_document` range before the `journal_we`
-  one, as every goods movement does. The valuations and stock rows it
-  writes are of materials no one else sees before it commits.
+- **Locks** (ADR-0008, review round 1): the stock is taken over after the
+  run has locked the order items it moves (`lockOrderItems`) and loaded
+  the receipts, and before anything posts to the ledger (GR/IR
+  take-overs, the journal), so the run takes the order items, then the
+  `goods_receipt`, `material_document` and `journal_we` ranges, in the
+  order a goods receipt into stock (`POST /v1/goods-receipts`) takes them.
+  The loaded receipts post no entry (`PostLoadedReceipt`; SAP's is in the
+  journal) and the invoiced take-over none, so the run holds no journal
+  range before its first initial entry, and a goods movement
+  (`material_document`, then `journal_we`) waits for none it holds first.
+  `TestStockLoadAndGoodsReceiptDoNotDeadlock` forces a user's receipt on a
+  migrated order to hold its order item while the run starts: the run
+  waits for it, and both finish. The valuations and stock rows it writes
+  are of materials no one else sees before it commits.
 - **Mock:** company 3000's steel sheet (moving, 1,200 KG worth 3,000.00 at
   3100/0001), shelving (standard 85.00 at both plants) and hex bolts
   (moving 12.00 per 100, 6,500 PC worth 780.00 at 3200/0001 and 0003), all

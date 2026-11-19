@@ -67,11 +67,21 @@ func TestTakeOver(t *testing.T) {
 	if none.Document != nil {
 		t.Errorf("the take-over without stock: got document %v, want none", none.Document.Number)
 	}
-	if g := held[got.Valuation.ID].Locations; len(held) != 2 || g[e.s1] != "60" || g[e.s2] != "40" {
-		t.Errorf("held: got %d valuations, the moving one at %v, want two and 60 at S1, 40 at S2", len(held), g)
+	if len(held) != 2 {
+		t.Errorf("held: got %d valuations, want two", len(held))
 	}
-	if entries[got.Document.ID] != *got.Document.EntryID || len(entries) != 1 {
-		t.Errorf("entries: got %v, want the moving document's entry %v alone", entries, *got.Document.EntryID)
+	g := held[got.Valuation.ID].Locations
+	if g[e.s1] != "60" {
+		t.Errorf("held at S1: got %q, want 60", g[e.s1])
+	}
+	if g[e.s2] != "40" {
+		t.Errorf("held at S2: got %q, want 40", g[e.s2])
+	}
+	if len(entries) != 1 {
+		t.Errorf("entries: got %d, want the moving document's alone", len(entries))
+	}
+	if entries[got.Document.ID] != *got.Document.EntryID {
+		t.Errorf("the moving document's entry: got %v, want %v", entries[got.Document.ID], *got.Document.EntryID)
 	}
 }
 

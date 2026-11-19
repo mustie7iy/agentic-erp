@@ -127,8 +127,11 @@ func (rc *reconciler) stockControls(ctx context.Context, s companyScope) error {
 		}
 		platform[key] = heldStockText(h, ms, s.format)
 		platformValues = append(platformValues, h.Valuation.Value)
-		if _, ok := accounts[rc.t.classes[s.cc][h.Valuation.ValuationClass].Stock]; !ok {
-			accounts[rc.t.classes[s.cc][h.Valuation.ValuationClass].Stock] = nil
+		// A class the active configuration no longer has posts to no stock
+		// account it names; the valuation's own comparison shows it.
+		account := rc.t.classes[s.cc][h.Valuation.ValuationClass].Stock
+		if _, ok := accounts[account]; !ok && account != "" {
+			accounts[account] = nil
 		}
 	}
 	if len(sapSide) == 0 && len(platform) == 0 {

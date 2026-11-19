@@ -151,7 +151,10 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 // hold until the load commits. So the load takes every one of those item
 // locks at once, in the order a goods movement takes them
 // (lockOrderItems), before the take-over and the first receipt; it never
-// waits for an order item while it holds a range. Before it the load
+// waits for an order item while it holds a range. The stock take-over
+// (stock) comes after the receipts and before the GR/IR take-over, so the
+// run takes goods_receipt, then material_document, then journal_we, as a
+// goods receipt into stock does. Before the item locks the load
 // holds only the partner, material and purchase order ranges, the
 // material changes' numbers and the materials it extends (locked first,
 // materialMaster), which nothing that locks order items takes, and its
@@ -170,7 +173,7 @@ func (l *loader) load(ctx context.Context) error {
 	l.foreign, _ = foreignDocuments(l.ext, l.t) // the quality gate refused the conflicts
 	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
 	l.lines = lineCentersOf(l.ext)
-	for _, fn := range []func(context.Context) error{l.centers, l.partners, l.materialMaster, l.stock, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
+	for _, fn := range []func(context.Context) error{l.centers, l.partners, l.materialMaster, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.stock, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
 		l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err

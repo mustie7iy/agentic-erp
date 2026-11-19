@@ -244,9 +244,14 @@ func (sp *stockPlan) shares(s *sapStock) []string {
 
 // unvalued refuses stock SAP holds of a material that loads at a plant
 // without a valuation there (MARD LABST without MBEW): its value cannot
-// be told.
+// be told. The issues are in MATNR/WERKS/LGORT order, whatever the
+// extract's row order.
 func (sp *stockPlan) unvalued(e *sap.Extract) {
-	for _, d := range e.MARD {
+	mard := slices.Clone(e.MARD)
+	slices.SortFunc(mard, func(a, b sap.MARD) int {
+		return cmp.Or(cmp.Compare(a.MATNR, b.MATNR), cmp.Compare(a.WERKS, b.WERKS), cmp.Compare(a.LGORT, b.LGORT))
+	})
+	for _, d := range mard {
 		_, loads := sp.loaded[d.MATNR][d.WERKS]
 		q := money.ParseRat(cmp.Or(strings.TrimSpace(d.LABST), "0"))
 		if loads && !sp.valued[d.MATNR+"/"+d.WERKS] && (q == nil || q.Sign() != 0) {

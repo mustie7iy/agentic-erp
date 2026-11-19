@@ -1292,14 +1292,16 @@ migrated_stock() {
   jq -r '.MBEW[] | "     MBEW \(.BWKEY) \(.MATNR): price control \(.VPRSV), \(if .VPRSV == "S" then .STPRS else .VERPR end) per \(.PEINH), class \(.BKLAS), stock \(.LBKUM) worth \(.SALK3)"' \
     "$WORK/data/extract.json"
   as ada
-  local m bolt doc
+  local m bolt doc valued=()
   QUIET=1 api 200 '' listMaterials -p page_size=50
   bolt=$(field '.items[] | select(.description == "Hex bolt M8") | .id')
   for m in $(field '.items[] | select(.description | test("^(Steel sheet|Shelving unit|Hex bolt)")) | .id'); do
     api 200 '.items[] | "valuation of \(.material_number) in \(.plant_code): \(.price_control), class \(.valuation_class), \(.price.amount) \(.price.currency) per \(.price_unit), stock \(.quantity.value) \(.quantity.unit) worth \(.value.amount)"' \
       listMaterialValuations -p "material_id=$m"
+    mapfile -t -O "${#valued[@]}" valued < <(field '.items[] | "\(.plant_code) \(.quantity.value) \(.value.amount)"')
   done
-  expect "the migrated valuations' stock and value" "$(field '[.items[] | "\(.plant_code) \(.quantity.value) \(.value.amount)"] | join(", ")')" "3200 6500 780.00"
+  expect "the migrated valuations' stock and value" "$(printf '%s\n' "${valued[@]}" | sort | paste -sd, - | sed 's/,/, /g')" \
+    "3100 1200 3000.00, 3100 40 3400.00, 3200 12 1020.00, 3200 6500 780.00"
   say "The hex bolts are kept in Laval's two stores, both coded in their plant (0001 is Mississauga's code too):"
   api 200 '.items[] | "stock of \(.material_number) at \(.plant_code)/\(.storage_location_code): \(.quantity.value) \(.quantity.unit)"' listStock -p "material_id=$bolt"
   expect "the hex bolts by storage location" "$(field '[.items[] | "\(.storage_location_code) \(.quantity.value)"] | sort | join(", ")')" "0001 1500, 0003 5000"

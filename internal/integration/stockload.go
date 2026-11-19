@@ -20,9 +20,15 @@ type Stock interface {
 // stock takes over the valuations and stock of the materials the run
 // loads (stocksOf), each once: a valuation an earlier run took over is
 // kept as it is, as SAP's stock is taken over at the cutover. It runs
-// after the material master and before anything posts to the ledger, so
-// the run takes the material document range before the journal's, as a
-// goods movement does (ADR-0008).
+// after the order item locks and the receipts and before anything posts
+// to the ledger, so the run takes the goods_receipt range, then the
+// material document range, then the journal's, as a goods receipt into
+// stock does (ADR-0008): it never waits for an order item, goods_receipt
+// or material_document while it holds a later one. The receipts before it
+// post no entry (PostLoadedReceipt; SAP's is in the journal), so the run
+// holds no journal range until its first initial entry, and a goods
+// movement (material_document, then journal_we) takes no lock the run
+// takes before material_document.
 func (l *loader) stock(ctx context.Context) error {
 	plants, _ := plantsOf(l.ext)                     // the quality gate refused their errors
 	mats, _ := materialsOf(l.ext, l.t.units, plants) // and reported the materials held back

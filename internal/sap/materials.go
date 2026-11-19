@@ -1,5 +1,7 @@
 package sap
 
+import "cmp"
+
 // --- Material master and plants (ADR-0082 As built S2o) ---
 //
 // The tables and fields below are those docs/design/plan-supply-chain.md
@@ -149,7 +151,7 @@ func filterMaterials(all, out *Extract, inCC func(string) bool) {
 	out.MARD = keep(all.MARD, func(r MARD) bool { return plants[r.WERKS] && materials[r.MATNR] })
 	areas := map[string]bool{}
 	for _, r := range out.T001W {
-		areas[r.BWKEY] = true
+		areas[cmp.Or(r.BWKEY, r.WERKS)] = true // a plant without BWKEY is its own valuation area, as the load reads it
 	}
 	out.MBEW = keep(all.MBEW, func(r MBEW) bool { return areas[r.BWKEY] && materials[r.MATNR] })
 }
