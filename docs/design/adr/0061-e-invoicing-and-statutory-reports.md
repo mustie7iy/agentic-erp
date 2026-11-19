@@ -1056,7 +1056,7 @@ Evatra. Decided by default:
   is not documented). Its participants are `0235:` and 10 digits (§5 C6),
   since the listing is asked per company by its TIN.
 - **The hosts.** The base URL is derived from the environment,
-  `einvoicing.EvatraHosts`: `https://api-stage.evatrauae.com` and
+  `einvoicing.EvatraHosts()`, a copy on each call: `https://api-stage.evatrauae.com` and
   `https://api.evatrauae.com`, the only hosts the adapter calls, through
   the provider's egress client (public addresses only, no redirects,
   system roots). No setting names a URL; only the walkthrough replaces both
@@ -1080,8 +1080,9 @@ Evatra. Decided by default:
 - **The token.** `jwt` is sent as `R-Auth`; it is kept in memory
   (`einvoicing.EvatraSessions`, one per server, keyed by the connector and
   a SHA-256 of its credentials, so a rotated secret logs in again) until a
-  minute before its `expirationDate`, read as RFC 3339; one Evatra dates
-  otherwise, or already past, serves its call and is not kept. A call
+  minute before its `expirationDate`, read as an RFC 3339 string; one
+  Evatra dates otherwise (a number, another string, none), or already
+  past, serves its call and is not kept (review round 1). A call
   answered 401 drops the token and is sent once more after a new login; a
   second 401 fails the step (retried by the workflow). No lock is held
   across a call: two steps racing may both log in.
@@ -1089,10 +1090,14 @@ Evatra. Decided by default:
   participant's TIN as `tin`, `documentType` INCOMING, `startDate` 60 days
   back and `endDate` tomorrow (UTC dates, `YYYY-MM-DD`), `page` from 1 and
   `size` 200, until `totalCount` is reached; each `invoiceList` entry's
-  `documentId` is the message id (the name get-document's path gives it)
-  and the participant asked for its receiver, so the document takes that
-  company. Fifty pages (10,000 documents of one company in the lookback)
-  fail the step rather than read on. The 60 days bound the listing, as
+  `documentId` (a string or an integer: its type is not documented) is the
+  message id (the name get-document's path gives it) and the participant
+  asked for its receiver, so the document takes that company; a document
+  listed again on a later page (the pages shifted by one received
+  meanwhile) is listed once, where it was first (review round 1).
+  Twenty-five pages (5,000 documents of one company in the lookback) fail
+  the step rather than read on: one fetch workflow records a document per
+  activity, about six history events each, within the engine's 51,200. The 60 days bound the listing, as
   Evatra keeps no acknowledgement; a document a fetch outage kept unread
   longer than that is not listed (the mandate's 14 business days to
   transmit fall well within it).

@@ -24,10 +24,13 @@ import (
 // hosts its adapter calls (ADR-0061 §3 As built E1; Evatra's API reference,
 // https://evatra.com/api, read 2026-11-19): the connector names the
 // environment, never a URL. Only the walkthrough replaces them, with its
-// stand-in (ERP_WALKTHROUGH_PROVIDER, development only).
-var EvatraHosts = map[string]string{
-	"stage": "https://api-stage.evatrauae.com",
-	"prod":  "https://api.evatrauae.com",
+// stand-in (ERP_WALKTHROUGH_PROVIDER, development only). Each call answers
+// a copy, so no caller changes the hosts the adapter calls.
+func EvatraHosts() map[string]string {
+	return map[string]string{
+		"stage": "https://api-stage.evatrauae.com",
+		"prod":  "https://api.evatrauae.com",
+	}
 }
 
 // Evatra's bounds as the adapter reads them: pages of 200 documents (its
@@ -41,9 +44,11 @@ const (
 	// evatraSkew is how long before its expirationDate a token is no
 	// longer used, so a call never carries one about to expire.
 	evatraSkew = time.Minute
-	// evatraMaxPages bounds one company's listing: 50 pages of 200, ten
-	// thousand documents in the lookback, far above a pilot company's.
-	evatraMaxPages = 50
+	// evatraMaxPages bounds one company's listing: 25 pages of 200, five
+	// thousand documents in the lookback, far above a pilot company's, and
+	// within what one fetch workflow's history holds (an activity per
+	// document, about six events each, under the engine's 51,200).
+	evatraMaxPages = 25
 )
 
 // evatraCredentials are an Evatra connector's secret: the API key and the
@@ -66,7 +71,7 @@ type evatraCredentials struct {
 // logged, audited or put in an error.
 type Evatra struct {
 	Client       *egress.Client
-	BaseURL      string            // EvatraHosts' for the connector's environment
+	BaseURL      string            // EvatraHosts()' for the connector's environment
 	CompanyID    string            // the company's id at Evatra (companyId)
 	Participants map[string]string // company code -> 0235:<TIN>
 	Sessions     *EvatraSessions
@@ -164,7 +169,7 @@ func credentialsRefused() error {
 // expirationDate it cannot read, or one already past, is used for this
 // call alone).
 func (e *Evatra) login(ctx context.Context) (string, error) {
-	body, _ := json.Marshal(e.credentials) // a struct of two strings always marshals
+	body, _ := json.Marshal(e.credentials) // #nosec G117 -- the login's own body, to Evatra over TLS alone; a struct of two strings always marshals
 	resp, err := e.Client.Post(ctx, e.BaseURL+"/auth/login", http.Header{"Content-Type": {"application/json"}}, body)
 	switch {
 	case err != nil:
@@ -175,16 +180,27 @@ func (e *Evatra) login(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("einvoicing: evatra login: answered %d", resp.Status)
 	}
 	var got struct {
-		JWT            string `json:"jwt"`
-		ExpirationDate string `json:"expirationDate"`
+		JWT            string          `json:"jwt"`
+		ExpirationDate json.RawMessage `json:"expirationDate"` // its form is not documented: read below
 	}
 	if err := json.Unmarshal(resp.Body, &got); err != nil || got.JWT == "" {
 		return "", fmt.Errorf("einvoicing: evatra login: an answer without a token")
 	}
-	if expires, err := time.Parse(time.RFC3339, got.ExpirationDate); err == nil {
+	if expires, ok := rfc3339(got.ExpirationDate); ok {
 		e.Sessions.put(e.key, evatraSession{jwt: got.JWT, expires: expires}, e.Now())
 	}
 	return got.JWT, nil
+}
+
+// rfc3339 reads an expirationDate that is an RFC 3339 string; any other
+// form (a number, none) is not read, and the token is not kept.
+func rfc3339(raw json.RawMessage) (time.Time, bool) {
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, text)
+	return t, err == nil
 }
 
 // token is the kept token, or a new one.
@@ -232,17 +248,39 @@ type searchRequest struct {
 }
 
 // searchAnswer is what the adapter reads of its answer: the documents'
-// count and ids (documentId, the name get-document's path gives it).
+// count and ids (documentId, the name get-document's path gives it, a
+// string or a number: its type is not documented).
 type searchAnswer struct {
 	TotalCount  int `json:"totalCount"`
 	InvoiceList []struct {
-		DocumentID string `json:"documentId"`
+		DocumentID json.RawMessage `json:"documentId"`
 	} `json:"invoiceList"`
+}
+
+// documentID is a listed document's id: a non-empty string, or an integer
+// as Evatra wrote it; false otherwise.
+func documentID(raw json.RawMessage) (string, bool) {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text, text != ""
+	}
+	var n json.Number
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	if err := d.Decode(&n); err != nil {
+		return "", false
+	}
+	if _, err := n.Int64(); err != nil {
+		return "", false
+	}
+	return n.String(), true
 }
 
 // Pending implements Provider: each company's received documents of the
 // lookback, page by page, in the order of its company codes; each
-// document's receiver is the participant it was listed for.
+// document's receiver is the participant it was listed for. A document
+// listed again (pages shifted by a document received meanwhile) is
+// listed once, where it was first.
 func (e *Evatra) Pending(ctx context.Context) ([]Message, error) {
 	codes := make([]string, 0, len(e.Participants))
 	for code := range e.Participants {
@@ -250,12 +288,18 @@ func (e *Evatra) Pending(ctx context.Context) ([]Message, error) {
 	}
 	slices.Sort(codes)
 	var out []Message
+	seen := map[string]bool{}
 	for _, code := range codes {
 		ms, err := e.received(ctx, e.Participants[code])
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, ms...)
+		for _, m := range ms {
+			if !seen[m.ID] {
+				seen[m.ID] = true
+				out = append(out, m)
+			}
+		}
 	}
 	return out, nil
 }
@@ -273,10 +317,11 @@ func (e *Evatra) received(ctx context.Context, participant string) ([]Message, e
 			return nil, err
 		}
 		for _, d := range page.InvoiceList {
-			if d.DocumentID == "" {
+			id, ok := documentID(d.DocumentID)
+			if !ok {
 				return nil, fmt.Errorf("einvoicing: evatra search-documents: a document without its documentId")
 			}
-			out = append(out, Message{ID: d.DocumentID, Receiver: participant})
+			out = append(out, Message{ID: id, Receiver: participant})
 		}
 		if len(page.InvoiceList) == 0 || len(out) >= page.TotalCount {
 			return out, nil

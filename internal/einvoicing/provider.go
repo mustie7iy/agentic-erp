@@ -64,11 +64,11 @@ type LocalAcknowledgement interface {
 
 // Adapters gives the provider of a connector's adapter, called through
 // client: Evatra's, at the host of the connector's environment among
-// evatra (nil: EvatraHosts), its tokens kept for every connector of the
+// evatra (nil: EvatraHosts()), its tokens kept for every connector of the
 // server, or the stand-in's.
 func Adapters(client *egress.Client, evatra map[string]string, now func() time.Time) func(Connector) (Provider, error) {
 	if evatra == nil {
-		evatra = EvatraHosts
+		evatra = EvatraHosts()
 	}
 	if now == nil {
 		now = time.Now

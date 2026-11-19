@@ -237,7 +237,7 @@ type Config struct {
 	Providers *egress.Client
 	// EvatraHosts are the base URLs of Evatra's environments its adapter
 	// calls (ADR-0061 As built E1); nil: Evatra's own two hosts
-	// (einvoicing.EvatraHosts). Only the walkthrough sets them, to its
+	// (einvoicing.EvatraHosts()). Only the walkthrough sets them, to its
 	// stand-in (ERP_WALKTHROUGH_PROVIDER, development only).
 	EvatraHosts map[string]string
 	// SAP is the client sap_odata connectors' systems are read through

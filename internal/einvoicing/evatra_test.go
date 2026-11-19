@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -306,6 +307,10 @@ func TestEvatraAnswers(t *testing.T) {
 		"a login refused":         {map[string]http.HandlerFunc{"POST /auth/login": answer(403, ``)}, pending, "integration.secret_unavailable"},
 		"a listing failing":       {map[string]http.HandlerFunc{"POST /invoice/search-documents": answer(503, ``)}, pending, ""},
 		"a listing not JSON":      {map[string]http.HandlerFunc{"POST /invoice/search-documents": answer(200, `not json`)}, pending, ""},
+		"a document id neither a string nor an integer": {map[string]http.HandlerFunc{"POST /invoice/search-documents": answer(200, `{"totalCount": 1, "invoiceList": [{"documentId": 1.5}]}`)},
+			pending, ""},
+		"a document id an object": {map[string]http.HandlerFunc{"POST /invoice/search-documents": answer(200, `{"totalCount": 1, "invoiceList": [{"documentId": {}}]}`)},
+			pending, ""},
 		"a document without its id": {map[string]http.HandlerFunc{"POST /invoice/search-documents": answer(200, `{"totalCount": 1, "invoiceList": [{"id": "D"}]}`)},
 			pending, ""},
 		"more documents than the pages": {map[string]http.HandlerFunc{"POST /invoice/search-documents": answer(200, full)}, pending, ""},
@@ -317,12 +322,8 @@ func TestEvatraAnswers(t *testing.T) {
 		"an answer beyond the client's": {map[string]http.HandlerFunc{"GET /invoice/get-document/D/XML": answer(200, huge+strings.Repeat("A", 8<<10))}, fetch, "einvoicing.document_too_large"},
 		"a document in Base64":          {map[string]http.HandlerFunc{"GET /invoice/get-document/D/XML": answer(200, doc+"\n")}, fetchIs("<Invoice/>"), "-"},
 		"a document as a JSON string":   {map[string]http.HandlerFunc{"GET /invoice/get-document/D/XML": answer(200, string(quoted))}, fetchIs("<Invoice/>"), "-"},
-		"an expirationDate not RFC 3339": {map[string]http.HandlerFunc{"POST /auth/login": answer(200, `{"jwt": "j", "expirationDate": "tomorrow"}`),
-			"POST /invoice/search-documents": answer(200, `{"totalCount": 0, "invoiceList": []}`)}, pending, "-"},
-		"an expirationDate already past": {map[string]http.HandlerFunc{"POST /auth/login": answer(200, `{"jwt": "j", "expirationDate": "2026-01-01T00:00:00Z"}`),
-			"POST /invoice/search-documents": answer(200, `{"totalCount": 0, "invoiceList": []}`)}, twice(pending), "-"},
-		"a listing cut off":  {map[string]http.HandlerFunc{"POST /invoice/search-documents": cutOff}, pending, ""},
-		"a document cut off": {map[string]http.HandlerFunc{"GET /invoice/get-document/D/XML": cutOff}, fetch, ""},
+		"a listing cut off":             {map[string]http.HandlerFunc{"POST /invoice/search-documents": cutOff}, pending, ""},
+		"a document cut off":            {map[string]http.HandlerFunc{"GET /invoice/get-document/D/XML": cutOff}, fetch, ""},
 		"acknowledging, locally": {map[string]http.HandlerFunc{}, func(p einvoicing.Provider) error {
 			p.(einvoicing.LocalAcknowledgement).AcknowledgesLocally()
 			return p.Acknowledge(ctx, "D")
@@ -354,6 +355,57 @@ func TestEvatraAnswers(t *testing.T) {
 			t.Errorf("got %v, want the login failed", err)
 		}
 	})
+}
+
+// TestEvatraTokensKept: a token is kept until a minute before its
+// expirationDate when that is an RFC 3339 string; one dated otherwise (a
+// number, a word) or already past serves its call and is not kept, so the
+// next call logs in again.
+func TestEvatraTokensKept(t *testing.T) {
+	for name, c := range map[string]struct {
+		expiration string
+		logins     int
+	}{
+		"an hour ahead":     {`"` + time.Now().Add(time.Hour).UTC().Format(time.RFC3339) + `"`, 1},
+		"a number":          {`1763600000000`, 2},
+		"not RFC 3339":      {`"tomorrow"`, 2},
+		"already past":      {`"2026-01-01T00:00:00Z"`, 2},
+		"no expirationDate": {`null`, 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var logins atomic.Int32
+			p := fakeEvatra(t, map[string]http.HandlerFunc{
+				"POST /auth/login": func(w http.ResponseWriter, _ *http.Request) {
+					logins.Add(1)
+					_, _ = w.Write([]byte(`{"jwt": "j", "expirationDate": ` + c.expiration + `}`)) // the client's read is checked
+				},
+				"POST /invoice/search-documents": answer(200, `{"totalCount": 0, "invoiceList": []}`)})
+			if err := twice(pending)(p); err != nil {
+				t.Fatal(err)
+			}
+			if got := int(logins.Load()); got != c.logins {
+				t.Errorf("logins for two listings: got %d, want %d", got, c.logins)
+			}
+		})
+	}
+}
+
+// TestEvatraListing: documentId is read as a string or an integer, and a
+// document a later page lists again (the pages shifted by a document
+// received meanwhile) is listed once, where it was first.
+func TestEvatraListing(t *testing.T) {
+	var page atomic.Int32
+	p := fakeEvatra(t, map[string]http.HandlerFunc{"POST /invoice/search-documents": func(w http.ResponseWriter, _ *http.Request) {
+		body := `{"totalCount": 3, "invoiceList": [{"documentId": "A"}, {"documentId": 17}]}` // page 1
+		if page.Add(1) > 1 {
+			body = `{"totalCount": 3, "invoiceList": [{"documentId": 17}, {"documentId": "C"}]}` // page 2, 17 again
+		}
+		_, _ = w.Write([]byte(body)) // the client's read is checked
+	}})
+	ms, err := p.Pending(context.Background())
+	if got := fmt.Sprint(ms); err != nil || got != "[{A "+usTIN+"} {17 "+usTIN+"} {C "+usTIN+"}]" {
+		t.Errorf("got %s %v, want A, 17 and C once each", got, err)
+	}
 }
 
 // cutOff closes the connection without an answer.
