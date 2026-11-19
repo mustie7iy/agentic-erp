@@ -23092,7 +23092,7 @@ func (s *Server) handleCreateMaterialRequest(args [0]string, argsEscaped bool, w
 // `inventory.transfer_target_required`, `inventory.same_location`); another movement type names
 // neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
 // `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`)
-// by `createGoodsReceipt`, an outbound delivery's goods issue (`601`) by
+// by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by
 // `postOutboundDeliveryGoodsIssue` and a count's differences (`701`, `702`) by
 // `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted
 // on the company's date today in its time zone and numbered from its `material_document` range of that

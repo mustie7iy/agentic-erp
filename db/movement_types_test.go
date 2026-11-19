@@ -15,7 +15,7 @@ import (
 // reversal 602 beside the count's 701 and 702, and the account
 // determination both the inventory_difference and the
 // inventory_cost_of_goods_sold keys. Reverting 000411 and 000410 restores
-// 000408's checks: 701, 702 and inventory_difference:<class> still taken,
+// 000408's checks, validated: 701, 702 and inventory_difference:<class> still taken,
 // 601, 602 and inventory_cost_of_goods_sold:<class> refused.
 func TestMovementTypesOfCountAndShipping(t *testing.T) {
 	need(t)
@@ -73,6 +73,15 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 	}
 	check(t, "after reverting 000411 and 000410", map[string]string{"601": "material_document_movement_type_check",
 		"602": "material_document_movement_type_check", "inventory_cost_of_goods_sold:3000": "account_determination_key_check"})
+	// 000408's state is validated checks, as 000391 left the reversal and
+	// reference checks.
+	for _, c := range []string{"material_document_movement_type_check", "material_document_reversal_check", "material_document_reference",
+		"account_determination_key_check"} {
+		var valid bool
+		if err := tx.QueryRow(ctx, `SELECT convalidated FROM pg_constraint WHERE conname = $1`, c).Scan(&valid); err != nil || !valid {
+			t.Errorf("after reverting 000411 and 000410, %s: got validated %v (%v), want validated", c, valid, err)
+		}
+	}
 }
 
 const (
