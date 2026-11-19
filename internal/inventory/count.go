@@ -357,17 +357,26 @@ func insertCount(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in CountInp
 // recordCount adds the audit record of a count document's step (ADR-0011):
 // its number, company, location, status and items, each naming its
 // material by id and number with its book quantity and, once counted, the
-// quantity counted. A count document publishes no event: the stock moves
+// quantity counted and, once posted, its difference, value and material
+// document; the approval request and the value it asked for (S2d). A count document publishes no event: the stock moves
 // only by the material documents its differences post, which publish
 // MaterialDocumentPosted.
 func recordCount(ctx context.Context, action string, d CountDocument, r refs) error {
 	items := make([]map[string]any, len(d.Items))
 	for i, it := range d.Items {
 		m := r.materials[it.MaterialID]
-		items[i] = map[string]any{"item_no": it.ItemNo, "material_id": it.MaterialID, "material_number": m.Number, "unit": m.BaseUnit,
-			"book_quantity": it.Book, "counted_quantity": it.Counted}
+		item := map[string]any{"item_no": it.ItemNo, "material_id": it.MaterialID, "material_number": m.Number, "unit": m.BaseUnit,
+			"book_quantity": it.Book, "counted_quantity": it.Counted, "difference": it.Difference, "material_document_id": it.MaterialDocumentID}
+		if it.Amount != nil {
+			item["difference_value"] = money.EventAmount(*it.Amount, d.Currency, d.Exponent)
+		}
+		items[i] = item
 	}
 	detail := map[string]any{"number": d.Number, "legal_entity_id": d.LegalEntityID, "plant_id": d.PlantID, "plant_code": r.units[d.PlantID].Code,
-		"storage_location_id": d.StorageLocationID, "storage_location_code": r.units[d.StorageLocationID].Code, "status": d.Status, "items": items}
+		"storage_location_id": d.StorageLocationID, "storage_location_code": r.units[d.StorageLocationID].Code, "status": d.Status, "items": items,
+		"workflow_request_id": d.WorkflowRequestID}
+	if d.DifferenceValue != nil {
+		detail["difference_value"] = money.EventAmount(*d.DifferenceValue, d.Currency, d.Exponent)
+	}
 	return audit.Record(ctx, action, "inventory.count_document", d.ID, detail) // its error names the action
 }

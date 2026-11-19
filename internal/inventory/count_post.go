@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"slices"
@@ -150,11 +151,30 @@ func totalValue(in countPost, copies map[valuationKey]*Valuation) (money.Minor, 
 		lines []Line
 	}{{countGain, append([]Line{}, in.gains...)}, {countLoss, append([]Line{}, in.losses...)}} {
 		if err := valueLines(m.lines, movementTypes[m.code], copies, nil, in.r); err != nil {
-			return 0, err
+			return 0, countValueErr(err, in.gains, copies, in.r)
 		}
 		lines = append(lines, m.lines...)
 	}
 	return absTotal(in.doc.Number, lines)
+}
+
+// countValueErr is valueLines' refusal as a count's posting gives it: a
+// surplus of a material without a moving price (the gain valueLines
+// stopped at, its valuation untouched) has no amount to name, as a
+// receipt has; its price is changed first. Any other refusal is as it is.
+func countValueErr(err error, gains []Line, vals map[valuationKey]*Valuation, r refs) error {
+	var p *problem.Problem
+	if !errors.As(err, &p) || p.Code != "inventory.no_price" {
+		return err
+	}
+	for _, l := range gains {
+		if v := vals[valuationKey{l.MaterialID, l.PlantID}]; v.PriceControl == MovingAverage && v.Price == 0 {
+			return problem.Unprocessable("inventory.no_price", "Material "+r.materials[l.MaterialID].Number+" has no moving price in plant "+
+				r.units[l.PlantID].Code+" yet, so its surplus has no value; set its price (POST /v1/material-valuations/{id}:changePrice) and post "+
+				"the differences again.")
+		}
+	}
+	return err
 }
 
 // absTotal is the total of the lines' values, gains and losses alike

@@ -235,7 +235,8 @@ func TestSurplusWithoutPrice(t *testing.T) {
 	e := countSetup(t)
 	m := e.material(t, "Unpriced bracket", "trading_good", true)
 	e.value(t, m, e.p1, "moving_average", "0.00")
-	if got := e.postDiffs(t, e.counted(t, []string{m}, "1"), 422); got["code"] != "inventory.no_price" {
+	if got := e.postDiffs(t, e.counted(t, []string{m}, "1"), 422); got["code"] != "inventory.no_price" || field(got) != nil ||
+		!strings.Contains(fmt.Sprint(got["detail"]), "changePrice") {
 		t.Errorf("got %v, want inventory.no_price", got)
 	}
 }

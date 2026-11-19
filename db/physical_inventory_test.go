@@ -105,6 +105,16 @@ func TestCountRules(t *testing.T) {
 				step(`UPDATE inventory.count_item SET counted_quantity = -1, entry_quantity = 1, entry_uom_code = 'EA', counted_at = now(), counted_by = $1
 					WHERE count_document_id = $2`, s.tenant, s.count)}
 		}, "count_item_counted_quantity_check"},
+		{"a negative entry", func(s countScene) []stmt {
+			return []stmt{s.document(s.count, "PI1", "counting"), s.item(s.count, 1, s.material, "10"),
+				step(`UPDATE inventory.count_item SET counted_quantity = 1, entry_quantity = -1, entry_uom_code = 'EA', counted_at = now(), counted_by = $1
+					WHERE count_document_id = $2`, s.tenant, s.count)}
+		}, "count_item_entry_quantity_check"},
+		{"a version 0", func(s countScene) []stmt {
+			return []stmt{step(`INSERT INTO inventory.count_document (tenant_id, id, legal_entity_id, fiscal_year, number, plant_id, storage_location_id,
+				document_date, version, created_by, updated_by) VALUES ($1, $2, $3, 2026, 'PI1', $4, $5, '2026-11-20', 0, $1, $1)`,
+				s.tenant, s.count, s.company, s.plant, s.location)}
+		}, "count_document_version_check"},
 		{"a count", func(s countScene) []stmt {
 			return []stmt{s.document(s.count, "PI1", "counting"), s.item(s.count, 1, s.material, "10"), s.counted(1)}
 		}, ""},
@@ -205,8 +215,8 @@ func TestCountTriggersAsOwner(t *testing.T) {
 // closed, a posted one its currency; an item's difference and value come
 // together, once it is counted, and a non-zero difference names the
 // material document of 701 or 702 that posted it, once the item is
-// closed, each set once; inventory.difference.approve is an approval
-// permission.
+// closed, each set once; a document's version is from 1 and an entry is of
+// zero or more; inventory.difference.approve is an approval permission.
 func TestDifferenceRules(t *testing.T) {
 	need(t)
 	const posted = `UPDATE inventory.count_item SET open = false, difference = $2::numeric, amount = 5, material_document_id = $3
@@ -243,6 +253,21 @@ func TestDifferenceRules(t *testing.T) {
 		{"a zero difference with a document", func(s countScene) []stmt {
 			return append(counted(s), s.inventoryScene.document(loss, "MD2", "702", nil), step(posted, s.count, "0", loss))
 		}, "count_item_posted"},
+		{"a document on an open item", func(s countScene) []stmt {
+			return append(counted(s), s.inventoryScene.document(loss, "MD2", "702", nil),
+				step(`UPDATE inventory.count_item SET difference = -1, amount = 5, material_document_id = $2 WHERE count_document_id = $1`, s.count, loss))
+		}, "count_item_posted"},
+		{"a difference of an item not counted", func(s countScene) []stmt {
+			return []stmt{s.document(s.count, "PI1", "counting"), s.item(s.count, 1, s.material, "10"),
+				step(`UPDATE inventory.count_item SET open = false, difference = 0, amount = 0 WHERE count_document_id = $1`, s.count)}
+		}, "count_item_posted"},
+		{"a value asked without its currency", func(s countScene) []stmt {
+			return append(counted(s), step(`UPDATE inventory.count_document SET status = 'pending_approval', workflow_request_id = $2, difference_value = 5,
+				version = 3 WHERE id = $1`, s.count, id()))
+		}, "count_document_approval"},
+		{"closed while counting", func(s countScene) []stmt {
+			return []stmt{s.document(s.count, "PI1", "counting"), step(`UPDATE inventory.count_document SET closed_at = now(), version = 2 WHERE id = $1`, s.count)}
+		}, "count_document_closed"},
 		{"a difference without its value", func(s countScene) []stmt {
 			return append(counted(s), step(`UPDATE inventory.count_item SET open = false, difference = 0 WHERE count_document_id = $1`, s.count))
 		}, "count_item_posted"},
