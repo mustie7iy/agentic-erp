@@ -22,7 +22,7 @@ func TestEInvoicingPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "einvoicing.einvoice.manage einvoicing.einvoice.read"; got != want {
+	if got, want := strings.Join(codes, " "), "einvoicing.einvoice.manage einvoicing.einvoice.read einvoicing.outgoing.read einvoicing.outgoing.render"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }

@@ -561,11 +561,12 @@ channels:
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
-    description: E-invoices received from the tenant's accredited provider (ADR-0061 §12).
+    description: E-invoices received from the tenant's accredited provider, and the e-invoices the ERP renders (ADR-0061 §12, As built E2).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       EInvoiceChanged: {$ref: '#/components/messages/EInvoiceChanged'}
+      OutgoingEInvoiceRendered: {$ref: '#/components/messages/OutgoingEInvoiceRendered'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -939,6 +940,7 @@ operations:
     channel: {$ref: '#/channels/einvoicing'}
     messages:
       - $ref: '#/channels/einvoicing/messages/EInvoiceChanged'
+      - $ref: '#/channels/einvoicing/messages/OutgoingEInvoiceRendered'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -4368,6 +4370,32 @@ components:
         - name: bytes_changed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000e02, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.einvoice_changed.v1, subject: 0192a000-0000-7000-8000-000000000e11, time: '2026-11-08T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {einvoice_id: 0192a000-0000-7000-8000-000000000e11, connector_id: 0192a000-0000-7000-8000-000000000e01, message_id: MSG-0001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: AE01, status: received, status_before: received, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, changed_sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752, changed_fetch_operation_id: 0192a000-0000-7000-8000-000000000e22, fetch_operation_id: 0192a000-0000-7000-8000-000000000e21, version: 3}
+    OutgoingEInvoiceRendered:
+      name: OutgoingEInvoiceRendered
+      x-webhook: true
+      title: Outgoing e-invoice rendered
+      summary: A posted customer document was rendered as a PINT AE e-invoice.
+      description: |
+        Emitted when `createOutgoingEInvoice` records an outgoing e-invoice
+        or renders an invalid one again (ADR-0061 §9, §12, As built E2):
+        its status after the render, `valid` (its XML kept, final) or
+        `invalid` (the rules that failed named in `problem_rules`), and
+        the status before (null when first rendered). A render of a valid
+        e-invoice changes nothing and emits nothing. It carries no
+        document content and no TRN. `GET /v1/outgoing-e-invoices/{id}`
+        returns the e-invoice at `version` or later. Subject is the
+        outgoing e-invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.einvoicing.outgoing_einvoice_rendered.v1}
+      payload: {$ref: '#/components/schemas/OutgoingEInvoiceRenderedV1'}
+      examples:
+        - name: valid
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f01, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.outgoing_einvoice_rendered.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-19T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {outgoing_einvoice_id: 0192a000-0000-7000-8000-000000000f11, customer_invoice_id: 0192a000-0000-7000-8000-000000000f01, customer_invoice_number: '1800000007', legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '5000', customer_id: 0192a000-0000-7000-8000-000000000301, customer_number: '100045', kind: invoice, type_code: '380', status: valid, status_before: null, problem_rules: [], sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, version: 1}
     CustomerInvoiceChanged:
       name: CustomerInvoiceChanged
       x-webhook: true
@@ -6106,6 +6134,27 @@ components:
         changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those other bytes: its Operation; null with `changed_sha256`. Added within v1, so not required (ADR-0041); every event carries it."}
         fetch_operation_id: {$ref: '#/components/schemas/Uuid', description: 'The fetch that recorded it: its Operation.'}
         version: {type: integer, description: "The document's version after the change."}
+    OutgoingEInvoiceRenderedV1:
+      type: object
+      required: [outgoing_einvoice_id, customer_invoice_id, customer_invoice_number, legal_entity_id, legal_entity_code, customer_id, customer_number, kind, type_code, status, status_before, problem_rules, sha256, version]
+      properties:
+        outgoing_einvoice_id: {$ref: '#/components/schemas/Uuid', description: '`einvoicing.outgoing_einvoice.id`.'}
+        customer_invoice_id: {$ref: '#/components/schemas/Uuid', description: The customer invoice or credit memo it renders.}
+        customer_invoice_number: {type: string, description: "That document's number, the e-invoice's (IBT-001)."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that issues it.}
+        legal_entity_code: {type: string, description: 'The company code, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: The customer it is issued to.}
+        customer_number: {type: string, description: "The customer's number."}
+        kind: {type: string, description: "Open enum: invoice, credit_note."}
+        type_code: {type: string, description: "Its PINT AE type code: 380 or 381."}
+        status: {type: string, description: "Its status after the render. Open enum: valid, invalid."}
+        status_before: {type: [string, 'null'], description: "Its status before; null when first rendered."}
+        problem_rules:
+          type: array
+          items: {type: string}
+          description: "The rules that failed (`einvoicing.pint_ae.*`); empty when valid."
+        sha256: {type: [string, 'null'], description: "The SHA-256 of its XML, hex; null while invalid."}
+        version: {type: integer, description: "The e-invoice's version after the change."}
     CustomerInvoiceChangedV1:
       type: object
       required: [customer_invoice_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, kind, invoice_date, net_amount, tax_amount, gross_amount, status, status_before, version]

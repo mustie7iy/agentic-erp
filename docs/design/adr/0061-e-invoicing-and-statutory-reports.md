@@ -524,11 +524,13 @@ billing documents and customer credit memos (ADR-0049's sales side, T75)
 are its source. The plan is the coordinator's (einvoicing-evatra, slices
 E1-E4 under T65h):
 
-- **E2** renders a billing document as a PINT AE tax invoice (380) and a
-  customer credit memo as a tax credit note (381, reason BTAE-03) from
-  their lines and tax items (code, category, rate, base, tax: ADR-0049's
-  boundary, no second mapping), checks them by §5's rules before anything
-  is sent, and archives the rendered XML with the document (§8);
+- **E2** renders a posted customer invoice (a billing document's is the
+  invoice it posted as) as a PINT AE tax invoice (380) and a customer
+  credit memo as a tax credit note (381, reason BTAE-03) from their items
+  and tax items (code, category, rate, base, tax: ADR-0049's boundary, no
+  second mapping), checks them by the mandatory-field rules of §5's
+  machinery before anything is kept or sent, and archives the rendered XML
+  write-once (§8); As built E2 says what it renders and leaves invalid;
 - **E3** gives it to the provider (`Provider.Send`) in the outbox's
   pattern: a submission recorded before the call, sent after the commit;
   Evatra has no idempotency key, so after a lost answer the document is
@@ -1040,8 +1042,9 @@ default:
   `accessagent.Unaudited`, which classed `einvoicing.einvoice.manage` as
   "use not recorded" until then, is removed (ADR-0072).
 
-**E1 (the Evatra connector and inbound; po:2026-11-19, the coordinator's
-plan einvoicing-evatra).** Built as §3 for Evatra's adapter and the
+### E1: the Evatra connector and inbound (po:2026-11-19, plan einvoicing-evatra.md)
+
+Built as §3 for Evatra's adapter and the
 receiving side of §4; no migration (the connector's settings are JSON,
 validated by integration). Evatra's API as the plan read it on 2026-11-19
 (https://evatra.com/api; its page needs JavaScript, so it was not fetched
@@ -1145,3 +1148,112 @@ Evatra. Decided by default:
   as plain text or JSON; the form of `compId`/`companyId`; whether
   `search-documents` with `tin` returns documents received for that
   participant; the sandbox's behaviour; rate limits.
+
+### E2: PINT AE rendering (po:2026-11-19, plan einvoicing-evatra.md)
+
+Built as §9 for rendering, no sending (E3): migration 000415
+(`einvoicing.outgoing_einvoice`, the permissions `einvoicing.outgoing.read`
+and `.render`, given to no role as T65a's), `POST /v1/outgoing-e-invoices`
+(`createOutgoingEInvoice`, human-only), `GET /v1/outgoing-e-invoices`,
+`/{id}` and `/{id}/content` (human-only), the event
+OutgoingEInvoiceRendered and the audit record `einvoicing.outgoing.rendered`.
+The format's files are `pintae.go` (the semantic model, Document, and
+`ParsePINTAE`), `pintae_ubl.go` (the UBL binding read), `pintae_render.go`
+(`RenderPINTAE`), `pintae_rules.go` (`Check`, the rule machinery) and
+`outgoing*.go` (the endpoints and the build from the customer document);
+`ParsePINTAE` reads back what the format renders, so E2's round trip is
+render, parse back, `Check` again, in-house only. Receiving is unchanged:
+documents stop at `received`; §5's validation of received documents,
+with its refusals and the round trip through it, is T65c's (not built,
+coordinator 2026-11-19), which may build on this parser. Decided by
+default:
+
+- **What is rendered.** A posted customer document of receivables, not the
+  billing document: a customer invoice as a tax invoice 380 (UBL
+  `Invoice`), a customer credit memo as a tax credit note 381 (UBL
+  `CreditNote`) naming the invoice it credits (IBT-025). A billing
+  document's e-invoice is the customer invoice it posted as (T79b), named
+  as `source_document_id`, and a credit memo request's its customer credit
+  memo (T85d), as SAP's Document and Reporting Compliance creates the
+  e-document from the accounting document. A debit memo is refused (422
+  `einvoicing.unsupported_document`; PINT AE has no debit note type, plan
+  default 6, a specialist question); a draft (409
+  `einvoicing.document_not_posted`); a company not in the UAE or not in AED
+  (422 `einvoicing.not_a_uae_company`).
+- **Where each field comes from** (ADR-0049's boundary, no second mapping):
+  the seller is the company (tenancy's name, the configuration's
+  `postal_address` with its region as the emirate, and the number of its
+  FTA registration in force on the invoice date, from its first period's
+  start to its last period's end, opened by tax filing's
+  `InvoiceNumbers`); the
+  buyer the customer (partner's `InvoiceParties`: its legal name or name,
+  its legal address on the invoice date with its region, its `AE_TRN` tax
+  identifier, opened); the endpoints (IBT-034, IBT-049) scheme `0235` and
+  the TRN's first ten digits (C6); each item a line with its tax code's
+  UN/CEFACT category and rate on the invoice date (ledger's `TaxCode`),
+  the VAT per category and rate the items' tax as receivables apportioned
+  it; the VAT in AED (IBT-006, IBT-111) on a document in another currency
+  the sum of the entry's output tax items in the company's currency, as
+  the posting converted it. An emirate is held as ISO 3166-2 (AE-DU, as the
+  emirate guard names it) and rendered as PINT AE's code (DXB); a region
+  already holding a PINT AE code keeps it.
+- **Values no ERP field supplies**, each a question for the specialist:
+  every line is quantity 1 of unit `C62` at its net amount (a customer
+  invoice's items carry no quantity, and units are not mapped to UN/ECE
+  Recommendation 20, §Gaps); the payment means is `30` (credit transfer);
+  BTAE-02 is `00000000` (none of its special cases is rendered); a credit
+  note's reason (BTAE-03) is the code and text the caller gives, rendered
+  as `cac:DiscrepancyResponse/cbc:ResponseCode` and `cbc:Description`, not
+  checked against a code list yet. BTAE-07 (the unique identifier number)
+  is read as carried by IBT-001, as C3 lists them together (to confirm).
+  Not rendered: BTAE-04, the per-line BTAE-08 and BTAE-10 (listed as
+  mandatory by the Ministry, C5, their UBL paths unknown here), BTAE-20,
+  BTAE-13, BTAE-15/16, IBT-030, exemption reasons (IBT-120/121) and
+  IBT-026. A mandatory term not rendered keeps the document invalid
+  (review round 1): a document not in AED is invalid naming BTAE-08 and
+  BTAE-10, and an E, O or AE line naming IBT-120 and IBT-121
+  (`einvoicing.pint_ae.not_rendered`), so no e-invoice the provider would
+  reject is kept as valid and final; they become valid once the
+  specialist confirms the terms and a slice renders them. E2 therefore
+  e-invoices AED documents of standard-rated and zero-rated items.
+- **Validation before keeping.** `Check` runs the mandatory-field rules
+  (§5 C3-C6): the specification and profile, the type code, number, BTAE-02,
+  the tax accounting currency, a credit note's invoice and reason, each
+  party's name, 15-digit TRN, `0235` endpoint (the seller's its TRN's first
+  ten digits), address line 1, city, country AE and emirate, the payment
+  means, each line's id, quantity, unit, name, description, category and
+  rate (above zero for S only), and the arithmetic with no tax rule (lines
+  to the net, net and VAT to the gross payable, one subtotal per category
+  and rate of its lines' net amounts, the subtotals to the VAT). A document
+  that fails is recorded `invalid` with its problems (rule, term, message)
+  and no XML, and is rendered again, in its row, once the master data is
+  corrected; a company whose VAT TRN is its tax group's is named, since its
+  own TIN is not recorded (C6). One that passes is rendered, parsed back
+  by `ParsePINTAE` and checked again (a render its own parser or rules
+  refuse is a defect, never kept), kept write-once under
+  `documents/<sha256>` (ADR-0016), and recorded `valid`: final, a second
+  render answering it unchanged with 200 (201 when the row is new). The
+  XML carries no time of rendering, so the same document renders the same
+  bytes. The store is called before the row is written, with no row lock
+  held; the upsert is guarded on `status = 'invalid'`, so a row another
+  request made valid meanwhile is answered as it is.
+- **TRNs.** The XML carries both TRNs in clear, as a tax invoice must;
+  `/content` is human-only (`x-agent: false`), and the event and audit
+  record carry no content and no TRN.
+- **Gaps found** (for the product owner, not built): a sales document's item
+  cannot carry an emirate (`sales.tax_jurisdiction_not_supported`), so a
+  UAE billing document cannot bill the standard-rated code S5, which levies
+  each line's emirate; until it can, the UAE company's standard-rated
+  sales e-invoiced here are customer invoices entered in receivables. The
+  walkthrough therefore renders a customer invoice and a credit memo, not
+  a billing document.
+- **The walkthrough.** `step_einvoice_render` (step 145, after E1's
+  `step_evatra_inbound` and before `step_close`): Ada gives 5000 a customer reconciliation account and its
+  postal address in Dubai (one governed change); Ruth creates a UAE
+  customer with its TRN and legal address in Dubai, approved by Carla,
+  posts an invoice of a standard-rated item in Dubai and a zero-rated one
+  and renders it, valid 380, downloading the XML with its hash and the
+  parties' TRNs, endpoints and emirates; a second render answers it
+  unchanged; a credit memo's render without its reason is refused, with
+  one it is a valid 381 naming the invoice; both are listed for the
+  company.
