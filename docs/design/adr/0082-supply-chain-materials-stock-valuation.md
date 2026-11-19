@@ -896,20 +896,26 @@ references are `integration.external_ref`'s.
   plant has already, no `material_document` range) are load refusals, and
   so is a take-over whose entry falls in another fiscal year than the
   run's.
-- **Locks** (ADR-0008, review round 1): the stock is taken over after the
-  run has locked the order items it moves (`lockOrderItems`) and loaded
-  the receipts, and before anything posts to the ledger (GR/IR
-  take-overs, the journal), so the run takes the order items, then the
-  `goods_receipt`, `material_document` and `journal_we` ranges, in the
-  order a goods receipt into stock (`POST /v1/goods-receipts`) takes them.
-  The loaded receipts post no entry (`PostLoadedReceipt`; SAP's is in the
-  journal) and the invoiced take-over none, so the run holds no journal
-  range before its first initial entry, and a goods movement
-  (`material_document`, then `journal_we`) waits for none it holds first.
-  `TestStockLoadAndGoodsReceiptDoNotDeadlock` forces a user's receipt on a
-  migrated order to hold its order item while the run starts: the run
-  waits for it, and both finish. The valuations and stock rows it writes
-  are of materials no one else sees before it commits.
+- **Locks** (ADR-0008, review rounds 1 and 2): the run locks the order
+  items it moves and every item of the orders whose GR/IR positions it
+  takes over (`lockOrderItems`), loads the receipts (`goods_receipt`; a
+  loaded receipt posts no entry, `PostLoadedReceipt`, and the invoiced
+  take-over none), takes those orders' GR/IR locks (`lockGRIR`, split out
+  of `takeOverGRIR`), and only then takes the stock over
+  (`material_document`, `journal_we`) and posts the GR/IR take-overs. So it
+  takes order items, `goods_receipt`, GR/IR, `material_document` and
+  `journal_we` in the order of every posting that takes them: a goods
+  receipt (`POST /v1/goods-receipts`; into stock it takes
+  `material_document` before the GR/IR lock, but on an item the run locked
+  first), a GR/IR clearing (GR/IR, then `journal_we`, no item), a goods
+  movement (`material_document`, then `journal_we`) and an invoice (items,
+  GR/IR, the journal). `TestStockLoadAndGoodsReceiptDoNotDeadlock` forces a
+  user's receipt on a migrated order to hold its order item while the run
+  starts, and `TestStockLoadAndGRIRClearingDoNotDeadlock` a transaction
+  holding an order's GR/IR lock that then takes `journal_we`, as a
+  clearing's posting does: the run waits for each, and both finish. The
+  valuations and stock rows it writes are of materials no one else sees
+  before it commits.
 - **Mock:** company 3000's steel sheet (moving, 1,200 KG worth 3,000.00 at
   3100/0001), shelving (standard 85.00 at both plants) and hex bolts
   (moving 12.00 per 100, 6,500 PC worth 780.00 at 3200/0001 and 0003), all

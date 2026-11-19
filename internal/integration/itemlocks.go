@@ -44,6 +44,16 @@ func (l *loader) lockOrderItems(ctx context.Context) error {
 			}
 		}
 	}
+	// Every item of an order whose GR/IR positions the run takes over or
+	// tops up: lockGRIR then takes the order's GR/IR lock, which a goods
+	// receipt into stock on any of its items takes after its
+	// material_document range (ADR-0082 As built S2p, Locks).
+	viaGRIR := grirOrders(l.grir)
+	for _, it := range l.ext.EKPO {
+		if viaGRIR[it.EBELN] {
+			add(it.EBELN, it.EBELP)
+		}
+	}
 	orders := slices.Collect(maps.Keys(byOrder))
 	slices.SortFunc(orders, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
 	for _, o := range orders {

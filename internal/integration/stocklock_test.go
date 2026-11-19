@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,8 +15,11 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
 // TestStockLoadAndGoodsReceiptDoNotDeadlock runs a delta load that takes
@@ -32,19 +37,8 @@ import (
 // while it waits for the item, and deadlock with the goods receipt here.
 func TestStockLoadAndGoodsReceiptDoNotDeadlock(t *testing.T) {
 	e := stockGRIRSetup(t)
-	first := halfReceived()
-	first.EKPO[0].MENGE = "10" // room for the person's receipt beside SAP's
-	write(t, e.dir, "first.json", first)
-	if _, got := e.act(t, e.run(t, e.connector(t, "first.json"), "documents", false, e.DE.String()), "start"); got["status"] != "loaded" {
-		t.Fatalf("first run: got %v, want loaded: %v", got["status"], got["report"])
-	}
-	order, _ := e.orderOf(t, "4500000001")
-	delta := receivedAgain(halfReceived())
-	delta.EKPO[0].MENGE = "10"
-	stock := withStock()
-	delta.T001W, delta.T001L, delta.MARA, delta.MAKT, delta.MARM, delta.MARC, delta.MARD, delta.MBEW = stock.T001W, stock.T001L, stock.MARA, stock.MAKT,
-		stock.MARM, stock.MARC, stock.MARD, stock.MBEW
-	write(t, e.dir, "delta.json", delta)
+	order := e.migratedGRIROrder(t)
+	write(t, e.dir, "delta.json", withStockOf(receivedAgain(halfReceived())))
 	run := e.run(t, e.connector(t, "delta.json"), "documents", false, e.DE.String())
 	_, tag := e.Must(200, "GET", "/v1/migration-runs/"+run["id"].(string), "", "")
 
@@ -129,4 +123,114 @@ func holdRange(t *testing.T, tenant, company uuid.UUID, documentType string) (in
 			t.Errorf("let go of the %s range: %v", documentType, err)
 		}
 	}
+}
+
+// TestStockLoadAndGRIRClearingDoNotDeadlock runs a delta load that takes
+// stock over (S2p) beside an order an earlier run loaded valued through
+// GR/IR, against a transaction holding the order's GR/IR lock that then
+// takes the journal_we range, as a GR/IR clearing's posting does (ADR-0082
+// As built S2p, Locks; sapstk's review round 2). The run takes the order's
+// GR/IR lock (lockGRIR) before its initial entries take journal_we, so it
+// waits for the clearing holding no range the clearing waits for; a run
+// that took the stock over first would hold journal_we and deadlock here.
+func TestStockLoadAndGRIRClearingDoNotDeadlock(t *testing.T) {
+	e := stockGRIRSetup(t)
+	order := e.migratedGRIROrder(t)
+	write(t, e.dir, "delta.json", withStockOf(halfReceived()))
+	run := e.run(t, e.connector(t, "delta.json"), "documents", false, e.DE.String())
+	_, tag := e.Must(200, "GET", "/v1/migration-runs/"+run["id"].(string), "", "")
+
+	gate, letGo := e.holdGRIR(t, order)
+	defer letGo()
+	load := e.async(apitest.Req{Method: "POST", Path: "/v1/migration-runs/" + run["id"].(string) + ":start", IfMatch: tag})
+	var loaded *httptest.ResponseRecorder
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		select {
+		case loaded = <-load:
+			return true
+		default:
+			return blockedBy(t, gate) != 0
+		}
+	}, "the run neither finished nor waited for the order's GR/IR lock")
+	letGo()
+	if loaded == nil {
+		loaded = <-load
+	}
+	if loaded.Code != 202 {
+		t.Errorf("the run: got %d, want 202: %s", loaded.Code, loaded.Body)
+	}
+	got, _ := e.Must(200, "GET", "/v1/migration-runs/"+run["id"].(string), "", "")
+	if got["status"] != "loaded" {
+		t.Fatalf("delta run: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	expectFields(t, "the delta run's load", report(got)["loaded"].(map[string]any), map[string]any{"material_valuations": 3.0, "initial_entries": 3.0})
+}
+
+// migratedGRIROrder loads halfReceived, its order 4500000001 of 10 units
+// (room for a person's receipt beside SAP's) valued through GR/IR, and
+// returns the platform's order.
+func (e env) migratedGRIROrder(t *testing.T) string {
+	t.Helper()
+	first := halfReceived()
+	first.EKPO[0].MENGE = "10"
+	write(t, e.dir, "first.json", first)
+	if _, got := e.act(t, e.run(t, e.connector(t, "first.json"), "documents", false, e.DE.String()), "start"); got["status"] != "loaded" {
+		t.Fatalf("first run: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	order, _ := e.orderOf(t, "4500000001")
+	return order
+}
+
+// withStockOf is the extract x, holding order 4500000001 of 10 units, with
+// withStock's plants, material master and stock.
+func withStockOf(x *sap.Extract) *sap.Extract {
+	x.EKPO[0].MENGE = "10"
+	s := withStock()
+	x.T001W, x.T001L, x.MARA, x.MAKT, x.MARM, x.MARC, x.MARD, x.MBEW = s.T001W, s.T001L, s.MARA, s.MAKT, s.MARM, s.MARC, s.MARD, s.MBEW
+	return x
+}
+
+// holdGRIR takes the order's GR/IR lock in a transaction of the tenant's
+// own (Postings.TakenOverGRIR, as a posting on the order takes it) and
+// holds it until letGo, which then takes company 2000's journal_we range
+// of 2026, as the clearing's WE posting does, before it rolls back. It
+// returns that transaction's backend.
+func (e env) holdGRIR(t *testing.T, order string) (int32, func()) {
+	t.Helper()
+	var pid atomic.Int32
+	held, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		err := errSetup
+		defer func() { done <- err }()
+		err = apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			tx, _, err := reqctx.Request(ctx)
+			if err != nil {
+				return err
+			}
+			var n int32
+			if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&n); err != nil {
+				return err
+			}
+			pid.Store(n)
+			if _, err := (ledger.Postings{}).TakenOverGRIR(ctx, e.DE, []uuid.UUID{uuid.MustParse(order)}); err != nil {
+				return err
+			}
+			close(held)
+			<-release
+			_, err = tx.Exec(ctx, `SELECT FROM config.number_range WHERE legal_entity_id = $1 AND document_type = 'journal_we' AND fiscal_year = 2026
+				FOR UPDATE`, e.DE)
+			return err
+		})
+	}()
+	select {
+	case <-held:
+	case err := <-done:
+		t.Fatalf("hold the GR/IR lock of order %s: %v", order, err)
+	}
+	return pid.Load(), sync.OnceFunc(func() {
+		close(release)
+		if err := <-done; err != nil {
+			t.Errorf("the transaction holding the GR/IR lock of order %s: %v", order, err)
+		}
+	})
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -80,12 +82,14 @@ func TestStockControlsOfAClassNoLongerConfigured(t *testing.T) {
 			t.Errorf("stock accounts with differences: got %s, want 0", c.Platform)
 		}
 	}
+	var keys []string
 	for _, d := range rc.rec.Diffs {
-		if d.Key == "stock account " {
-			t.Errorf("differences: got a stock account without a number")
+		keys = append(keys, d.Key)
+		if strings.HasPrefix(d.Key, "stock account") {
+			t.Errorf("differences: got %q, want no stock account's", d.Key)
 		}
 	}
-	if len(rc.rec.Diffs) == 0 {
-		t.Errorf("differences: got none, want the valuation's")
+	if !slices.Contains(keys, "stock P1/M-1") {
+		t.Errorf("differences: got %v, want the valuation's, stock P1/M-1", keys)
 	}
 }

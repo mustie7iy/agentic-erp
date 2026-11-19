@@ -365,29 +365,14 @@ func (q *qualityCheck) grirReceipts(orders map[string]bool, positions map[string
 // which a GR/IR account requires; a period or range the ledger refuses is
 // reported as the record's refusal.
 //
-// It comes after the receipts and takes the GR/IR locks of every order
-// first (takenOver), after the goods_receipt range and before any period
-// or the journal's ranges, the order in which a goods movement, an
-// invoice's posting and a GR/IR clearing take them, so it never waits for
-// an order's lock while holding a range another posting on the order
-// waits for.
+// It posts under the GR/IR locks lockGRIR took of every order, after the
+// goods_receipt and material_document ranges (the receipts, the stock
+// take-over) and before the journal's other ranges, the order in which a
+// goods movement, an invoice's posting and a GR/IR clearing take them, so
+// it never waits for an order's lock while holding a range another
+// posting on the order waits for.
 func (l *loader) takeOverGRIR(ctx context.Context) error {
-	orders, err := l.grirValued(ctx)
-	if err != nil {
-		return err
-	}
-	taken, err := l.takenOver(ctx, orders)
-	if err != nil {
-		return err
-	}
-	loaded, err := l.loadedBy(ctx, orders)
-	if err != nil {
-		return err
-	}
-	years, err := l.runYears(ctx, taken, loaded)
-	if err != nil {
-		return err
-	}
+	orders, taken, loaded, years := l.grirLocked.orders, l.grirLocked.taken, l.grirLocked.loaded, l.grirLocked.years
 	nos := itemNos(l.ext)
 	for _, order := range sortedKeys(orders) {
 		items := l.grirItems(order, nos, taken[orders[order]].Items)
@@ -417,6 +402,46 @@ func (l *loader) takeOverGRIR(ctx context.Context) error {
 			*count += len(items)
 		}
 	}
+	return nil
+}
+
+// grirLock is what lockGRIR read under the orders' GR/IR locks for
+// takeOverGRIR: the orders valued through GR/IR by EBELN, what earlier
+// runs took over of them, the runs that loaded them and those runs'
+// fiscal years.
+type grirLock struct {
+	orders map[string]uuid.UUID
+	taken  map[uuid.UUID]ledger.GRIRTakenOverOrder
+	loaded map[string]uuid.UUID
+	years  map[uuid.UUID]int32
+}
+
+// lockGRIR takes the GR/IR locks of every order takeOverGRIR posts on
+// (takenOver) and reads what it needs under them. It runs after the
+// receipts and before the stock take-over (S2p), so the run takes the
+// order items, goods_receipt, the GR/IR locks, material_document and
+// journal_we in that order: a GR/IR clearing takes an order's GR/IR lock
+// and then journal_we, and a goods receipt into stock its order item,
+// goods_receipt, material_document and then the GR/IR lock, whose items
+// the run locked first (lockOrderItems).
+func (l *loader) lockGRIR(ctx context.Context) error {
+	orders, err := l.grirValued(ctx)
+	if err != nil {
+		return err
+	}
+	taken, err := l.takenOver(ctx, orders)
+	if err != nil {
+		return err
+	}
+	loaded, err := l.loadedBy(ctx, orders)
+	if err != nil {
+		return err
+	}
+	years, err := l.runYears(ctx, taken, loaded)
+	if err != nil {
+		return err
+	}
+	l.grirLocked = grirLock{orders: orders, taken: taken, loaded: loaded, years: years}
 	return nil
 }
 
