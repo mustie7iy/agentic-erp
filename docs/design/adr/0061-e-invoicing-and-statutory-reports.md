@@ -1019,8 +1019,12 @@ The format's files are `pintae.go` (the semantic model, Document, and
 `ParsePINTAE`), `pintae_ubl.go` (the UBL binding read), `pintae_render.go`
 (`RenderPINTAE`), `pintae_rules.go` (`Check`, the rule machinery) and
 `outgoing*.go` (the endpoints and the build from the customer document);
-the parse side reads what the format renders, the base §5's validation of
-received documents (T65c, not built) uses. Decided by default:
+`ParsePINTAE` reads back what the format renders, so E2's round trip is
+render, parse back, `Check` again, in-house only. Receiving is unchanged:
+documents stop at `received`; §5's validation of received documents,
+with its refusals and the round trip through it, is T65c's (not built,
+coordinator 2026-11-19), which may build on this parser. Decided by
+default:
 
 - **What is rendered.** A posted customer document of receivables, not the
   billing document: a customer invoice as a tax invoice 380 (UBL
