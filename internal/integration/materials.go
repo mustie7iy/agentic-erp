@@ -338,11 +338,11 @@ func factor(s string) (int32, bool) {
 		return 0, false
 	}
 	whole, _, _ := strings.Cut(s, ".")
-	n, err := strconv.Atoi(whole)
+	n, err := strconv.ParseInt(whole, 10, 32)
 	if err != nil || n < 1 || n > maxFactor {
 		return 0, false
 	}
-	return int32(n), true // at most maxFactor
+	return int32(n), true
 }
 
 // materialMaster checks the plants, storage locations and materials
