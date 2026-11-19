@@ -5662,16 +5662,23 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "A shipping clerk creates an outbound delivery for a confirmed sales order's items from a plant and storage location and records the picked quantities",
-      "r": "S2a · docs/design/plan-supply-chain.md §S2a",
+      "r": "S2a · docs/design/plan-supply-chain.md §S2a · ADR-0083 and As built · db/migrations/000409 · internal/shipping · shipping.outbound_delivery, .outbound_delivery_item · sales.delivery_assignment, sales_order_item.in_delivery_quantity · POST /v1/outbound-deliveries · GET /v1/outbound-deliveries · GET /v1/outbound-deliveries/{id} · POST /v1/outbound-deliveries/{id}:pick · sales.Endpoints.Ship · inventory.Endpoints.Held · OutboundDeliveryChanged · shipping.delivery.read, .write · walkthrough step_outbound_delivery",
       "src": "po:2026-11-17",
       "c": []
      },
      {
-      "s": "T",
-      "t": "Posting the delivery's goods issue reduces stock and posts the cost of goods sold at the valuation price; billing bills the delivered quantities and profitability shows cost of sales",
-      "r": "S2b · docs/design/plan-supply-chain.md §S2b",
+      "s": "D",
+      "t": "A warehouse clerk posts a picked outbound delivery's goods issue (601): the picked quantities leave stock valued at the valuation's price, the cost of goods sold posted from the stock account, the rest given back to the order; the sales order's items are delivered by it and billed from it, and a material kept in stock is no longer confirmed as delivered by hand",
+      "r": "S2b1 · docs/design/plan-supply-chain.md §S2b1 · ADR-0083 and As built · ADR-0082 As built S2b1 · db/migrations/000410, 000411 · inventory movement types 601, 602 · inventory.Endpoints.IssueForDelivery · config InventoryAccounts.cost_of_goods_sold · sales.Endpoints.Issue · sales.delivery outbound_delivery_*, material_document_*, delivery_item.cost_amount · POST /v1/outbound-deliveries/{id}:postGoodsIssue · shipping.goods_issue.post · sales.delivery_by_goods_issue · inventory.reverse_goods_issue · walkthrough step_goods_issue, step_material_items",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Net revenue by profitability segment shows each customer and item key's cost of sales from the goods issues of the period and its margin",
+      "r": "S2b2 · docs/design/plan-supply-chain.md §S2b2 · ADR-0083 §6 and As built · ADR-0075 As built S2b2 · sales.Segment.Cost, .Margin · ProfitabilityRow/Totals cost_of_sales, margin · includes_cost true · walkthrough step_goods_issue (goods_issue_margin)",
       "src": "po:2026-11-17",
       "c": []
      },

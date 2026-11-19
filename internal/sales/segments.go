@@ -26,11 +26,14 @@ type SegmentQuery struct {
 // Segment is a customer and item key's figures, minor units of the
 // query's currency: the gross value billed, the discounts taken off it,
 // the credit memos posted against it and Net, the first less the other
-// two. ItemKey is nil for the customer's items without a key.
+// two; Cost, the cost of goods sold its goods issues posted (ADR-0083
+// §6), and Margin, Net less Cost. ItemKey is nil for the customer's items
+// without a key.
 type Segment struct {
 	CustomerID                     uuid.UUID
 	ItemKey                        *string
 	Gross, Discounts, Credits, Net money.Minor
+	Cost, Margin                   money.Minor
 }
 
 // segmentsSQL adds up the segments. A billing item's gross value is its
@@ -48,7 +51,10 @@ type Segment struct {
 // cancellation may leave, and each part is fixed once billed. A document
 // that posted counts on its posting date; its cancellation (T79c) counts
 // on its own date, the document's gross and discount taken off. A credit
-// counts its own posting date and its billing item's segment.
+// counts its own posting date and its billing item's segment. A goods
+// issue's cost counts on its date, the date its cost of goods sold
+// posted, in the segment of the order item it delivered, for an order in
+// the query's currency, as its revenue counts (ADR-0083 §6).
 const segmentsSQL = `WITH parts AS (
 	SELECT b.id, b.customer_id, b.posting_date, oi.item_key, i.net_amount,
 		CASE WHEN d.discount = 0 OR i.net_amount = i.order_net_amount THEN d.discount
@@ -81,16 +87,26 @@ const segmentsSQL = `WITH parts AS (
 	JOIN sales.sales_order_item oi ON oi.tenant_id = i.tenant_id AND oi.sales_order_id = i.sales_order_id AND oi.item_no = i.order_item_no
 	WHERE r.legal_entity_id = $1 AND r.status = 'posted' AND r.posting_date BETWEEN $2 AND $3 AND b.currency = $4
 		AND ($5::uuid IS NULL OR r.customer_id = $5)
+), issued AS (
+	SELECT o.customer_id, oi.item_key, i.cost_amount
+	FROM sales.delivery d
+	JOIN sales.sales_order o ON o.tenant_id = d.tenant_id AND o.id = d.sales_order_id
+	JOIN sales.delivery_item i ON i.tenant_id = d.tenant_id AND i.delivery_id = d.id
+	JOIN sales.sales_order_item oi ON oi.tenant_id = i.tenant_id AND oi.sales_order_id = i.sales_order_id AND oi.item_no = i.order_item_no
+	WHERE o.legal_entity_id = $1 AND d.outbound_delivery_id IS NOT NULL AND d.delivery_date BETWEEN $2 AND $3 AND o.currency = $4
+		AND ($5::uuid IS NULL OR o.customer_id = $5)
 )
-SELECT customer_id, item_key, sum(gross)::bigint, sum(discount)::bigint, sum(credit)::bigint, (sum(gross) - sum(discount) - sum(credit))::bigint
-FROM (SELECT customer_id, item_key, (net_amount + discount)::numeric AS gross, discount::numeric, 0::numeric AS credit FROM billed
-	UNION ALL SELECT customer_id, item_key, 0, 0, net_amount FROM credited) s
+SELECT customer_id, item_key, sum(gross)::bigint, sum(discount)::bigint, sum(credit)::bigint, (sum(gross) - sum(discount) - sum(credit))::bigint,
+	sum(cost)::bigint, (sum(gross) - sum(discount) - sum(credit) - sum(cost))::bigint
+FROM (SELECT customer_id, item_key, (net_amount + discount)::numeric AS gross, discount::numeric, 0::numeric AS credit, 0::numeric AS cost FROM billed
+	UNION ALL SELECT customer_id, item_key, 0, 0, net_amount, 0 FROM credited
+	UNION ALL SELECT customer_id, item_key, 0, 0, 0, cost_amount FROM issued) s
 GROUP BY customer_id, item_key
 ORDER BY customer_id, item_key NULLS FIRST`
 
 // foreignSQL counts the posted billing documents, their cancellations
-// with a credit memo and the credit memo requests the query selects but
-// for their currency.
+// with a credit memo, the credit memo requests and the goods issues of
+// orders the query selects but for their currency.
 const foreignSQL = `SELECT
 	(SELECT count(*) FROM sales.billing_document b
 		WHERE b.legal_entity_id = $1 AND b.posting_date BETWEEN $2 AND $3 AND b.currency <> $4
@@ -100,11 +116,15 @@ const foreignSQL = `SELECT
 			AND ($5::uuid IS NULL OR b.customer_id = $5))
 	+ (SELECT count(*) FROM sales.credit_memo_request r JOIN sales.billing_document b ON b.tenant_id = r.tenant_id AND b.id = r.billing_document_id
 		WHERE r.legal_entity_id = $1 AND r.status = 'posted' AND r.posting_date BETWEEN $2 AND $3 AND b.currency <> $4
-			AND ($5::uuid IS NULL OR r.customer_id = $5))`
+			AND ($5::uuid IS NULL OR r.customer_id = $5))
+	+ (SELECT count(*) FROM sales.delivery d JOIN sales.sales_order o ON o.tenant_id = d.tenant_id AND o.id = d.sales_order_id
+		WHERE o.legal_entity_id = $1 AND d.outbound_delivery_id IS NOT NULL AND d.delivery_date BETWEEN $2 AND $3 AND o.currency <> $4
+			AND ($5::uuid IS NULL OR o.customer_id = $5))`
 
 // Segments are the company's figures by profitability segment, a
 // customer and an item key (ADR-0075 §6, T92a), from the billing
-// documents and credit memo requests the query selects, by customer id
+// documents, credit memo requests and goods issues (ADR-0083 §6) the
+// query selects, by customer id
 // and then item key, the segment without one first, and how many of the
 // documents posted in those days are in another currency, which are left
 // out. A sum beyond a 64-bit amount fails the read, never wraps. Company

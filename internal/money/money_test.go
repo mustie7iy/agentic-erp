@@ -40,6 +40,19 @@ func TestParseDecimal(t *testing.T) {
 	}
 }
 
+// TestQuantityOrZero: zero written as a plain decimal is a quantity
+// picked, besides what PositiveQuantity takes.
+func TestQuantityOrZero(t *testing.T) {
+	for in, ok := range map[string]bool{"0": true, "0.000": true, "000": true, "12.5": true, "-0": false, "": false, ".0": false, "0.1234567": false} {
+		t.Run(in, func(t *testing.T) {
+			err := QuantityOrZero(in)
+			if got := err == nil; got != ok {
+				t.Errorf("accepted: got %v (%v), want %v", got, err, ok)
+			}
+		})
+	}
+}
+
 // TestPositiveQuantity: what numeric(20,6) holds exactly and is above
 // zero, in the plain grammar Scale reads; nothing big.Rat or ParseDecimal
 // alone would read (a sign, space, a bare "." side).

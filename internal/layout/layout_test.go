@@ -136,6 +136,7 @@ var allowed = map[string][]string{
 	"mcp":                     {"apitools"},                                                                                    // the API as MCP tools for an agent host (ADR-0081)
 	"leases":                  {"config", "ledger", "partner", "tenancy"},                                                      // a leaf (ADR-0073 §1): tenancy, the partner context's suppliers and names, the ledger's cost centers, calendar and postings and the configuration through its ports
 	"inventory":               {"approvals", "config", "ledger", "materials", "tenancy"},                                       // inventory management (ADR-0082 §1, §3): the materials context's published API, tenancy's companies and org units, the ledger's cost centers and calendar and the configuration's number ranges and company dates through its ports; approvals: its count differences' requests (As built S2d)
+	"shipping":                {"config", "inventory", "materials", "partner", "sales", "tenancy"},                             // a leaf (ADR-0083 §1): sales' orders, what its deliveries hold of them and their goods issues, inventory's stock and goods issue (601), materials' published APIs and partner's customers' names; tenancy, the ledger's calendar and the configuration through its ports
 	"materials":               {"approvals", "config", "tenancy"},                                                              // the material master (ADR-0082 §1, §3): tenancy's companies and org units, the configuration's company dates through its ports; the ledger's calendar and the number ranges by ports in its own types; approvals: its changes' requests, as partner's (S1b)
 	"reconagent":              {"apitools", "llm"},
 	"recommend":               {"apitools", "llm"},                                       // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
@@ -160,7 +161,7 @@ var allowed = map[string][]string{
 // composition root and commands wire them like any context, and a context
 // may ask one a question through a port it declares itself, as partner
 // asks cash about planning groups.
-var leaves = map[string]bool{"assets": true, "cash": true, "closing": true, "collections": true, "consolidation": true, "credit": true, "einvoicing": true, "revenue": true, "grc": true, "records": true, "leases": true, "processmining": true}
+var leaves = map[string]bool{"assets": true, "cash": true, "closing": true, "collections": true, "consolidation": true, "credit": true, "einvoicing": true, "revenue": true, "grc": true, "records": true, "leases": true, "processmining": true, "shipping": true}
 
 // unit is the context a package under internal/ belongs to: its first path
 // segment, the platform package itself, a delivery agent (each agent under

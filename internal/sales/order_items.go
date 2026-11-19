@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -112,7 +111,8 @@ func (e *Endpoints) changeCheck(ctx context.Context, tx pgx.Tx, o Order, le tena
 // not also changed (422 sales.item_repeated naming removed_items[i]), an
 // item of the order (sales.unknown_order_item) that is not removed
 // already (sales.order_item_removed) and of which nothing is delivered
-// (sales.order_item_delivered; only what is delivered is billed). A
+// or held by an outbound delivery (sales.order_item_delivered; only what
+// is delivered is billed; ADR-0083 §4). A
 // removed item is marked with the change and is no longer ordered: its
 // change has nothing after it.
 func removeItems(o Order, items []OrderItem, changes []ItemChange, in OrderChangeInput) ([]OrderItem, []ItemChange, error) {
@@ -135,10 +135,9 @@ func removeItems(o Order, items []OrderItem, changes []ItemChange, in OrderChang
 			return nil, nil, problem.Invalid("sales.item_repeated", field, fmt.Sprintf("A change names an item once; item %d is named more than once.", n))
 		case o.Items[at].RemovedInChange != nil:
 			return nil, nil, itemRemoved(field, o, o.Items[at])
-		case money.ParseRat(o.Items[at].Delivered).Sign() != 0:
-			it := o.Items[at]
+		case o.Items[at].taken() != "":
 			return nil, nil, problem.Invalid("sales.order_item_delivered", field, fmt.Sprintf(
-				"Item %d of sales order %s has %s %s delivered, so it is not removed.", n, o.DocumentNumber, it.Delivered, it.Unit))
+				"Item %d of sales order %s has %s, so it is not removed.", n, o.DocumentNumber, o.Items[at].taken()))
 		}
 		named[n] = true
 		it := o.Items[at]

@@ -6720,3 +6720,106 @@ erDiagram
   `inventory.valuation.read` and `.write`, `inventory.count.write` (S2c),
   `inventory.count.post` and the approval permission
   `inventory.difference.approve` (S2d).
+
+## 3.36 Shipping (`shipping`)
+
+ADR-0083, S2a. Outbound deliveries of sales orders: the context reads the
+sales order through sales' published read and has sales hold what a
+delivery takes of it, reads materials and stock through materials' and
+inventory's published APIs and tenancy's companies and org units, and
+keeps no foreign key out of its schema but `ref`'s (02 §2.1). S2a
+(migration 000409) builds the schema with its outbox and inbox, the
+delivery and its items, and sales' bookkeeping of what deliveries hold.
+Nothing is deleted.
+
+```mermaid
+erDiagram
+  outbound_delivery ||--|{ outbound_delivery_item : "items"
+  outbound_delivery { uuid id PK
+    uuid legal_entity_id "tenancy: the order's and plant's company"
+    smallint fiscal_year
+    text number "outbound_delivery range, once per company and year"
+    uuid sales_order_id "sales"
+    text sales_order_number
+    uuid customer_id "partner"
+    text customer_number
+    uuid plant_id "tenancy"
+    uuid storage_location_id "tenancy"
+    text status "created, goods_issued"
+    date goods_issue_date "once issued"
+    uuid material_document_id "inventory: the 601, once issued"
+    text currency "the costs', once issued"
+    integer version }
+  outbound_delivery_item { uuid outbound_delivery_id PK
+    integer item_no PK
+    integer order_item_no "once per delivery"
+    uuid material_id "materials"
+    text description "1 to 200"
+    numeric quantity "above 0, the order item's unit"
+    text uom_code "ref"
+    numeric picked_quantity "0 to quantity"
+    bigint cost_amount "the goods issue's, not below 0" }
+```
+
+- `shipping.outbound_delivery`: a delivery (SAP LIKP), numbered 1 to 40
+  characters (`outbound_delivery_number_check`) once per company and
+  fiscal year (`outbound_delivery_number_once`), with the order's and
+  customer's numbers of 1 to 40 characters, in status `created` or
+  `goods_issued` (`outbound_delivery_status_check`), naming the goods
+  issue's day and material document exactly when it is goods-issued
+  (`outbound_delivery_goods_issue`). Its version moves with every change
+  (`outbound_delivery_touch`); the application updates its status, goods
+  issue, version and `updated_by` alone, while it is created
+  (`outbound_delivery_issued_fixed`, a trigger), and deletes none
+  (`outbound_delivery_no_delete`). The list reads by
+  `outbound_delivery_by_created_at`, an order's by
+  `outbound_delivery_by_order`. Its picking status is computed from its
+  items: `not_picked`, `partly_picked`, `picked`.
+- `shipping.outbound_delivery_item`: an item (LIPS) of a delivery
+  (`outbound_delivery_item_delivery_fkey`), numbered from 1
+  (`outbound_delivery_item_no_check`), of an order item once
+  (`outbound_delivery_item_order_item_once`,
+  `outbound_delivery_item_order_item_no_check`), a quantity above zero
+  (`outbound_delivery_item_quantity_check`) in a unit of measure
+  (`outbound_delivery_item_uom_code_fkey`), a description of 1 to 200
+  characters (`outbound_delivery_item_description_check`), picked from
+  zero to its quantity (`outbound_delivery_item_picked_check`) and, once
+  issued, its cost, not below zero (`outbound_delivery_item_cost_check`).
+  The application updates its picked quantity and cost alone, while its
+  delivery is created (`outbound_delivery_item_issued_fixed`, a trigger),
+  and deletes none (`outbound_delivery_item_no_delete`).
+- `sales.sales_order_item` gains `in_delivery_quantity`, 0 by default:
+  what outbound deliveries not yet issued hold of the item, never below
+  zero and, while above zero, with what is delivered at most what was
+  ordered (`sales_order_item_in_delivery`); a removed item holds none
+  (`sales_order_item_removed_unshipped`). The application does not set it.
+- `sales.delivery_assignment`: a quantity of an order item
+  (`delivery_assignment_order_item_fkey`) an outbound delivery takes
+  (positive) or gives back (negative), never zero
+  (`delivery_assignment_quantity_check`), with the delivery's id and
+  number (`delivery_assignment_number_check`). Insert-only
+  (`delivery_assignment_immutable`); each adds its quantity to its item's
+  `in_delivery_quantity` and moves its order's version, only a confirmed
+  order's (`delivery_assignment_order_confirmed`, a security definer
+  trigger); read by `delivery_assignment_by_order_item`.
+- `sales.sales_order`: an order an outbound delivery holds is not
+  cancelled (`sales_order_cancelled_unshipped`, a trigger).
+- `shipping.outbox`, `shipping.inbox`: the context's events
+  (`OutboundDeliveryChanged`).
+- S2b1 (migrations 000410, 000411): a delivery whose goods issue posted
+  names its cost's currency too (`outbound_delivery_goods_issue`,
+  `outbound_delivery_currency_fkey`). `inventory.material_document` takes
+  the movement types `601`, an outbound delivery's goods issue, which
+  shipping posts with the delivery's number as its `reference`, and its
+  reversal `602`, posted by no one yet (`material_document_movement_type_check`,
+  `material_document_reversal_check`, `material_document_reference`);
+  `ledger.account_determination` the key
+  `inventory_cost_of_goods_sold:<class>` (`account_determination_key_check`).
+  `sales.delivery` names the outbound delivery and the material document
+  of a goods issue's delivery, all four or none (`delivery_goods_issue`,
+  numbers of 1 to 40 characters), an outbound delivery once
+  (`delivery_outbound_delivery_once`); `sales.delivery_item` its cost, not
+  below zero (`delivery_item_cost_check`), with its currency
+  (`delivery_item_cost`, `delivery_item_cost_currency_fkey`).
+- Permissions `shipping.delivery.read`, `.write` and
+  `shipping.goods_issue.post`.

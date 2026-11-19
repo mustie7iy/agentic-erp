@@ -1718,9 +1718,10 @@ migrated_down_payment() {
 # trading goods with its inventory accounts (S1d, ADR-0082 §8; 1416 stock,
 # 2196 receipts without an order, 3996 initial entries, 5116 consumption,
 # 5126 scrapping, 5196 price differences, 5197 revaluation, 5198
-# inventory differences, S2d; no pack ships them), the inventory difference
-# tolerance of CAD 50.00 (S2d) and the physical_inventory range PI (S2c; no
-# pack ships it), and two codes of tax alone for the return's adjustments (kind adjustment,
+# inventory differences, S2d, 5016 cost of goods sold, S2b1; no pack ships
+# them), the inventory difference tolerance of CAD 50.00 (S2d), the
+# physical_inventory range PI (S2c) and the outbound_delivery range OD
+# (S2a; no pack ships either), and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
 # instalment paid (line 110) on 2300.
@@ -1759,6 +1760,7 @@ PILOT_SETTINGS='
       {"number": "2196", "name": "Goods received without an order", "type": "liability"},
       {"number": "3996", "name": "Initial entries of stock", "type": "equity"},
       {"number": "5116", "name": "Consumption of materials", "type": "expense"},
+      {"number": "5016", "name": "Cost of goods sold - trading goods", "type": "expense"},
       {"number": "5126", "name": "Scrapped materials", "type": "expense"},
       {"number": "5196", "name": "Inventory price differences", "type": "expense"},
       {"number": "5197", "name": "Inventory revaluation", "type": "expense"},
@@ -1771,7 +1773,8 @@ PILOT_SETTINGS='
     | .account_determination.payment_difference_expense = "6850"
     | .account_determination.payment_difference_revenue = "4850"
     | .account_determination.inventory = [{"valuation_class": "3100", "stock": "1416", "receipt": "2196", "initial_entry": "3996",
-        "consumption": "5116", "scrapping": "5126", "price_difference": "5196", "revaluation": "5197", "difference": "5198"}]
+        "consumption": "5116", "scrapping": "5126", "price_difference": "5196", "revaluation": "5197", "difference": "5198",
+        "cost_of_goods_sold": "5016"}]
     | .inventory_difference_tolerance = "50.00"
     | .receivables.payment_tolerance = {"underpayment_amount": "5.00", "underpayment_percent": "1", "overpayment_amount": "1.00",
         "overpayment_percent": "0.5"}
@@ -1798,7 +1801,8 @@ PILOT_SETTINGS='
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
 | .number_ranges += [{"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "physical_inventory", "fiscal_year": @YEAR@, "prefix": "PI", "first": 1, "last": 9999999}]'
+    {"company": "@CC@", "document_type": "physical_inventory", "fiscal_year": @YEAR@, "prefix": "PI", "first": 1, "last": 9999999},
+    {"company": "@CC@", "document_type": "outbound_delivery", "fiscal_year": @YEAR@, "prefix": "OD", "first": 1, "last": 9999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -11354,9 +11358,10 @@ step_expense_report() {
 # Ruth bills and posts them. The segment grows by the billed gross value,
 # the discount and the net value, exactly; the rows add up to the totals;
 # Northwind's net revenue is the net of its posted billing documents less
-# its posted credit memos; the report shows no cost and says so.
+# its posted credit memos; the report shows cost of sales, none yet:
+# nothing is shipped until step 135 (ADR-0083 §6).
 step_profitability() {
-  heading "Step 98 — Net revenue by profitability segment: per customer and item key the billed gross value, the discounts, the credit memos and the net revenue from the posted sales documents, the rows adding up to the totals; no cost shown"
+  heading "Step 98 — Net revenue by profitability segment: per customer and item key the billed gross value, the discounts, the credit memos and the net revenue from the posted sales documents, the rows adding up to the totals; no cost of sales yet"
   local customer=$CUSTOMER request=$CREDIT_REQUEST sales order doc before after credited billed memos want tag
   local row='"  \(.customer_number) \(.customer_name), \(.item_key // "no item key"): gross \(.gross_value.amount), discounts \(.discounts.amount), credit memos \(.credit_memos.amount), net revenue \(.net_revenue.amount) \(.net_revenue.currency)"'
   local report="\"net revenue by segment of $YEAR, periods \(.fiscal_period_from) to \(.fiscal_period_to) (\(.date_from) to \(.date_to)), in \(.currency); cost shown: \(.includes_cost); documents in another currency left out: \(.foreign_currency_documents)\", (.items[] | $row), \"  totals: gross \(.totals.gross_value.amount), discounts \(.totals.discounts.amount), credit memos \(.totals.credit_memos.amount), net revenue \(.totals.net_revenue.amount) \(.totals.net_revenue.currency)\""
@@ -11369,7 +11374,8 @@ step_profitability() {
   say "gross value billed, the discounts taken off it, the credit memos and the net revenue, from the posted billing"
   say "documents and credit memos. She looks at Northwind:"
   api 200 "$report" getProfitabilityReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "customer_id=$customer" -p page_size=200
-  expect "no cost shown" "$(field .includes_cost)" false
+  expect "cost shown" "$(field .includes_cost)" true
+  expect "no cost of sales yet" "$(field .totals.cost_of_sales.amount)" 0.00
   expect "the report on one page" "$(field '.next_page_token // ""')" ""
   expect "the rows add up to the totals" "$(field "$sums")" "$(field "$totals")"
   before=$(field "$bracket")
@@ -14188,6 +14194,21 @@ step_aging_by_center() {
   passed
 }
 
+# ship_order ORDER has Wade ship what is open of the order's stock items
+# from the Toronto plant's main store (ADR-0083): an outbound delivery,
+# picked in full, its goods issue posted.
+ship_order() {
+  local delivery picks
+  as wade
+  QUIET=1 api 201 '' createOutboundDelivery -body "{\"sales_order_id\": \"$1\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  delivery=$(field .id)
+  picks=$(field '{items: [.items[] | {item_no, quantity}]}')
+  QUIET=1 api 200 '' pickOutboundDelivery -p "id=$delivery" -if-match "$ETAG" -body "$picks"
+  api 200 '"  outbound delivery \(.number): \(.status) on \(.goods_issue_date), material document \(.material_document_number), cost of goods sold \(.cost_of_goods_sold.amount) \(.cost_of_goods_sold.currency)"' \
+    postOutboundDeliveryGoodsIssue -p "id=$delivery" -if-match "$ETAG"
+  ISSUED_COST=$(jq -rn --arg a "${ISSUED_COST:-0}" --arg c "$(field .cost_of_goods_sold.amount)" '(($a | tonumber) * 100 + ($c | tonumber) * 100) | round / 100')
+}
+
 # step_material_items is S1f (ADR-0082 As built S1f, plan-supply-chain.md):
 # Sally sells the M10 bracket by its material (S1f1): the item takes the
 # material's description and its number as its key, so the price Paula
@@ -14201,7 +14222,7 @@ step_aging_by_center() {
 # nothing.
 step_material_items() {
   heading "Step 135 — Items by material: a sales order item by its material, its description and number taken from it and priced by that number in boxes; the billing document naming the material; a pending material, another key and a unit not the material's refused; a requisition item by its material; the catalog's keys mapped onto materials once"
-  local material=$MATERIAL number description pending sales order day item doc tag
+  local material=$MATERIAL number description pending sales order item doc tag
   [ -n "$material" ] || fail "step 122's material is not there"
   as mira
   QUIET=1 api 200 '' getMaterial -p "id=$material"
@@ -14217,7 +14238,6 @@ step_material_items() {
   as sally
   accounts
   sales=$(account 4000)
-  day=$(company_day)
   item="\"quantity\": {\"value\": \"5\", \"unit\": \"BOX\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\""
   say "Sally orders 5 boxes of the bracket for Northwind by its material alone: the item takes its description and"
   say "number, and the price recorded for that number (S1f1):"
@@ -14235,7 +14255,7 @@ step_material_items() {
   refused 422 sales.invalid_material_quantity createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\",
       \"items\": [{\"material_id\": \"$material\", \"quantity\": {\"value\": \"5\", \"unit\": \"KG\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
   expect "the field refused" "$(field '.errors[0].field')" "items[0].quantity.unit"
-  say "The order is confirmed, delivered and billed; the billing document's item names the material:"
+  say "The order is confirmed, shipped and billed; the billing document's item names the material:"
   QUIET=1 api 200 '' getSalesOrder -p "id=$order"
   api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
   if [ "$(field .credit_block)" = blocked ]; then
@@ -14245,7 +14265,9 @@ step_material_items() {
     api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
     as sally
   fi
-  QUIET=1 api 201 '' confirmSalesDelivery -p "id=$order" -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"5\", \"unit\": \"BOX\"}}]}"
+  say "The bracket is kept in stock, so its delivery is a goods issue (S2b1): Wade ships the order from the main store:"
+  ship_order "$order"
+  as sally
   api 201 '"billing document \(.document_number): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key) \(.description), material \(.material_id): \(.quantity.value) \(.quantity.unit)")' \
     createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
   doc=$(field .id)
@@ -14781,6 +14803,154 @@ step_count() {
     getPhysicalInventoryDocument -p "id=$doc"
   expect "after the approval" "$(field '[.status, (.items[] | .difference_value.amount)] | join(" ")')" "posted 5.02 -55.00"
   passed
+}
+
+# step_outbound_delivery is S2a (ADR-0083, plan-supply-chain.md): Sally
+# sells Northwind 6 boxes of the bracket and a day's installation; Wade,
+# the warehouse clerk, creates an outbound delivery from Toronto's main
+# store, which takes the bracket's 6 boxes alone (installation is no
+# stock) and holds them on the order, so Sally can no longer change the
+# order below them; a second delivery finds nothing open and the
+# installation is refused naming its field. Wade picks 4 boxes, then all
+# 6: more than the delivery quantity is refused. DELIVERY is the
+# delivery, ORDER_SHIPPED its order, for step_goods_issue.
+step_outbound_delivery() {
+  heading "Step 142 — Outbound delivery and picking: a delivery from the main store takes what is open of an order's stock items and holds it on the order; a second finds nothing open, a service item is not shipped, the order is not changed below it; picking up to the delivery quantity, partly and in full"
+  local order delivery tag sales
+  [ -n "$MATERIAL" ] && [ -n "$MAIN_STORE" ] || fail "step 122's material and storage locations are not there"
+  as sally
+  accounts
+  sales=$(account 4000)
+  say "Sally sells Northwind 6 boxes of the bracket by its material and a day's installation, and confirms the order:"
+  api 201 '"sales order \(.document_number)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit)")' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"items\": [
+      {\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"6\", \"unit\": \"BOX\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"},
+      {\"description\": \"Installation, one day\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"400.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  order=$(field .id)
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    tag=$ETAG
+    as ruth
+    say "Northwind is over its credit limit; Ruth releases the block:"
+    api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+  fi
+  as wade
+  say "Wade creates an outbound delivery of the order from the Toronto plant's main store (SAP VL01N). Without items it"
+  say "takes what is open of every item of a material kept in stock there: the bracket's 6 boxes; the installation is"
+  say "confirmed as delivered by hand (T78c):"
+  api 201 '"outbound delivery \(.number) of \(.sales_order_number) for \(.customer_number) from \(.plant_code)/\(.storage_location_code): \(.status), \(.picking_status)", (.items[] | "  item \(.item_no) (order item \(.order_item_no)) \(.material_number) \(.description): \(.quantity.value) \(.quantity.unit), picked \(.picked_quantity.value)")' \
+    createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  delivery=$(field .id)
+  case "$(field .number)" in OD*) ;; *) fail "the delivery's number: got $(field .number), want one of the OD range" ;; esac
+  expect "the delivery's items" "$(field '[.items[] | "\(.order_item_no) \(.quantity.value) \(.quantity.unit)"] | join(", ")')" "1 6 BOX"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  expect "what the order holds in delivery" "$(field '[.items[] | "\(.in_delivery_quantity.value) \(.in_delivery_quantity.unit)"] | join(", ")')" "6 BOX, 0 EA"
+  say "A second delivery finds nothing open; the installation is no stock item:"
+  refused 422 sales.nothing_to_deliver createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  refused 422 shipping.item_not_stocked createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"items\": [{\"order_item_no\": 2, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].order_item_no"
+  as sally
+  say "Northwind asks for 5 boxes only; the delivery holds 6, so Sally's change is refused:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  refused 422 sales.quantity_below_delivered changeSalesOrder -p "id=$order" -if-match "$ETAG" \
+    -body '{"reason": "Northwind takes 5 boxes", "items": [{"item_no": 1, "quantity": {"value": "5", "unit": "BOX"}}]}'
+  as wade
+  say "Wade picks 4 boxes, then all 6; 7 is more than the delivery's quantity:"
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$delivery"
+  api 200 '"\(.number): \(.picking_status), \(.items[0].picked_quantity.value) of \(.items[0].quantity.value) \(.items[0].quantity.unit) picked"' \
+    pickOutboundDelivery -p "id=$delivery" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "4", "unit": "BOX"}}]}'
+  expect "the picking status" "$(field .picking_status)" partly_picked
+  tag=$ETAG
+  refused 422 shipping.exceeds_delivery_quantity pickOutboundDelivery -p "id=$delivery" -if-match "$tag" \
+    -body '{"items": [{"item_no": 1, "quantity": {"value": "7", "unit": "BOX"}}]}'
+  api 200 '"\(.number): \(.picking_status), \(.items[0].picked_quantity.value) of \(.items[0].quantity.value) \(.items[0].quantity.unit) picked, version \(.version)"' \
+    pickOutboundDelivery -p "id=$delivery" -if-match "$tag" -body '{"items": [{"item_no": 1, "quantity": {"value": "6", "unit": "BOX"}}]}'
+  expect "the picking status" "$(field .picking_status)" picked
+  api 200 '.items[] | "  \(.number) \(.sales_order_number): \(.status), \(.picking_status)"' listOutboundDeliveries -p "sales_order_id=$order"
+  DELIVERY=$delivery ORDER_SHIPPED=$order
+  passed
+}
+
+# step_goods_issue is S2b1 (ADR-0083 §5, plan-supply-chain.md): Wade
+# posts the goods issue of step 142's delivery: a material document of
+# movement type 601 referencing the delivery takes the 6 boxes out of the
+# main store at the moving price, and its WA entry posts the same value
+# from the stock account 1416 to the cost of goods sold 5016; the order
+# has its 6 boxes delivered, by the goods issue, with their cost. It posts
+# once. Sally confirms the installation by hand, which a stock item is
+# not, and bills the order: both items, the brackets as issued. Last,
+# S2b2: cost of sales and margin by profitability segment
+# (goods_issue_margin).
+step_goods_issue() {
+  heading "Step 143 — Goods issue: the picked delivery's 601 takes the stock at the moving price and posts its value to the cost of goods sold; the order delivered by it and billed; once only; a stock item not confirmed by hand; cost of sales and margin by profitability segment"
+  local before after doc cost day
+  [ -n "$DELIVERY" ] || fail "step 142's delivery is not there"
+  accounts
+  before=$(valuation "$MATERIAL")
+  as wade
+  say "Wade posts the goods issue of the picked delivery (SAP VL02N, post goods issue):"
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$DELIVERY"
+  api 200 '"outbound delivery \(.number): \(.status) on \(.goods_issue_date), material document \(.material_document_number), cost of goods sold \(.cost_of_goods_sold.amount) \(.cost_of_goods_sold.currency)", (.items[] | "  item \(.item_no) \(.material_number): \(.picked_quantity.value) \(.picked_quantity.unit) issued, cost \(.cost.amount)")' \
+    postOutboundDeliveryGoodsIssue -p "id=$DELIVERY" -if-match "$ETAG"
+  expect "the delivery's status" "$(field .status)" goods_issued
+  cost=$(field .cost_of_goods_sold.amount)
+  doc=$(field .material_document_id)
+  local tag=$ETAG
+  say "Its material document is a 601 referencing the delivery; its WA entry credits the stock and debits the cost of"
+  say "goods sold by the value the stock gave up:"
+  api 200 '"material document \(.number) (\(.movement_type) \(.movement_type_name)), reference \(.reference): \(.lines[0].quantity.value) \(.lines[0].quantity.unit) worth \(.lines[0].amount.amount)"' \
+    getMaterialDocument -p "id=$doc"
+  expect "the movement type" "$(field .movement_type)" 601
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the cost of goods sold, 5016" "$(field "[.lines[] | select(.account_id == \"$(account 5016)\") | .amount.amount] | join(\" \")")" "$cost"
+  expect "the stock, 1416" "$(field "[.lines[] | select(.account_id == \"$(account 1416)\") | .amount.amount] | join(\" \")")" "-$cost"
+  after=$(valuation "$MATERIAL")
+  say "  the bracket's valuation: $before before, $after after"
+  expect "the value the stock gave up" "$(jq -rn --arg b "$before" --arg a "$after" '(($b | split(": ")[1] | split(" ")[0] | tonumber) - ($a | split(": ")[1] | split(" ")[0] | tonumber)) * 100 | round')" \
+    "$(jq -rn --arg c "$cost" '($c | tonumber) * 100 | round')"
+  say "A goods issue posts once:"
+  refused 409 shipping.goods_issued postOutboundDeliveryGoodsIssue -p "id=$DELIVERY" -if-match "$tag"
+  as sally
+  QUIET=1 api 200 '' getSalesOrder -p "id=$ORDER_SHIPPED"
+  expect "the order's bracket" "$(field '.items[0] | "\(.delivered_quantity.value) delivered, \(.in_delivery_quantity.value) in delivery"')" "6 delivered, 0 in delivery"
+  api 200 '.items[] | "  delivery \(.delivery_no) on \(.delivery_date)\(if .outbound_delivery_number then " by goods issue of \(.outbound_delivery_number), material document \(.material_document_number)" else "" end): \([.items[] | "\(.quantity.value) \(.quantity.unit)\(if .cost then " cost \(.cost.amount)" else "" end)"] | join(", "))"' \
+    listSalesDeliveries -p "id=$ORDER_SHIPPED"
+  day=$(company_day)
+  say "The bracket is kept in stock: Sally does not confirm it as delivered by hand; the installation she does:"
+  refused 422 sales.delivery_by_goods_issue confirmSalesDelivery -p "id=$ORDER_SHIPPED" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"BOX\"}}]}"
+  QUIET=1 api 201 '' confirmSalesDelivery -p "id=$ORDER_SHIPPED" -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 2, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  say "Billing bills what is delivered: the brackets the goods issue delivered and the installation:"
+  api 201 '"billing document \(.document_number): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) = \(.net_amount.amount)")' \
+    createBillingDocument -body "{\"sales_order_id\": \"$ORDER_SHIPPED\"}"
+  expect "the items billed" "$(field '[.items[] | "\(.order_item_no) \(.quantity.value) \(.quantity.unit)"] | join(", ")')" "1 6 BOX, 2 1 EA"
+  ISSUED_COST=$(jq -rn --arg a "${ISSUED_COST:-0}" --arg c "$cost" '(($a | tonumber) * 100 + ($c | tonumber) * 100) | round / 100')
+  goods_issue_margin
+  passed
+}
+
+# goods_issue_margin is S2b2's part of step_goods_issue (ADR-0083 §6):
+# Carla reads Northwind's net revenue by profitability segment, which now
+# shows cost of sales: the bracket's segment, keyed by its material
+# number, carries the cost of the goods issues of steps 135 and 143, its
+# margin net revenue less it, and the rows add up to the totals.
+goods_issue_margin() {
+  local number row
+  as mira
+  QUIET=1 api 200 '' getMaterial -p "id=$MATERIAL"
+  number=$(field .number)
+  as carla
+  say "Carla reads Northwind's net revenue by profitability segment: each segment shows its cost of sales, the cost of"
+  say "goods sold its goods issues posted, and its margin (S2b2):"
+  api 200 '"includes cost: \(.includes_cost)", (.items[] | "  \(.item_key // "-"): net \(.net_revenue.amount), cost of sales \(.cost_of_sales.amount), margin \(.margin.amount) \(.margin.currency)"), "  totals: net \(.totals.net_revenue.amount), cost of sales \(.totals.cost_of_sales.amount), margin \(.totals.margin.amount)"' \
+    getProfitabilityReport -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "customer_id=$CUSTOMER" -p page_size=500
+  expect "includes cost" "$(field .includes_cost)" true
+  row=$(jq -r --arg n "$number" '.items[] | select(.item_key == $n) | "\(.cost_of_sales.amount) \((.net_revenue.amount | tonumber) - (.cost_of_sales.amount | tonumber) == (.margin.amount | tonumber))"' "$WORK/last.json")
+  expect "the bracket's cost of sales, and its margin net revenue less it" "$row" "$(printf '%.2f' "$ISSUED_COST") true"
+  expect "the rows' cost of sales add up to the totals'" "$(field '([.items[].cost_of_sales.amount | tonumber] | add * 100 | round) == (.totals.cost_of_sales.amount | tonumber * 100 | round)')" true
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it
@@ -16813,7 +16983,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_close'
 
 main() {
   stop_unseen

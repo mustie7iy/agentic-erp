@@ -14,11 +14,12 @@ import (
 
 // The account kinds of a valuation class (config.InventoryAccounts) a
 // movement type posts its value against (ADR-0082 §8; SAP's GBB
-// modifiers ZOB, BSA, VBR, VNG and INV, from memory); a transfer posts against
+// modifiers ZOB, BSA, VBR, VNG, INV and VAX, from memory); a transfer posts against
 // none but stock and price differences.
 var counterKinds = map[string]string{"501": config.InventoryReceipt, "502": config.InventoryReceipt, "561": config.InventoryInitialEntry,
 	"562": config.InventoryInitialEntry, "201": config.InventoryConsumption, "202": config.InventoryConsumption, "551": config.InventoryScrapping,
-	"552": config.InventoryScrapping, "701": config.InventoryDifference, "702": config.InventoryDifference}
+	"552": config.InventoryScrapping, "601": config.InventoryCostOfGoodsSold, "602": config.InventoryCostOfGoodsSold,
+	"701": config.InventoryDifference, "702": config.InventoryDifference}
 
 // entryRef is the journal entry a document or price change posted; all
 // nil when it posted none.

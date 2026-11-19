@@ -27,8 +27,8 @@ import (
 // customer and item key over a range of regular periods, from the sales
 // context's posted billing documents and credit memos (sales.Orders
 // .Segments), with the customers' numbers and names from the partner
-// context. It has no cost side: nothing posts a cost of goods sold per
-// item.
+// context, and each segment's cost of sales, the cost of goods sold its
+// goods issues posted, and its margin (ADR-0083 §6, S2b2).
 
 // Sales is what the profitability report reads from the sales context
 // (sales.Orders).
@@ -115,8 +115,8 @@ func (e *Endpoints) GetProfitabilityReport(ctx context.Context, params gen.GetPr
 	out := &gen.ProfitabilityReport{LegalEntityID: q.le.ID, CustomerID: apitypes.OptUUID(q.segments.Customer), FiscalYear: params.FiscalYear,
 		FiscalPeriodFrom: int32(q.from.Number), FiscalPeriodTo: int32(q.to.Number), DateFrom: q.from.Start, DateTo: q.to.End,
 		Currency: q.le.LocalCurrency, ForeignCurrencyDocuments: int32(foreign), // a count of documents, far below 2^31
-		Totals: gen.ProfitabilityTotals{GrossValue: amount(totals.Gross), Discounts: amount(totals.Discounts), CreditMemos: amount(totals.Credits),
-			NetRevenue: amount(totals.Net)}}
+		IncludesCost: true, Totals: gen.ProfitabilityTotals{GrossValue: amount(totals.Gross), Discounts: amount(totals.Discounts),
+			CreditMemos: amount(totals.Credits), NetRevenue: amount(totals.Net), CostOfSales: amount(totals.Cost), Margin: amount(totals.Margin)}}
 	page, next := q.page(rows)
 	if next != nil {
 		tok, _ := e.Pages.Encode(q.scope, *next) // strings, a uuid and a flag always encode
@@ -126,7 +126,7 @@ func (e *Endpoints) GetProfitabilityReport(ctx context.Context, params gen.GetPr
 	for i, r := range page {
 		out.Items[i] = gen.ProfitabilityRow{CustomerID: r.CustomerID, CustomerNumber: r.Number, CustomerName: r.Name,
 			ItemKey: apitypes.OptString(r.ItemKey), GrossValue: amount(r.Gross), Discounts: amount(r.Discounts),
-			CreditMemos: amount(r.Credits), NetRevenue: amount(r.Net)}
+			CreditMemos: amount(r.Credits), NetRevenue: amount(r.Net), CostOfSales: amount(r.Cost), Margin: amount(r.Margin)}
 	}
 	return out, nil
 }
@@ -161,7 +161,8 @@ func profitabilityTotals(rows []prRow) (sales.Segment, error) {
 	var t sales.Segment
 	for _, r := range rows {
 		var err error
-		for _, f := range []struct{ to, add *money.Minor }{{&t.Gross, &r.Gross}, {&t.Discounts, &r.Discounts}, {&t.Credits, &r.Credits}, {&t.Net, &r.Net}} {
+		for _, f := range []struct{ to, add *money.Minor }{{&t.Gross, &r.Gross}, {&t.Discounts, &r.Discounts}, {&t.Credits, &r.Credits}, {&t.Net, &r.Net},
+			{&t.Cost, &r.Cost}, {&t.Margin, &r.Margin}} {
 			if *f.to, err = money.Sum(*f.to, *f.add); err != nil {
 				return sales.Segment{}, fmt.Errorf("the totals: %w", err)
 			}

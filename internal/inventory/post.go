@@ -62,7 +62,7 @@ func (e *Endpoints) Post(ctx context.Context, in Input) (Document, error) {
 		return Document{}, err
 	}
 	mt, ok := movementTypes[in.MovementType]
-	if !ok || mt.reverses != "" || mt.order || mt.count {
+	if !ok || mt.reverses != "" || mt.order || mt.count || mt.delivery {
 		return Document{}, problem.Invalid("inventory.unknown_movement_type", "movement_type", fmt.Sprintf("%q is not a movement type that is posted; "+
 			"they are 501, 561, 201, 551, 311 and 301, and a reversal is posted by reversing its document.", in.MovementType))
 	}
@@ -360,7 +360,7 @@ type posting struct {
 	day          time.Time
 	headerText   *string
 	reversalOf   *uuid.UUID
-	reference    *string // a purchase order's goods receipt's number (101, 102)
+	reference    *string // a purchase order's goods receipt's number (101, 102), an outbound delivery's (601)
 	lines        []Line
 	items        []ItemInput
 }

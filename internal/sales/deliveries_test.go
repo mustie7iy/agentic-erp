@@ -106,7 +106,8 @@ func TestDeliveryConfirmed(t *testing.T) {
 		qty := func(v, u string) map[string]any { return map[string]any{"value": v, "unit": u} }
 		want := map[string]any{"delivery_id": got["id"], "delivery_no": float64(1), "sales_order_id": id, "document_number": order["document_number"],
 			"legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "customer_id": e.customer.String(), "customer_number": "BP70000001",
-			"delivery_date": today, "version": float64(3), "items": []any{
+			"delivery_date": today, "version": float64(3), "outbound_delivery_id": nil, "outbound_delivery_number": nil, "material_document_id": nil,
+			"material_document_number": nil, "items": []any{
 				map[string]any{"item_no": float64(1), "quantity": qty("1.5", "KG"), "delivered_quantity": qty("1.5", "KG")},
 				map[string]any{"item_no": float64(2), "quantity": qty("3", "EA"), "delivered_quantity": qty("3", "EA")}}}
 		if a, b := mustJSON(t, e.events(t, "sales_order_delivered", "sales_order_id", id)), mustJSON(t, []map[string]any{want}); a != b {

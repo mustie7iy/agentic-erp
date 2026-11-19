@@ -39,21 +39,33 @@ type DeliveryItem struct {
 	Description string  `json:"description"`
 	Quantity    string  `json:"quantity"`
 	Unit        string  `json:"unit"`
+	// Cost is what a goods issue's item took from the stock, minor units
+	// of CostCurrency with CostExponent digits (ADR-0083 §5); nil on a
+	// confirmation by hand.
+	Cost         *money.Minor `json:"cost_amount"`
+	CostCurrency *string      `json:"cost_currency"`
+	CostExponent int          `json:"cost_exponent"`
 }
 
 // Delivery is a row of sales.delivery with its items: a confirmation that
 // quantities of a sales order's items were delivered on a date (ADR-0067
-// §8). No is its number within the order. It moves no stock and posts
-// nothing.
+// §8). No is its number within the order. A confirmation by a person
+// moves no stock and posts nothing; one an outbound delivery's goods issue
+// wrote (ADR-0083 §5) names the delivery and its material document, nil
+// otherwise.
 type Delivery struct {
-	ID          uuid.UUID
-	No          int32
-	OrderID     uuid.UUID
-	OrderNumber string
-	Date        time.Time
-	Items       []DeliveryItem
-	CreatedAt   time.Time
-	CreatedBy   uuid.UUID
+	ID                     uuid.UUID
+	No                     int32
+	OrderID                uuid.UUID
+	OrderNumber            string
+	Date                   time.Time
+	OutboundDeliveryID     *uuid.UUID
+	OutboundDeliveryNumber *string
+	MaterialDocumentID     *uuid.UUID
+	MaterialDocumentNumber *string
+	Items                  []DeliveryItem
+	CreatedAt              time.Time
+	CreatedBy              uuid.UUID
 }
 
 // ItemDelivery is one delivery of an order item as Orders gives it: the
@@ -77,8 +89,10 @@ const itemDeliveries = `, 'deliveries', coalesce((SELECT json_agg(json_build_obj
 // reason orderSelect names the quotation by one.
 const deliverySelect = `SELECT d.id, d.delivery_no, d.sales_order_id,
 		(SELECT o.document_number FROM sales.sales_order o WHERE o.tenant_id = d.tenant_id AND o.id = d.sales_order_id), d.delivery_date,
+		d.outbound_delivery_id, d.outbound_delivery_number, d.material_document_id, d.material_document_number,
 		(SELECT json_agg(json_build_object('item_no', i.order_item_no, 'item_key', t.item_key, 'description', t.description,
-			'quantity', trim_scale(i.quantity)::text, 'unit', t.uom_code) ORDER BY i.order_item_no)
+			'quantity', trim_scale(i.quantity)::text, 'unit', t.uom_code, 'cost_amount', i.cost_amount, 'cost_currency', i.cost_currency,
+			'cost_exponent', (SELECT c.exponent FROM ref.currency c WHERE c.code = i.cost_currency)) ORDER BY i.order_item_no)
 		 FROM sales.delivery_item i JOIN sales.sales_order_item t ON t.tenant_id = i.tenant_id AND t.sales_order_id = i.sales_order_id
 			AND t.item_no = i.order_item_no
 		 WHERE i.tenant_id = d.tenant_id AND i.delivery_id = d.id), d.created_at, d.created_by
@@ -86,7 +100,8 @@ const deliverySelect = `SELECT d.id, d.delivery_no, d.sales_order_id,
 
 func scanDelivery(row pgx.Row) (Delivery, error) {
 	var d Delivery
-	err := row.Scan(&d.ID, &d.No, &d.OrderID, &d.OrderNumber, &d.Date, &d.Items, &d.CreatedAt, &d.CreatedBy)
+	err := row.Scan(&d.ID, &d.No, &d.OrderID, &d.OrderNumber, &d.Date, &d.OutboundDeliveryID, &d.OutboundDeliveryNumber, &d.MaterialDocumentID,
+		&d.MaterialDocumentNumber, &d.Items, &d.CreatedAt, &d.CreatedBy)
 	return d, errs.Wrapf(err, "scan delivery")
 }
 
@@ -102,9 +117,11 @@ func scanDelivery(row pgx.Row) (Delivery, error) {
 // each item is one of the order's, named once, with a quantity in its
 // unit of at most what is open (422, naming the request's field). The
 // database adds each quantity to the order item's delivered quantity and
-// moves the order's version (migration 000292). The audit record and
-// SalesOrderDelivered are written in the request's transaction. No stock
-// moves and nothing is posted.
+// moves the order's version (migration 000292). An item of a material
+// kept in stock is delivered by an outbound delivery's goods issue, not
+// by hand (422 sales.delivery_by_goods_issue; ADR-0083 §5). The audit
+// record and SalesOrderDelivered are written in the request's
+// transaction. No stock moves and nothing is posted.
 func (e *Endpoints) ConfirmDelivery(ctx context.Context, orderID uuid.UUID, in DeliveryInput) (Delivery, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -127,6 +144,9 @@ func (e *Endpoints) ConfirmDelivery(ctx context.Context, orderID uuid.UUID, in D
 		return Delivery{}, fmt.Errorf("sales: company of sales order %s: %w", o.ID, err)
 	}
 	if err := e.notAfterToday(ctx, le.Code, in.Date); err != nil {
+		return Delivery{}, err
+	}
+	if err := e.byHand(ctx, o, in.Items); err != nil {
 		return Delivery{}, err
 	}
 	if err := deliverable(o, in.Items); err != nil {
@@ -173,33 +193,40 @@ func (e *Endpoints) notAfterToday(ctx context.Context, company string, date time
 	return nil
 }
 
-// deliverable checks a delivery's items against the order's, read under
-// its lock (taking): each names an item of the order, once, with a
-// quantity more than zero in the item's unit that is at most the item's
-// open quantity, what was ordered less what is delivered; a removed item
-// (T78e) takes no delivery. Every refusal
-// names the request's own field, and the last the item with what is open
-// of it.
+// deliverable checks a delivery confirmation's items against the order's
+// (takeable), naming the request's items[i].item_no.
 func deliverable(o Order, in []DeliveryItemInput) error {
+	return takeable(o, in, "A delivery", "item_no")
+}
+
+// takeable checks the items a delivery or an outbound delivery takes of
+// the order, read under its lock (taking): each names an item of the
+// order, once, with a quantity more than zero in the item's unit that is
+// at most the item's open quantity, what was ordered less what is
+// delivered and what outbound deliveries hold (ADR-0083 §4); a removed
+// item (T78e) takes none. Every refusal names the request's own field
+// (items[i].noField or .quantity), and the last the item with what is
+// open of it.
+func takeable(o Order, in []ItemQuantity, document, noField string) error {
 	ordered := make(map[int32]OrderItem, len(o.Items))
 	for _, it := range o.Items {
 		ordered[it.ItemNo] = it
 	}
 	for i, d := range in {
 		if it, ok := ordered[d.ItemNo]; ok && it.RemovedInChange != nil {
-			return itemRemoved(fmt.Sprintf("items[%d].item_no", i), o, it)
+			return itemRemoved(fmt.Sprintf("items[%d].%s", i, noField), o, it)
 		}
 	}
-	short, err := taking{document: "A delivery", noField: "item_no",
+	short, err := taking{document: document, noField: noField,
 		find: func(no int32) (string, *big.Rat, bool) {
 			it, ok := ordered[no]
 			if !ok {
 				return "", nil, false
 			}
-			return it.Unit, new(big.Rat).Sub(money.ParseRat(it.Quantity), money.ParseRat(it.Delivered)), true
+			return it.Unit, it.open(), true
 		},
 		otherUnit: func(no int32, unit string) string {
-			return fmt.Sprintf("Item %d of sales order %s is in %s; its delivery is confirmed in that unit.", no, o.DocumentNumber, unit)
+			return fmt.Sprintf("Item %d of sales order %s is in %s; its delivery is in that unit.", no, o.DocumentNumber, unit)
 		}}.check(in)
 	switch {
 	case err != nil || short == nil:
@@ -208,9 +235,48 @@ func deliverable(o Order, in []DeliveryItemInput) error {
 		return problem.Invalid("sales.unknown_order_item", short.noField, fmt.Sprintf("Sales order %s has no item %d.", o.DocumentNumber, short.no))
 	}
 	it := ordered[short.no]
+	held := ""
+	if money.ParseRat(it.InDelivery).Sign() != 0 {
+		held = ", " + it.InDelivery + " in outbound deliveries"
+	}
 	return problem.Invalid("sales.exceeds_open_quantity", short.quantityField, fmt.Sprintf(
-		"Item %d of sales order %s has %s %s open for delivery (%s ordered, %s delivered); %s is more.",
-		short.no, o.DocumentNumber, money.PlainQuantity(short.open), it.Unit, it.Quantity, it.Delivered, short.quantity))
+		"Item %d of sales order %s has %s %s open for delivery (%s ordered, %s delivered%s); %s is more.",
+		short.no, o.DocumentNumber, money.PlainQuantity(short.open), it.Unit, it.Quantity, it.Delivered, held, short.quantity))
+}
+
+// byHand refuses confirming the delivery of an item of a material kept in
+// stock (422 sales.delivery_by_goods_issue naming items[i].item_no), what
+// is open of it or not: its delivery is an outbound delivery's goods issue
+// (ADR-0083 §5). A
+// service or free-text item, and one of a material kept in no stock, is
+// confirmed by hand.
+func (e *Endpoints) byHand(ctx context.Context, o Order, in []DeliveryItemInput) error {
+	var ids []uuid.UUID
+	for _, it := range o.Items {
+		if it.MaterialID != nil {
+			ids = append(ids, *it.MaterialID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	ms, err := e.Materials.Materials(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("sales: materials of sales order %s: %w", o.DocumentNumber, err)
+	}
+	for i, d := range in {
+		if d.ItemNo < 1 || int(d.ItemNo) > len(o.Items) {
+			continue // no item of the order: deliverable refuses it
+		}
+		it := o.Items[d.ItemNo-1] // items are numbered from 1 in order (insertItems)
+		if it.MaterialID == nil || !ms[*it.MaterialID].Stocked() {
+			continue
+		}
+		return problem.Invalid("sales.delivery_by_goods_issue", fmt.Sprintf("items[%d].item_no", i), fmt.Sprintf(
+			"Item %d of sales order %s is material %s, kept in stock: it is delivered by an outbound delivery's goods issue (createOutboundDelivery).",
+			it.ItemNo, o.DocumentNumber, ms[*it.MaterialID].Number))
+	}
+	return nil
 }
 
 // deliveries are the tables a delivery is written to.
@@ -247,12 +313,18 @@ func recordDelivery(ctx context.Context, d Delivery, after Order, le tenancy.Ent
 	for i, it := range d.Items {
 		items[i] = map[string]any{"item_no": it.ItemNo, "quantity": map[string]string{"value": it.Quantity, "unit": it.Unit},
 			"delivered_quantity": map[string]string{"value": delivered[it.ItemNo], "unit": it.Unit}}
+		if it.Cost != nil {
+			items[i]["cost"] = money.EventAmount(*it.Cost, *it.CostCurrency, it.CostExponent)
+		}
 	}
 	date := d.Date.Format(time.DateOnly)
 	payload := map[string]any{"delivery_id": d.ID, "delivery_no": d.No, "sales_order_id": after.ID, "document_number": after.DocumentNumber,
 		"legal_entity_id": after.LegalEntityID, "legal_entity_code": le.Code, "customer_id": after.CustomerID, "customer_number": customerNumber,
-		"delivery_date": date, "items": items, "version": after.Version}
-	detail := map[string]any{"sales_order_id": after.ID, "document_number": after.DocumentNumber, "delivery_no": d.No, "delivery_date": date, "items": items}
+		"delivery_date": date, "items": items, "version": after.Version, "outbound_delivery_id": d.OutboundDeliveryID,
+		"outbound_delivery_number": d.OutboundDeliveryNumber, "material_document_id": d.MaterialDocumentID,
+		"material_document_number": d.MaterialDocumentNumber}
+	detail := map[string]any{"sales_order_id": after.ID, "document_number": after.DocumentNumber, "delivery_no": d.No, "delivery_date": date, "items": items,
+		"outbound_delivery_number": d.OutboundDeliveryNumber, "material_document_number": d.MaterialDocumentNumber}
 	if err := audit.Record(ctx, "sales.delivery.confirm", "sales.delivery", d.ID, detail,
 		outbox.Event{Context: "sales", Name: "sales_order_delivered", AggregateType: "sales.sales_order", AggregateID: after.ID, Payload: payload}); err != nil {
 		return fmt.Errorf("sales: record delivery %s of sales order %s: %w", d.ID, after.ID, err)

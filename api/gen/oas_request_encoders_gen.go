@@ -1372,6 +1372,20 @@ func encodeCreateOrgUnitRequest(
 	return nil
 }
 
+func encodeCreateOutboundDeliveryRequest(
+	req *OutboundDeliveryCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreatePartnerChangeRequest(
 	req *PartnerChangeCreate,
 	r *http.Request,
@@ -2285,6 +2299,20 @@ func encodeParkFromEntryTemplateRequest(
 
 func encodeParkJournalEntryRequest(
 	req *JournalEntryCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodePickOutboundDeliveryRequest(
+	req *OutboundDeliveryPick,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

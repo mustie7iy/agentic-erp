@@ -82,7 +82,7 @@ func TestInventoryRules(t *testing.T) {
 		want string // empty: allowed
 	}{
 		{"a receipt into stock", func(s inventoryScene) []stmt { return s.received() }, ""},
-		{"an unknown movement type", func(s inventoryScene) []stmt { return []stmt{s.document(s.doc, "MD1", "601", nil)} }, "material_document_movement_type_check"},
+		{"an unknown movement type", func(s inventoryScene) []stmt { return []stmt{s.document(s.doc, "MD1", "999", nil)} }, "material_document_movement_type_check"},
 		{"an empty number", func(s inventoryScene) []stmt { return []stmt{s.document(s.doc, "", "561", nil)} }, "material_document_number_check"},
 		{"a number of 41 characters", func(s inventoryScene) []stmt {
 			return []stmt{s.document(s.doc, strings.Repeat("M", 41), "561", nil)}
@@ -471,6 +471,7 @@ func TestInventoryKeys(t *testing.T) {
 	need(t)
 	ctx := context.Background()
 	for _, c := range []struct{ key, want string }{{"inventory_stock:3000", ""}, {"inventory_revaluation:A1", ""}, {"inventory_difference:3000", ""},
+		{"inventory_cost_of_goods_sold:3000", ""},
 		{"inventory_bogus:3000", "account_determination_key_check"}, {"inventory_stock:30000", "account_determination_key_check"}} {
 		t.Run(c.key, func(t *testing.T) {
 			tx, err := testDB.Begin(ctx)
