@@ -543,7 +543,8 @@ default 4; no new ADR), each listed for the product owner's digest.
   names the customer by id and number and carries no free text, since a
   reason or a note may name people; audit actions
   `collections.dispute_case.open`, `.update`, `.close`, whose detail
-  holds the texts.
+  held the texts until T86c and since records only that a reason or a
+  note was given (ADR-0079; batch 79 review).
 - **List.** `GET /v1/dispute-cases`, the latest first (`created_at`,
   keyset), filtered by company, customer, status and assignee. No
   budget test: a keyset-paged list of stored rows over an index (07
@@ -935,3 +936,61 @@ reference), each listed for the product owner's digest.
   date it is back with its last contact; a later message without a
   resubmission date brings it back at once; its contacts read the latest
   first.
+
+### T86c A dispute case over several invoices (migration 000395)
+
+Decided by default under this ADR (`plan-depth-3.md` §T86c; SAP S/4HANA
+FSCM Dispute Management's case over several disputed objects as the
+reference, from memory; product owner 2026-11-17: the variants go on),
+each listed for the product owner's digest.
+
+- **Schema.** `collections.dispute_case_item`: a case's items numbered
+  1 to 50, each a journal line named once in the case, with its document
+  number and reference, the amount disputed of it in the case's currency
+  and its share of the item in the company's as booked, and an id of its
+  own (which T86d's documents name). The unique index of one open case
+  per item moves to the items (`dispute_case_item_one_open`, on a flag
+  `open` the case's close clears by trigger); the case's own index stays
+  until a contract step drops it. The case keeps its journal line, its
+  first item's, and its amounts, the items' totals, so every reader of
+  the case reads as before; a deferred constraint trigger holds the two
+  to each other at commit (items present, first item the case's line,
+  totals in both currencies, items open exactly while the case is). The
+  application inserts items and changes or deletes none; no role changes
+  what an item names or reopens it (`dispute_case_item_fixed`). The
+  existing cases got their own line as their one item; a case the
+  previous version opens during the rollout without items is refused at
+  commit rather than escaping the holds. Checks in 03 §3.27 and
+  `db/dispute_items_test.go`.
+- **Request.** `POST /v1/dispute-cases` takes `items` (1 to 50) or, as
+  before, one item by the request's own fields; one form or the other,
+  never both or neither (422 `collections.items_or_item`). The request's
+  item fields became optional: no breaking change. Each item is read as
+  T86a reads one, the refusal naming `items[n].…`: an open item the
+  first item's customer owes the company (422 `collections.item_not_open`,
+  as a promise's items, T76f), in the first item's currency (422
+  `collections.currency_mismatch` naming its `journal_entry_id`: a case
+  has one currency, SAP's disputed amount has one), each line once (422
+  `request.validation_failed`), disputed above zero and at most what is
+  owed on it. Totals out of range are 422 `collections.amount_too_large`.
+- **Holds and worklist.** A dunning run reads the open cases' items
+  (`openCases` joins the items to the company's open cases) and leaves
+  each item out, naming its case; the worklist adds each item's share and
+  counts a case over several of a customer's items once.
+- **Representation and event.** `DisputeCase.items` and
+  `DisputeCaseChanged.items` (item number, journal line, document number,
+  disputed amount; the event's item list is new and absent from events
+  published before). The case's journal line fields are documented as
+  its first item's.
+- **Audit.** The open, update and close records now hold the items and
+  that a reason or a note was given, not the texts (ADR-0079): this
+  closes the batch 79 review item on the case's free text.
+- **Collections agent.** It reads a case's items, so a customer whose
+  overdue items are each in some case's items is told disputed.
+- **Lock order.** Opening still takes no row lock; the case row and its
+  items are inserted in one transaction, the items' foreign key taking a
+  key-share lock on the new case row, which no one else can see yet. A
+  close updates the case row (`FOR UPDATE`) and, by trigger, its items;
+  nothing locks an item before its case.
+- **Walkthrough.** `step_dispute_items`: see `scripts/walkthrough.sh`.
+

@@ -18370,16 +18370,18 @@ paths:
       operationId: createDisputeCase
       tags:
         - collections
-      summary: Open a dispute case on a customer's open item
-      description: "Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open items, an invoice, for a reason. The item is named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names it) and must be an open item on a customer reconciliation account of the company in the leading ledger, one the customer owes (422 `collections.item_not_open` naming `journal_entry_id`). The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). `disputed_amount` is in the item's currency (422 `collections.currency_mismatch` naming `disputed_amount.currency`), more than zero and at most the item's open amount (422 `collections.invalid_disputed_amount` naming `disputed_amount.amount`); the case also keeps its share of the item's amount in the company's currency, as the item was booked (`local_disputed_amount`, the item's local amount × the disputed amount ÷ its amount, rounded half away from zero). An item has one open case at a time: a second is refused, whether it comes after the first or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`)."
+      summary: Open a dispute case on a customer's open items
+      description: "Opens a dispute case (ADR-0065 As built, T86a, T86c): the customer disputes amounts of one or more of its open items, invoices, for a reason. Each item is named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names it), with the amount disputed of it: one item by the request's own fields, or 1 to 50 in `items`, not both (422 `collections.items_or_item`, naming `items`); in a list each line once (422 `request.validation_failed` naming `items[n].journal_entry_id`). Each must be an open item on a customer reconciliation account of the company in the leading ledger, one the customer owes (422 `collections.item_not_open` naming its `journal_entry_id`); the first item's customer is the case's, and every other item is that customer's (422 `collections.item_not_open`) and in the first item's currency (422 `collections.currency_mismatch` naming its `journal_entry_id`). The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). An item's disputed amount is in the item's currency (422 `collections.currency_mismatch` naming its `disputed_amount.currency`), more than zero and at most the item's open amount (422 `collections.invalid_disputed_amount` naming its `disputed_amount.amount`); the case also keeps each item's share of its amount in the company's currency, as the item was booked (the item's local amount × the disputed amount ÷ its amount, rounded half away from zero). The case's `disputed_amount` and `local_disputed_amount` are its items' totals (more than an amount holds: 422 `collections.amount_too_large`), and its own journal line is its first item's. An item is in one open case at a time: an item in another open case is refused, whether the case comes after the other or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`)."
       x-permission: collections.dispute.write
       x-agent: false
       x-problem-codes:
+        - collections.amount_too_large
         - collections.assignee_invalid
         - collections.currency_mismatch
         - collections.dispute_exists
         - collections.invalid_disputed_amount
         - collections.item_not_open
+        - collections.items_or_item
         - request.invalid_amount
         - request.validation_failed
       parameters:
@@ -18402,6 +18404,14 @@ paths:
                   disputed_amount: {amount: "150.00", currency: CAD}
                   reason: The customer says the bearing was priced above the quotation
                   assignee_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+              several:
+                summary: Two invoices disputed for a late delivery
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  items:
+                    - {fiscal_year: 2026, journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61", line_no: 1, disputed_amount: {amount: "30.00", currency: CAD}}
+                    - {fiscal_year: 2026, journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62", line_no: 1, disputed_amount: {amount: "120.00", currency: CAD}}
+                  reason: Delivered two weeks late, past the agreed date
       responses:
         "201":
           description: "Created; the new dispute case."
@@ -59160,18 +59170,47 @@ components:
               last_contact_outcome: left_message
     DisputeCaseCreate:
       type: object
-      description: "Open a dispute case on a customer's open item. It is created `open`."
-      required: [legal_entity_id, fiscal_year, journal_entry_id, line_no, disputed_amount, reason]
+      description: "Open a dispute case on a customer's open items: one by `fiscal_year`, `journal_entry_id`, `line_no` and `disputed_amount`, or several in `items` (T86c), not both. It is created `open`."
+      required: [legal_entity_id, reason]
       additionalProperties: false
       properties:
-        legal_entity_id: {type: string, format: uuid, description: "The company whose customer item is disputed: a legal entity the caller may act in."}
-        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2100, description: "The fiscal year of the item's journal entry."}
-        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name it)."}
-        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item."}
-        disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount the customer disputes, in the item's currency: more than zero and at most what it owes on the item."}
+        legal_entity_id: {type: string, format: uuid, description: "The company whose customer items are disputed: a legal entity the caller may act in."}
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2100, description: "The fiscal year of the item's journal entry, for a case of one item named by the request's own fields."}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name it), for a case of one item named by the request's own fields."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item, for a case of one item named by the request's own fields."}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount the customer disputes, in the item's currency: more than zero and at most what it owes on the item; for a case of one item named by the request's own fields."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: {$ref: "#/components/schemas/DisputeCaseItemCreate"}
+          description: "The items of the case, each once, the first naming the case's customer and currency (T86c); absent for a case of one item named by the request's own fields."
         reason: {type: string, minLength: 1, maxLength: 500, description: "Why the customer disputes the amount."}
         assignee_id: {type: string, format: uuid, description: "The person who works the case: an active person of the tenant who may act in the company. Absent: nobody yet."}
         note: {type: string, minLength: 1, maxLength: 2000, description: "A note on the case, for whoever works it."}
+    DisputeCaseItemCreate:
+      type: object
+      description: "An item of a dispute case to open: an open item of the case's customer by its journal line, and the amount disputed of it."
+      required: [fiscal_year, journal_entry_id, line_no, disputed_amount]
+      additionalProperties: false
+      properties:
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2100, description: "The fiscal year of the item's journal entry."}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name it)."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item."}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount the customer disputes of the item, in its currency (the case's): more than zero and at most what it owes on the item."}
+    DisputeCaseItem:
+      type: object
+      description: "An item of a dispute case (T86c): an open item of the case's customer when the case was opened, and the amount disputed of it."
+      required: [item_no, fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, local_disputed_amount]
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, maximum: 50, description: "The item's number in the case, from 1 in the order the request named them.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the disputed item.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
+        reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount disputed of the item, in its currency."}
+        local_disputed_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, its share of the item's amount as the item was booked."}
     DisputeCaseUpdate:
       type: object
       description: "Merge patch of an open dispute case: its assignee and its note."
@@ -59190,12 +59229,12 @@ components:
         outcome: {type: string, x-extensible-enum: [accepted, rejected], description: "`accepted`: the customer is right about the disputed amount; `rejected`: it owes it. Another value is refused (422 `collections.unknown_outcome`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
         reason: {type: string, minLength: 1, maxLength: 500, description: "Why the case is closed with this outcome."}
     DisputeCase:
-      description: "A dispute case (collections, ADR-0065 As built T86a): a customer disputes an amount of one of its open items."
+      description: "A dispute case (collections, ADR-0065 As built T86a, T86c): a customer disputes amounts of one or more of its open items."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
           required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, fiscal_year, journal_entry_id, line_no,
-            document_number, disputed_amount, local_disputed_amount, reason, status]
+            document_number, disputed_amount, local_disputed_amount, reason, status, items]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customer item is disputed.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -59203,13 +59242,18 @@ components:
             customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
             customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
             customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
-            fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
-            journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).", readOnly: true}
-            line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the disputed item.", readOnly: true}
-            document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
-            reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
-            disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount disputed, in the item's currency."}
-            local_disputed_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, its share of the item's amount as the item was booked."}
+            fiscal_year: {type: integer, format: int32, description: "The fiscal year of the journal entry of the case's first item (`items`).", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the case's first item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+            line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the case's first item.", readOnly: true}
+            document_number: {type: string, description: "The document number of the first item's journal entry.", readOnly: true}
+            reference: {type: string, description: "The reference of the first item's journal entry, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+            disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount disputed, in the items' currency: what the items dispute together."}
+            local_disputed_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency: the items' shares of their amounts as they were booked, together."}
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/DisputeCaseItem"}
+              description: "The case's items by number (T86c): one for a case on one invoice, the first being the item the case's own journal line names."
+              readOnly: true
             reason: {type: string, description: "Why the customer disputes the amount.", readOnly: true}
             assignee_id: {type: string, format: uuid, description: "The person who works the case; absent when nobody is assigned.", readOnly: true}
             assignee_name: {type: string, description: "The assignee's name; absent when `assignee_id` is.", readOnly: true}

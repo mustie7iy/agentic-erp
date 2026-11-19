@@ -6144,15 +6144,28 @@ components:
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
-        fiscal_year: {type: integer, description: "The fiscal year of the item's journal entry."}
-        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The journal entry whose line is the disputed item.'}
-        line_no: {type: integer, description: 'The line of the journal entry that is the disputed item.'}
-        document_number: {type: string, description: "The journal entry's document number."}
-        disputed_amount: {$ref: '#/components/schemas/Money', description: "The amount disputed, in the item's currency."}
+        fiscal_year: {type: integer, description: "The fiscal year of the journal entry of the case's first item (`items`)."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: "The journal entry whose line is the case's first item."}
+        line_no: {type: integer, description: "The line of the journal entry that is the case's first item."}
+        document_number: {type: string, description: "The document number of the first item's journal entry."}
+        disputed_amount: {$ref: '#/components/schemas/Money', description: "The amount disputed, in the items' currency: what the items dispute together."}
         assignee_id: {type: [string, 'null'], format: uuid, description: 'The person who works the case after the change; null when nobody is assigned.'}
         status: {type: string, description: "The case's status after the change. Open enum: open, accepted, rejected."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was opened.'}
         version: {type: integer, description: "The case's version after the change."}
+        items:
+          type: array
+          description: "The case's items by number (T86c), each an open item of the customer by its journal line, with its entry's document number and the amount disputed of it. Always present from T86c on; absent in events published before."
+          items:
+            type: object
+            required: [item_no, fiscal_year, journal_entry_id, line_no, document_number, disputed_amount]
+            properties:
+              item_no: {type: integer, description: "The item's number in the case, from 1."}
+              fiscal_year: {type: integer, description: "The fiscal year of the item's journal entry."}
+              journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The journal entry whose line is the disputed item.'}
+              line_no: {type: integer, description: 'The line of the journal entry that is the disputed item.'}
+              document_number: {type: string, description: "The journal entry's document number."}
+              disputed_amount: {$ref: '#/components/schemas/Money', description: "The amount disputed of the item, in its currency."}
     CreditLimitChangedV1:
       type: object
       required: [credit_limit_id, legal_entity_id, legal_entity_code, customer_id, customer_number, limit, limit_before, version]

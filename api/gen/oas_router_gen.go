@@ -25487,7 +25487,7 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 							return r, true
 						case "POST":
 							r.name = CreateDisputeCaseOperation
-							r.summary = "Open a dispute case on a customer's open item"
+							r.summary = "Open a dispute case on a customer's open items"
 							r.operationID = "createDisputeCase"
 							r.operationGroup = ""
 							r.pathPattern = "/v1/dispute-cases"

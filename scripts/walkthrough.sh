@@ -14131,6 +14131,76 @@ step_aging_by_center() {
   passed
 }
 
+# step_dispute_items is T86c (ADR-0065 As built T86c): Bayview Marine, a
+# new customer of Maple, is invoiced a valve kit and a pressure gauge, each
+# with 5% GST, on net 30 days. It writes that both came two weeks late and
+# withholds part of each. Ruth opens one dispute case over both invoices,
+# CAD 21.00 of the valve kit's and CAD 84.00 of the gauge's; an invoice
+# named twice, another customer's and a request naming its item both ways
+# are refused. The case reads back with its two items and their total; a
+# second case on the gauge is refused while the first is open. A run at a
+# key date after both are due duns neither and names both as disputed in
+# the one case; the worklist shows Bayview's CAD 105.00 disputed in one
+# case. The case stays open for step_dispute_resolution (BAYVIEW_*).
+step_dispute_items() {
+  heading "Step 135 — A dispute case over several invoices: one case on two of a customer's invoices, each with its disputed amount; an invoice named twice, another customer's and both request forms refused; a second case on one of them refused; a dunning run leaves both out and names the case; the worklist counts it once"
+  local customer valve gauge valve_doc gauge_doc key body items id
+  key=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
+  as ruth
+  say "Bayview Marine starts buying from Maple. Ruth creates it as a customer, on net 30 days, and Carla approves it:"
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Bayview Marine\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$(account 1200)\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys valves and gauges from Maple\"}"
+  customer=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its first order"
+  as ruth
+  say "She posts it two invoices with 5% GST: a valve kit, CAD 200.00 net, and a pressure gauge, CAD 400.00 net:"
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
+    \"items\": [{\"description\": \"Valve kit\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"200.00\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}]}"
+  api 200 '"customer invoice \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  valve=$(field .journal_entry_id) valve_doc=$(field .id)
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
+    \"items\": [{\"description\": \"Pressure gauge\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"400.00\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}]}"
+  api 200 '"customer invoice \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  gauge=$(field .journal_entry_id) gauge_doc=$(field .id)
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  items=$(field '[.items[] | {fiscal_year, journal_entry_id, line_no}]')
+  [ "$(jq length <<<"$items")" = 2 ] || fail "Bayview's two invoices are not its open items"
+  say "Bayview writes that both came two weeks late and withholds 10% of the valve kit and 20% of the gauge. Ruth opens"
+  say "one dispute case over both invoices, each with its disputed amount (T86c):"
+  body="{\"legal_entity_id\": \"$LE\", \"items\": [$(jq -c ".[] | select(.journal_entry_id == \"$valve\") + {disputed_amount: {amount: \"21.00\", currency: \"CAD\"}}" <<<"$items"),
+    $(jq -c ".[] | select(.journal_entry_id == \"$gauge\") + {disputed_amount: {amount: \"84.00\", currency: \"CAD\"}}" <<<"$items")], \"reason\": \"Delivered two weeks late\"}"
+  say "An invoice is named once, every invoice is the first one's customer's, and the items are named one way only:"
+  refused 422 request.validation_failed createDisputeCase -body "${body/$gauge/$valve}"
+  refused 422 collections.item_not_open createDisputeCase -body "${body/$gauge/$LAKESHORE_LARGE}"
+  refused 422 collections.items_or_item createDisputeCase -body "${body/\"items\"/\"line_no\": 1, \"items\"}"
+  api 201 '"dispute case of \(.customer_number) \(.customer_name): \(.status), \(.disputed_amount.amount) \(.disputed_amount.currency) disputed", (.items[] | "  item \(.item_no): entry \(.document_number) (\(.reference)), \(.disputed_amount.amount) \(.disputed_amount.currency)")' \
+    createDisputeCase -body "$body"
+  id=$(field .id)
+  expect "the case's items" "$(field '[.items[] | "\(.item_no) \(.journal_entry_id) \(.disputed_amount.amount)"] | join(", ")')" "1 $valve 21.00, 2 $gauge 84.00"
+  expect "the case's total and line" "$(field '"\(.disputed_amount.amount) \(.local_disputed_amount.amount) \(.journal_entry_id)"')" "105.00 105.00 $valve"
+  QUIET=1 api 200 '' getDisputeCase -p "id=$id"
+  expect "read back" "$(field '"\(.status) \([.items[].item_no] | join(" "))"')" "open 1 2"
+  say "While the case is open, a case on the gauge alone is refused:"
+  refused 409 collections.dispute_exists createDisputeCase -body "{\"legal_entity_id\": \"$LE\", $(jq -c ".[] | select(.journal_entry_id == \"$gauge\")" <<<"$items" | sed 's/^{//; s/}$//'),
+    \"disputed_amount\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}, \"reason\": \"Scratched glass\"}"
+  say "A dunning run at $key, after both invoices are due, duns neither and names both as disputed in the one case:"
+  api 201 '"dunning run at \(.key_date): \(.notice_count) notice(s)", (.disputed_items[] | select(.customer_id == "'"$customer"'") | "  disputed: entry \(.document_number) (\(.reference)), \(.days_overdue) days overdue, \(.amount.amount) \(.amount.currency), case \(.dispute_case_id)")' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  expect "Bayview's disputed invoices" "$(field "[.disputed_items[] | select(.customer_id == \"$customer\") | \"\(.journal_entry_id) \(.dispute_case_id)\"] | sort | join(\", \")")" \
+    "$(printf '%s\n' "$valve $id" "$gauge $id" | sort | paste -sd, - | sed 's/,/, /')"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Bayview's notices" "$(field '.items | length')" 0
+  say "The worklist at $key shows Bayview's two disputed amounts together, in one case:"
+  QUIET=1 api 200 '' getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$key" -p page_size=100
+  expect "Bayview on the worklist" "$(field ".items[] | select(.customer_id == \"$customer\") | \"\(.overdue_amount.amount) \(.disputed_amount.amount) \(.open_dispute_cases)\"")" \
+    "630.00 105.00 1"
+  BAYVIEW=$customer BAYVIEW_CASE=$id BAYVIEW_VALVE=$valve BAYVIEW_GAUGE=$gauge BAYVIEW_VALVE_DOC=$valve_doc BAYVIEW_GAUGE_DOC=$gauge_doc BAYVIEW_KEY=$key
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -16161,7 +16231,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_dispute_items step_close'
 
 main() {
   stop_unseen

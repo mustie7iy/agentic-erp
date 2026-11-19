@@ -3,6 +3,7 @@ package collections
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -85,6 +87,12 @@ func caseToAPI(c Case, r caseRefs) gen.DisputeCase {
 	if c.ClosedBy != nil {
 		out.ClosedByName.SetTo(r.people[*c.ClosedBy])
 	}
+	out.Items = make([]gen.DisputeCaseItem, len(c.Items))
+	for i, it := range c.Items {
+		out.Items[i] = gen.DisputeCaseItem{ItemNo: int32(it.ItemNo), FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
+			DocumentNumber: it.DocumentNumber, Reference: apitypes.OptString(it.Reference), DisputedAmount: apitypes.Money(it.Amount, c.Currency, c.Exponent),
+			LocalDisputedAmount: apitypes.Money(it.AmountLC, c.CurrencyLC, c.ExponentLC)}
+	}
 	return out
 }
 
@@ -97,11 +105,35 @@ func (e *Endpoints) shownCase(ctx context.Context, c Case) (gen.DisputeCase, err
 	return caseToAPI(c, r), nil
 }
 
+// requestItems are the items a request to open a case names: its own
+// item fields, all of them, or its list, not both (T86c), 422
+// collections.items_or_item otherwise.
+func requestItems(req *gen.DisputeCaseCreate) ([]CaseItemInput, error) {
+	own := []bool{req.FiscalYear.Set, req.JournalEntryID.Set, req.LineNo.Set, req.DisputedAmount.Set}
+	all, some := !slices.Contains(own, false), slices.Contains(own, true)
+	switch {
+	case len(req.Items) == 0 && all:
+		return []CaseItemInput{{Item: ledger.ItemRef{FiscalYear: int16(req.FiscalYear.Value), EntryID: req.JournalEntryID.Value, // the contract bounds the year to 1900-2100
+			LineNo: req.LineNo.Value}, Amount: req.DisputedAmount.Value.Amount, Currency: req.DisputedAmount.Value.Currency}}, nil
+	case len(req.Items) > 0 && !some:
+		out := make([]CaseItemInput, len(req.Items))
+		for i, it := range req.Items {
+			out[i] = CaseItemInput{Item: ledger.ItemRef{FiscalYear: int16(it.FiscalYear), EntryID: it.JournalEntryID, LineNo: it.LineNo}, // as above
+				Amount: it.DisputedAmount.Amount, Currency: it.DisputedAmount.Currency, Field: fmt.Sprintf("items[%d].", i)}
+		}
+		return out, nil
+	}
+	return nil, problem.Invalid("collections.items_or_item", "items", "A dispute case names its items either in items or, for one item, by "+
+		"fiscal_year, journal_entry_id, line_no and disputed_amount together; not both, and not neither.")
+}
+
 // CreateDisputeCase implements POST /v1/dispute-cases.
 func (e *Endpoints) CreateDisputeCase(ctx context.Context, req *gen.DisputeCaseCreate, _ gen.CreateDisputeCaseParams) (gen.CreateDisputeCaseRes, error) {
-	c, err := e.OpenCase(ctx, CaseInput{LegalEntityID: req.LegalEntityID,
-		Item:   ledger.ItemRef{FiscalYear: int16(req.FiscalYear), EntryID: req.JournalEntryID, LineNo: req.LineNo}, // the contract bounds the year to 1900-2100
-		Amount: req.DisputedAmount.Amount, Currency: req.DisputedAmount.Currency, Reason: req.Reason,
+	items, err := requestItems(req)
+	if err != nil {
+		return nil, err
+	}
+	c, err := e.OpenCase(ctx, CaseInput{LegalEntityID: req.LegalEntityID, Items: items, Reason: req.Reason,
 		Assignee: apitypes.Ptr[uuid.UUID](req.AssigneeID), Note: apitypes.Ptr[string](req.Note)})
 	if err != nil {
 		return nil, err
@@ -189,6 +221,9 @@ func (e *Endpoints) ListDisputeCases(ctx context.Context, params gen.ListDispute
 	cases, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Case, error) { return scanCase(r) })
 	if err != nil {
 		return nil, fmt.Errorf("collections: list dispute cases: %w", err)
+	}
+	if err := caseItems(ctx, tx, cases); err != nil {
+		return nil, err
 	}
 	items, next, err := apitypes.PageWith(ks, cases, func(c Case) (string, uuid.UUID) { return pagination.Instant(c.CreatedAt), c.ID },
 		func(page []Case) (caseRefs, error) { return e.refs(ctx, page) }, caseToAPI)

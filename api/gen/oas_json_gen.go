@@ -103893,6 +103893,14 @@ func (s *DisputeCase) encodeFields(e *jx.Encoder) {
 		s.LocalDisputedAmount.Encode(e)
 	}
 	{
+		e.FieldStart("items")
+		e.ArrStart()
+		for _, elem := range s.Items {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		e.FieldStart("reason")
 		e.Str(s.Reason)
 	}
@@ -103944,7 +103952,7 @@ func (s *DisputeCase) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfDisputeCase = [28]string{
+var jsonFieldsNameOfDisputeCase = [29]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -103964,15 +103972,16 @@ var jsonFieldsNameOfDisputeCase = [28]string{
 	16: "reference",
 	17: "disputed_amount",
 	18: "local_disputed_amount",
-	19: "reason",
-	20: "assignee_id",
-	21: "assignee_name",
-	22: "note",
-	23: "status",
-	24: "close_reason",
-	25: "closed_at",
-	26: "closed_by",
-	27: "closed_by_name",
+	19: "items",
+	20: "reason",
+	21: "assignee_id",
+	22: "assignee_name",
+	23: "note",
+	24: "status",
+	25: "close_reason",
+	26: "closed_at",
+	27: "closed_by",
+	28: "closed_by_name",
 }
 
 // Decode decodes DisputeCase from json.
@@ -104204,8 +104213,26 @@ func (s *DisputeCase) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"local_disputed_amount\"")
 			}
-		case "reason":
+		case "items":
 			requiredBitSet[2] |= 1 << 3
+			if err := func() error {
+				s.Items = make([]DisputeCaseItem, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem DisputeCaseItem
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Items = append(s.Items, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"items\"")
+			}
+		case "reason":
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Reason = string(v)
@@ -104247,7 +104274,7 @@ func (s *DisputeCase) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"note\"")
 			}
 		case "status":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -104310,8 +104337,8 @@ func (s *DisputeCase) Decode(d *jx.Decoder) error {
 	for i, mask := range [4]uint8{
 		0b11011111,
 		0b11111111,
-		0b10001110,
-		0b00000000,
+		0b00011110,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -104484,20 +104511,38 @@ func (s *DisputeCaseCreate) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.LegalEntityID)
 	}
 	{
-		e.FieldStart("fiscal_year")
-		e.Int32(s.FiscalYear)
+		if s.FiscalYear.Set {
+			e.FieldStart("fiscal_year")
+			s.FiscalYear.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("journal_entry_id")
-		json.EncodeUUID(e, s.JournalEntryID)
+		if s.JournalEntryID.Set {
+			e.FieldStart("journal_entry_id")
+			s.JournalEntryID.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("line_no")
-		e.Int32(s.LineNo)
+		if s.LineNo.Set {
+			e.FieldStart("line_no")
+			s.LineNo.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("disputed_amount")
-		s.DisputedAmount.Encode(e)
+		if s.DisputedAmount.Set {
+			e.FieldStart("disputed_amount")
+			s.DisputedAmount.Encode(e)
+		}
+	}
+	{
+		if s.Items != nil {
+			e.FieldStart("items")
+			e.ArrStart()
+			for _, elem := range s.Items {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
 	}
 	{
 		e.FieldStart("reason")
@@ -104517,15 +104562,16 @@ func (s *DisputeCaseCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfDisputeCaseCreate = [8]string{
+var jsonFieldsNameOfDisputeCaseCreate = [9]string{
 	0: "legal_entity_id",
 	1: "fiscal_year",
 	2: "journal_entry_id",
 	3: "line_no",
 	4: "disputed_amount",
-	5: "reason",
-	6: "assignee_id",
-	7: "note",
+	5: "items",
+	6: "reason",
+	7: "assignee_id",
+	8: "note",
 }
 
 // Decode decodes DisputeCaseCreate from json.
@@ -104533,7 +104579,7 @@ func (s *DisputeCaseCreate) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode DisputeCaseCreate to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -104550,11 +104596,9 @@ func (s *DisputeCaseCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"legal_entity_id\"")
 			}
 		case "fiscal_year":
-			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
-				v, err := d.Int32()
-				s.FiscalYear = int32(v)
-				if err != nil {
+				s.FiscalYear.Reset()
+				if err := s.FiscalYear.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -104562,11 +104606,9 @@ func (s *DisputeCaseCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"fiscal_year\"")
 			}
 		case "journal_entry_id":
-			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				v, err := json.DecodeUUID(d)
-				s.JournalEntryID = v
-				if err != nil {
+				s.JournalEntryID.Reset()
+				if err := s.JournalEntryID.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -104574,11 +104616,9 @@ func (s *DisputeCaseCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_entry_id\"")
 			}
 		case "line_no":
-			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
-				v, err := d.Int32()
-				s.LineNo = int32(v)
-				if err != nil {
+				s.LineNo.Reset()
+				if err := s.LineNo.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -104586,8 +104626,8 @@ func (s *DisputeCaseCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"line_no\"")
 			}
 		case "disputed_amount":
-			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
+				s.DisputedAmount.Reset()
 				if err := s.DisputedAmount.Decode(d); err != nil {
 					return err
 				}
@@ -104595,8 +104635,25 @@ func (s *DisputeCaseCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"disputed_amount\"")
 			}
+		case "items":
+			if err := func() error {
+				s.Items = make([]DisputeCaseItemCreate, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem DisputeCaseItemCreate
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Items = append(s.Items, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"items\"")
+			}
 		case "reason":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.Reason = string(v)
@@ -104636,8 +104693,9 @@ func (s *DisputeCaseCreate) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b00111111,
+	for i, mask := range [2]uint8{
+		0b01000001,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -104679,6 +104737,362 @@ func (s *DisputeCaseCreate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *DisputeCaseCreate) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *DisputeCaseItem) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *DisputeCaseItem) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("item_no")
+		e.Int32(s.ItemNo)
+	}
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("journal_entry_id")
+		json.EncodeUUID(e, s.JournalEntryID)
+	}
+	{
+		e.FieldStart("line_no")
+		e.Int32(s.LineNo)
+	}
+	{
+		e.FieldStart("document_number")
+		e.Str(s.DocumentNumber)
+	}
+	{
+		if s.Reference.Set {
+			e.FieldStart("reference")
+			s.Reference.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("disputed_amount")
+		s.DisputedAmount.Encode(e)
+	}
+	{
+		e.FieldStart("local_disputed_amount")
+		s.LocalDisputedAmount.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfDisputeCaseItem = [8]string{
+	0: "item_no",
+	1: "fiscal_year",
+	2: "journal_entry_id",
+	3: "line_no",
+	4: "document_number",
+	5: "reference",
+	6: "disputed_amount",
+	7: "local_disputed_amount",
+}
+
+// Decode decodes DisputeCaseItem from json.
+func (s *DisputeCaseItem) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode DisputeCaseItem to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "item_no":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.ItemNo = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"item_no\"")
+			}
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "journal_entry_id":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.JournalEntryID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_id\"")
+			}
+		case "line_no":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Int32()
+				s.LineNo = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"line_no\"")
+			}
+		case "document_number":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.DocumentNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"document_number\"")
+			}
+		case "reference":
+			if err := func() error {
+				s.Reference.Reset()
+				if err := s.Reference.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reference\"")
+			}
+		case "disputed_amount":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				if err := s.DisputedAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"disputed_amount\"")
+			}
+		case "local_disputed_amount":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				if err := s.LocalDisputedAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"local_disputed_amount\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode DisputeCaseItem")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b11011111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfDisputeCaseItem) {
+					name = jsonFieldsNameOfDisputeCaseItem[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *DisputeCaseItem) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *DisputeCaseItem) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *DisputeCaseItemCreate) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *DisputeCaseItemCreate) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("journal_entry_id")
+		json.EncodeUUID(e, s.JournalEntryID)
+	}
+	{
+		e.FieldStart("line_no")
+		e.Int32(s.LineNo)
+	}
+	{
+		e.FieldStart("disputed_amount")
+		s.DisputedAmount.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfDisputeCaseItemCreate = [4]string{
+	0: "fiscal_year",
+	1: "journal_entry_id",
+	2: "line_no",
+	3: "disputed_amount",
+}
+
+// Decode decodes DisputeCaseItemCreate from json.
+func (s *DisputeCaseItemCreate) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode DisputeCaseItemCreate to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "journal_entry_id":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.JournalEntryID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"journal_entry_id\"")
+			}
+		case "line_no":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Int32()
+				s.LineNo = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"line_no\"")
+			}
+		case "disputed_amount":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				if err := s.DisputedAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"disputed_amount\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode DisputeCaseItemCreate")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00001111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfDisputeCaseItemCreate) {
+					name = jsonFieldsNameOfDisputeCaseItemCreate[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *DisputeCaseItemCreate) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *DisputeCaseItemCreate) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

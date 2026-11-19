@@ -1631,25 +1631,32 @@ type Invoker interface {
 	CreateCustomerSalesData(ctx context.Context, request *CustomerSalesDataCreate, params CreateCustomerSalesDataParams) (CreateCustomerSalesDataRes, error)
 	// CreateDisputeCase invokes createDisputeCase operation.
 	//
-	// Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
-	// items, an invoice, for a reason. The item is named by its journal line (`fiscal_year`,
-	// `journal_entry_id`, `line_no`, as a dunning notice's item names it) and must be an open item on a
+	// Opens a dispute case (ADR-0065 As built, T86a, T86c): the customer disputes amounts of one or more
+	// of its open items, invoices, for a reason. Each item is named by its journal line (`fiscal_year`,
+	// `journal_entry_id`, `line_no`, as a dunning notice's item names it), with the amount disputed of it:
+	// one item by the request's own fields, or 1 to 50 in `items`, not both (422
+	// `collections.items_or_item`, naming `items`); in a list each line once (422
+	// `request.validation_failed` naming `items[n].journal_entry_id`). Each must be an open item on a
 	// customer reconciliation account of the company in the leading ledger, one the customer owes (422
-	// `collections.item_not_open` naming `journal_entry_id`). The company is one the caller may act in
-	// (422 `request.reference_not_found` naming `legal_entity_id`). `disputed_amount` is in the item's
-	// currency (422 `collections.currency_mismatch` naming `disputed_amount.currency`), more than zero and
-	// at most the item's open amount (422 `collections.invalid_disputed_amount` naming
-	// `disputed_amount.amount`); the case also keeps its share of the item's amount in the company's
-	// currency, as the item was booked (`local_disputed_amount`, the item's local amount × the disputed
-	// amount ÷ its amount, rounded half away from zero). An item has one open case at a time: a second is
-	// refused, whether it comes after the first or races it (409 `collections.dispute_exists`). An
-	// assignee, if named, is an active person of the tenant who may act in the company (422
-	// `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than
-	// white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening
-	// a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the
-	// case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by
-	// id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only
-	// (`x-agent: false`).
+	// `collections.item_not_open` naming its `journal_entry_id`); the first item's customer is the case's,
+	// and every other item is that customer's (422 `collections.item_not_open`) and in the first item's
+	// currency (422 `collections.currency_mismatch` naming its `journal_entry_id`). The company is one the
+	// caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). An item's disputed
+	// amount is in the item's currency (422 `collections.currency_mismatch` naming its
+	// `disputed_amount.currency`), more than zero and at most the item's open amount (422
+	// `collections.invalid_disputed_amount` naming its `disputed_amount.amount`); the case also keeps each
+	// item's share of its amount in the company's currency, as the item was booked (the item's local
+	// amount × the disputed amount ÷ its amount, rounded half away from zero). The case's
+	// `disputed_amount` and `local_disputed_amount` are its items' totals (more than an amount holds: 422
+	// `collections.amount_too_large`), and its own journal line is its first item's. An item is in one
+	// open case at a time: an item in another open case is refused, whether the case comes after the other
+	// or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the
+	// tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`).
+	// `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the
+	// field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a
+	// dunning run leaves the item out while the case is open (T86b). Audited, and published as
+	// DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same
+	// `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`).
 	//
 	// POST /v1/dispute-cases
 	CreateDisputeCase(ctx context.Context, request *DisputeCaseCreate, params CreateDisputeCaseParams) (CreateDisputeCaseRes, error)
@@ -23418,25 +23425,32 @@ func (c *Client) sendCreateCustomerSalesData(ctx context.Context, request *Custo
 
 // CreateDisputeCase invokes createDisputeCase operation.
 //
-// Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
-// items, an invoice, for a reason. The item is named by its journal line (`fiscal_year`,
-// `journal_entry_id`, `line_no`, as a dunning notice's item names it) and must be an open item on a
+// Opens a dispute case (ADR-0065 As built, T86a, T86c): the customer disputes amounts of one or more
+// of its open items, invoices, for a reason. Each item is named by its journal line (`fiscal_year`,
+// `journal_entry_id`, `line_no`, as a dunning notice's item names it), with the amount disputed of it:
+// one item by the request's own fields, or 1 to 50 in `items`, not both (422
+// `collections.items_or_item`, naming `items`); in a list each line once (422
+// `request.validation_failed` naming `items[n].journal_entry_id`). Each must be an open item on a
 // customer reconciliation account of the company in the leading ledger, one the customer owes (422
-// `collections.item_not_open` naming `journal_entry_id`). The company is one the caller may act in
-// (422 `request.reference_not_found` naming `legal_entity_id`). `disputed_amount` is in the item's
-// currency (422 `collections.currency_mismatch` naming `disputed_amount.currency`), more than zero and
-// at most the item's open amount (422 `collections.invalid_disputed_amount` naming
-// `disputed_amount.amount`); the case also keeps its share of the item's amount in the company's
-// currency, as the item was booked (`local_disputed_amount`, the item's local amount × the disputed
-// amount ÷ its amount, rounded half away from zero). An item has one open case at a time: a second is
-// refused, whether it comes after the first or races it (409 `collections.dispute_exists`). An
-// assignee, if named, is an active person of the tenant who may act in the company (422
-// `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than
-// white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening
-// a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the
-// case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by
-// id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only
-// (`x-agent: false`).
+// `collections.item_not_open` naming its `journal_entry_id`); the first item's customer is the case's,
+// and every other item is that customer's (422 `collections.item_not_open`) and in the first item's
+// currency (422 `collections.currency_mismatch` naming its `journal_entry_id`). The company is one the
+// caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). An item's disputed
+// amount is in the item's currency (422 `collections.currency_mismatch` naming its
+// `disputed_amount.currency`), more than zero and at most the item's open amount (422
+// `collections.invalid_disputed_amount` naming its `disputed_amount.amount`); the case also keeps each
+// item's share of its amount in the company's currency, as the item was booked (the item's local
+// amount × the disputed amount ÷ its amount, rounded half away from zero). The case's
+// `disputed_amount` and `local_disputed_amount` are its items' totals (more than an amount holds: 422
+// `collections.amount_too_large`), and its own journal line is its first item's. An item is in one
+// open case at a time: an item in another open case is refused, whether the case comes after the other
+// or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the
+// tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`).
+// `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the
+// field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a
+// dunning run leaves the item out while the case is open (T86b). Audited, and published as
+// DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same
+// `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`).
 //
 // POST /v1/dispute-cases
 func (c *Client) CreateDisputeCase(ctx context.Context, request *DisputeCaseCreate, params CreateDisputeCaseParams) (CreateDisputeCaseRes, error) {

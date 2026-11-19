@@ -4877,6 +4877,17 @@ erDiagram
     timestamptz closed_at
     uuid closed_by
     int version }
+  dispute_case_item { uuid dispute_case_id PK
+    smallint item_no PK "1 to 50"
+    uuid id "its own"
+    smallint fiscal_year "ledger: the journal line"
+    uuid journal_entry_id
+    int line_no
+    text document_number
+    text reference
+    bigint disputed_amount "above 0, the case's currency"
+    bigint disputed_amount_lc "its share, as booked"
+    bool open "while its case is" }
 ```
 
 - `collections.dunning_run`: the status is `proposed` or `confirmed`
@@ -5025,7 +5036,26 @@ erDiagram
   application sets the assignee, the note, the status with the close's
   columns, the version and `updated_by` alone, and deletes none; a closed
   case is not changed by any role (the trigger
-  `dispute_case_closed_once`).
+  `dispute_case_closed_once`). Since T86c its journal line is its first
+  item's and its amounts its items' totals.
+- `collections.dispute_case_item` (T86c, migration 000395): a case's
+  items, numbered 1 to 50 (`dispute_case_item_no_check`), each a journal
+  line of the ledger (`dispute_case_item_line_no_check`) named once in
+  the case (`dispute_case_item_once`) with its document number
+  (`dispute_case_item_document_number_check`), the amount disputed of it
+  above zero in the case's currency (`dispute_case_item_amount_check`)
+  and its share in the company's as booked, not negative
+  (`dispute_case_item_amount_lc_check`), of an existing case
+  (`dispute_case_item_case_fkey`), with an id of its own
+  (`dispute_case_item_id_key`). An item is in one open case at a time
+  (the partial unique index `dispute_case_item_one_open` on `open`); the
+  case's close sets `open` false (the trigger `dispute_case_items_closed`).
+  At commit a case has items, its own line its first item's, its amounts
+  their totals and each item open while it is (the deferred constraint
+  triggers `dispute_case_items` on both tables). The application inserts
+  items and changes or deletes none; no role changes what an item names,
+  reopens or deletes it (the trigger `dispute_case_item_fixed`). The
+  cases opened before have their own line as their one item.
 - `collections.outbox`, `collections.inbox`: the context's events
   (`DunningRunChanged`, `DunningNoticeIssued`, `DisputeCaseChanged`).
 - Permissions `collections.dunning.read` and `.run`,

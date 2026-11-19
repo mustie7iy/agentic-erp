@@ -68,9 +68,14 @@ var openItems = map[string]string{
 		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 3, "account_id": "` + ar + `", "posting_date": "2026-10-01", "amount_lc": {"amount": "600.00"}}]}`,
 }
 
+// The open dispute cases: Northwind's over two invoices (T86c), its own
+// line the one not yet due, so only its second item disputes the overdue
+// invoice; Tyrell's over one of its two overdue invoices.
 var cases = map[string]string{
-	disputed: `{"items": [{"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 1}]}`,
-	partly:   `{"items": [{"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 3}]}`,
+	disputed: `{"items": [{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 1, "items": [
+		{"fiscal_year": 2026, "journal_entry_id": "` + entryB + `", "line_no": 1}, {"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 1}]}]}`,
+	partly: `{"items": [{"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 3, "items": [
+		{"fiscal_year": 2026, "journal_entry_id": "` + entryA + `", "line_no": 3}]}]}`,
 }
 
 func (a *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
