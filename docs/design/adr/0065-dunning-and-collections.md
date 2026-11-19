@@ -1009,3 +1009,72 @@ listed for the product owner's digest. It changes §1 and T76d's
   invoice is dunned at level 1 without a memo, then at level 2: a debit
   memo of CAD 15.00 and 2.96 interest, on the two accounts, Bayview's
   open item.
+
+### T76i A confirmed dunning run cancelled (migrations 000396, 000397)
+
+Decided by default under this ADR (`plan-depth-3.md` §T76i; SAP's reset
+of a dunning run's dunning data, from memory, as the reference), each
+listed for the product owner's digest. It changes §8's "a confirmed run
+is not cancelled".
+
+- **What a cancellation does.** `POST /v1/dunning-runs/{id}:cancel`
+  (`If-Match`, a `reason`, permission `collections.dunning.run`,
+  human-only and on `collectionsagent.Never`) moves a confirmed run to
+  `cancelled` once, by an update guarded by its status under the
+  company's dunning lock, which confirmations take too (`lockDunning`).
+  The levels its confirmation recorded stay in `dunned_item`, insert-only,
+  and no longer count: `recorded` reads the records of confirmed runs
+  alone, so the next run, the worklist and a confirmation's stale check
+  see each item at the level the runs before it recorded. A proposal
+  started before the cancellation is stale (the times its items were
+  dunned changed). The run's notices and amounts stay, for the record.
+- **Latest first.** A run whose items a later confirmed run dunned from
+  the levels this one recorded (that run's `previous_dunnings` above this
+  one's), or whose debit memos a later run dunned, is refused, 409
+  `collections.run_superseded`, naming the latest such run: its levels
+  were reached through this one's, and cancelling it first keeps every
+  item's recorded levels a chain one level at a time (the
+  `dunning_notice_item_dunnings_check` invariant).
+- **Memos reversed.** Each debit memo its confirmation posted (T76h) is
+  reversed through receivables' new published `ReverseSourced`, for the
+  context that entered it, with the cancellation's reason, on the memo's
+  own posting date (T75k's reversal: the ledger reverses the entry and
+  clears the memo's item against it). A memo whose item is cleared (409
+  `receivables.document_cleared`, `ledger.entry_cleared`) or posted in a
+  period no longer open (409 `ledger.period_not_open`) refuses the whole
+  cancellation, its number and customer leading the detail; nothing is
+  done. A reversal on a date of its own (into the next open period) is
+  later. Receivables' API still refuses to reverse such a memo, naming
+  the dunning notice and this operation (`receivables.entered_from_source`);
+  `customer_invoice_reversed` admits a reversed debit memo with a source.
+- **Stored.** `dunning_run.cancellation_reason` (1-200 characters, not
+  white space alone, exactly when cancelled, `dunning_run_cancelled`) and
+  status `cancelled`; the trigger `dunning_run_confirmed_once` admits
+  confirmed → cancelled and no change after it. `dunning_charge` names the
+  memo's reversal (entry year and id, date not before the memo posted,
+  `dunning_charge_reversed`), set once (trigger
+  `dunning_charge_reversed_once`, for every role). Checks added NOT VALID,
+  validated by 000397 (03 §3.27, `db/dunning_cancel_test.go`,
+  `db/dunning_charge_test.go`). The reverts are refused while a run is
+  cancelled or a sourced memo reversed.
+- **API and events.** `DunningRun.cancellation_reason`, status
+  `cancelled`; `DunningChargeDocument.status` (`posted`, `reversed`) with
+  the reversal. `DunningRunChanged` (`cancelled` from `confirmed`) and one
+  `DunningNoticeCancelled` per notice, naming the customer by id and
+  number and the reversed memo, so a subscriber that wrote to the customer
+  withdraws the notice. Neither event nor the audit record carries the
+  reason (ADR-0079); the run and the memos keep it.
+- **Concurrency.** Cancellation and confirmation of a company's runs
+  serialize on the lock; a cancellation racing a later proposal's
+  confirmation either makes that proposal stale or is refused as
+  superseded, and two cancellations of a run cancel once
+  (`TestCancellationsSerialize`). Locks after the company's: the run's
+  row, then each memo's row (receivables) and its entry (ledger), the
+  order an incoming payment's application never reverses (it locks
+  entries alone).
+- **Walkthrough.** `step_dunning_postings` (step 135), second half: a
+  level 3 run posts Bayview a second memo; cancelling the level 2 run
+  first is refused as superseded; the level 3 run is cancelled, then the
+  level 2 run, each memo reversed on its posting date; a second
+  cancellation is refused; Bayview's open items are its invoice alone and
+  a new run dunns it from level 1 again.

@@ -672,8 +672,8 @@ interest revenue accounts, in the confirmation's transaction.
   id and number, its posting date and status); `DunningNoticeIssued`
   carries the memo. Collections imports receivables' published types
   (layout), as sales does.
-- **Walkthrough:** `step_dunning_postings` (first half): Ada names the
-  dunning accounts through a tier 3 change; Ruth posts Bayview Marine, a
+- **Walkthrough:** `step_dunning_postings` (first half): Ada adds the
+  dunning accounts to the chart and names them through a governed change; Ruth posts Bayview Marine, a
   new customer, an invoice; a run at level 1 is confirmed and posts
   nothing for it; one at level 2 is confirmed and its notice names the
   debit memo, the customer's open item of the charge and interest,
@@ -710,7 +710,7 @@ a closed period, or when a later confirmed run has dunned its items.
   `DunningNoticeCancelled` per notice; `charge_document` shows the
   reversal.
 - **Walkthrough:** `step_dunning_postings` (second half): a later run at
-  level 3 is confirmed; cancelling the first is refused as superseded;
+  level 3 is confirmed, posting a second memo; cancelling the first is refused as superseded;
   the later run is cancelled, its memo reversed; then the first, its memo
   reversed; the next proposal reaches level 2 again from level 1, the
   level the run before them recorded; a second cancellation is refused.

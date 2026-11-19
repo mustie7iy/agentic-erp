@@ -456,6 +456,7 @@ channels:
     messages:
       DunningRunChanged: {$ref: '#/components/messages/DunningRunChanged'}
       DunningNoticeIssued: {$ref: '#/components/messages/DunningNoticeIssued'}
+      DunningNoticeCancelled: {$ref: '#/components/messages/DunningNoticeCancelled'}
       DisputeCaseChanged: {$ref: '#/components/messages/DisputeCaseChanged'}
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
@@ -842,6 +843,7 @@ operations:
     messages:
       - $ref: '#/channels/collections/messages/DunningRunChanged'
       - $ref: '#/channels/collections/messages/DunningNoticeIssued'
+      - $ref: '#/channels/collections/messages/DunningNoticeCancelled'
       - $ref: '#/channels/collections/messages/DisputeCaseChanged'
   publishSalesEvents:
     action: send
@@ -4432,12 +4434,15 @@ components:
       name: DunningRunChanged
       x-webhook: true
       title: Dunning run changed
-      summary: A dunning run was proposed or confirmed.
+      summary: A dunning run was proposed, confirmed or cancelled.
       description: |
         Emitted at each change of a dunning run's status (ADR-0065 §6,
-        T76a, T76b): when it is started (`proposed`, status_before null)
-        and when it is confirmed (`confirmed`, status_before `proposed`),
-        then followed by one DunningNoticeIssued per customer of the run.
+        T76a, T76b, T76i): when it is started (`proposed`, status_before
+        null) and when it is confirmed (`confirmed`, status_before
+        `proposed`), then followed by one DunningNoticeIssued per customer
+        of the run, and when it is cancelled (`cancelled`, status_before
+        `confirmed`), then followed by one DunningNoticeCancelled per
+        customer.
         It carries the run's totals, not its notices, and names no customer:
         `GET /v1/dunning-runs/{id}/notices` returns the notices, and
         `GET /v1/dunning-runs/{id}` the run at `version` or later. Subject
@@ -4483,6 +4488,33 @@ components:
         - name: issued
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f04, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_notice_issued.v1, subject: 0192a000-0000-7000-8000-000000000f32, time: '2026-12-31T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 2, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, total_amount: {amount: '1072.77', currency: CAD}, customer_invoice_id: 0192a000-0000-7000-8000-000000000f12, customer_invoice_number: CI100007}
+    DunningNoticeCancelled:
+      name: DunningNoticeCancelled
+      x-webhook: true
+      title: Dunning notice cancelled
+      summary: A cancelled dunning run withdrew a customer's notice.
+      description: |
+        Emitted once per customer of a dunning run when the confirmed run
+        is cancelled (ADR-0065 As built, T76i), after the run's
+        DunningRunChanged and in the same transaction: the levels the
+        notice's items were recorded at no longer count, and the debit
+        memo its charge and interest were posted with, if any, is
+        reversed (its CustomerInvoiceReversed precedes this event). A
+        subscriber that wrote to the customer from DunningNoticeIssued
+        withdraws the notice from this event. It names the customer by id
+        and number, never by name, and carries no reason, which the run
+        keeps. Subject is the dunning notice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.collections.dunning_notice_cancelled.v1}
+      payload: {$ref: '#/components/schemas/DunningNoticeCancelledV1'}
+      examples:
+        - name: cancelled
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f05, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_notice_cancelled.v1, subject: 0192a000-0000-7000-8000-000000000f32, time: '2027-01-04T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 2, customer_invoice_id: 0192a000-0000-7000-8000-000000000f12, customer_invoice_number: CI100007, reversal_entry_id: 0192a000-0000-7000-8000-000000000f33, reversal_date: '2026-12-31'}
     DisputeCaseChanged:
       name: DisputeCaseChanged
       title: Dispute case changed
@@ -6118,8 +6150,8 @@ components:
         charge_amount: {$ref: '#/components/schemas/Money', description: "The dunning charges of the run's notices, in the company's currency (T76d); 0 when its levels charge none. Always sent since T76d; optional in v1 (ADR-0041)."}
         interest_amount: {$ref: '#/components/schemas/Money', description: "The interest of the run's notices, in the company's currency (T76d); 0 when its levels charge none. Always sent since T76d; optional in v1 (ADR-0041)."}
         charge_document_count: {type: integer, description: "The customer debit memos the run's confirmation posted its notices' charges and interest with (T76h); 0 before it is confirmed and for a company that names no dunning account. Always sent since T76h; optional in v1 (ADR-0041)."}
-        status: {type: string, description: "The run's status after the change. Open enum: proposed, confirmed."}
-        status_before: {type: [string, 'null'], description: 'Its status before; null when it was started, proposed when it was confirmed.'}
+        status: {type: string, description: "The run's status after the change. Open enum: proposed, confirmed, cancelled."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was started, proposed when it was confirmed, confirmed when it was cancelled.'}
         version: {type: integer, description: "The run's version after the change."}
     DunningNoticeIssuedV1:
       type: object
@@ -6140,6 +6172,22 @@ components:
         total_amount: {$ref: '#/components/schemas/Money', description: 'What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. The three amounts are always sent since T76d; optional in v1 (ADR-0041).'}
         customer_invoice_id: {$ref: '#/components/schemas/NullableUuid', description: "The customer debit memo the confirmation posted the notice's charge and interest with (T76h; `GET /v1/customer-invoices/{id}`), whose CustomerInvoicePosted precedes this event in the same transaction; null when the notice is charged nothing or the company names no dunning account, and nothing was posted. Always sent since T76h; optional in v1 (ADR-0041)."}
         customer_invoice_number: {type: [string, 'null'], description: "That memo's document number; null with `customer_invoice_id`. Always sent since T76h; optional in v1 (ADR-0041)."}
+    DunningNoticeCancelledV1:
+      type: object
+      required: [dunning_notice_id, dunning_run_id, legal_entity_id, legal_entity_code, customer_id, customer_number, dunning_date, level, customer_invoice_id, customer_invoice_number, reversal_entry_id, reversal_date]
+      properties:
+        dunning_notice_id: {$ref: '#/components/schemas/Uuid', description: '`collections.dunning_notice.id`.'}
+        dunning_run_id: {$ref: '#/components/schemas/Uuid', description: 'The cancelled run the notice is of: `collections.dunning_run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that dunned the customer.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number, as it was when the run was started."}
+        dunning_date: {$ref: '#/components/schemas/Date', description: "The date the customer's items had been recorded as dunned on: the run's key date."}
+        level: {type: integer, description: "The withdrawn notice's dunning level, 1 to 9."}
+        customer_invoice_id: {$ref: '#/components/schemas/NullableUuid', description: "The debit memo the notice's charge and interest were posted with (T76h), now reversed; null when none was posted."}
+        customer_invoice_number: {type: [string, 'null'], description: "That memo's document number; null with `customer_invoice_id`."}
+        reversal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: "The journal entry that reversed the memo's; null with `customer_invoice_id`."}
+        reversal_date: {type: [string, 'null'], format: date, description: "The date the reversal posted on, the memo's posting date; null with `customer_invoice_id`."}
     DisputeCaseChangedV1:
       type: object
       required: [dispute_case_id, change, legal_entity_id, legal_entity_code, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, assignee_id, status, status_before, version]

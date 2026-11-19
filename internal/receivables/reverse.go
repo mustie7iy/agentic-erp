@@ -61,7 +61,39 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err := ifMatch(v.Version); err != nil {
 		return Invoice{}, err
 	}
-	date, err := e.reversible(ctx, v, in)
+	return e.reverse(ctx, tx, p, v, in, false)
+}
+
+// ReverseSourced reverses a posted debit memo another context entered
+// from its document, for that context (T76i): collections, cancelling the
+// dunning run whose notice the memo charged. It is ReverseInvoice without
+// the version check, which the caller makes on its own document, and
+// without the refusal of a memo entered from a source: source must be
+// the memo's source document, or it is an error, not a refusal (the
+// caller holds the pair it recorded). The memo's row is read FOR UPDATE,
+// and what ReverseInvoice refuses is refused alike: a memo that is not
+// posted, one whose item is cleared, a date in a period not open.
+func (e *Endpoints) ReverseSourced(ctx context.Context, id, source uuid.UUID, in Reversal) (Invoice, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Invoice{}, err
+	}
+	v, err := get(ctx, tx, id, true)
+	if err != nil {
+		return Invoice{}, err
+	}
+	if v.Kind != KindDebitMemo || v.SourceDocumentID == nil || *v.SourceDocumentID != source {
+		return Invoice{}, fmt.Errorf("receivables: customer %s %s was not entered from document %s", v.Kind, v.DocumentNumber, source)
+	}
+	return e.reverse(ctx, tx, p, v, in, true)
+}
+
+// reverse reverses the memo, read under its row lock: what is not
+// reversible is refused (reversible; a memo entered from a source only
+// when sourced, its context's), else the ledger's reversal is posted and
+// the memo marked reversed, with its audit record and event.
+func (e *Endpoints) reverse(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, in Reversal, sourced bool) (Invoice, error) {
+	date, err := e.reversible(ctx, v, in, sourced)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -73,7 +105,7 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err := markReversed(ctx, tx, p, v, rev, in.Reason); err != nil {
 		return Invoice{}, err
 	}
-	reversed, err := load(ctx, tx, id, false)
+	reversed, err := load(ctx, tx, v.ID, false)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -81,13 +113,14 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 }
 
 // reversible refuses what is not reversed and returns the reversal's
-// posting date: only a posted credit memo or debit memo a person entered
-// (409 receivables.invalid_status, receivables.invoice_not_reversible,
+// posting date: only a posted credit memo or debit memo a person entered,
+// or, sourced, its context reversing one it entered (409
+// receivables.invalid_status, receivables.invoice_not_reversible,
 // receivables.entered_from_source), with a reason that is not white
 // space alone, on a date not before the memo posted (422
 // receivables.reversal_before_posting), whose open item is not cleared
 // (409 receivables.document_cleared).
-func (e *Endpoints) reversible(ctx context.Context, v Invoice, in Reversal) (time.Time, error) {
+func (e *Endpoints) reversible(ctx context.Context, v Invoice, in Reversal, sourced bool) (time.Time, error) {
 	switch {
 	case v.Status != Posted:
 		return time.Time{}, problem.Conflict("receivables.invalid_status", "Customer document "+v.DocumentNumber+" is "+v.Status+
@@ -95,10 +128,9 @@ func (e *Endpoints) reversible(ctx context.Context, v Invoice, in Reversal) (tim
 	case v.Kind == KindInvoice:
 		return time.Time{}, problem.Conflict("receivables.invoice_not_reversible", "Customer invoice "+v.DocumentNumber+
 			" is not reversed: enter a credit memo naming it (POST /v1/customer-invoices with kind credit_memo).")
-	case v.SourceDocumentID != nil:
+	case v.SourceDocumentID != nil && !sourced:
 		return time.Time{}, problem.Conflict("receivables.entered_from_source", "Customer "+strings.ReplaceAll(v.Kind, "_", " ")+" "+v.DocumentNumber+
-			" was entered from "+sourceOf(v)+" "+*v.SourceDocumentNumber+ // named with its id (customer_invoice_source)
-			" ("+v.SourceDocumentID.String()+"); it is corrected there, not reversed here.")
+			" was entered from "+sourceOf(v))
 	}
 	if err := problem.RequireText("reason", in.Reason); err != nil {
 		return time.Time{}, err
@@ -123,14 +155,17 @@ func (e *Endpoints) reversible(ctx context.Context, v Invoice, in Reversal) (tim
 }
 
 // sourceOf names the kind of document a document entered from another
-// context's came from: a debit memo is a dunning notice's, whose charge
-// and interest a confirmed dunning run posted (T76h); a credit memo is
-// sales'. Neither context enters the other kind.
+// context's came from, and how it is corrected there: a debit memo is a
+// dunning notice's, whose charge and interest a confirmed dunning run
+// posted (T76h) and whose cancellation reverses it (T76i); a credit memo
+// is sales'. Neither context enters the other kind.
 func sourceOf(v Invoice) string {
-	if v.Kind == KindDebitMemo {
-		return "dunning notice"
+	if v.Kind == KindDebitMemo { // its source number is the notice's id
+		return "dunning notice " + v.SourceDocumentID.String() + "; it is reversed by cancelling the dunning run that posted it " +
+			"(POST /v1/dunning-runs/{id}:cancel), not here."
 	}
-	return "sales document"
+	return "sales document " + *v.SourceDocumentNumber + // named with its id (customer_invoice_source)
+		" (" + v.SourceDocumentID.String() + "); it is corrected there, not reversed here."
 }
 
 // markReversed moves the memo from posted to reversed with its reversal.

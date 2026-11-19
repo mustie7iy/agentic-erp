@@ -125,6 +125,10 @@ type CancelDownPaymentRequestRes interface {
 	cancelDownPaymentRequestRes()
 }
 
+type CancelDunningRunRes interface {
+	cancelDunningRunRes()
+}
+
 type CancelMemoRecordRes interface {
 	cancelMemoRecordRes()
 }

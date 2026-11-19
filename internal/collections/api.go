@@ -51,7 +51,7 @@ func runToAPI(r Run, companies map[uuid.UUID]tenancy.Entity) gen.DunningRun {
 		BlockedItemCount: int32(len(r.Blocked)), BlockedAmount: apitypes.Money(r.BlockedLC(), r.Currency, r.Exponent),
 		BlockedItems: make([]gen.DunningRunBlockedItem, len(r.Blocked)), PromisedItemCount: int32(len(r.Promised)),
 		PromisedAmount: apitypes.Money(r.PromisedLC(), r.Currency, r.Exponent), PromisedItems: make([]gen.DunningRunPromisedItem, len(r.Promised)),
-		ChargeDocumentCount: r.ChargeCount}
+		ChargeDocumentCount: r.ChargeCount, CancellationReason: apitypes.OptString(r.CancellationReason)}
 	for i, d := range r.Disputed {
 		out.DisputedItems[i] = gen.DunningRunDisputedItem{DisputeCaseID: d.CaseID, CustomerID: d.CustomerID, CustomerNumber: d.CustomerNumber,
 			FiscalYear: int32(d.FiscalYear), JournalEntryID: d.EntryID, LineNo: d.LineNo, DocumentNumber: d.DocumentNumber,
@@ -97,7 +97,20 @@ func (e *Endpoints) ConfirmDunningRun(ctx context.Context, params gen.ConfirmDun
 	if err != nil {
 		return nil, err
 	}
-	return &gen.ConfirmDunningRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: runToAPI(r, companies)}, nil
+	return &gen.CancelDunningRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: runToAPI(r, companies)}, nil
+}
+
+// CancelDunningRun implements POST /v1/dunning-runs/{id}:cancel.
+func (e *Endpoints) CancelDunningRun(ctx context.Context, req *gen.DunningRunCancel, params gen.CancelDunningRunParams) (gen.CancelDunningRunRes, error) {
+	r, err := e.CancelRun(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	companies, err := e.companies(ctx, []Run{r})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.CancelDunningRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: runToAPI(r, companies)}, nil
 }
 
 // GetDunningRun implements GET /v1/dunning-runs/{id}.
@@ -176,8 +189,21 @@ func noticeToAPI(n Notice, s shown) gen.DunningNotice {
 			PreviousLevel: it.PreviousLevel, Level: it.Level, InterestAmount: apitypes.Money(it.InterestAmount, s.run.Currency, s.run.Exponent)}
 	}
 	if c := n.Charge; c != nil {
-		out.ChargeDocument.SetTo(gen.DunningChargeDocument{CustomerInvoiceID: c.InvoiceID, CustomerInvoiceNumber: c.InvoiceNumber, JournalEntryID: c.EntryID,
-			JournalEntryYear: int32(c.EntryYear), PostingDate: c.PostingDate})
+		out.ChargeDocument.SetTo(chargeToAPI(*c))
+	}
+	return out
+}
+
+// chargeToAPI is the debit memo a notice was charged with as the API
+// gives it: posted, or reversed with its reversal (T76i).
+func chargeToAPI(c Charge) gen.DunningChargeDocument {
+	out := gen.DunningChargeDocument{CustomerInvoiceID: c.InvoiceID, CustomerInvoiceNumber: c.InvoiceNumber, JournalEntryID: c.EntryID,
+		JournalEntryYear: int32(c.EntryYear), PostingDate: c.PostingDate, Status: "posted"}
+	if r := c.Reversal; r != nil {
+		out.Status = "reversed"
+		out.ReversalEntryID.SetTo(r.EntryID)
+		out.ReversalEntryYear.SetTo(int32(r.EntryYear))
+		out.ReversalDate.SetTo(r.Date)
 	}
 	return out
 }

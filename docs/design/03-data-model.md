@@ -4680,8 +4680,10 @@ erDiagram
   reversed credit or debit memo (T75k, migration 000381) names the
   reversal of its entry by year and id, the date it posted on and a
   reason of 1 to 200 characters, all together exactly when reversed; only
-  a credit or debit memo without a source document is reversed, on or
-  after its posting date (`customer_invoice_reversed`); a reversal entry
+  a credit or debit memo without a source document, or a debit memo with
+  one (a dunning notice's, reversed for collections, T76i, migration
+  000396), is reversed, on or after its posting date
+  (`customer_invoice_reversed`); a reversal entry
   is one document's (`customer_invoice_reversal_once`); the trigger
   `customer_invoice_posted_once` admits posted → reversed, keeping what
   the document posted with, and no change after it.
@@ -4795,7 +4797,8 @@ dunning block: a customer, or one of its open items, that the company
 does not dun up to an end date; a run lists the items it holds back.
 T76h (migration 000395) posts a confirmed run's charges and interest: a
 customer debit memo per notice charged anything, which `dunning_charge`
-names.
+names. T76i (migrations 000396, 000397) cancels a confirmed run: its
+recorded levels no longer count and its memos are reversed.
 
 ```mermaid
 erDiagram
@@ -4806,7 +4809,7 @@ erDiagram
   dunning_run { uuid id PK
     uuid legal_entity_id "tenancy"
     date key_date
-    text status "proposed, confirmed"
+    text status "proposed, confirmed, cancelled"
     char currency "the company's"
     int notice_count
     int item_count
@@ -4820,6 +4823,7 @@ erDiagram
     int below_minimum_count "notices left out"
     bigint below_minimum_amount "their amount"
     jsonb blocked_items "items left out for a block"
+    text cancellation_reason "when cancelled"
     int version }
   dunning_notice { uuid id PK
     uuid dunning_run_id FK
@@ -4859,7 +4863,10 @@ erDiagram
     text customer_invoice_number
     smallint journal_entry_year "ledger: the memo's entry"
     uuid journal_entry_id
-    date posting_date }
+    date posting_date
+    smallint reversal_entry_year "ledger: when its run was cancelled"
+    uuid reversal_entry_id
+    date reversal_date }
   dunning_block { uuid id PK
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner"
@@ -4922,7 +4929,13 @@ erDiagram
   `dunning_run_below_minimum_amount_check`), an amount only with notices
   (which may amount to 0, an item booked at 0.00) and notices only with
   a minimum (`dunning_run_below_minimum_check`). Each defaults to
-  none, and the application's update grant leaves them out.
+  none, and the application's update grant leaves them out. T76i
+  (migration 000396): a confirmed run moves to `cancelled` once, with
+  `cancellation_reason`, 1 to 200 characters not white space alone,
+  exactly when cancelled (`dunning_run_cancelled`); the trigger
+  `dunning_run_confirmed_once` admits proposed → confirmed and confirmed
+  → cancelled alone, and the application may set the reason too. A
+  cancelled run's `dunned_item` rows stay and are not read.
 - `collections.dunning_notice`: one per customer in a run
   (`dunning_notice_customer_once`), at a level from 1 to 9
   (`dunning_notice_level_check`), with at least one item
@@ -4967,8 +4980,13 @@ erDiagram
   (`dunning_charge_notice_fkey`), a memo charging one notice
   (`dunning_charge_invoice_once`). The memo names the notice as its
   source document. A run's charges are read by run
-  (`dunning_charge_by_run`). Insert-only. Its down migration is refused
-  while a charge exists.
+  (`dunning_charge_by_run`). Its down migration is refused while a charge
+  exists. Fixed but for the reversal of its memo when its run is
+  cancelled (T76i, migration 000396): the reversal's entry by year and id
+  and its date, not before the memo posted, all together or none
+  (`dunning_charge_reversed`), set once and then fixed, and nothing
+  deletes a charge (the trigger `dunning_charge_reversed_once`, for every
+  role).
 - `collections.dunning_block` (T76e, migration 000354): a customer, by
   its number (`dunning_block_customer_number_check`), and either an open
   item by its whole journal line with its document number or none of

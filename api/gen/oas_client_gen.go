@@ -499,6 +499,37 @@ type Invoker interface {
 	//
 	// POST /v1/down-payment-requests/{id}:cancel
 	CancelDownPaymentRequest(ctx context.Context, request *ReasonInput, params CancelDownPaymentRequestParams) (CancelDownPaymentRequestRes, error)
+	// CancelDunningRun invokes cancelDunningRun operation.
+	//
+	// Cancels a confirmed dunning run, once (ADR-0065 As built, T76i), at the version the caller read
+	// (`If-Match`), with a `reason`: the run becomes `cancelled` and shows the reason
+	// (`cancellation_reason`). The levels and dunning dates its confirmation recorded no longer count: a
+	// run started from then on, the collection worklist and a confirmation's comparison read the confirmed
+	// runs alone, so each of its items is back at the level the runs before it recorded
+	// (`previous_level`), and a proposal started before the cancellation is stale when it is confirmed
+	// (409 `collections.proposal_stale`). Each customer debit memo its confirmation posted its notices'
+	// charges and interest with (T76h, `charge_document`) is reversed in accounts receivable, in the same
+	// transaction, on the memo's posting date with the cancellation's reason: the ledger posts the
+	// reversal of its entry and clears the memo's open item against it, the memo becomes `reversed`, and
+	// the notice's `charge_document` shows the reversal; each memo's CustomerInvoiceReversed is written
+	// beside the run's audit record, DunningRunChanged (`cancelled`, status_before `confirmed`) and one
+	// DunningNoticeCancelled per notice. The run's notices, items and amounts stay as they were, for the
+	// record. Refused: a run that is not `confirmed`, a proposed or a cancelled one (409
+	// `collections.invalid_status`), so a second cancellation reverses nothing; a run a later confirmed
+	// run of the company has dunned the items of from the levels this one recorded, or the debit memos it
+	// posted (409 `collections.run_superseded`, naming that run: cancel it first); a memo whose open item
+	// is cleared, by a payment applied or a clearing (409 `receivables.document_cleared`;
+	// `ledger.entry_cleared` when the clearing committed while the request ran: undo that clearing first);
+	// a memo posted in a period that is no longer open (409 `ledger.period_not_open`); the reason missing
+	// or white space alone (422 `request.validation_failed` naming `reason`). What accounts receivable or
+	// the ledger refuses is answered with their code, the memo's number and the customer's leading the
+	// detail, and nothing of the cancellation is done. Cancellations and confirmations of a company's runs
+	// wait for each other. Cancelling takes the credit controller's permission alone: no permission of
+	// accounts receivable is needed. A retry with the same `Idempotency-Key` answers the cancelled run. A
+	// run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`).
+	//
+	// POST /v1/dunning-runs/{id}:cancel
+	CancelDunningRun(ctx context.Context, request *DunningRunCancel, params CancelDunningRunParams) (CancelDunningRunRes, error)
 	// CancelMemoRecord invokes cancelMemoRecord operation.
 	//
 	// Cancels an `active` or `expired` memo record (409 `cash.memo_record_closed`; an agent's proposal is
@@ -906,8 +937,9 @@ type Invoker interface {
 	// proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that
 	// is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records
 	// and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run
-	// without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a
-	// company the caller may not act in is not found (404). Human-only (`x-agent: false`).
+	// without notices is confirmed too, and records nothing. A confirmed run is cancelled with
+	// `cancelDunningRun` (T76i). A run of a company the caller may not act in is not found (404).
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
@@ -7941,11 +7973,13 @@ type Invoker interface {
 	// invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit
 	// memo another context entered from its own document, a billing document's cancellation or a credit
 	// memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is
-	// corrected there; a memo whose open item is cleared, netted when a payment was applied or cleared
-	// against its invoice (409 `receivables.document_cleared`: undo that clearing first;
-	// `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under
-	// its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry
-	// with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`).
+	// corrected there, and a debit memo of a dunning notice's charge and interest (T76h; the same code),
+	// which the cancellation of its dunning run reverses (`cancelDunningRun`); a memo whose open item is
+	// cleared, netted when a payment was applied or cleared against its invoice (409
+	// `receivables.document_cleared`: undo that clearing first; `ledger.entry_cleared` when the clearing
+	// committed while the request ran). The memo is read under its row lock at the version the client read
+	// (`If-Match`, 412 `request.version_mismatch`); a retry with the same `Idempotency-Key` answers the
+	// reversed document. Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices/{id}:reverse
 	ReverseCustomerInvoice(ctx context.Context, request *CustomerInvoiceReverse, params ReverseCustomerInvoiceParams) (ReverseCustomerInvoiceRes, error)
@@ -14274,6 +14308,191 @@ func (c *Client) sendCancelDownPaymentRequest(ctx context.Context, request *Reas
 	return result, nil
 }
 
+// CancelDunningRun invokes cancelDunningRun operation.
+//
+// Cancels a confirmed dunning run, once (ADR-0065 As built, T76i), at the version the caller read
+// (`If-Match`), with a `reason`: the run becomes `cancelled` and shows the reason
+// (`cancellation_reason`). The levels and dunning dates its confirmation recorded no longer count: a
+// run started from then on, the collection worklist and a confirmation's comparison read the confirmed
+// runs alone, so each of its items is back at the level the runs before it recorded
+// (`previous_level`), and a proposal started before the cancellation is stale when it is confirmed
+// (409 `collections.proposal_stale`). Each customer debit memo its confirmation posted its notices'
+// charges and interest with (T76h, `charge_document`) is reversed in accounts receivable, in the same
+// transaction, on the memo's posting date with the cancellation's reason: the ledger posts the
+// reversal of its entry and clears the memo's open item against it, the memo becomes `reversed`, and
+// the notice's `charge_document` shows the reversal; each memo's CustomerInvoiceReversed is written
+// beside the run's audit record, DunningRunChanged (`cancelled`, status_before `confirmed`) and one
+// DunningNoticeCancelled per notice. The run's notices, items and amounts stay as they were, for the
+// record. Refused: a run that is not `confirmed`, a proposed or a cancelled one (409
+// `collections.invalid_status`), so a second cancellation reverses nothing; a run a later confirmed
+// run of the company has dunned the items of from the levels this one recorded, or the debit memos it
+// posted (409 `collections.run_superseded`, naming that run: cancel it first); a memo whose open item
+// is cleared, by a payment applied or a clearing (409 `receivables.document_cleared`;
+// `ledger.entry_cleared` when the clearing committed while the request ran: undo that clearing first);
+// a memo posted in a period that is no longer open (409 `ledger.period_not_open`); the reason missing
+// or white space alone (422 `request.validation_failed` naming `reason`). What accounts receivable or
+// the ledger refuses is answered with their code, the memo's number and the customer's leading the
+// detail, and nothing of the cancellation is done. Cancellations and confirmations of a company's runs
+// wait for each other. Cancelling takes the credit controller's permission alone: no permission of
+// accounts receivable is needed. A retry with the same `Idempotency-Key` answers the cancelled run. A
+// run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`).
+//
+// POST /v1/dunning-runs/{id}:cancel
+func (c *Client) CancelDunningRun(ctx context.Context, request *DunningRunCancel, params CancelDunningRunParams) (CancelDunningRunRes, error) {
+	res, err := c.sendCancelDunningRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCancelDunningRun(ctx context.Context, request *DunningRunCancel, params CancelDunningRunParams) (res CancelDunningRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelDunningRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/dunning-runs/{id}:cancel"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CancelDunningRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/dunning-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":cancel"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCancelDunningRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CancelDunningRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCancelDunningRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CancelMemoRecord invokes cancelMemoRecord operation.
 //
 // Cancels an `active` or `expired` memo record (409 `cash.memo_record_closed`; an agent's proposal is
@@ -18539,8 +18758,9 @@ func (c *Client) sendCompleteYearCloseTask(ctx context.Context, request OptClose
 // proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that
 // is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records
 // and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run
-// without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a
-// company the caller may not act in is not found (404). Human-only (`x-agent: false`).
+// without notices is confirmed too, and records nothing. A confirmed run is cancelled with
+// `cancelDunningRun` (T76i). A run of a company the caller may not act in is not found (404).
+// Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs/{id}:confirm
 func (c *Client) ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error) {
@@ -110222,11 +110442,13 @@ func (c *Client) sendReverseAssetTransfer(ctx context.Context, request *AssetTra
 // invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit
 // memo another context entered from its own document, a billing document's cancellation or a credit
 // memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is
-// corrected there; a memo whose open item is cleared, netted when a payment was applied or cleared
-// against its invoice (409 `receivables.document_cleared`: undo that clearing first;
-// `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under
-// its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry
-// with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`).
+// corrected there, and a debit memo of a dunning notice's charge and interest (T76h; the same code),
+// which the cancellation of its dunning run reverses (`cancelDunningRun`); a memo whose open item is
+// cleared, netted when a payment was applied or cleared against its invoice (409
+// `receivables.document_cleared`: undo that clearing first; `ledger.entry_cleared` when the clearing
+// committed while the request ran). The memo is read under its row lock at the version the client read
+// (`If-Match`, 412 `request.version_mismatch`); a retry with the same `Idempotency-Key` answers the
+// reversed document. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices/{id}:reverse
 func (c *Client) ReverseCustomerInvoice(ctx context.Context, request *CustomerInvoiceReverse, params ReverseCustomerInvoiceParams) (ReverseCustomerInvoiceRes, error) {

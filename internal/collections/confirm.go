@@ -91,8 +91,8 @@ func (e *Endpoints) ConfirmRun(ctx context.Context, id uuid.UUID, ifMatch func(i
 // of two proposals of a company confirmed at once the second reads what
 // the first recorded and is found stale where they share an item.
 func markConfirmed(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run Run) error {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('collections.dunning:' || $1::text, 0))`, run.LegalEntityID); err != nil {
-		return fmt.Errorf("collections: lock the dunning of company %s: %w", run.LegalEntityID, err)
+	if err := lockDunning(ctx, tx, run.LegalEntityID); err != nil {
+		return err
 	}
 	tag, err := tx.Exec(ctx, `UPDATE collections.dunning_run SET status = 'confirmed', version = version + 1, updated_by = $2
 		WHERE id = $1 AND status = 'proposed'`, run.ID, p.ID)
@@ -101,6 +101,16 @@ func markConfirmed(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run Run) 
 	}
 	if tag.RowsAffected() == 0 {
 		return problem.Conflict("collections.invalid_status", "The dunning run is not proposed any more; only a proposed run is confirmed.")
+	}
+	return nil
+}
+
+// lockDunning takes the company's dunning lock, held to the end of the
+// transaction: the confirmations and cancellations of a company's runs
+// wait for each other (ADR-0065 §8, T76i).
+func lockDunning(ctx context.Context, tx pgx.Tx, company uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('collections.dunning:' || $1::text, 0))`, company); err != nil {
+		return fmt.Errorf("collections: lock the dunning of company %s: %w", company, err)
 	}
 	return nil
 }

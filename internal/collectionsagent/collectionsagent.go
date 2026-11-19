@@ -63,12 +63,12 @@ const DraftLabel = "Draft message:"
 // the worklist, the largest overdue amount first.
 const MaxCustomers = 20
 
-// Never are the operations the agent never calls (ADR-0072): starting or
-// confirming a dunning run and opening, changing or closing a dispute
+// Never are the operations the agent never calls (ADR-0072): starting,
+// confirming or cancelling (T76i) a dunning run and opening, changing or closing a dispute
 // case, placing or releasing a dunning block (T76e), recording a promise
 // to pay (T76f) or a contact with a customer (T76g); nothing in the contract sends a message to a customer,
 // and its tools hold none of these.
-var Never = []string{"createDunningRun", "confirmDunningRun", "createDisputeCase", "updateDisputeCase", "closeDisputeCase",
+var Never = []string{"createDunningRun", "confirmDunningRun", "cancelDunningRun", "createDisputeCase", "updateDisputeCase", "closeDisputeCase",
 	"createDunningBlock", "releaseDunningBlock", "createPromiseToPay", "createCustomerContact"}
 
 // Reads are the operations the agent reads with (ADR-0072 As built,

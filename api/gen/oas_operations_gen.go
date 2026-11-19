@@ -37,6 +37,7 @@ const (
 	CancelBillingDocumentOperation                 OperationName = "CancelBillingDocument"
 	CancelContractOperation                        OperationName = "CancelContract"
 	CancelDownPaymentRequestOperation              OperationName = "CancelDownPaymentRequest"
+	CancelDunningRunOperation                      OperationName = "CancelDunningRun"
 	CancelMemoRecordOperation                      OperationName = "CancelMemoRecord"
 	CancelOperationOperation                       OperationName = "CancelOperation"
 	CancelParkedJournalEntryOperation              OperationName = "CancelParkedJournalEntry"

@@ -18,7 +18,8 @@
 // a customer are recorded with a resubmission date, which keeps the
 // customer off the worklist until then (T76g). Confirming a run posts its
 // notices' charges and interest to the customers as debit memos, where
-// the company names its dunning accounts (T76h).
+// the company names its dunning accounts (T76h); cancelling a confirmed
+// run sets its items' levels back and reverses its memos (T76i).
 //
 // The context is a leaf (ADR-0065 §1): it reads the ledger's customer
 // open items, the partner context's names, the identity context's people,
@@ -50,10 +51,12 @@ import (
 
 // The statuses of a dunning run: Proposed, its notices are a proposal;
 // Confirmed, the proposal was confirmed and its items' levels recorded
-// (ADR-0065 §8).
+// (ADR-0065 §8); Cancelled, the confirmation was taken back, its levels
+// no longer count and its charges are reversed (T76i).
 const (
 	Proposed  = "proposed"
 	Confirmed = "confirmed"
+	Cancelled = "cancelled"
 )
 
 // LastKeyDate is the latest key date a request may name (src review:T76a).
@@ -170,11 +173,14 @@ type Run struct {
 	// ChargeCount is how many debit memos its confirmation posted, one
 	// per notice it charged anything (T76h).
 	ChargeCount int32
-	Version     int32
-	CreatedAt   time.Time
-	CreatedBy   uuid.UUID
-	UpdatedAt   time.Time
-	UpdatedBy   uuid.UUID
+	// CancellationReason is why a cancelled run was cancelled (T76i); nil
+	// for a run that is not.
+	CancellationReason *string
+	Version            int32
+	CreatedAt          time.Time
+	CreatedBy          uuid.UUID
+	UpdatedAt          time.Time
+	UpdatedBy          uuid.UUID
 }
 
 // DisputedLC is what the run's disputed items add up to in its currency.
@@ -332,15 +338,15 @@ const runSelect = `SELECT r.id, r.legal_entity_id, r.key_date, r.status, r.curre
 		(SELECT coalesce(jsonb_agg(d || jsonb_build_object('exponent', x.exponent) ORDER BY n), '[]')
 		 FROM jsonb_array_elements(r.promised_items) WITH ORDINALITY AS e(d, n) JOIN ref.currency x ON x.code = d->>'currency'),
 		r.grace_days, r.minimum_amount, r.interest_rate_percent::text, r.charge_amount, r.interest_amount, r.below_minimum_count,
-		r.below_minimum_amount, (SELECT count(*) FROM collections.dunning_charge g WHERE g.dunning_run_id = r.id), r.version, r.created_at, r.created_by,
-		r.updated_at, r.updated_by
+		r.below_minimum_amount, (SELECT count(*) FROM collections.dunning_charge g WHERE g.dunning_run_id = r.id), r.cancellation_reason, r.version,
+		r.created_at, r.created_by, r.updated_at, r.updated_by
 	FROM collections.dunning_run r JOIN ref.currency c ON c.code = r.currency`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.LegalEntityID, &r.KeyDate, &r.Status, &r.Currency, &r.Exponent, &r.NoticeCount, &r.ItemCount, &r.OverdueAmount,
 		&r.Disputed, &r.Blocked, &r.Promised, &r.GraceDays, &r.MinimumAmount, &r.InterestRate, &r.ChargeAmount, &r.InterestAmount, &r.BelowMinimumCount,
-		&r.BelowMinimumAmount, &r.ChargeCount, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
+		&r.BelowMinimumAmount, &r.ChargeCount, &r.CancellationReason, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
 	return r, errs.Wrapf(err, "scan dunning run")
 }
 
@@ -395,13 +401,16 @@ type dunned struct {
 }
 
 // recorded reads what the confirmed runs recorded of the items, by item;
-// an item never dunned is absent.
+// an item never dunned is absent. A cancelled run's records stay in
+// dunned_item and are not read: its cancellation set the items' levels
+// back to what the runs before it recorded (T76i).
 func recorded(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledger.ItemRef]dunned, error) {
 	years, entries, lines := ledger.ItemColumns(refs)
 	// Read into a map, so the rows' order does not matter.
 	rows, _ := tx.Query(ctx, `SELECT d.fiscal_year, d.journal_entry_id, d.line_no, max(d.level), max(d.dunning_date), count(*)
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(fy, je, ln)
 		JOIN collections.dunned_item d ON d.fiscal_year = x.fy AND d.journal_entry_id = x.je AND d.line_no = x.ln
+		JOIN collections.dunning_run r ON r.tenant_id = d.tenant_id AND r.id = d.dunning_run_id AND r.status = 'confirmed'
 		GROUP BY d.fiscal_year, d.journal_entry_id, d.line_no`, years, entries, lines)
 	out := map[ledger.ItemRef]dunned{}
 	var ref ledger.ItemRef

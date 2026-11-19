@@ -20,10 +20,11 @@ import (
 // Invoices enters, posts and reverses the customer debit memos a dunning
 // run charges its notices with (receivables context, T76h, T76i): the
 // published API sales posts its billing documents through. A memo is
-// entered and posted in the caller's transaction.
+// entered, posted and reversed in the caller's transaction.
 type Invoices interface {
 	CreateInvoice(ctx context.Context, in receivables.Input) (receivables.Invoice, error)
 	PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (receivables.Invoice, error)
+	ReverseSourced(ctx context.Context, id, source uuid.UUID, in receivables.Reversal) (receivables.Invoice, error)
 }
 
 // Accounts finds a company's accounts by the numbers the configuration
@@ -42,6 +43,17 @@ type Charge struct {
 	EntryYear     int16
 	EntryID       uuid.UUID
 	PostingDate   time.Time
+	// Reversal is the memo's reversal when its run was cancelled (T76i);
+	// nil while it stands.
+	Reversal *ChargeReversal
+}
+
+// ChargeReversal is the ledger's reversal of a charge's debit memo: its
+// entry and the date it posted on.
+type ChargeReversal struct {
+	EntryYear int16
+	EntryID   uuid.UUID
+	Date      time.Time
 }
 
 // chargeAccounts are the accounts a company's dunning charges and
@@ -161,14 +173,22 @@ func charged(ctx context.Context, tx pgx.Tx, notices []Notice) error {
 		at[n.ID], ids[i] = i, n.ID
 	}
 	// Each row goes to its own notice, so the rows' order does not matter.
-	rows, _ := tx.Query(ctx, `SELECT dunning_notice_id, customer_invoice_id, customer_invoice_number, journal_entry_year, journal_entry_id, posting_date
+	rows, _ := tx.Query(ctx, `SELECT dunning_notice_id, customer_invoice_id, customer_invoice_number, journal_entry_year, journal_entry_id, posting_date,
+			reversal_entry_year, reversal_entry_id, reversal_date
 		FROM collections.dunning_charge WHERE dunning_notice_id = ANY($1)`, ids)
 	var c Charge
-	_, err := pgx.ForEachRow(rows, []any{&c.NoticeID, &c.InvoiceID, &c.InvoiceNumber, &c.EntryYear, &c.EntryID, &c.PostingDate}, func() error {
-		charge := c
-		notices[at[c.NoticeID]].Charge = &charge
-		return nil
-	})
+	var revYear *int16
+	var revEntry *uuid.UUID
+	var revDate *time.Time
+	_, err := pgx.ForEachRow(rows, []any{&c.NoticeID, &c.InvoiceID, &c.InvoiceNumber, &c.EntryYear, &c.EntryID, &c.PostingDate, &revYear, &revEntry, &revDate},
+		func() error {
+			charge := c
+			if revEntry != nil { // the reversal is whole or none (dunning_charge_reversed)
+				charge.Reversal = &ChargeReversal{EntryYear: *revYear, EntryID: *revEntry, Date: *revDate}
+			}
+			notices[at[c.NoticeID]].Charge = &charge
+			return nil
+		})
 	if err != nil {
 		return fmt.Errorf("collections: read the charges of %d dunning notices: %w", len(notices), err)
 	}

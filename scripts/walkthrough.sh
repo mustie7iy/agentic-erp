@@ -14131,7 +14131,7 @@ step_aging_by_center() {
   passed
 }
 
-# step_dunning_postings is T76h (ADR-0065 As built): Ada names Maple's
+# step_dunning_postings is T76h and T76i (ADR-0065 As built): Ada names Maple's
 # dunning charge and interest accounts, new revenue accounts of its chart,
 # through a governed change, so that a confirmed dunning run posts its
 # notices' charges and interest to the customers. Ruth posts Bayview
@@ -14142,13 +14142,20 @@ step_aging_by_center() {
 # and the interest of 2.96, which is Bayview's open item, the charge and
 # the interest on their accounts. The run is company-wide, so other
 # customers' notices are confirmed and charged with it; the step reads
-# Bayview's. The key dates are the requests'.
+# Bayview's. A run fifty days past the due date reaches level 3 and posts
+# a second memo. Both runs are then taken back (T76i): the earlier one
+# cannot be cancelled first, the later run having dunned its items from
+# its levels; the later one is cancelled, then the earlier, each memo
+# reversed on its posting date and no longer open; a second cancellation
+# is refused, and a new run dunns the invoice from level 1 again. The key
+# dates are the requests'.
 step_dunning_postings() {
-  heading "Step 135 — Dunning charges and interest posted: the company's dunning accounts through a governed change; a confirmed run posts each notice's charge and interest to its customer as a debit memo, the customer's open item, the charge and the interest on their accounts"
-  local customer invoice due k1 k2 run tag notice memo entry
+  heading "Step 135 — Dunning charges and interest posted, and a confirmed run cancelled: the company's dunning accounts through a governed change; a confirmed run posts each notice's charge and interest to its customer as a debit memo; a run cancelled, latest first, its levels set back and its memos reversed"
+  local customer invoice due k1 k2 k3 run later tag notice memo memo2 entry id
   due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
   k1=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
   k2=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 60 * 86400 | strftime("%Y-%m-%d")')
+  k3=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 80 * 86400 | strftime("%Y-%m-%d")')
   as ada
   say "Maple's dunning notices ask for charges and interest (step 111), which nobody has booked so far. Ada adds two"
   say "revenue accounts, 4810 for dunning charges and 4820 for interest on overdue receivables, and names them in the"
@@ -14204,8 +14211,44 @@ step_dunning_postings() {
   api 200 '.items[] | "open item \(.document_number) (\(.reference)): \(.amount.amount) \(.amount.currency), due \(.net_due_date)"' \
     listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "Bayview's open items" "$(field "[.items[] | select(.journal_entry_id == \"$invoice\" or .journal_entry_id == \"$entry\") | .amount.amount] | sort | join(\" \")")" "17.96 400.00"
-  # What T76i's half of the step cancels: the customer, its invoice and the run that charged it.
-  BAYVIEW=$customer BAYVIEW_INVOICE=$invoice BAYVIEW_RUN=$run BAYVIEW_MEMO=$memo
+  say "Ruth starts the next run twenty days later, on $k3: the invoice is 50 days overdue and reaches level 3, CAD 25.00 and"
+  say "400.00 x 9% x 50/365 = 4.93 of interest. She confirms it, a second debit memo:"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k3\"}"
+  later=$(field .id) tag=$ETAG
+  api 200 '"dunning run at \(.key_date): \(.status), \(.charge_document_count) debit memo(s) posted"' confirmDunningRun -p "id=$later" -if-match "$tag"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$later" -p "customer_id=$customer"
+  expect "Bayview's third notice" "$(field '[.items[] | "\(.level) \(.charge_amount.amount) \(.interest_amount.amount) \(.charge_document.status)"] | join(", ")')" "3 25.00 4.93 posted"
+  memo2=$(field '.items[0].charge_document.customer_invoice_id')
+  say "The controller finds that the runs went out while Bayview's payment was being agreed: both are to be taken back"
+  say "(T76i). The run of $k2 cannot be cancelled first: the run of $k3 dunned its items from the level it recorded:"
+  QUIET=1 api 200 '' getDunningRun -p "id=$run"
+  refused 409 collections.run_superseded cancelDunningRun -p "id=$run" -if-match "$ETAG" -body '{"reason": "Payment being agreed with the customer"}'
+  say "Ruth cancels the run of $k3, then the run of $k2: each one's levels no longer count, and its debit memos are"
+  say "reversed on their posting dates:"
+  QUIET=1 api 200 '' getDunningRun -p "id=$later"
+  api 200 '"dunning run at \(.key_date): \(.status) (\(.cancellation_reason)), version \(.version)"' cancelDunningRun -p "id=$later" -if-match "$ETAG" \
+    -body '{"reason": "Payment being agreed with the customer"}'
+  expect "the later run" "$(field .status)" cancelled
+  QUIET=1 api 200 '' getDunningRun -p "id=$run"
+  api 200 '"dunning run at \(.key_date): \(.status) (\(.cancellation_reason)), version \(.version)"' cancelDunningRun -p "id=$run" -if-match "$ETAG" \
+    -body '{"reason": "Payment being agreed with the customer"}'
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): debit memo \(.charge_document.customer_invoice_number) \(.charge_document.status) on \(.charge_document.reversal_date)"' \
+    listDunningNotices -p "id=$run" -p "customer_id=$customer"
+  expect "Bayview's memo of the run of $k2" "$(field '[.items[].charge_document | "\(.status) \(.reversal_date == .posting_date)"] | join(", ")')" "reversed true"
+  for id in "$memo" "$memo2"; do
+    QUIET=1 api 200 '' getCustomerInvoice -p "id=$id"
+    expect "debit memo $(field .document_number)" "$(field .status)" reversed
+  done
+  say "A second cancellation is refused; a reversed memo is no longer Bayview's open item, and a new run at $k2 dunns the"
+  say "invoice from level 1 again, the level the run of $k1 recorded:"
+  QUIET=1 api 200 '' getDunningRun -p "id=$run"
+  refused 409 collections.invalid_status cancelDunningRun -p "id=$run" -if-match "$ETAG" -body '{"reason": "Payment being agreed with the customer"}'
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "Bayview's open items" "$(field "[.items[] | select(.journal_entry_id == \"$invoice\" or .journal_entry_id == \"$entry\") | .amount.amount] | join(\" \")")" "400.00"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k2\"}"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level)", (.items[] | "  item \(.document_number): level \(.previous_level) -> \(.level)")' \
+    listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "the invoice's levels" "$(field "[.items[].items[] | select(.journal_entry_id == \"$invoice\") | \"\(.previous_level) \(.level)\"] | join(\", \")")" "1 2"
   passed
 }
 

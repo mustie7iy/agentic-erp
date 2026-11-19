@@ -3114,9 +3114,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit controller cancels a confirmed dunning run: its items' dunning levels set back, the debit memos it posted reversed; refused once a memo is cleared, into a closed period, or when a later confirmed run dunned its items (POST /v1/dunning-runs/{id}:cancel)",
-        "r": "T76i · docs/design/plan-depth-3.md §T76i · ADR-0065 As built",
+        "r": "T76i · docs/design/plan-depth-3.md §T76i · db/migrations/000396, 000397 · POST /v1/dunning-runs/{id}:cancel · dunning_run status cancelled, cancellation_reason · dunning_charge reversal · DunningChargeDocument.status · DunningNoticeCancelled · 409 collections.run_superseded · receivables.ReverseSourced · customer_invoice_reversed widened · collectionsagent.Never · TestCancelRun, TestCancelStaleProposal, TestCancelRefusals, TestCancellationsSerialize, TestReverseSourced, TestDunningRunCancellation · walkthrough step_dunning_postings · ADR-0065 As built T76i, ADR-0063 As built",
         "src": "split:T76e · po:2026-11-17",
         "c": []
        },

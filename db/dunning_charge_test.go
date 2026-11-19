@@ -23,16 +23,22 @@ const (
 		journal_entry_year, journal_entry_id, posting_date) VALUES ($1, $2, $3, $4, $5, 2026, gen_random_uuid(), '2026-07-01')`
 )
 
+// reverseCharge records the reversal of every charge of the tenant on
+// the date $1.
+const reverseCharge = `UPDATE collections.dunning_charge SET reversal_entry_year = 2026, reversal_entry_id = gen_random_uuid(), reversal_date = $1::date`
+
 // charged writes the scene's runs and notices.
 func (s chargeScene) charged(tx pgx.Tx) error {
 	return all(tx, step(chargeRun, s.tenant, s.run), step(chargeNotice, s.tenant, s.notice, s.run),
 		step(chargeRun, s.tenant, s.run2), step(chargeNotice, s.tenant, s.notice2, s.run2))
 }
 
-// TestDunningChargeRules (T76h, migration 000395; ADR-0065 As built): a
-// dunning charge names a notice of its run and its debit memo by id and a
-// number of 1 to 40 characters; a notice is charged once and a memo
-// charges one notice; the application changes and deletes none.
+// TestDunningChargeRules (T76h, migration 000395; T76i, 000396; ADR-0065
+// As built): a dunning charge names a notice of its run and its debit memo
+// by id and a number of 1 to 40 characters; a notice is charged once and
+// a memo charges one notice; the application records its reversal once,
+// whole and not before the memo posted, and changes nothing else of it
+// and deletes none.
 func TestDunningChargeRules(t *testing.T) {
 	need(t)
 	cases := []struct {
@@ -72,6 +78,28 @@ func TestDunningChargeRules(t *testing.T) {
 		{"a charge deleted", func(s chargeScene) []stmt {
 			return []stmt{step(dunningCharge, s.tenant, s.notice, s.run, id(), "CI100001"), step(`DELETE FROM collections.dunning_charge`)}
 		}, "permission denied"},
+		{"a charge's reversal recorded (T76i, 000396)", func(s chargeScene) []stmt {
+			return []stmt{step(dunningCharge, s.tenant, s.notice, s.run, id(), "CI100001"), step(reverseCharge, "2026-07-01")}
+		}, ""},
+		{"a reversal recorded twice", func(s chargeScene) []stmt {
+			return []stmt{step(dunningCharge, s.tenant, s.notice, s.run, id(), "CI100001"), step(reverseCharge, "2026-07-01"),
+				step(reverseCharge, "2026-07-02")}
+		}, "only its reversal is recorded, once"},
+		{"a reversal before the memo posted", func(s chargeScene) []stmt {
+			return []stmt{step(dunningCharge, s.tenant, s.notice, s.run, id(), "CI100001"), step(reverseCharge, "2026-06-30")}
+		}, "dunning_charge_reversed"},
+		{"a reversal without its date", func(s chargeScene) []stmt {
+			return []stmt{step(dunningCharge, s.tenant, s.notice, s.run, id(), "CI100001"),
+				step(`UPDATE collections.dunning_charge SET reversal_entry_year = 2026, reversal_entry_id = gen_random_uuid()`)}
+		}, "dunning_charge_reversed"},
+		{"a reversal without its entry's year", func(s chargeScene) []stmt {
+			return []stmt{step(dunningCharge, s.tenant, s.notice, s.run, id(), "CI100001"),
+				step(`UPDATE collections.dunning_charge SET reversal_entry_id = gen_random_uuid(), reversal_date = '2026-07-01'`)}
+		}, "dunning_charge_reversed"},
+		{"a reversal taken back", func(s chargeScene) []stmt {
+			return []stmt{step(dunningCharge, s.tenant, s.notice, s.run, id(), "CI100001"), step(reverseCharge, "2026-07-01"),
+				step(`UPDATE collections.dunning_charge SET reversal_entry_year = NULL, reversal_entry_id = NULL, reversal_date = NULL`)}
+		}, "only its reversal is recorded, once"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -93,9 +121,10 @@ func TestDunningChargeRules(t *testing.T) {
 	}
 }
 
-// TestDunningChargeFixedForTheOwner (T76h, migration 000395): a charge is
-// insert-only for the table's owner too, so no later migration or repair
-// rewrites which memo charged a notice.
+// TestDunningChargeFixedForTheOwner (T76h, migration 000395; T76i, 000396):
+// a charge is fixed for the table's owner too, so no later migration or
+// repair rewrites which memo charged a notice or deletes it; only its
+// reversal is recorded, once.
 func TestDunningChargeFixedForTheOwner(t *testing.T) {
 	need(t)
 	ctx := context.Background()
@@ -121,7 +150,7 @@ func TestDunningChargeFixedForTheOwner(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err := tx.Exec(ctx, change, s.tenant)
-			failsWith(t, err, "insert-only")
+			failsWith(t, err, "only its reversal is recorded, once")
 			if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT s"); err != nil {
 				t.Fatal(err)
 			}
