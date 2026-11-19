@@ -358,9 +358,9 @@ func insertCount(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in CountInp
 // its number, company, location, status and items, each naming its
 // material by id and number with its book quantity and, once counted, the
 // quantity counted and, once posted, its difference, value and material
-// document; the approval request and the value it asked for (S2d). A count document publishes no event: the stock moves
-// only by the material documents its differences post, which publish
-// MaterialDocumentPosted.
+// document; the approval request and the value it asked for (S2d). A
+// count document publishes no event: the stock moves only by the material
+// documents its differences post, which publish MaterialDocumentPosted.
 func recordCount(ctx context.Context, action string, d CountDocument, r refs) error {
 	items := make([]map[string]any, len(d.Items))
 	for i, it := range d.Items {
