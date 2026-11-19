@@ -97,9 +97,9 @@ func (rc *reconciler) materialMaster(ctx context.Context, s companyScope) error 
 			continue
 		}
 		if u.Kind == kindPlant {
-			platformPlants[key] = unitText(u)
+			platformPlants[key] = st.unitText(u)
 		} else {
-			platformLocations[key] = st.code(u.ParentID) + "/" + unitText(u)
+			platformLocations[key] = st.unitText(u)
 		}
 	}
 	rc.compareKeyed(s.cc, "Plants", "plants", "plant ", sapPlants, platformPlants)
@@ -119,21 +119,18 @@ func (rc *reconciler) materialMaster(ctx context.Context, s companyScope) error 
 	return nil
 }
 
-// unitText is an org unit as a difference shows it: its code, and its
-// status when it is not active.
-func unitText(u tenancy.Unit) string {
+// unitText is an org unit as a difference shows it: its code after its
+// parent's (a storage location's plant), and its status when it is not
+// active.
+func (st *materialStates) unitText(u tenancy.Unit) string {
+	text := u.Code
+	if u.ParentID != nil {
+		text = st.units[*u.ParentID].Code + "/" + text
+	}
 	if u.Status != tenancy.Active {
-		return u.Code + " (" + u.Status + ")"
+		text += " (" + u.Status + ")"
 	}
-	return u.Code
-}
-
-// code is the code of the org unit with the id, "" for none.
-func (st *materialStates) code(id *uuid.UUID) string {
-	if id == nil {
-		return ""
-	}
-	return st.units[*id].Code
+	return text
 }
 
 // materialPlantText is a material's plant with its storage locations.

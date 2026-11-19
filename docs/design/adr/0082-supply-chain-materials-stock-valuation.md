@@ -738,7 +738,17 @@ migration: the external references are `integration.external_ref`'s.
   as the API's changes are. A migrated create lists no possible
   duplicates: the run holds its company's material range from its first
   material on, and the duplicate check's description lock taken after it
-  would deadlock with a request taking the two the other way round.
+  would deadlock with a request taking the two the other way round. A
+  material with a pending change is not extended (409
+  `materials.change_pending`, a load refusal): applying that change would
+  replace its plants and drop the extension.
+- **Locks** (ADR-0008, review round 1): a request takes a material or a
+  company's material range and then the tenant's material change numbers;
+  the run takes the materials it extends, then every new material's number
+  (`Migration.Number`, before it writes any change), and the change
+  numbers last, so it never waits for a material or a range while holding
+  them. It holds the change numbers until it commits, so a material
+  request in the tenant waits for the load (a cutover window).
 - **Numbers** come from the `material` range of the company of the
   material's first plant (by WERKS) in the scope; SAP's MATNR is kept as
   the external reference `MARA/<MATNR>` (external numbering stays Later,

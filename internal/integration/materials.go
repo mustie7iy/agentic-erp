@@ -4,9 +4,9 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"math/big"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -171,6 +171,10 @@ func materialsOf(e *sap.Extract, units map[string]bool, plants []sapPlant) ([]sa
 		mp.plants[p.werks] = p
 	}
 	for _, t := range e.MAKT {
+		if slices.ContainsFunc(mp.texts[t.MATNR], func(x sapText) bool { return x.lang == t.SPRAS }) {
+			mp.add(SevError, "MAKT", t.MATNR+"/"+t.SPRAS, "the material's description in language %s is listed twice", t.SPRAS)
+			continue
+		}
 		mp.texts[t.MATNR] = append(mp.texts[t.MATNR], sapText{lang: t.SPRAS, name: t.MAKTX})
 	}
 	for _, u := range e.MARM {
@@ -321,15 +325,24 @@ func (mp *materialPlan) materialUnits(r sap.MARA) ([]materials.UnitInput, []stri
 	return out, reasons
 }
 
+// wholeNumber is a numerator or denominator as an extract writes one:
+// digits, with decimals of zero or none ("20", "20.000").
+var wholeNumber = regexp.MustCompile(`^[0-9]+(\.0+)?$`)
+
 // factor is a numerator or denominator of a conversion (MARM UMREZ,
-// UMREN): a whole number from 1 to maxFactor, which an extract may write
-// with decimals of zero ("20.000"); ok is false for any other value.
+// UMREN): a whole number from 1 to maxFactor (wholeNumber); ok is false
+// for any other value, a fraction or an exponent among them.
 func factor(s string) (int32, bool) {
-	r, ok := new(big.Rat).SetString(strings.TrimSpace(s))
-	if !ok || !r.IsInt() || r.Sign() <= 0 || r.Num().Cmp(big.NewInt(maxFactor)) > 0 {
+	s = strings.TrimSpace(s)
+	if !wholeNumber.MatchString(s) {
 		return 0, false
 	}
-	return int32(r.Num().Int64()), true // at most maxFactor
+	whole, _, _ := strings.Cut(s, ".")
+	n, err := strconv.Atoi(whole)
+	if err != nil || n < 1 || n > maxFactor {
+		return 0, false
+	}
+	return int32(n), true // at most maxFactor
 }
 
 // materialMaster checks the plants, storage locations and materials

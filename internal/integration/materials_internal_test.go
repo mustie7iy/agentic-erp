@@ -35,7 +35,8 @@ func TestFactor(t *testing.T) {
 		want int32
 		ok   bool
 	}{{"20", 20, true}, {" 4.000 ", 4, true}, {"1000000", 1_000_000, true}, {"1000001", 0, false}, {"0", 0, false}, {"-2", 0, false},
-		{"2.5", 0, false}, {"", 0, false}, {"x", 0, false}}
+		{"2.5", 0, false}, {"", 0, false}, {"x", 0, false},
+		{"4/2", 0, false}, {"1e3", 0, false}, {"99999999999999999999", 0, false}}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
 			if got, ok := factor(c.in); got != c.want || ok != c.ok {

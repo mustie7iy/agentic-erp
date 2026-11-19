@@ -544,7 +544,10 @@ material number. Its number comes from the `material` range of its first
 plant's company; the SAP number is kept as the external reference
 `MARA/<MATNR>`, plants as `T001W/<WERKS>`, storage locations as
 `T001L/<WERKS>/<LGORT>`. A later run takes what an earlier one loaded and
-only extends a material to the plants and storage locations it adds. An
+only extends a material to the plants and storage locations it adds (a
+material with a pending change is refused until the change is decided). The
+load holds the tenant's material change numbers until it commits, so a
+material request made meanwhile waits for it. An
 active plant or storage location the company already has with SAP's code
 (under SAP's plant) is taken rather than created; one not active, or under
 another plant, refuses its key and fails the run.

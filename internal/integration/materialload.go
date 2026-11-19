@@ -13,6 +13,7 @@ import (
 // back for the reconciliation (materials.Migration, ADR-0082 As built
 // S2o).
 type Materials interface {
+	Number(ctx context.Context, legalEntity uuid.UUID) (string, error)
 	CreateMaterial(ctx context.Context, in materials.MigratedMaterial) (uuid.UUID, error)
 	LockMaterials(ctx context.Context, ids []uuid.UUID) error
 	ExtendMaterial(ctx context.Context, id uuid.UUID, plants []materials.PlantInput, reason string) (bool, error)
@@ -38,7 +39,8 @@ const (
 // location by T001L/WERKS/LGORT, a material by MARA/MATNR. What an earlier
 // run loaded stays as it is; a material it loaded is only extended to the
 // plants and storage locations it is not yet at. The materials to extend
-// are locked first (Materials.LockMaterials).
+// are locked first, then the new materials' numbers drawn, before any
+// material change is written (materials.Migration's lock order).
 func (l *loader) materialMaster(ctx context.Context) error {
 	plants, _ := plantsOf(l.ext)                     // the quality gate refused their errors
 	mats, _ := materialsOf(l.ext, l.t.units, plants) // and reported the materials held back
@@ -56,16 +58,46 @@ func (l *loader) materialMaster(ctx context.Context) error {
 	company := map[string]string{}
 	for _, p := range plants {
 		company[p.werks] = p.company
+	}
+	numbers, err := l.materialNumbers(ctx, mats, company)
+	if err != nil {
+		return err
+	}
+	for _, p := range plants {
 		if err := l.plant(ctx, p); err != nil {
 			return err
 		}
 	}
 	for _, m := range mats {
-		if err := l.material(ctx, m, company); err != nil {
+		if err := l.material(ctx, m, company, numbers); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// materialNumbers draws the number of each material the run creates from
+// the material range of its first plant's company; a material whose
+// number is refused is reported and created by no one.
+func (l *loader) materialNumbers(ctx context.Context, mats []sapMaterial, company map[string]string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, m := range mats {
+		if _, ok := l.refs["MARA/"+m.number]; ok {
+			continue
+		}
+		var n string
+		if _, err := l.step(ctx, "MARA", m.number, func() error {
+			var err error
+			n, err = l.e.Materials.Number(ctx, l.t.entities[company[m.plants[0].werks]].ID)
+			return err
+		}); err != nil {
+			return nil, err
+		}
+		if n != "" {
+			out[m.number] = n
+		}
+	}
+	return out, nil
 }
 
 // plant loads a plant and its storage locations: found by its code in its
@@ -143,7 +175,7 @@ func kindName(kind string) string {
 
 // material creates a material, numbered from the material range of its
 // first plant's company, or extends the one an earlier run created.
-func (l *loader) material(ctx context.Context, m sapMaterial, company map[string]string) error {
+func (l *loader) material(ctx context.Context, m sapMaterial, company, numbers map[string]string) error {
 	plants := make([]materials.PlantInput, 0, len(m.plants))
 	for _, p := range m.plants {
 		in := materials.PlantInput{PlantID: l.refs["T001W/"+p.werks]}
@@ -174,7 +206,11 @@ func (l *loader) material(ctx context.Context, m sapMaterial, company map[string
 		}
 		return err
 	}
-	in := materials.MigratedMaterial{LegalEntityID: l.t.entities[company[m.plants[0].werks]].ID, Description: m.description, BaseUnit: m.baseUnit,
+	number, ok := numbers[m.number]
+	if !ok {
+		return nil // its number was refused (materialNumbers)
+	}
+	in := materials.MigratedMaterial{LegalEntityID: l.t.entities[company[m.plants[0].werks]].ID, Number: number, Description: m.description, BaseUnit: m.baseUnit,
 		Type: m.mtype, Group: m.group, Plants: plants, Units: m.units, Reason: reason}
 	done, err := l.step(ctx, "MARA", m.number, func() error {
 		id, err := l.e.Materials.CreateMaterial(ctx, in)

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -26,12 +27,21 @@ import (
 // materials under its company's material range lock, and the duplicate
 // check's description lock taken after it would deadlock with a request
 // that takes the two the other way round (Create).
+//
+// Locks (ADR-0008): a request takes a material, or a company's material
+// range, and then the tenant's material change numbers. The run takes the
+// materials it extends (LockMaterials), then every material number it
+// needs (Number, before it writes any change), and the change numbers
+// last, holding them until it commits: it never waits for a material or a
+// range while it holds the change numbers, which a request waits for.
 type Migration struct{ Endpoints *Endpoints }
 
 // MigratedMaterial is a material as an SAP migration run creates it,
-// numbered from the material range of the company LegalEntityID.
+// with the number Number drew from the material range of the company
+// LegalEntityID.
 type MigratedMaterial struct {
 	LegalEntityID uuid.UUID
+	Number        string
 	Description   string
 	BaseUnit      string
 	Type          string
@@ -39,6 +49,16 @@ type MigratedMaterial struct {
 	Plants        []PlantInput
 	Units         []UnitInput
 	Reason        string
+}
+
+// Number draws a migrated material's number from the material range of
+// the company, as a request's is drawn (ADR-0082 §6).
+func (m Migration) Number(ctx context.Context, legalEntity uuid.UUID) (string, error) {
+	le, err := m.Endpoints.company(ctx, legalEntity)
+	if err != nil {
+		return "", err
+	}
+	return m.Endpoints.number(ctx, le)
 }
 
 // CreateMaterial creates a migrated material, active, with its applied
@@ -59,7 +79,7 @@ func (m Migration) CreateMaterial(ctx context.Context, in MigratedMaterial) (uui
 	if err != nil {
 		return uuid.Nil, err
 	}
-	mat, err := e.insert(ctx, tx, p, le, input, companies, Active)
+	mat, err := e.insert(ctx, tx, p, le, input, companies, in.Number, Active)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -76,10 +96,8 @@ func (m Migration) CreateMaterial(ctx context.Context, in MigratedMaterial) (uui
 }
 
 // LockMaterials locks the materials an SAP migration run extends, in id
-// order, before it creates anything: an update request locks its material
-// and then draws its change's number, which a migrated creation holds
-// from its first material on, so the run must hold the materials first
-// (ADR-0008). FOR NO KEY UPDATE, as load locks a material.
+// order, before it draws a number or writes a change (Migration's locks).
+// FOR NO KEY UPDATE, as load locks a material.
 func (Migration) LockMaterials(ctx context.Context, ids []uuid.UUID) error {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -92,7 +110,9 @@ func (Migration) LockMaterials(ctx context.Context, ids []uuid.UUID) error {
 // ExtendMaterial extends a material to the plants and storage locations
 // given that it is not yet at, as an update change applied at once, and
 // reports whether there were any. A plant or storage location it has
-// stays; one it lost is given back.
+// stays; one it lost is given back. A material with a pending change is
+// refused (409 materials.change_pending): applying that change would
+// replace its plants and drop the extension.
 func (m Migration) ExtendMaterial(ctx context.Context, id uuid.UUID, plants []PlantInput, reason string) (bool, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -103,8 +123,12 @@ func (m Migration) ExtendMaterial(ctx context.Context, id uuid.UUID, plants []Pl
 		return false, err
 	}
 	missing := missingPlants(mat, plants)
-	if len(missing) == 0 {
+	switch {
+	case len(missing) == 0:
 		return false, nil
+	case mat.PendingChangeID != nil:
+		return false, problem.Conflict("materials.change_pending", "Material "+mat.Number+" has the pending change "+*mat.PendingChangeNumber+
+			"; it is decided first, then the material is extended to SAP's plants.")
 	}
 	e := m.Endpoints
 	companies, err := e.checkPlants(ctx, missing)
