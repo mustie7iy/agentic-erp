@@ -9,8 +9,9 @@
 // creates it, for the fiscal year of that company's date today, and is
 // unique in the tenant (ADR-0082 §6). The context reads tenancy, the
 // configuration and the ledger's fiscal calendar through the ports below,
-// which the composition root wires; inventory, procurement and sales will
-// read materials through its published API (ADR-0082 §2-§3).
+// which the composition root wires; inventory, procurement and sales read
+// materials through its published API (ADR-0082 §2-§3), and the SAP
+// migration run creates them through Migration (ADR-0082 As built S2o).
 package materials
 
 import (

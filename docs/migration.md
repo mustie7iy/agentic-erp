@@ -528,6 +528,61 @@ another currency (WAERS) than its company's, which the platform does not
 keep. A center or segment whose code a tenant already has, created through
 the API, is refused by the load and fails the run.
 
+## Plants, storage locations and materials
+
+After the suppliers, a run loads the material master of its company codes
+(S2o, plan-supply-chain.md §S2o; ADR-0082 As built S2o): SAP's plants
+(T001W, its company code BUKRS flattened in from T001K by the valuation
+area BWKEY) and storage locations (T001L) as the company's org units, a
+storage location under its plant, active; then the materials with plant
+data at those plants (MARA, the description of MAKT, the units of MARM,
+the plants of MARC and the storage locations of MARD, the assignment only:
+stock and values are S2p's). As for centers, the run is their approval: a
+material is created active, its create change applied without an approval
+request (`GET /v1/material-changes`), its reason naming the run and the SAP
+material number. Its number comes from the `material` range of its first
+plant's company; the SAP number is kept as the external reference
+`MARA/<MATNR>`, plants as `T001W/<WERKS>`, storage locations as
+`T001L/<WERKS>/<LGORT>`. A later run takes what an earlier one loaded and
+only extends a material to the plants and storage locations it adds. An
+active plant or storage location the company already has with SAP's code
+(under SAP's plant) is taken rather than created; one not active, or under
+another plant, refuses its key and fails the run.
+
+| SAP | Platform |
+|---|---|
+| MARA-MATNR | external reference; the material's own number is the range's |
+| MARA-MTART ROH, HALB, FERT, HAWA, NLAG, DIEN | `raw_material`, `semi_finished`, `finished_good`, `trading_good`, `non_stock`, `service` |
+| MARA-MATKL | `material_group` (1 to 9 capitals, digits, `-`, `_`) |
+| MARA-MEINS | `base_unit` (a code of `ref.unit_of_measure`) |
+| MAKT-MAKTX (SPRAS E, else the first other) | `description` |
+| MARM-MEINH, UMREZ, UMREN | `alternative_units[]`: unit, numerator, denominator (one unit is UMREZ / UMREN base units) |
+| MARC-WERKS, MARD-LGORT | `plants[]` with their `storage_locations` |
+| MARA/MARC/MARD-LVORM `X` | not migrated (a warning) |
+| T001W-WERKS, NAME1 | org unit `plant`, code and name |
+| T001L-LGORT, LGOBE | org unit `storage_location` under its plant, code and name |
+
+**Held back, not refused.** A material the platform cannot hold is a
+quality warning "held back: <reasons>" and is not loaded, while the rest
+of the run loads: a base or alternative unit that is no unit of the
+platform's, a conversion that is not whole numbers from 1 to 1,000,000 (a
+value written with decimals of zero, `4.000`, reads), the base unit's own
+MARM row other than 1/1, a unit listed twice, a type other than the six
+above, a group that is none, no description. The reconciliation leaves
+held-back materials out on SAP's side. **Errors** refuse the run: a row
+listed twice, plant data of a material not in MARA, storage location data
+without plant data or of a storage location not in T001L, a plant or
+storage location code that is no org unit code (1 to 10 capitals, digits
+or `_`) or without a name, and one storage location code at two plants of
+a company code: SAP keys a storage location by its plant, tenancy keeps
+its code unique in the company (a question for the product owner).
+
+The reconciliation compares per company code the plants, the storage
+locations and the materials by SAP key: a material by its type, group,
+base unit, status, description, its plants in the company with their
+storage locations and its alternative units. Only a file extract carries
+the material master: there is no OData mapping yet.
+
 ## Reconciliation controls
 
 Each control is computed twice: from the raw SAP extract and from the
@@ -599,6 +654,13 @@ ACDOCA, so no plan filter is needed.
   profit center) as SAP's slices give them against the platform's
   (differences listed by `cost center <KOKRS>/<KOSTL>` and
   `profit center <KOKRS>/<PRCTR>`; T56h)
+- Plants, storage locations and materials per company code, where either
+  side has any: SAP's of the company code against those runs loaded in
+  its legal entity, by SAP key, a material compared by its type, group,
+  base unit, status, description, plants and storage locations in the
+  company and alternative units; held-back and deletion-flagged materials
+  left out on SAP's side (differences listed by `plant <WERKS>`, `storage
+  location <WERKS>/<LGORT>` and `material <MATNR>`; S2o)
 - Cost center, profit center and segment totals per company code
   (`documents` mode), where either side has any: SAP's lines on profit and
   loss accounts (SKB1-XBILK blank) added up by RCNTR, PRCTR and SEGMENT in
@@ -660,8 +722,10 @@ grows with the run:
   `suppliers_extended`, `suppliers_blocked`, `purchase_orders`,
   `goods_receipts`, `supplier_invoices`, `posted_invoices_invoiced`,
   `journal_entries`, `down_payments`, `clearings`, `gr_ir_positions`,
-  `gr_ir_top_ups`, `segments`, `profit_centers`, `profit_centers_extended`
-  and `cost_centers`. A kind it created none of is absent. A rehearsal, and a
+  `gr_ir_top_ups`, `segments`, `profit_centers`, `profit_centers_extended`,
+  `cost_centers`, `hierarchies`, `hierarchy_nodes`, `hierarchy_places`,
+  `plants`, `storage_locations` (each created, or the company's own with
+  SAP's code taken), `materials` and `materials_extended`. A kind it created none of is absent. A rehearsal, and a
   load with an `error` refusal, are rolled back: their counts are what the
   load created before the rollback, and nothing of it stays. A kept load
   counts only what no earlier kept run loaded, so a run of the same extract
@@ -766,6 +830,20 @@ only, to verify in SE11 or `$metadata` before relying on it. An answer
 that changes what is built is a tracker leaf (src po:2026-11-09); the
 others record a confirmation.
 
+- The material master's tables and fields (S2o, internal/sap/materials.go)
+  are stated from memory, without a primary source, and wait for the SAP
+  specialist: MARA-MATNR, MTART (the standard types ROH, HALB, FERT, HAWA,
+  NLAG, DIEN), MATKL, MEINS and LVORM; MAKT-MATNR, SPRAS, MAKTX; MARM-MATNR,
+  MEINH, UMREZ (numerator), UMREN (denominator), with one alternative unit
+  being UMREZ / UMREN base units and a 1/1 row for the base unit itself;
+  MARC-MATNR, WERKS, LVORM; MARD-MATNR, WERKS, LGORT, LVORM; T001W-WERKS,
+  NAME1, BWKEY, with the plant's company code taken from T001K-BUKRS by
+  BWKEY; T001L-WERKS, LGORT, LGOBE. To confirm as well: whether a table
+  export writes MATNR with its leading zeros (internal form) and MEINS as
+  the internal unit key (T006-MSEHI, such as ST) or the commercial one
+  (such as PC), which the platform's units are; and whether a plant whose
+  valuation area is the company code itself (valuation at company code
+  level) needs another join.
 - OData services are activated (`/IWFND/MAINT_SERVICE`) and the technical user
   has read authorization only. Several released APIs reached on-premise
   only in later releases than S/4HANA Cloud: activate them and confirm

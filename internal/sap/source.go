@@ -70,8 +70,9 @@ func WriteExtract(path string, e *Extract) error {
 // that the migration's quality gate refuses them as a safety net rather
 // than the run proceeding as if the extract were whole (review:T56h4),
 // moves the leading ledger's noted items (BSTAT S) from ACDOCA to Noted
-// (review:batch63), and keeps every company code's company ID
-// (CompanyCodes), the scope's or not.
+// (review:batch63), keeps every company code's company ID
+// (CompanyCodes), the scope's or not, and the material master of the
+// scope's plants (filterMaterials).
 func FilterScope(all *Extract, scope Scope) *Extract {
 	inCC := func(cc string) bool { return slices.Contains(scope.CompanyCodes, cc) }
 	out := &Extract{}
@@ -107,6 +108,7 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	filterLedger(all, out, scope, inCC)
 	out.TKA02 = keep(all.TKA02, func(r TKA02) bool { return inCC(r.BUKRS) })
 	filterCenters(all, out, inCC)
+	filterMaterials(all, out, inCC)
 	filterCustomizing(all, out, inCC)
 	return out
 }

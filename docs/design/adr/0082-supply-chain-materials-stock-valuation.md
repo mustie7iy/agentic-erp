@@ -715,3 +715,68 @@ catalog's keys mapped), plan-supply-chain.md §S1f.
   part (S1f1), then a requisition item by material and the catalog mapped
   (S1f2).
 
+
+### S2o (2026-11-19)
+
+The SAP migration run (ADR-0012, ADR-0050 §10's pattern, docs/migration.md
+"Plants, storage locations and materials") loads the material master. No
+migration: the external references are `integration.external_ref`'s.
+
+- **A new dependency direction, `integration → materials`**, through
+  `materials.Migration`, the context's import entry point in its published
+  API (and `tenancy.OrgUnitMigration`, integration already importing
+  tenancy). Materials imports nothing new, so there is no cycle; the
+  `internal/layout` row names this section.
+- **The run is the approval** (decided by default, as for migrated centers
+  and suppliers): a migrated material is created `active` with its create
+  change `applied`, no approval request, its reason "Migration run <id>:
+  SAP material <MATNR>"; a material an earlier run created is extended to
+  the plants and storage locations a later run adds by an `update` change
+  applied at once (`materials_extended`), never shrunk. Each is checked as
+  a request is (type, units, active plants of companies the run may act
+  in) and audited and published (`MaterialChanged`, `MaterialChangeChanged`)
+  as the API's changes are. A migrated create lists no possible
+  duplicates: the run holds its company's material range from its first
+  material on, and the duplicate check's description lock taken after it
+  would deadlock with a request taking the two the other way round.
+- **Numbers** come from the `material` range of the company of the
+  material's first plant (by WERKS) in the scope; SAP's MATNR is kept as
+  the external reference `MARA/<MATNR>` (external numbering stays Later,
+  §S1a). Plants are `T001W/<WERKS>`, storage locations
+  `T001L/<WERKS>/<LGORT>`.
+- **Plants and storage locations** become org units coded as SAP's WERKS
+  and LGORT, a plant in the company code T001W names (BUKRS flattened in
+  from T001K by BWKEY), a storage location under its plant; an active one
+  the company already has with that code (under that plant) is taken
+  instead of created, one that is not active or under another plant
+  refuses its key. Tenancy keeps a storage location's code unique in its
+  company where SAP keys it by its plant, so one LGORT at two plants of a
+  company code refuses the run (product owner question in the batch
+  digest: plant-scoped storage location codes in tenancy).
+- **Held back, not refused:** a material whose base or alternative unit is
+  none of `ref.unit_of_measure`'s, whose conversion (MARM UMREZ/UMREN) is
+  not whole numbers from 1 to 1,000,000 (a value with decimals of zero
+  reads), whose base unit's own row is not 1/1, which lists a unit twice,
+  whose type is none of ROH, HALB, FERT, HAWA, NLAG and DIEN, whose group
+  is no material group or which has no description is a quality warning
+  "held back: <reasons>" and is not loaded; the rest loads. A material, or
+  its plant or storage location data, flagged for deletion (LVORM) is not
+  migrated, a warning. Errors refuse the run: a row twice, plant data of a
+  material not in MARA, storage location data without plant data or of a
+  storage location not in T001L, a code that is no org unit code, a plant
+  or storage location without a name. The description is the English MAKT
+  text, else the first other language's (a warning), as centers' texts are.
+  SAP's internal unit keys (T006-MSEHI, such as ST) are not mapped onto
+  the platform's: an extract must carry the commercial code, or the
+  material is held back (specialist question).
+- **Reconciliation** per company code: `Plants`, `Storage locations` and
+  `Materials` with their differences by SAP key (`plant <WERKS>`, `storage
+  location <WERKS>/<LGORT>`, `material <MATNR>`: type, group, base unit,
+  status, description, the company's plants with their storage locations,
+  alternative units); held-back and deletion-flagged materials are left
+  out on SAP's side, as payables' duplicate invoices are.
+- **File extract only:** the OData mapping (API_PRODUCT_SRV and the plant
+  APIs) is not built; an OData extract carries no material master (tracker
+  leaf split from S2o).
+- Walkthrough: `migrated_materials` in step 3, `step_migrate`, with the six
+  checks among the run's.

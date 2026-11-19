@@ -203,6 +203,8 @@ type Endpoints struct {
 	Postings      Postings
 	Reports       Reports
 	Centers       Centers
+	Materials     Materials
+	OrgUnits      OrgUnits
 	Actuals       CenterActuals
 	Secrets       Secrets
 	Requesters    Requesters       // the workflow's Execute refuses a requester no longer active

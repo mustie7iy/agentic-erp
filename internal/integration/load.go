@@ -129,8 +129,9 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 	return minor.Plain(l.t.exponents[currency])
 }
 
-// load brings the extract over: suppliers, each linked to the company of
-// the group its SAP trading partner is (tradingpartner.go), purchase orders, the
+// load brings the extract over: the controlling master data, suppliers,
+// each linked to the company of the group its SAP trading partner is
+// (tradingpartner.go), the plants and materials (materialMaster), purchase orders, the
 // quantities posted invoices invoiced, goods receipts, the open GR/IR
 // positions of the orders SAP valued through GR/IR, parked invoices,
 // then the journal (every document, or one
@@ -151,8 +152,10 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 // locks at once, in the order a goods movement takes them
 // (lockOrderItems), before the take-over and the first receipt; it never
 // waits for an order item while it holds a range. Before it the load
-// holds only the partner and purchase order ranges, which nothing that
-// locks order items takes, and its shared entry bucket locks, which
+// holds only the partner, material and purchase order ranges, the
+// material changes' numbers and the materials it extends (locked first,
+// materialMaster), which nothing that locks order items takes, and its
+// shared entry bucket locks, which
 // nothing takes exclusively after order items (a goods movement's
 // reversal posts a new entry, an invoice's reversal locks no item).
 // Suppliers given payment methods take the partner context's method lock
@@ -167,7 +170,7 @@ func (l *loader) load(ctx context.Context) error {
 	l.foreign, _ = foreignDocuments(l.ext, l.t) // the quality gate refused the conflicts
 	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
 	l.lines = lineCentersOf(l.ext)
-	for _, fn := range []func(context.Context) error{l.centers, l.partners, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
+	for _, fn := range []func(context.Context) error{l.centers, l.partners, l.materialMaster, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
 		l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err
