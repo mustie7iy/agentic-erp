@@ -5650,14 +5650,21 @@
      {
       "s": "T",
       "t": "A shipping clerk creates an outbound delivery for a confirmed sales order's items from a plant and storage location and records the picked quantities",
-      "r": "S2a · docs/design/plan-supply-chain.md §S2a",
+      "r": "S2a · docs/design/plan-supply-chain.md §S2a · ADR-0083",
       "src": "po:2026-11-17",
       "c": []
      },
      {
       "s": "T",
-      "t": "Posting the delivery's goods issue reduces stock and posts the cost of goods sold at the valuation price; billing bills the delivered quantities and profitability shows cost of sales",
-      "r": "S2b · docs/design/plan-supply-chain.md §S2b",
+      "t": "A warehouse clerk posts a picked outbound delivery's goods issue (601): the picked quantities leave stock valued at the valuation's price, the cost of goods sold posted from the stock account, the rest given back to the order; the sales order's items are delivered by it and billed from it, and a material kept in stock is no longer confirmed as delivered by hand",
+      "r": "S2b1 · docs/design/plan-supply-chain.md §S2b1 · ADR-0083",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "Net revenue by profitability segment shows each customer and item key's cost of sales from the goods issues of the period and its margin",
+      "r": "S2b2 · docs/design/plan-supply-chain.md §S2b2 · ADR-0083 · ADR-0075 §6",
       "src": "po:2026-11-17",
       "c": []
      },

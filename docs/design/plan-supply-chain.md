@@ -88,8 +88,12 @@ material type is not built.
   stock by location, goods movements, valuation and physical inventory.
   Reads materials through `materials`' published API and posts through
   the ledger's posting port.
-- Shipping (S2a, S2b), planning (S2k–S2n) and the connectors (S2q–S2s)
-  are decided by their own ADRs when they are built.
+- **`shipping`** (schema `shipping`, `internal/shipping`, from S2a;
+  ADR-0083): outbound deliveries, their picking and goods issue. A leaf:
+  it reads sales' orders and writes their deliveries through sales'
+  published API and posts the goods issue through inventory's.
+- Planning (S2k–S2n) and the connectors (S2q–S2s) are decided by their
+  own ADRs when they are built.
 
 ## S1 Foundation
 
@@ -429,6 +433,29 @@ records the picked quantities.
 - **Walkthrough:** `step_outbound_delivery`. **Acceptance:** a delivery
   takes no more than the order's open quantity; picking is at most the
   delivery quantity and from stock that is there.
+- **Detailed** (lane ship, 2026-11-19; ADR-0083, decided by default):
+  the context `shipping` (schema `shipping`, `internal/shipping`), a leaf
+  reading the sales order through sales' published API, materials and
+  stock through materials' and inventory's, tenancy's plants and storage
+  locations and the configuration's ranges and company dates. A delivery
+  (SAP LIKP/LIPS, from memory) is of one confirmed order that is not
+  blocked for credit, from one plant and storage location of the order's
+  company; its items are the order's items of a material kept in stock,
+  each named once with a quantity in the order item's unit, at most what
+  is open: ordered less delivered less what other deliveries not yet
+  issued hold. Without items it takes every such item's open quantity.
+  Sales keeps what deliveries hold per order item
+  (`sales_order_item.in_delivery_quantity`, the sum of
+  `sales.delivery_assignment`), so an order change cannot take an item's
+  quantity below what is delivered and in delivery, nor remove the item or
+  cancel the order while a delivery holds it. Picking
+  (`:pick`, `If-Match`) sets each item's picked quantity, at most its
+  delivery quantity and at most what the storage location holds of the
+  material in the base unit (stock is not reserved: ATP is S2j); the
+  picking status is `not_picked`, `partly_picked` or `picked` (SAP KOSTK
+  A, B, C, from memory). Reads `GET /v1/outbound-deliveries` (company,
+  order, status) and `/{id}`; permissions `shipping.delivery.read`,
+  `.write`; event `OutboundDeliveryChanged`; human-only writes.
 
 ### S2b Goods issue, cost of goods sold and billing from the delivery (pilot)
 
@@ -442,6 +469,65 @@ bills the delivered quantities; profitability shows cost of sales.
   issue (ADR-0075 As built). **Walkthrough:** `step_goods_issue`.
   **Acceptance:** the goods issue posts once; its cost equals the stock
   value taken; a delivery without goods issue is not billed.
+- **Split** (lane ship, 2026-11-19) into S2b1 and S2b2, each a leaf;
+  decided by default (ADR-0083).
+
+#### S2b1 Goods issue and cost of goods sold, billed from the delivery (pilot)
+
+**Capability.** A warehouse clerk posts a picked delivery's goods issue:
+its picked quantities leave the storage location's stock as a material
+document of movement 601, valued at the valuation's price, its value
+posted from the stock account to the class's cost of goods sold account;
+the sales order's items are delivered by it, and billing bills them.
+
+- **Adds:** `POST /v1/outbound-deliveries/{id}:post-goods-issue`
+  (`If-Match`, permission `shipping.goods_issue.post`); movement types 601
+  and its reversal 602 in inventory (601 posted only by shipping, through
+  `inventory.Endpoints.IssueForDelivery`; a person neither posts nor
+  reverses it); the account kind `cost_of_goods_sold` of a valuation
+  class (SAP GBB VAX, from memory), an expense; the sales delivery
+  (T78c's record) written by the goods issue through sales' published API,
+  naming the outbound delivery and the material document, with each
+  item's cost; T78c's confirmation refused for an item of a material kept
+  in stock (422 `sales.delivery_by_goods_issue`), which a service or
+  free-text item, or a material kept in no stock, keeps.
+- **Decided by default:** the goods issue issues each item's picked
+  quantity and gives the rest back to the order (SAP's "adopt picked
+  quantity" before goods issue, from memory); an item picked at nothing
+  issues nothing; a delivery with nothing picked is refused. It is posted
+  on the company's date today, once (the delivery's status and row lock),
+  for an order not blocked for credit. Billing is unchanged: it bills
+  what is delivered and not billed, so a delivery without goods issue is
+  not billed. Reversal of a goods issue (602 with the billing cancelled)
+  is Later.
+- **Walkthrough:** `step_goods_issue`: the delivery of step
+  `step_outbound_delivery` picked and issued; stock and the moving price's
+  value fall by the cost; the WA entry debits cost of goods sold; the
+  order is billed for the issued quantity; a second goods issue and a
+  confirmation of the bracket by T78c are refused.
+- **Acceptance:** the goods issue posts once; its cost equals the stock
+  value taken; a delivery without goods issue is not billed.
+
+#### S2b2 Cost of sales in net revenue by profitability segment (pilot)
+
+**Capability.** A controller reads cost of sales and margin per customer
+and item key beside net revenue: the cost of the goods issues of the
+period.
+
+- **Adds:** `cost_of_sales` and `margin` on each row and the totals of
+  `GET /v1/profitability-report`, `includes_cost` true; sales'
+  `Orders.Segments` adds the goods issues' cost by the order item's
+  segment.
+- **Decided by default:** a goods issue counts in the period of its
+  posting date (the date its cost is posted), in the segment of the order
+  item it delivered, for an order in the company's currency, as the
+  report counts revenue; one in another currency is left out and counted
+  in `foreign_currency_documents`. Margin is net revenue less cost of
+  sales. The margin report already shows the posted cost of goods sold
+  when its account is a named cost of sales account.
+- **Walkthrough:** `step_goods_issue` (the report's part).
+- **Acceptance:** the segment's cost of sales equals the goods issue's
+  cost; rows and totals add up.
 
 **Later for Shipping and delivery:** packing and handling units, shipping
 points and routes, delivery split and grouping, proof of delivery,
