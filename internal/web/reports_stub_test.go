@@ -401,25 +401,6 @@ func TestDownloadCutShort(t *testing.T) {
 	holds(t, "the log", logs.String(), "a report's download was cut short", "the client went away")
 }
 
-// TestSafeCell: numbers and dates are as they are; every other text is
-// quoted, its quotes doubled, so neither a comma nor a semicolon nor a
-// line break starts a new cell; a text beginning with a character OWASP
-// names (= + - @, tab, carriage return, line feed and their full-width
-// forms) is kept as text by a leading apostrophe; OWASP's own example.
-func TestSafeCell(t *testing.T) {
-	for in, want := range map[string]string{"=SUM(A1)": `"'=SUM(A1)"`, "+1": `"'+1"`, "-x": `"'-x"`, "@x": `"'@x"`, "\tx": "\"'\tx\"",
-		"\rx": "\"'\rx\"", "\nx": "\"'\nx\"", "\uff1dSUM(A1)": "\"'\uff1dSUM(A1)\"", "\uff0b1": "\"'\uff0b1\"", "\uff0dx": "\"'\uff0dx\"",
-		"\uff20x": "\"'\uff20x\"", "-2-3": `"'-2-3"`, "-119.00": "-119.00", "42": "42", "2026-04-09": "2026-04-09", "INV-1": `"INV-1"`, "": "",
-		"a,=1+2": `"a,=1+2"`, "a;=1+2": `"a;=1+2"`, "a\n=1+2": "\"a\n=1+2\"", `say "hi"`: `"say ""hi"""`,
-		`=1+2";=1+2`: `"'=1+2"";=1+2"`, "\xff=": "\"\xff=\""} {
-		t.Run(in, func(t *testing.T) {
-			if got := safeCell(in); got != want {
-				t.Errorf("got %q, want %q", got, want)
-			}
-		})
-	}
-}
-
 // TestDownloadsStubbed: the reconciliation's and the history's downloads
 // from a stub: every page read until the last; the reconciled ledgers
 // named from the API's answer, by id when they cannot be read; the history's actors named

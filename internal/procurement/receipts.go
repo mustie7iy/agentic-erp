@@ -62,14 +62,21 @@ type GoodsReceipt struct {
 	// through GR/IR (T33), or nil when it has none.
 	JournalEntryYear *int16
 	JournalEntryID   *uuid.UUID
-	Items            []ReceiptItem
-	PostedAt         time.Time
-	PostedBy         uuid.UUID
+	// The material document that moved the stock of its stock items
+	// (S1e), nil when it has none.
+	MaterialDocumentID     *uuid.UUID
+	MaterialDocumentNumber *string
+	Items                  []ReceiptItem
+	PostedAt               time.Time
+	PostedBy               uuid.UUID
+	// reverses is the material document a reversal reverses, its
+	// original's (postStock).
+	reverses *uuid.UUID
 }
 
 const receiptSelect = `SELECT m.id, m.document_number, m.legal_entity_id, m.plant_id, m.movement_type, m.document_date, m.posting_date, m.reference,
 		m.reversal_of_id, (SELECT r.id FROM procurement.goods_movement r WHERE r.tenant_id = m.tenant_id AND r.reversal_of_id = m.id LIMIT 1) AS reversed_by,
-		m.posted_at, m.posted_by, m.journal_entry_year, m.journal_entry_id, m.reason,
+		m.posted_at, m.posted_by, m.journal_entry_year, m.journal_entry_id, m.reason, m.material_document_id, m.material_document_number,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'purchase_order_id', i.purchase_order_id, 'po_item_no', i.po_item_no,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code) ORDER BY i.item_no)
 		 FROM procurement.goods_movement_item i WHERE i.tenant_id = m.tenant_id AND i.goods_movement_id = m.id)
@@ -78,7 +85,8 @@ const receiptSelect = `SELECT m.id, m.document_number, m.legal_entity_id, m.plan
 func scanReceipt(row pgx.Row) (GoodsReceipt, error) {
 	var g GoodsReceipt
 	if err := row.Scan(&g.ID, &g.DocumentNumber, &g.LegalEntityID, &g.PlantID, &g.MovementType, &g.DocumentDate, &g.PostingDate, &g.Reference,
-		&g.ReversalOfID, &g.ReversedByID, &g.PostedAt, &g.PostedBy, &g.JournalEntryYear, &g.JournalEntryID, &g.Reason, &g.Items); err != nil {
+		&g.ReversalOfID, &g.ReversedByID, &g.PostedAt, &g.PostedBy, &g.JournalEntryYear, &g.JournalEntryID, &g.Reason, &g.MaterialDocumentID,
+		&g.MaterialDocumentNumber, &g.Items); err != nil {
 		return GoodsReceipt{}, fmt.Errorf("scan goods receipt: %w", err)
 	}
 	return g, nil
@@ -118,6 +126,9 @@ type orderItem struct {
 	valuationPriceUnit  int32
 	account             uuid.UUID
 	costCenter          *uuid.UUID // the item's, which its WE entry's counter line carries (T56e)
+	// A stock item's material, plant and storage location (S1e), nil on
+	// another item.
+	material, plant, storageLocation *uuid.UUID
 }
 
 // lockItems locks the purchase order items a movement touches, in a fixed
@@ -136,7 +147,7 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 			trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text, coalesce(o.document_number, ''),
 			coalesce(o.currency, ''), coalesce(o.valuation, ''), coalesce(i.valuation_price, 0), coalesce(i.valuation_price_unit, 1), coalesce(i.account_id, $3),
-			i.cost_center_id
+			i.cost_center_id, CASE WHEN i.storage_location_id IS NOT NULL THEN i.material_id END, i.plant_id, i.storage_location_id
 		FROM unnest($1::uuid[], $2::int[]) WITH ORDINALITY AS x(o, n, ord)
 		LEFT JOIN procurement.purchase_order o ON o.id = x.o
 		LEFT JOIN procurement.purchase_order_item i ON i.tenant_id = o.tenant_id AND i.purchase_order_id = o.id AND i.item_no = x.n AND NOT i.is_removed
@@ -144,7 +155,7 @@ func lockItems(ctx context.Context, tx pgx.Tx, items []ReceiptItem) ([]orderItem
 	var out []orderItem
 	var oi orderItem
 	_, err := pgx.ForEachRow(rows, []any{&oi.found, &oi.legalEntity, &oi.status, &oi.unit, &oi.ordered, &oi.tolerance, &oi.received, &oi.documentNumber,
-		&oi.currency, &oi.valuation, &oi.valuationPrice, &oi.valuationPriceUnit, &oi.account, &oi.costCenter},
+		&oi.currency, &oi.valuation, &oi.valuationPrice, &oi.valuationPriceUnit, &oi.account, &oi.costCenter, &oi.material, &oi.plant, &oi.storageLocation},
 		func() error { out = append(out, oi); return nil })
 	if err != nil {
 		return nil, fmt.Errorf("procurement: read %d purchase order items: %w", len(items), err)
@@ -165,17 +176,17 @@ func (e *Endpoints) insertMovement(ctx context.Context, tx pgx.Tx, p reqctx.Prin
 		return GoodsReceipt{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
-	var year *int16
-	var entry *uuid.UUID
+	var posted postedMovement
 	if post {
-		if year, entry, err = e.postMovement(ctx, id, number, g, current); err != nil {
+		if posted, err = e.postStock(ctx, id, number, g, current); err != nil {
 			return GoodsReceipt{}, err
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.goods_movement (tenant_id, id, document_number, legal_entity_id, plant_id, movement_type,
-			document_date, posting_date, reference, reversal_of_id, posted_by, journal_entry_year, journal_entry_id, reason)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`, p.TenantID, id, number, g.LegalEntityID, g.PlantID, g.MovementType,
-		g.DocumentDate, g.PostingDate, g.Reference, g.ReversalOfID, p.ID, year, entry, g.Reason); err != nil {
+			document_date, posting_date, reference, reversal_of_id, posted_by, journal_entry_year, journal_entry_id, reason, material_document_id,
+			material_document_number)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`, p.TenantID, id, number, g.LegalEntityID, g.PlantID, g.MovementType,
+		g.DocumentDate, g.PostingDate, g.Reference, g.ReversalOfID, p.ID, posted.year, posted.entry, g.Reason, posted.document, posted.documentNumber); err != nil {
 		return GoodsReceipt{}, fmt.Errorf("procurement: insert goods movement %s: %w", number, err)
 	}
 	n := len(g.Items)
@@ -445,7 +456,7 @@ func (e *Endpoints) reverseReceipt(ctx context.Context, id uuid.UUID, ifMatch fu
 		return GoodsReceipt{}, err
 	}
 	rev, err := e.insertMovement(ctx, tx, p, GoodsReceipt{LegalEntityID: orig.LegalEntityID, PlantID: orig.PlantID, MovementType: reversal,
-		DocumentDate: date, PostingDate: date, Reference: orig.Reference, ReversalOfID: &orig.ID, Items: items}, current, true)
+		DocumentDate: date, PostingDate: date, Reference: orig.Reference, ReversalOfID: &orig.ID, Items: items, reverses: orig.MaterialDocumentID}, current, true)
 	if err != nil {
 		return GoodsReceipt{}, err
 	}

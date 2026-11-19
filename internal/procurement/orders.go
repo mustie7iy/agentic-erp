@@ -39,7 +39,16 @@ type OrderItem struct {
 	// DeliveryDate is the item's expected delivery date, nil for none
 	// (T53g): when the liquidity forecast expects it invoiced.
 	DeliveryDate *time.Time `json:"delivery_date"`
+	// A stock item's material, plant and storage location (S1e), nil on
+	// another item: its invoice's price difference goes to the stock as
+	// far as the stock holds it (inventory.InvoiceDifferences).
+	MaterialID        *uuid.UUID `json:"material_id"`
+	PlantID           *uuid.UUID `json:"plant_id"`
+	StorageLocationID *uuid.UUID `json:"storage_location_id"`
 }
+
+// Stocked reports whether the item is a stock item.
+func (it OrderItem) Stocked() bool { return it.StorageLocationID != nil }
 
 // Order is a purchase order as payables sees it.
 type Order struct {
@@ -65,6 +74,8 @@ const payablesOrder = `SELECT po.id, po.document_number, po.legal_entity_id, po.
 			-- only on released orders
 			'valuation_price', coalesce(i.valuation_price, 0), 'valuation_price_unit', coalesce(i.valuation_price_unit, 1),
 			'cost_center_id', i.cost_center_id, 'delivery_date', ` + deliveryDate + `,
+			'material_id', CASE WHEN i.storage_location_id IS NOT NULL THEN i.material_id END, 'plant_id', i.plant_id,
+			'storage_location_id', i.storage_location_id,
 			'received', trim_scale(coalesce((SELECT sum(g.quantity) FROM procurement.goods_movement_item g WHERE g.tenant_id = i.tenant_id
 				AND g.purchase_order_id = i.purchase_order_id AND g.po_item_no = i.item_no), 0))::text) ORDER BY i.item_no)
 		 FROM procurement.purchase_order_item i WHERE i.tenant_id = po.tenant_id AND i.purchase_order_id = po.id AND NOT i.is_removed), '[]')

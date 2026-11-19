@@ -102,7 +102,7 @@ func (e *Endpoints) record(ctx context.Context, action string, d Document, r ref
 	payload := map[string]any{"material_document_id": d.ID, "number": d.Number, "legal_entity_id": d.LegalEntityID, "legal_entity_code": le.Code,
 		"fiscal_year": d.FiscalYear, "movement_type": d.MovementType, "posting_date": d.PostingDate.Format(time.DateOnly),
 		"reversal_of_id": d.ReversalOfID, "reversal_of_number": d.ReversalOfNumber, "journal_entry_id": d.EntryID, "journal_entry_year": d.EntryYear,
-		"journal_entry_number": d.EntryNumber, "lines": lines}
+		"journal_entry_number": d.EntryNumber, "reference": d.Reference, "lines": lines}
 	detail["number"], detail["movement_type"], detail["posting_date"], detail["lines"] = d.Number, d.MovementType, payload["posting_date"], lines
 	detail["journal_entry_id"] = d.EntryID
 	if err := audit.Record(ctx, action, "inventory.material_document", d.ID, detail,

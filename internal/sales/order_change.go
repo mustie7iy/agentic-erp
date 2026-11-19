@@ -218,7 +218,7 @@ func (e *Endpoints) change(ctx context.Context, tx pgx.Tx, o Order, le tenancy.E
 	if c.items, c.changes, err = e.changeItems(ctx, tx, o, le, in); err != nil {
 		return changed{}, err
 	}
-	if len(c.changes) == 0 && sameDay(c.delivery, o.DeliveryDate) && c.term == o.PaymentTermCode {
+	if len(c.changes) == 0 && clock.SameDay(c.delivery, o.DeliveryDate) && c.term == o.PaymentTermCode {
 		return changed{}, problem.Unprocessable("sales.nothing_changed", "The request changes nothing of sales order "+o.DocumentNumber+".")
 	}
 	kept := standing(c.items)
@@ -237,14 +237,6 @@ func (e *Endpoints) change(ctx context.Context, tx pgx.Tx, o Order, le tenancy.E
 		c.check = &check
 	}
 	return c, nil
-}
-
-// sameDay says whether two optional dates are the same.
-func sameDay(a, b *time.Time) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return a.Equal(*b)
 }
 
 // itemPlan is how one change of the request applies to its item: the

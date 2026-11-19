@@ -1261,9 +1261,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A credit controller reads the AR aging as at a past key date (the items open on it: posted on or before it, not cleared or reversed by then, by the clearing date) and ages the items by their document date instead of their net due date (GET /v1/receivables-aging open_on, aging_basis)",
+        "r": "T75l · docs/design/plan-depth-3.md §T75l · GET /v1/receivables-aging open_on, aging_basis · internal/receivables/aging.go · ledger.OpenItems.ReceivableOn (internal/ledger/receivable_on.go), ledger.DaysPast · TestAgingAsAt, TestAgingByDocumentDate, TestAgingVariantRefusals, TestReceivablesAgingOnKeyDateBudget (01 §1.3) · walkthrough step_aging_as_at · ADR-0063 §10 and As built T75l",
+        "src": "split:T75e · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A credit controller reads the AR aging of one profit center or segment, or a row per profit center or segment (the item's own assignment), and exports the report as CSV (GET /v1/receivables-aging profit_center_id, segment_id, group_by, format=csv)",
+        "r": "T75m · docs/design/plan-depth-3.md §T75m · GET /v1/receivables-aging profit_center_id, segment_id, group_by, format=csv (ReceivablesAgingGroup, Next-Page-Token) · internal/receivables/aging.go, aging_api.go · ledger.ReceivableItem ProfitCenterID, SegmentID · ledger CenterNames with segments · internal/platform/csvcell (moved from internal/web) · TestAgingByCenter, TestAgingGroupPages, TestAgingCSV, TestSafe, TestWrite · walkthrough step_aging_by_center · ADR-0063 As built T75m · ADR-0052 Built in T73j4",
+        "src": "split:T75e · adr:ADR-0063",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: AR aging variants: aging as at a past date, by document date, by profit center or segment and in group currency, export, analytics metrics, an allowance for expected credit losses (IFRS 9, needs the accounting specialist) (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T75e, Later",
+        "t": "later: AR aging variants: in group currency, analytics metrics, an allowance for expected credit losses (IFRS 9, needs the accounting specialist) (aging as at a past date, by document date, by profit center or segment and its export are T75l and T75m; after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75e, Later · docs/design/plan-depth-3.md §aging, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        }
@@ -2939,9 +2953,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A credit manager gives a customer's credit limit a validity (from, to) and a next review date; the credit check and the exposure use the limit only on the company's days it is valid; a worklist of the limits due for review or expiring by a date (GET /v1/credit-limits?due_by=)",
+        "r": "T77c · docs/design/plan-depth-3.md §T77c · db/migrations/000392 · valid_from, valid_to, next_review_on on POST/PATCH /v1/credit-limits · GET /v1/credit-limits?due_by= · GET /v1/credit-exposure day · credit.invalid_validity · TestValidityAndReview, TestWorklist, TestValidOnTheCompanysDay · walkthrough step_credit_limit_validity · ADR-0066 and As built T77c",
+        "src": "split:T77a · adr:ADR-0066",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A new credit limit, or a change raising a limit or changing its validity, takes effect only once another person approves it through the approvals context (object type credit_limit_change, role controller); a lowered limit or a new review date takes effect at once",
+        "r": "T77d · docs/design/plan-depth-3.md §T77d · db/migrations/000393 · credit.credit_limit.status · credit.credit_limit_change · GET /v1/credit-limit-changes, GET /v1/credit-limit-changes/{id} · credit.limit.approve · credit.change_pending · TestRaiseApproved, TestWhatWaits, TestPendingLimit, TestApprovalWaitsForACheck · walkthrough step_credit_limit, step_credit_limit_approval · ADR-0066 and As built T77d",
+        "src": "split:T77a · adr:ADR-0066",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: credit limit variants: limits across the group, validity dates and reviews, approval of limit changes, risk classes (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T77a, Later",
+        "t": "later: credit limit variants: limits across the group, risk classes, approval tiers by amount or a configurable approver role, lowering a limit while a raise waits (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T77a, Later · docs/design/plan-depth-3.md §crlim, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
@@ -5046,6 +5074,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Customer sales data under its own permission: sales.customer_sales_data.read and .write on /v1/customer-sales-data in place of sales.price.read and .write, so price maintenance and price group assignment are separable (product owner 2026-11-18); existing roles granted the new permission where the old one gave access",
+        "r": "docs/design/plan-depth-3.md §packperm · T80f · x-permission of listCustomerSalesData, getCustomerSalesData (.read), createCustomerSalesData, updateCustomerSalesData (.write) · db/migrations/000394 (expand: grants copied) · TestCustomerSalesDataPermissionExpand · TestSalesDataPermissions · ADR-0067 §7, default 27 and As built · 03-data-model §3.29 · walkthrough step_price_groups (role sales_master_data)",
+        "src": "po:2026-11-18",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "later: price determination variants: prices per price list type or sales organization, surcharges and freight, minimum prices and manual price approval, currency conversion of a price, repricing a document, mass changes and price uploads, prices taken over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T80a, Later",
@@ -5382,6 +5417,13 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "The ledger's :reverse refusal for an inventory entry names where it is reversed: a material document's with POST /v1/material-documents/{id}:reverse, a price change's by another price change, as it names the other owners' paths",
+      "r": "docs/design/plan-depth-3.md §packperm · internal/ledger requireOwnEntry, inventoryOwned · TestReversalBelongsToTheOwner (inventory WE, PR) · reverseJournalEntry description · 04 §4.9 · S1c · ADR-0082 As built S1c (the ledger's refusal)",
+      "src": "review:batch80",
+      "c": []
+     },
+     {
       "s": "T",
       "t": "The SAP cutover loads stock by storage location (MARD) and valuation (MBEW) as initial entries valued at SAP's price against the migration clearing account, reconciled to SAP's quantities and values per material and plant",
       "r": "S2p · docs/design/plan-supply-chain.md §S2p · ADR-0082",
@@ -5417,9 +5459,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A purchase order item names a material, plant and storage location; its goods receipt is a movement into stock at the order price posting stock against GR/IR, and the supplier invoice clears GR/IR with its price difference on the stock or the price difference account",
-      "r": "S1e · docs/design/plan-supply-chain.md §S1e · ADR-0082",
+      "r": "S1e · docs/design/plan-supply-chain.md §S1e · ADR-0082 As built S1e · db/migrations/000390, 000391 · purchase_order_item.plant_id, .storage_location_id · goods_movement.material_document_id · inventory.invoice_difference · material_document 101, 102, reference · ledger.GRIRStock · inventory.ReceiveForOrder, ReverseForOrder, InvoiceDifferences · POST /v1/purchase-orders (stock items) · POST /v1/goods-receipts · POST /v1/goods-receipts/{id}:reverse · POST /v1/supplier-invoices/{id}:post · walkthrough step_stock_receipt",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -7805,6 +7847,13 @@
         "t": "Number ranges of the newer documents in the packs (product owner 2026-11-12, row 15): Canada 2026.9 and UAE 2026.6 are 2026.8 and 2026.5 plus the ranges rfq, quotation, sales_order, billing_document, customer_invoice, incoming_payment, journal_dr, journal_dg and journal_dz, which a company activated from the earlier version lacked (422 config.no_number_range; the walkthrough's pilot set them up itself until batch 71); tax codes, rates, tax settings and returns unchanged byte for byte; an upgrade adds the ranges and nothing else. Signed off: the product owner answered on 2026-11-13 that the tax specialist's sign-off of 2026-11-09 covers these numbering-only versions, so both carry it and production applies them",
         "r": "packs/ca/2026.9 · packs/ae/2026.6 · packs/released.sha256 · TestCanadaPack2026_9 · TestUAEPack2026_6 (numberingOnly, adoptsAddedRanges) · ADR-0048 As built (number ranges of the newer documents) · walkthrough steps 2 and 41 apply them, the latest signed-off versions",
         "src": "po:2026-11-12 · po:2026-11-13",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Numbering-only packs Canada 2026.10 and UAE 2026.7 bring the debit memos' journal range journal_dd (T75j), which a company activated from Canada 2026.9 or UAE 2026.6 lacks (422 config.no_number_range); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried (product owner 2026-11-18)",
+        "r": "docs/design/plan-depth-3.md §packperm · packs/ca/2026.10 · packs/ae/2026.7 · packs/released.sha256 · TestCanadaPack2026_10 · TestUAEPack2026_7 (numberingOnly, adoptsAddedRanges) · ADR-0048 As built (the debit memos' journal range) · ADR-0063 As built T75j · walkthrough steps 2 and 41 apply them, the pilot's settings no longer add journal_dd",
+        "src": "po:2026-11-18",
         "c": []
        }
       ]

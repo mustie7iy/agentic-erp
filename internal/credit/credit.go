@@ -9,10 +9,16 @@
 // (ADR-0066 §4); the sales context asks it when an order is confirmed
 // and blocks the order itself (Check).
 //
+// A limit is used only on the company's days within its validity (As
+// built T77c), and a new limit, a raise or a change of its validity
+// applies only once approved through the approvals context (As built
+// T77d, changes.go).
+//
 // The context is a leaf (ADR-0066 §1): it reads the ledger's customer
 // open items, the partner context's customers, the sales context's open
-// orders and tenancy through the ports below, posts nothing, and no
-// context imports it.
+// orders, tenancy and the configuration's company day through the ports
+// below, opens approval requests, posts nothing, and no context imports
+// it.
 package credit
 
 import (
@@ -24,10 +30,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -81,7 +89,11 @@ type OpenOrders interface {
 	OpenOrders(ctx context.Context, legalEntity, customer uuid.UUID) (orders int32, gross money.Minor, err error)
 }
 
-// Endpoints implements the credit part of the generated API.
+// Endpoints implements the credit part of the generated API. Settings is
+// the active configuration, read for a company's time zone alone: a
+// limit's validity is judged on the company's day (config.DocumentDay,
+// T77c). Requests opens the approval requests of limit changes (T77d).
+// Now is the clock; nil is the system's.
 type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
@@ -89,35 +101,102 @@ type Endpoints struct {
 	Customers     Customers
 	Partners      Partners
 	Orders        OpenOrders
+	Settings      config.Documents
+	Requests      Opener
+	Now           func() time.Time
 }
+
+// Limit statuses (ADR-0066, As built T77d): a limit is pending, asked for
+// and never approved, until its create change is approved, and not in
+// effect while it is.
+const (
+	LimitPending = "pending"
+	LimitActive  = "active"
+)
 
 // Limit is a row of credit.credit_limit: the most a customer may owe a
 // company. Amount is minor units of Currency, the company's, whose
-// minor-unit digits are Exponent.
+// minor-unit digits are Exponent. ValidFrom and ValidTo are the
+// company's first and last day it is used on, nil when open; NextReview
+// is the day its next review is planned for, nil when none is (T77c).
+// Status is LimitPending or LimitActive; PendingChangeID names its change
+// waiting for approval, nil when none is (T77d).
 type Limit struct {
-	ID             uuid.UUID
-	LegalEntityID  uuid.UUID
-	CustomerID     uuid.UUID
-	CustomerNumber string
-	Currency       string
-	Exponent       int
-	Amount         money.Minor
-	Version        int32
-	CreatedAt      time.Time
-	CreatedBy      uuid.UUID
-	UpdatedAt      time.Time
-	UpdatedBy      uuid.UUID
+	ID              uuid.UUID
+	LegalEntityID   uuid.UUID
+	CustomerID      uuid.UUID
+	CustomerNumber  string
+	Currency        string
+	Exponent        int
+	Amount          money.Minor
+	ValidFrom       *time.Time
+	ValidTo         *time.Time
+	NextReview      *time.Time
+	Status          string
+	PendingChangeID *uuid.UUID
+	Version         int32
+	CreatedAt       time.Time
+	CreatedBy       uuid.UUID
+	UpdatedAt       time.Time
+	UpdatedBy       uuid.UUID
 }
 
 const limitSelect = `SELECT l.id, l.legal_entity_id, l.customer_id, l.customer_number, l.currency, c.exponent, l.amount,
-		l.version, l.created_at, l.created_by, l.updated_at, l.updated_by
+		l.valid_from, l.valid_to, l.next_review_on, l.status, (SELECT ch.id FROM credit.credit_limit_change ch
+			WHERE ch.tenant_id = l.tenant_id AND ch.credit_limit_id = l.id AND ch.status = 'pending') AS pending_change_id, l.version, l.created_at, l.created_by, l.updated_at, l.updated_by
 	FROM credit.credit_limit l JOIN ref.currency c ON c.code = l.currency`
 
 func scanLimit(row pgx.Row) (Limit, error) {
 	var l Limit
 	err := row.Scan(&l.ID, &l.LegalEntityID, &l.CustomerID, &l.CustomerNumber, &l.Currency, &l.Exponent, &l.Amount,
-		&l.Version, &l.CreatedAt, &l.CreatedBy, &l.UpdatedAt, &l.UpdatedBy)
+		&l.ValidFrom, &l.ValidTo, &l.NextReview, &l.Status, &l.PendingChangeID, &l.Version, &l.CreatedAt, &l.CreatedBy, &l.UpdatedAt, &l.UpdatedBy)
 	return l, errs.Wrapf(err, "scan credit limit")
+}
+
+// ValidOn says whether the limit is used on the company's day: the day is
+// within its validity, both ends included, an open end holding every day
+// on its side (T77c).
+func (l Limit) ValidOn(day time.Time) bool {
+	return (l.ValidFrom == nil || !day.Before(*l.ValidFrom)) && (l.ValidTo == nil || !day.After(*l.ValidTo))
+}
+
+// InEffectOn says whether the check uses the limit on the company's day:
+// it is active, approved (T77d), and valid on the day (T77c).
+func (l Limit) InEffectOn(day time.Time) bool {
+	return l.Status == LimitActive && l.ValidOn(day)
+}
+
+// day is the company's day now, in its time zone (config.DocumentDay):
+// the day a limit's validity is judged on, by the check and the exposure
+// alike.
+func (e *Endpoints) day(ctx context.Context, le tenancy.Entity) (time.Time, error) {
+	d, err := config.DocumentDay(ctx, e.Settings, le.Code, clock.Now(e.Now))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("credit: the day of company %s: %w", le.Code, err)
+	}
+	return d.Date, nil
+}
+
+// companyOf is the company a stored limit, or a company the caller was
+// checked for, names: it exists, so whether it was found is not asked.
+func (e *Endpoints) companyOf(ctx context.Context, legalEntity uuid.UUID) (tenancy.Entity, error) {
+	le, _, err := e.LegalEntities.Entity(ctx, legalEntity)
+	if err != nil {
+		return tenancy.Entity{}, fmt.Errorf("credit: company %s: %w", legalEntity, err)
+	}
+	return le, nil
+}
+
+// writeTerms writes the terms on the limit held under its row lock, an
+// approved create making it active too (T77d), and reads it back: the one
+// place a limit's amount and dates are written after it is set.
+func writeTerms(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, t Terms, activate bool) (Limit, error) {
+	if _, err := tx.Exec(ctx, `UPDATE credit.credit_limit SET amount = $2, valid_from = $3, valid_to = $4, next_review_on = $5,
+			status = CASE WHEN $6 THEN 'active' ELSE status END, version = version + 1, updated_by = $7 WHERE id = $1`,
+		id, t.Amount, t.ValidFrom, t.ValidTo, t.NextReview, activate, p.ID); err != nil {
+		return Limit{}, fmt.Errorf("credit: write the terms of credit limit %s: %w", id, err)
+	}
+	return limit(ctx, tx, id, false)
 }
 
 // limit reads a credit limit of a legal entity the caller may act in,

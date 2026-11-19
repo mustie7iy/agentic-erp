@@ -112,6 +112,9 @@ func TestOrderChangeApplication(t *testing.T) {
 		{"an item's material changed", true, item("material_id = gen_random_uuid()"), "keeps its account"},
 		{"an item's contract item changed", true, item("contract_item_no = 1"), "keeps its account"},
 		{"an item's assignment changed", true, item("account_assignment = 'cost_center', cost_center_id = gen_random_uuid()"), "keeps its account, assignment"},
+		// S1e, migration 000390: a stock item keeps its stock location.
+		{"an item's stock location set", true, item("material_id = material_id, plant_id = gen_random_uuid(), storage_location_id = gen_random_uuid()"),
+			"and stock location"},
 		{"an item's valuation price changed", true, item("valuation_price = 300"), "valued at the price it was released at"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

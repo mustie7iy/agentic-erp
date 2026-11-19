@@ -50,8 +50,10 @@ func document(tb testing.TB) *config.Config {
 	for i := range c.Companies {
 		c.Companies[i].ManualEntryApprovalLimit = "92233720368547758.07"
 	}
+	// WE and PR are an inventory material document's and price change's
+	// types (TestReversalBelongsToTheOwner).
 	for _, co := range []string{"1000", "2000"} {
-		for _, dt := range []string{"journal_sa", "journal_ab"} {
+		for _, dt := range []string{"journal_sa", "journal_ab", "journal_we", "journal_pr"} {
 			c.NumberRanges = append(c.NumberRanges, config.NumberRange{Company: co, DocumentType: dt, FiscalYear: 2026, First: 100000, Last: 999999})
 		}
 	}

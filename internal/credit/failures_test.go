@@ -35,17 +35,37 @@ func TestDatabaseFailures(t *testing.T) {
 	e := setup(t)
 	e.story(t)
 	h := endpoints(t)
-	set, _ := e.Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.north, "500.00", "EUR"), "")
+	set, tag := e.set(t, limitOf(e.DE, e.north, "500.00", "EUR"))
 	id := uuid.MustParse(apitest.String(t, set, "id"))
+	// East's limit waits for its approval: the change its decisions take.
+	pending, _ := e.Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.east, "100.00", "EUR"), "")
+	change := uuid.MustParse(apitest.String(t, pending, "pending_change_id"))
+	decisions := credit.Approvals{Endpoints: h}
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
-			_, err := h.CreateCreditLimit(ctx, &gen.CustomerCreditLimitCreate{LegalEntityID: e.DE, CustomerID: e.east,
-				Limit: gen.Money{Amount: "100.00", Currency: "EUR"}}, gen.CreateCreditLimitParams{})
+			_, err := h.CreateCreditLimit(ctx, &gen.CustomerCreditLimitCreate{LegalEntityID: e.US, CustomerID: e.north,
+				Limit: gen.Money{Amount: "100.00", Currency: "USD"}}, gen.CreateCreditLimitParams{})
 			return err
 		},
 		"update": func(ctx context.Context) error {
-			_, err := h.UpdateCreditLimit(ctx, &gen.CustomerCreditLimitUpdate{Limit: gen.Money{Amount: "750.00", Currency: "EUR"}},
-				gen.UpdateCreditLimitParams{ID: id, IfMatch: `"1"`})
+			_, err := h.UpdateCreditLimit(ctx, &gen.CustomerCreditLimitUpdate{Limit: gen.NewOptMoney(gen.Money{Amount: "750.00", Currency: "EUR"})},
+				gen.UpdateCreditLimitParams{ID: id, IfMatch: tag})
+			return err
+		},
+		"update at once": func(ctx context.Context) error {
+			_, err := h.UpdateCreditLimit(ctx, &gen.CustomerCreditLimitUpdate{Limit: gen.NewOptMoney(gen.Money{Amount: "400.00", Currency: "EUR"})},
+				gen.UpdateCreditLimitParams{ID: id, IfMatch: tag})
+			return err
+		},
+		"approve": func(ctx context.Context) error { return decisions.Approved(ctx, change, uuid.Nil) },
+		"reject":  func(ctx context.Context) error { return decisions.Rejected(ctx, change, uuid.Nil, "No.") },
+		"cancel":  func(ctx context.Context) error { return decisions.Cancelled(ctx, change, uuid.Nil, "Not now.") },
+		"get change": func(ctx context.Context) error {
+			_, err := h.GetCreditLimitChange(ctx, gen.GetCreditLimitChangeParams{ID: change})
+			return err
+		},
+		"list changes": func(ctx context.Context) error {
+			_, err := h.ListCreditLimitChanges(ctx, gen.ListCreditLimitChangesParams{})
 			return err
 		},
 		"get": func(ctx context.Context) error {
@@ -81,6 +101,15 @@ func TestDatabaseFailures(t *testing.T) {
 			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
 		})
 	}
+	t.Run("list changes page size", func(t *testing.T) {
+		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.ListCreditLimitChanges(ctx, gen.ListCreditLimitChangesParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		})
+		if p := problem.From(err); p.Code != "request.invalid_page_size" {
+			t.Errorf("got %v, want request.invalid_page_size", p)
+		}
+	})
 	t.Run("list page size", func(t *testing.T) {
 		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
 			_, err := h.ListCreditLimits(ctx, gen.ListCreditLimitsParams{PageSize: gen.NewOptInt32(0)})
@@ -110,7 +139,7 @@ func (o owing) Receivable(_ context.Context, _ uuid.UUID, customers []uuid.UUID)
 // large credit, and the exposure with the amount checked.
 func TestAmountsOutOfRange(t *testing.T) {
 	e := setup(t)
-	e.Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.north, "500.00", "EUR"), "")
+	e.set(t, limitOf(e.DE, e.north, "500.00", "EUR"))
 	const most = money.Minor(math.MaxInt64)
 	one := "0.01"
 	for _, c := range []struct {

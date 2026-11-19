@@ -341,3 +341,291 @@ other than cost centers; fixed amounts on a distribution (per account);
 reversing into a later open period when the run's period is closed; a
 lock of a period for statistical key figure postings; a listing of a key figure's postings; changing or
 deleting a key figure.
+
+## crlim
+
+Placeholder: "later: credit limit variants" (`plan-breadth-week1.md`
+§T77a, Later; ADR-0066 §2). Two variants are split here: validity dates
+and reviews, and the approval of limit changes. Limits across the group
+and risk classes stay in the placeholder. SAP S/4HANA's credit
+management (FSCM, the business partner's credit segment data: a limit
+with a "valid to" date, a date of the next check, and limit requests
+approved before they apply) is the reference, stated from memory and not
+checked against a source in the lane; nothing below depends on a fact
+of SAP's beyond that shape.
+
+### T77c Credit limit validity and reviews
+
+**Capability.** A credit manager gives a customer's limit a validity (from
+and to, either open) and a date for its next review; the credit check and
+the exposure use the limit only on the days it is valid, and a worklist
+lists the limits due for review or expiring by a date.
+
+- **Reuses:** T77a's limit, its `If-Match` change, audit record and
+  `CreditLimitChanged`; `config.DocumentDay` for the company's day in its
+  time zone (the limits port of tenancy gives the code); the list's
+  keyset pages.
+- **Adds:** `valid_from`, `valid_to` and `next_review_on` (dates, each
+  optional) on `POST /v1/credit-limits`, `PATCH /v1/credit-limits/{id}`
+  (merge patch: `null` clears; `limit` no longer required, at least one
+  field) and the representation; `valid_to` before `valid_from` is 422
+  `credit.invalid_validity` naming `valid_to`. `GET /v1/credit-limits?due_by=`:
+  the limits whose next review date or end of validity is on or before
+  the date (the worklist), still by customer number.
+  `GET /v1/credit-exposure` gains `day`, the company's day the limit's
+  validity is judged on; `has_limit` is true for a limit valid on that
+  day, and `credit_limit_id` names the customer's limit even when it is
+  not. `CreditLimitChanged` and the audit records carry the dates.
+  Migration: three nullable columns (absent: valid without a start or
+  an end, no review planned, which is what every limit set before is),
+  the check `valid_to >= valid_from`, the update grant widened.
+- **Walkthrough:** `step_credit_limit_validity`: Ruth plans Northwind's
+  next review and the limit's end; the worklist by the review date lists
+  it, by an earlier date not; a limit whose validity ended yesterday is
+  not used: the exposure has no limit and an amount far above the old
+  limit is within; a validity ending before it starts is refused; the
+  validity is restored and the limit is used again.
+- **Acceptance:** the check at order confirmation (`credit.Check`) and
+  the exposure read compare with a limit only when the company's day is
+  within its validity; outside it the customer is treated as one without
+  a limit (no restriction, ADR-0066 §4), and nothing is converted or
+  stored; the worklist's filter, the dates' merge-patch semantics and the
+  check constraint are tested; changes of dates alone are audited with
+  their values before and after.
+- **Depends on:** T77a, T77b (in `main`).
+
+### T77d Approval of credit limit changes
+
+**Capability.** A new credit limit, or a change that raises a limit or
+changes its validity, takes effect only once a second person approves
+it through the approvals context; a lowered limit, or a new review date,
+takes effect at once.
+
+- **Reuses:** the approvals context (`approvals.Approvals.Open`, the
+  `Handler` and `Locator` callbacks, the approver never the requester),
+  materials' governed changes (S1b) as the pattern, T77a's limit, lock
+  (`hold`, then the limit's row) and records.
+- **Adds:** the object type `credit_limit_change`, approved by the fixed
+  role `controller` (as period unlocks and manual entries are) holding the
+  new approval permission `credit.limit.approve`. Table
+  `credit.credit_limit_change`: kind `create` or `change`, the values
+  asked for and those before, status `pending`, `applied`, `rejected` or
+  `cancelled`, the approval request, one pending per limit. A limit gains
+  `status` `pending` (asked for, never approved, not in effect) or
+  `active`, and `pending_change_id`. `POST /v1/credit-limits` answers the
+  limit `pending` with its create change; approved, it is `active` and
+  `CreditLimitChanged` is published. `PATCH` of an active limit applies
+  at once a change that raises nothing (the amount not above the limit's,
+  the validity kept; the review date may change with it); any other
+  opens a change and answers the limit as it is; a change of a limit with
+  a pending change is 409 `credit.change_pending`; a change of a pending
+  limit asks again (a new create change). `GET /v1/credit-limit-changes`
+  (filters limit and status) and `GET /v1/credit-limit-changes/{id}`, the
+  approver's read. Audit records `credit.credit_limit_change.request`,
+  `.apply`, `.reject`, `.cancel`; the limit's `.change` when a change is
+  applied, naming it. Migration: the status (default `active`, every
+  existing limit), the table, the permission.
+- **Walkthrough:** `step_credit_limit` (step 59) and the steps that raise
+  Northwind's limit later have each new or raised limit approved by
+  Carla, the controller; `step_credit_limit_approval`: Ruth raises the
+  limit, the exposure still uses the old one, she cannot approve her own
+  request, a second change waits for the first; Carla approves and the
+  raise holds; Ruth lowers the limit, which holds at once; a raise Carla
+  rejects leaves the limit as it was.
+- **Acceptance:** only an approved change applies, once, and nothing is
+  in effect before; a pending limit is not used by the check or the
+  exposure; the requester cannot approve; rejection or withdrawal leaves
+  the limit as it is; a lowering applies at once; the lock order (the
+  customer's key, the limit's row, the change's row) is the check's, so
+  an approval and an order confirmation of the customer run one after
+  the other; audited and published; schema tests for every rule.
+- **Depends on:** T77c.
+
+**Later (still in the placeholder):** limits across the group; risk
+classes; approval tiers by amount or a configurable approver role;
+lowering a limit while a raise waits (it is refused until the raise is
+decided); a limit request raised from an agent's recommendation.
+
+## packperm
+
+No placeholder: three small items the product owner and the batch 80
+review asked for (product owner, 18 November 2026: the sign-off carries
+to numbering-only pack versions, and customer sales data gets its own
+permission; review of batch 80: the ledger's refusal for an inventory
+entry). Each is one commit; none adds an operation.
+
+### Numbering-only packs Canada 2026.10 and UAE 2026.7 (journal_dd)
+
+**Capability.** A configuration administrator applies the latest Canada
+or UAE pack to a company and posts customer debit memos (T75j) without
+setting up their journal range by hand: the pack brings `journal_dd`.
+
+- **Reuses:** the numbering-only versions of 2026-11-12 (Canada 2026.9,
+  UAE 2026.6) and their tests (`numberingOnly`, `adoptsAddedRanges`),
+  the sign-off carried as the product owner approved on 2026-11-13.
+- **Adds:** `packs/ca/2026.10` and `packs/ae/2026.7`, 2026.9's and
+  2026.6's files with `journal_dd` (prefix DD, 1 to 9999999, not
+  gapless) after the ranges they have, and `sign_off` the tax
+  specialist's of 2026-11-09, carried (product owner, 2026-11-18); their
+  lines in `packs/released.sha256`. tax.yaml, returns.yaml and every
+  other file are the previous version's byte for byte.
+- **Walkthrough:** step 2 applies Canada 2026.10 and lists it signed off
+  with 23 ranges; the pilot's settings no longer add `journal_dd`;
+  step 41 applies UAE 2026.7. Step 126's debit memo draws its DD number
+  from the pack's range.
+- **Acceptance:** each new version is the previous one plus the one
+  range; its tax codes, settings and returns equal; both carry the
+  sign-off of 2026-11-09 and are the latest of their country; an upgrade
+  from the previous version adds `journal_dd` and nothing else, and a
+  company's own `journal_dd` is kept with a conflict note.
+
+### Customer sales data under its own permission
+
+**Capability.** A tenant administrator separates price maintenance from
+assigning customers to price groups (segregation of duties, product
+owner 2026-11-18): the sales administration or master data team sets up
+and changes customers' sales data, the pricing analysts record prices
+and read the sales data, and neither needs the other's write.
+
+- **Reuses:** `/v1/customer-sales-data` (T80f), `x-permission`, the role
+  grants of `internal/identity`, `GrantEveryPermission` for a new
+  tenant's administrator.
+- **Adds:** permissions `sales.customer_sales_data.read` (GET of the
+  list and of one) and `sales.customer_sales_data.write` (POST and
+  PATCH) in place of `sales.price.read` and `.write` on those four
+  operations; migration (expand): the two permissions, and every role
+  holding `sales.price.read` or `.write` today, from today or later,
+  granted the new one for the same days, so no one loses access the day
+  it ships; a tenant then takes the write from its pricing roles. Pricing
+  a quotation or order item reads the customer's group itself and needs
+  neither permission, so sales order entry is unchanged.
+- **Walkthrough:** step 129: Ada creates the role `sales_master_data`
+  holding `sales.customer_sales_data.write`, which finance_staff no
+  longer holds, and gives it to Sally; Paula, the pricing analyst, is
+  refused setting up Contoso's sales data (403) and still reads it;
+  Sally sets it up and changes it.
+- **Acceptance:** the four operations answer 403 without their own
+  permission and ignore `sales.price.*`; after the migration a role
+  that held `sales.price.read` or `.write` holds the new one for the
+  same validity, a role that held neither holds nothing new, an ended
+  grant is not copied; the down migration removes the grants and the
+  permissions.
+
+### The ledger's refusal names the material document's reversal
+
+**Capability.** An accountant who tries to reverse an inventory entry
+through `POST /v1/journal-entries/{id}:reverse` is told where it is
+reversed: a material document's entry (WE, WA) with
+`POST /v1/material-documents/{id}:reverse`; a price change's entry (PR)
+is corrected by another price change
+(`POST /v1/material-valuations/{id}:changePrice`), as SAP corrects one
+by MR21 (from memory).
+
+- **Adds:** an `inventory` case in the ledger's `requireOwnEntry`, as
+  the other owners have (409 `ledger.entry_owned_elsewhere`); nothing
+  else changes. No walkthrough step (a fix).
+- **Acceptance:** an inventory material document's entry is refused
+  naming its path with the document's id, a price change's naming the
+  price change path; the other owners' messages unchanged.
+
+## aging
+
+Placeholder: "later: AR aging variants" (`plan-breadth-week1.md` §T75e,
+Later; ADR-0063 §10). Two variants are split here: the aging as at a past
+key date and by document date, and the aging by profit center or segment
+with its export as CSV. Group currency (it needs exchange rates of the key
+date), analytics metrics and the allowance for expected credit losses
+(IFRS 9, the accounting specialist's question in `plan-breadth-week1.md`)
+stay in the placeholder. SAP S/4HANA is the reference, stated from memory
+and not checked against a source in the lane: the due date analysis and
+the open items list at a key date (S_ALR_87012168, S_ALR_87012178, FBL5N
+with "open at key date") select the items posted on or before the key
+date and not cleared then (cleared after it, by their clearing date); a
+reset clearing (FBRA) leaves no clearing date on its items. The amounts
+are in the company's currency, as T75e's: nothing is converted and no two
+currencies are added up.
+
+### T75l AR aging as at a past key date, and by document date
+
+**Capability.** A credit controller reads the aging as it stood on a past
+key date (the month end just closed, a year end audited): the customer
+items open on that date, though paid or cleared since; and ages the items
+by their document date instead of their net due date.
+
+- **Reuses:** T75e's report (`GET /v1/receivables-aging`, its buckets,
+  pages and totals, `ledger.AgingBucket`, `ledger.AgingRange`), T75b's
+  reader of customer items (`receivableSelect`, `scanReceivable`), the
+  clearings and their resets (T75i), the reversals.
+- **Adds:** `open_on` on `GET /v1/receivables-aging`: `now` (the default,
+  T75e's items open today) or `key_date`: the items open on the key date,
+  posted on or before it and neither cleared by then (a clearing dated
+  on or before it; a reset clearing only until the reversal of its
+  clearing entry) nor reversed by then (a reversal posted on or before
+  it); `aging_basis`: `net_due_date` (the default) or `document_date`, an
+  item then aged by its days past its document date, as if due that day;
+  both said in the response. A ledger reader of the customer items open
+  on a date (`ledger.OpenItems.ReceivableOn`); no table, no migration.
+- **Walkthrough:** `step_aging_as_at`: Ruth sets up the customer
+  Harbour Tools; Alex charges it CAD 300.00 by a manual entry and
+  reverses it later in the period, and Ruth's invoice of CAD 1,000.00
+  dated today on NT30 posts on the reversal's day; the aging as at the
+  charge's day shows the charge, the aging as at the reversal's day and
+  today's the invoice alone; 45 days on the invoice is 15 days past its
+  net due date and 45 past its document date.
+- **Acceptance:** with `open_on=key_date` an item posted after the key
+  date is left out, one cleared after it is aged as open, one cleared on
+  or before it is not, one whose clearing was reset after the key date is
+  not open until the reset's reversal and open from it, one of an entry
+  reversed after the key date is open; with `open_on=now` T75e's report is
+  unchanged; with `aging_basis=document_date` each item falls in the
+  bucket of its days past its document date, an item dated on the key
+  date or later not due; the totals still equal the selected items, the
+  customers' rows add up to them; a token given for one basis or `open_on`
+  is refused for another (400); a value the contract does not list is
+  refused (400); a budget test of the read as at a key date over 100,000
+  items, half of them cleared.
+- **Depends on:** T75e, T75i (in `main`).
+
+### T75m AR aging by profit center or segment, and its CSV export
+
+**Capability.** A credit controller or a profit center manager reads the
+aging of the customer items of one profit center or segment, or a row
+per profit center or segment instead of per customer, and exports the
+report as CSV for a spreadsheet.
+
+- **Reuses:** T75l's report; the profit center and segment a customer
+  item carries on its journal line (ADR-0050 §5: the item's own
+  assignment, as posted; no derivation is added); the ledger's names of
+  centers (`AssetReads.CenterNames`, widened to segments); the CSV form of
+  a report the API already gives (`format=csv` of
+  `GET /v1/process-event-logs`, the next page in `Next-Page-Token`) and
+  the spreadsheet-safe cells of the workspace's CSV downloads (ADR-0052,
+  T73j4), moved to `internal/platform` rather than copied.
+- **Adds:** on `GET /v1/receivables-aging` the filters `profit_center_id`
+  and `segment_id` (the items whose line carries it); `group_by`
+  `customer` (the default), `profit_center` or `segment`: `groups[]` a
+  row per profit center or segment with its code and name, one row
+  without (the items carrying none), each with its customers, items,
+  amount and buckets, in cursor pages, `items` then empty; `format` `json`
+  (the default) or `csv`: a header row, a row per row of the page, and on
+  the last page the totals' row, each bucket a column, the amounts exact
+  decimals with the currency in a column of its own, UTF-8 with a byte
+  order mark, cells safe for a spreadsheet.
+- **Walkthrough:** `step_aging_by_center`: Alex charges Harbour Tools
+  a service on profit center PC-MTL (segment CA) through a manual entry;
+  its aging by profit center shows the row without a profit center (the
+  invoice of step 133) and PC-MTL's; filtered by PC-MTL the totals are
+  the charge; by segment, CA's row; the company's groups add up to its
+  totals; the CSV of the report by profit center has the header, the
+  rows and the totals.
+- **Acceptance:** each item is in exactly one group, the groups add up to
+  the totals; a filter and a group together select and group; an
+  unknown center selects nothing (an empty report, not an error); a
+  group's customers are counted once each; the CSV holds the JSON's
+  figures, a text cell beginning as a formula kept as text, the totals'
+  row only on the last page; a page token is bound to the grouping and
+  filters; amounts in the company's currency only.
+- **Depends on:** T75l.
+
+**Later (still in the placeholder):** group currency; analytics metrics;
+an allowance for expected credit losses (IFRS 9, the specialist's).

@@ -2032,6 +2032,18 @@ released order's item keeps its assignment as it keeps its account
 (`purchase_order_item_identity`, 000161), and its goods movements post the
 item's account with its cost center.
 
+A purchase order item that names a plant and a storage location (migration
+000390, S1e, ADR-0082 As built S1e) is a stock item of its material:
+`purchase_order_item.plant_id` and `.storage_location_id` (tenancy's org
+units, by id), given together, with the material and no cost center
+(`purchase_order_item_stock`, added `NOT VALID` and validated by 000391),
+kept by a released order's item (`purchase_order_item_identity`). Its goods
+receipt (101) and the receipt's reversal (102) are material documents of
+the inventory context too, which `goods_movement.material_document_id` and
+`.material_document_number` name, together
+(`goods_movement_material_document`); its WE entry posts the stock's value
+against GR/IR on the valuation class's accounts (§3.35).
+
 A request for quotation (migration 000285, T82a, ADR-0069) asks the
 suppliers invited for prices of items a company wants to buy, without a
 requisition. `rfq` is numbered per company (`rfq_number_once`, from the
@@ -4558,7 +4570,10 @@ posted credit memos naming it stay within its gross amount at posting,
 under that invoice's row lock (ADR-0063 §7). T75e's AR aging
 (`GET /v1/receivables-aging`) keeps no table: it is computed on read from
 the ledger's customer open items (§3.7, `ledger.OpenItems.Receivable`)
-with the ledger's aging buckets (ADR-0063 §10).
+with the ledger's aging buckets (ADR-0063 §10); as at a past key date
+(T75l) from the customer lines posted by then and not cleared or reversed
+by then (`ledger.OpenItems.ReceivableOn`, by the clearing's
+`clearing_date` and the reversal's posting date).
 
 ```mermaid
 erDiagram
@@ -5035,7 +5050,11 @@ check a sales order's confirmation asks reads the limit's row
 `FOR UPDATE` under an advisory lock on the customer in the company,
 which setting a limit takes too, so two orders of one customer are
 checked one after the other (ADR-0066, As built T77b). T77b adds no table and no column
-here.
+here. T77c (migration 000392) gives a limit a validity and a next review
+date; the check uses a limit only on the company's days within its
+validity. T77d (migration 000393) has a new limit, or a change raising
+one or changing its validity, approved through the approvals context
+before it applies: the limit's `status` and `credit.credit_limit_change`.
 
 ```mermaid
 erDiagram
@@ -5045,7 +5064,20 @@ erDiagram
     text customer_number "the partner's, fixed"
     char currency "the company's"
     bigint amount "in currency, 0 or more"
+    date valid_from "T77c, null: no start"
+    date valid_to "T77c, null: no end"
+    date next_review_on "T77c, null: none"
+    text status "T77d: pending or active"
     int version }
+  credit_limit_change { uuid id PK
+    uuid credit_limit_id FK
+    text kind "create or change"
+    bigint amount "asked for"
+    bigint amount_before "a change's"
+    text status "pending, applied, rejected, cancelled"
+    uuid workflow_request_id "workflow"
+    int version }
+  credit_limit ||--o{ credit_limit_change : "asked of"
 ```
 
 - `credit.credit_limit`: the most a customer may owe a company, an
@@ -5057,13 +5089,40 @@ erDiagram
   limits are listed (`credit_limit_by_customer_number`). A change sets
   the amount with the next version (`platform.touch`, which also moves
   `updated_at`): the application is granted the update of `amount`,
-  `version` and `updated_by` alone, so a limit's customer, company and
-  currency stay, and it is granted no delete. A customer without a row
-  has no limit and is not restricted; a limit of zero is a limit.
+  `valid_from`, `valid_to`, `next_review_on` (T77c), `version` and
+  `updated_by` alone, so a limit's customer, company and currency stay,
+  and it is granted no delete. A customer without a row has no limit and
+  is not restricted; a limit of zero is a limit. Its validity runs from
+  `valid_from` to `valid_to`, both included and either open
+  (`credit_limit_validity_check`: it ends on its first day or later); on
+  another of the company's days the customer is treated as one without a
+  limit. `next_review_on` is the day its next review is planned for: the
+  worklist (`GET /v1/credit-limits?due_by=`) lists the limits whose review
+  or end is due by a day, a filter of the tenant's few limits beside the
+  list's index, which needs no index of its own. `status` (T77d,
+  `credit_limit_status_check`) is `pending` until its create change is
+  approved, and the limit is not in effect while it is; an active limit
+  stays active (`credit_limit_status_guard`, a trigger).
+- `credit.credit_limit_change` (T77d): what a change asks of a limit, the
+  amount (`credit_limit_change_amount_check`) and dates
+  (`credit_limit_change_validity_check`), and for kind `change` the
+  limit's values when it was asked for (`credit_limit_change_before_check`:
+  a `create` has none), `credit_limit_change_kind_check`,
+  `credit_limit_change_amount_before_check`; its status
+  (`credit_limit_change_status_check`) decided once with `decided_at`
+  (`credit_limit_change_decided_check`, and the trigger
+  `credit_limit_change_decided_once`), one pending per limit
+  (`credit_limit_change_one_pending`, 409 `credit.change_pending`), of a
+  limit of the tenant (`credit_limit_change_limit_fkey`); listed by limit
+  and by tenant, newest first (`credit_limit_change_by_limit`,
+  `credit_limit_change_by_created`). The application may update
+  `status`, `workflow_request_id`, `decided_at`, `version` and
+  `updated_by` alone, and delete nothing.
 - `credit.outbox`, `credit.inbox`: the context's events
   (`CreditLimitChanged`).
-- Permissions `credit.limit.read` (limits and the exposure) and
-  `credit.limit.write`.
+- Permissions `credit.limit.read` (limits, their changes and the
+  exposure), `credit.limit.write` and the approval permission
+  `credit.limit.approve` (T77d).
 
 ## 3.29 Sales (`sales`)
 
@@ -5644,7 +5703,9 @@ erDiagram
   `.write`, `.confirm` and `.credit_release` (T77b);
   `sales.delivery.confirm`; `sales.billing.read`,
   `.write` and `.post` (posting comes with T79b); `sales.price.read` and
-  `.write`; `sales.return.read`, `.write` and `.confirm` (T85a) and
+  `.write`; `sales.customer_sales_data.read` and `.write` (migration
+  000394, product owner 2026-11-18: the customers' sales data, apart from
+  the prices); `sales.return.read`, `.write` and `.confirm` (T85a) and
   `.receive` (T85b).
 
 ## 3.30 Revenue recognition (`revenue`)
@@ -6345,7 +6406,8 @@ erDiagram
     uuid legal_entity_id "tenancy: its plants' company"
     smallint fiscal_year
     text number "material_document range, once per company and year"
-    text movement_type "501 561 201 551 311 301 and their reversals"
+    text movement_type "101 501 561 201 551 311 301 and their reversals"
+    text reference "a goods receipt's number (101, 102)"
     date posting_date "the company's date"
     text header_text "1 to 200"
     uuid reversal_of_id FK "once" }
@@ -6449,6 +6511,22 @@ erDiagram
   `inventory_<kind>:<class>` (`account_determination_key_check`, 000377,
   validated by 000378), and `ledger.journal_entry` the source context
   `inventory`.
+- S1e (migrations 000390, 000391): `inventory.material_document` takes the
+  movement types `101` and `102`, a purchase order's goods receipt and its
+  reversal, which procurement posts, and their `reference`, the goods
+  movement's number, of 1 to 40 characters
+  (`material_document_reference_check`), named by those documents and no
+  other (`material_document_reference`); their journal entry is
+  procurement's WE entry. `inventory.invoice_difference`: what a supplier
+  invoice's price difference put on a moving-priced valuation's stock
+  (`invoice_difference_valuation_fkey`), not zero
+  (`invoice_difference_amount_check`), with the invoice, the order item
+  and the journal entry, added to the valuation's value with its moving
+  price following, only to a moving-priced valuation holding stock
+  (`invoice_difference_valuation`, a security definer trigger) and never
+  below a value of zero (`valuation_value_check`). Insert-only
+  (`invoice_difference_insert_only`); an invoice's are read by
+  `invoice_difference_by_invoice`.
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,

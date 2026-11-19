@@ -397,6 +397,31 @@ approve() {
     -body "{\"comment\": \"${3:-Checked.}\"}"
 }
 
+# approve_credit_limit CHANGE has Carla, the controller, approve the
+# credit limit change (T77d) and reads its limit back as Ruth, the last
+# answer and ETAG being the limit's.
+approve_credit_limit() {
+  local request limit
+  as ruth
+  QUIET=1 api 200 '' getCreditLimitChange -p "id=$1"
+  request=$(field .workflow_request_id) limit=$(field .credit_limit_id)
+  approve carla "$request" "${2:-Checked against the payment history.}"
+  as ruth
+  QUIET=1 api 200 '' getCreditLimit -p "id=$limit"
+}
+
+# change_credit_limit ID AMOUNT has Ruth change the credit limit's amount
+# with its version, and Carla approve the change when it waits for her (a
+# raise, T77d); the last answer is the limit as it then is.
+change_credit_limit() {
+  as ruth
+  QUIET=1 api 200 '' getCreditLimit -p "id=$1"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)\(if .pending_change_id then ", waiting for approval" else "" end)"' \
+    updateCreditLimit -p "id=$1" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$2\", \"currency\": \"CAD\"}}"
+  if [ -n "$(field '.pending_change_id // ""')" ]; then approve_credit_limit "$(field .pending_change_id)"; fi
+  expect "the limit changed" "$(field .limit.amount)" "$2"
+}
+
 # account NUMBER is the id of an account of company $CC.
 account() {
   local id
@@ -453,7 +478,7 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the FPZ-500 for a Quebec registrant (the GST34's lines are signed off in Canada $CA_PACK, the UAE VAT 201"
-  say "    in UAE pack 2026.6, which step 41 files): step 11 prepares,"
+  say "    in UAE pack 2026.7, which step 41 files): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -648,7 +673,7 @@ latest_pack() {
 # The permissions of everyone's day-to-day work: all but administering
 # access and the organisation, activating configuration, the AI policy,
 # releasing payments and deciding approvals, which the approver roles hold.
-STAFF_DENIED=' partner.privacy.block partner.privacy.read_blocked records.privacy.delete identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release '
+STAFF_DENIED=' partner.privacy.block partner.privacy.read_blocked records.privacy.delete identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release sales.customer_sales_data.write '
 
 # grant ROLE_ID PERMISSION... grants a role the permissions.
 grant() {
@@ -1635,7 +1660,8 @@ migrated_down_payment() {
 # contracts of step 96 (T88a) and the expense reports of step 97 (T87a), which
 # no pack ships (the ranges of
 # customer invoices, incoming payments, quotations, sales orders, billing
-# documents and RFQs come from the pack since Canada 2026.9), the
+# documents and RFQs come from the pack since Canada 2026.9, the debit
+# memos' journal range journal_dd since Canada 2026.10), the
 # right-of-use asset (1660) and lease liability (2650) accounts a lease's
 # activation posts to (T88b, ADR-0073 §7; no pack ships them), the
 # customer payment tolerance and its accounts 6850 and 4850 (T75f, SAP
@@ -1727,8 +1753,7 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
     {"company": "@CC@", "document_type": "material_document", "fiscal_year": @YEAR@, "prefix": "MD", "first": 1, "last": 9999999},
     {"company": "@CC@", "document_type": "journal_wa", "fiscal_year": @YEAR@, "prefix": "WA", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "journal_pr", "fiscal_year": @YEAR@, "prefix": "PR", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "journal_dd", "fiscal_year": @YEAR@, "first": 1, "last": 999999}]'
+    {"company": "@CC@", "document_type": "journal_pr", "fiscal_year": @YEAR@, "prefix": "PR", "first": 1, "last": 9999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -1742,9 +1767,12 @@ step_pack() {
   say "2026.8 is 2026.7 with the lines' labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
   say "2026.9 is 2026.8 plus the number ranges of customer invoices, incoming payments, sales documents and RFQs"
   say "(product owner, 2026-11-12), its tax content unchanged; the sign-off of 2026-11-09 covers it (product owner,"
-  say "2026-11-13), so it is the latest signed-off version and the pilot takes those ranges from the pack."
+  say "2026-11-13), so the pilot takes those ranges from the pack. 2026.10 is 2026.9 plus the journal range of customer"
+  say "debit memos, journal_dd (step 126), under the same sign-off (product owner, 2026-11-18): the latest signed-off version."
   expect "Canada 2026.9" "$(field '.items[] | select(.country == "CA" and .version == "2026.9") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
     "22 number ranges, signed off: true"
+  expect "Canada 2026.10" "$(field '.items[] | select(.country == "CA" and .version == "2026.10") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
+    "23 number ranges, signed off: true"
   expect "the latest signed-off Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-09"
   say "Ada applies the latest signed-off Canada pack, $version, to company $CC. The merge keeps what the company"
@@ -4857,8 +4885,9 @@ governed() {
 
 # step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
 # Ada creates the UAE pilot company, proposes it in the configuration and
-# applies the UAE pack to it, 2026.6 (2026.4, signed off by the tax
-# specialist, with the box labels' markers dropped in 2026.5 and the number ranges added in 2026.6), so without a note
+# applies the UAE pack to it, 2026.7 (2026.4, signed off by the tax
+# specialist, with the box labels' markers dropped in 2026.5, the number ranges added in 2026.6 and journal_dd in
+# 2026.7), so without a note
 # (2026.3 brought the emirate guard: S5 accepts the seven
 # emirates alone); Alex posts a UAE supplier's invoice above AED 10,000
 # and one below: the supplier has no TRN on file, so the first carries the
@@ -4879,10 +4908,11 @@ step_uae() {
   say "packs/ae/TAX-PENDING-T62f.md and TAX-PENDING-T61k.md), so production applies it; the earlier versions stay unsigned."
   say "2026.5 is 2026.4 with the VAT 201's box labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
   say "2026.6 is 2026.5 plus the number ranges of customer invoices, incoming payments, sales documents and RFQs (product"
-  say "owner, 2026-11-12), its tax content unchanged, under the same sign-off (product owner, 2026-11-13)."
+  say "owner, 2026-11-12), its tax content unchanged, under the same sign-off (product owner, 2026-11-13); 2026.7 adds the"
+  say "journal range of customer debit memos, journal_dd, under it too (product owner, 2026-11-18)."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true"
-  expect "UAE 2026.6's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.6") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true"
+  expect "UAE 2026.7's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.7") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "Musto Ibrahim 2026-11-09"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
   QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
@@ -4902,10 +4932,10 @@ step_uae() {
     proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the latest signed-off UAE pack, 2026.6, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "Ada applies the latest signed-off UAE pack, 2026.7, to $AE for $YEAR. The merge keeps the company's accounts, which are"
   say "the pack's, and adds the rest; signed off, the pack brings no note saying otherwise:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"AE\", \"version\": \"2026.6\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"AE\", \"version\": \"2026.7\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   cr=$(field .id)
   excerpt '.notes[] | "note \(.path): \(.message)"'
   expect "notes that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 0
@@ -5048,7 +5078,7 @@ uae_return() {
   vat=$(field '.items[] | select(.number == "2300") | .id')
   input=$(field '.items[] | select(.number == "1300") | .id')
   say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
-  say "that UAE pack 2026.6 defines; its first period is the latest quarter ended, the one it files now:"
+  say "that UAE pack 2026.7 defines; its first period is the latest quarter ended, the one it files now:"
   api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
     listTaxRegistrations -p "legal_entity_id=$ae"
   expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
@@ -5100,10 +5130,10 @@ uae_return() {
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
   say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
-  say "(packs/ae/TAX-PENDING-T61k.md); 2026.6's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
+  say "(packs/ae/TAX-PENDING-T61k.md); 2026.7's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
-  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.6"
+  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.7"
   expect "boxes 1b and 8's VAT labels, without a marker" "$(field '[.boxes[] | select(.code == "1b_vat" or .code == "8_vat") | .label] | join(" / ")')" \
     "1b Standard-rated supplies in Dubai (AE-DU): VAT / 8 Totals: VAT, boxes 1a-1g, 2, 3, 6 and 7"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
@@ -7016,10 +7046,13 @@ step_collections() {
 # Maple, its credit exposure, which is what its open items add up to;
 # without a limit the customer is not restricted, and the answer says none
 # is set. She sets a limit 500.00 above the exposure, once: a second limit
-# for the customer is refused. An amount of 400.00 is then within the
-# limit and 600.00 is not; the check changes nothing, the open items and
-# the limit are as before. She raises the limit with her version of it,
-# to 5000.00 above the exposure, and the larger amount is within it. The
+# for the customer is refused. The limit waits for its approval (T77d):
+# until Carla, the controller, approves it, it is not used. An amount of
+# 400.00 is then within the limit and 600.00 is not; the check changes
+# nothing, the open items and the limit are as before. She raises the
+# limit with her version of it, to 5000.00 above the exposure; the raise
+# waits for Carla's approval too, and the larger amount is within it once
+# approved. The
 # amounts follow from the exposure read, so the step holds whatever
 # earlier steps left open. The raised limit leaves room for the sales
 # order of step_sales_order (1824.41 CAD with its GST), which is checked
@@ -7027,7 +7060,7 @@ step_collections() {
 # be confirmed blocked and take no delivery.
 step_credit_limit() {
   heading "Step 59 — Credit limits: a customer's credit exposure is its open items; a limit is set for the customer in the company; one amount is within the limit and a larger one is not; the check changes nothing; the limit is changed with the caller's version"
-  local customer=$CUSTOMER exposure limit raised id tag before
+  local customer=$CUSTOMER exposure limit raised id tag before change
   as ruth
   say "Ruth looks after Maple's credit as well. Before more is sold to Northwind Traders on account she reads what"
   say "it owes: its credit exposure, the customer's open items in Maple's currency, credits netted (ADR-0066 §3)."
@@ -7044,13 +7077,22 @@ step_credit_limit() {
   limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 500 }')
   raised=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 5000 }')
   say "She sets Northwind's limit in Maple at $limit CAD, 500.00 above what it owes. A limit is one amount per"
-  say "customer and company in the company's currency; it holds at once, and nothing is posted or blocked:"
-  api 201 '"credit limit of \(.customer_number) \(.customer_name) in \(.company_code): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+  say "customer and company in the company's currency; nothing is posted or blocked. A new limit takes effect once"
+  say "another person approves it (T77d): it is pending, with its change waiting for the controller:"
+  api 201 '"credit limit of \(.customer_number) \(.customer_name) in \(.company_code): \(.limit.amount) \(.limit.currency), \(.status), version \(.version)"' \
     createCreditLimit -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
-  id=$(field .id) tag=$ETAG
-  expect "the limit" "$(field '"\(.customer_id) \(.customer_name) \(.limit.amount) \(.limit.currency) \(.version)"')" "$customer Northwind Traders $limit CAD 1"
-  say "A customer has one limit in a company; a second is refused, and a limit in another currency too:"
+  id=$(field .id) change=$(field .pending_change_id)
+  expect "the limit" "$(field '"\(.customer_id) \(.customer_name) \(.limit.amount) \(.limit.currency) \(.status)"')" "$customer Northwind Traders $limit CAD pending"
+  say "A customer has one limit in a company; a second is refused:"
   refused 409 credit.limit_exists createCreditLimit -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"limit\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}}"
+  say "While it waits, the limit is not used: Northwind is checked as a customer without a limit."
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "a pending limit not used" "$(field '"\(.has_limit) \(.credit_limit_id)"')" "false $id"
+  say "Carla, the controller, approves it:"
+  approve_credit_limit "$change"
+  tag=$ETAG
+  expect "the limit approved" "$(field '"\(.status) \(.limit.amount) \(has("pending_change_id"))"')" "active $limit false"
+  say "A limit in another currency than the company's is refused:"
   refused 422 credit.currency_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "USD"}}'
   QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
   expect "the customer's limits in Maple" "$(field '[.items[].id] | join(" ")')" "$id"
@@ -7071,20 +7113,24 @@ step_credit_limit() {
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items after the checks" "$(field '[.items[] | "\(.journal_entry_id) \(.amount_lc.amount)"] | join(", ")')" "$before"
   QUIET=1 api 200 '' getCreditLimit -p "id=$id"
-  expect "the limit after the checks" "$(field '"\(.limit.amount) \(.version)"') $ETAG" "$limit 1 $tag"
-  say "Ruth agrees a higher limit with sales and changes it, with her version of the limit: $raised CAD. The audit"
-  say "trail and the event CreditLimitChanged carry the limit before and after; the event names the customer by"
-  say "id and number, never by name:"
-  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+  expect "the limit after the checks" "$(field '.limit.amount') $ETAG" "$limit $tag"
+  say "Ruth agrees a higher limit with sales and asks for it, with her version of the limit: $raised CAD. A raise"
+  say "waits for the controller's approval; the limit is answered as it is, naming its change:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), change waiting: \(has("pending_change_id")), version \(.version)"' \
     updateCreditLimit -p "id=$id" -if-match "$tag" -body "{\"limit\": {\"amount\": \"$raised\", \"currency\": \"CAD\"}}"
-  expect "the raised limit" "$(field '"\(.limit.amount) \(.version)"')" "$raised 2"
+  expect "the raise waiting" "$(field '"\(.limit.amount) \(has("pending_change_id"))"')" "$limit true"
+  change=$(field .pending_change_id)
   say "Her earlier version of it is stale now, and a change with it is refused:"
   refused 412 request.version_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "CAD"}}'
+  say "Carla approves the raise. The audit trail and the event CreditLimitChanged carry the limit before and after;"
+  say "the event names the customer by id and number, never by name:"
+  approve_credit_limit "$change"
+  expect "the raised limit" "$(field '"\(.limit.amount) \(.status)"')" "$raised active"
   api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
     getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=600.00
   expect "600.00 within the raised limit" "$(field '"\(.limit.amount) \(.available.amount) \(.is_within_limit)"')" "$raised 5000.00 true"
   QUIET=1 api 200 '' listAuditEvents -p object_type=credit.credit_limit -p "object_id=$id"
-  expect "the limit's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "credit.credit_limit.change credit.credit_limit.create"
+  expect "the limit's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "credit.credit_limit.change credit.credit_limit.change credit.credit_limit.create"
   passed
 }
 
@@ -12621,10 +12667,9 @@ step_sales_order_change() {
   limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 1000 }')
   QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
   id=$(field '.items[0].id')
-  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
-  say "Ruth sets Northwind's limit at $limit CAD, 1,000.00 above what it owes and has on order:"
-  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
-    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
+  say "Ruth sets Northwind's limit at $limit CAD, 1,000.00 above what it owes and has on order (a raise is approved by"
+  say "Carla, the controller):"
+  change_credit_limit "$id" "$limit"
   as sally
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
@@ -13028,10 +13073,9 @@ step_revenue_follows_order() {
   limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 5000 }')
   QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
   id=$(field '.items[0].id')
-  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
-  say "Ruth sets Northwind's limit at $limit CAD, 5,000.00 above what it owes and has on order:"
-  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
-    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
+  say "Ruth sets Northwind's limit at $limit CAD, 5,000.00 above what it owes and has on order (a raise is approved by"
+  say "Carla, the controller):"
+  change_credit_limit "$id" "$limit"
   as sally
   sales=$(account 4000)
   item1="{\"item_key\": \"BRACKET-M6\", \"description\": \"Machined bracket M6\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"12.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
@@ -13478,11 +13522,99 @@ step_goods_movements() {
   passed
 }
 
+# step_stock_receipt is S1e (ADR-0082 As built S1e, plan-supply-chain.md):
+# Ben orders 100 brackets and 100 bolts from Tyrell as stock items of
+# Toronto's main store. The brackets arrive in two parts, each goods
+# receipt also a material document (101) that moves the stock, its value
+# posted on the WE entry against GR/IR: at the bracket's moving price the
+# order price, at the bolt's standard price the stock at 0.55 and the rest
+# a price difference. A miscounted receipt is reversed (102), stock and
+# GR/IR with it, once; a stock item is not returned to the supplier yet.
+# Tyrell invoices the brackets at 2.54: the 4.00 over the order price goes
+# to the stock, which still holds all of them, and the moving price
+# follows; GR/IR is cleared, and the invoice, which revalued stock, is not
+# reversed.
+step_stock_receipt() {
+  heading "Step 130 — Goods receipt into stock: an order's stock items received in two parts as material documents valued against GR/IR, at the order price and at a standard price with its price difference; a receipt reversed once; the invoice at a higher price clearing GR/IR, its difference on the stock and the moving price after it"
+  local po first second rev entry inv
+  [ -n "$BOLT" ] || fail "step 124's valuations are not there"
+  accounts
+  as ben
+  say "Ben orders 100 brackets at 2.50 CAD and 100 bolts at 0.60 CAD from Tyrell as stock items: each names its"
+  say "material, the Toronto plant and its main store, the storage location its goods are received into (S1e):"
+  api 201 '"purchase order \(.document_number // .id): \(.status)", (.items[] | "  item \(.item_no): \(.description), \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) \(.unit_price.currency) into \(.plant_code)/\(.storage_location_code) \(.storage_location_name)")' createPurchaseOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"items\": [
+      {\"material_id\": \"$MATERIAL\", \"description\": \"Machined bracket M10\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"2.50\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"},
+      {\"material_id\": \"$BOLT\", \"description\": \"Hex bolt M10\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"0.60\", \"currency\": \"CAD\"},
+       \"account_id\": \"$(account 6000)\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}]}"
+  po=$(field .id)
+  api 200 '"\(.status)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Stock replenishment"
+    as ben
+  fi
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  expect "the order" "$(field '"\(.status) \(.valuation)"')" "released gr_ir"
+  say "The first delivery: 60 brackets and the 100 bolts. The goods receipt is a material document too (101); its WE"
+  say "entry puts the brackets on the stock at the order price, the bolts at their standard price of 0.55 and the"
+  say "0.05 more a bolt cost on the price difference account, against GR/IR:"
+  api 201 '"goods receipt \(.document_number): material document \(.material_document_number), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"60\", \"unit\": \"EA\"}},
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 2, \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}}]}"
+  first=$(field .id)
+  entry=$(field .journal_entry_id)
+  api 200 '"material document \(.number) (\(.movement_type) \(.movement_type_name)), reference \(.reference)", (.lines[] | "  \(.material_number): \(.quantity.value) \(.quantity.unit) worth \(.amount.amount), price difference \(.price_difference.amount)")' \
+    getMaterialDocument -p "id=$(field .material_document_id)"
+  expect "the receipt's values" "$(field '[.lines[] | "\(.amount.amount)/\(.price_difference.amount)"] | join(" ")')" "150.00/0.00 55.00/5.00"
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
+  say "The second part, 40 brackets, is counted wrong at 35; Ben posts it, sees it and reverses it (102), which takes"
+  say "the stock and GR/IR back, once:"
+  api 201 '"goods receipt \(.document_number): material document \(.material_document_number)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"35\", \"unit\": \"EA\"}}]}"
+  second=$(field .id)
+  api 200 '"reversal \(.document_number) (\(.movement_type)): material document \(.material_document_number)"' reverseGoodsReceipt -p "id=$second" -if-match "$ETAG" -body '{}'
+  QUIET=1 api 200 '' getGoodsReceipt -p "id=$second"
+  refused 409 procurement.already_reversed reverseGoodsReceipt -p "id=$second" -if-match "$ETAG" -body '{}'
+  api 201 '"goods receipt \(.document_number): material document \(.material_document_number)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}}]}"
+  say "Stock items are not returned to the supplier yet (122 is Later):"
+  refused 422 procurement.stock_item_return postGoodsReceipt -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\",
+      \"movement_type\": \"122\", \"reason\": \"Damaged\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  say "The main store's stock and the valuations: 100 brackets more at 2.50, 100 bolts more at 0.55:"
+  expect "the main store's brackets" "$(stock_at "$MAIN_STORE")" "288 EA"
+  expect "the bracket's valuation" "$(valuation "$MATERIAL")" "288 EA: 720.00 CAD at 2.50 per 1 EA"
+  expect "the bolt's valuation" "$(valuation "$BOLT")" "1100 EA: 605.00 CAD at 0.55 per 1 EA"
+  as alex
+  say "Tyrell invoices the brackets at 2.54 CAD and the bolts at the order price. Alex matches and posts it: GR/IR"
+  say "is cleared; the brackets' 4.00 over the order price goes to their stock, which still holds all 100, so the"
+  say "moving price follows:"
+  api 201 '"\(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-6100\", \"invoice_date\": \"$TODAY\",
+      \"gross_amount\": {\"amount\": \"314.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$po\", \"items\": [
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"254.00\", \"currency\": \"CAD\"}},
+      {\"purchase_order_id\": \"$po\", \"po_item_no\": 2, \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"60.00\", \"currency\": \"CAD\"}}]}"
+  inv=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$inv" -if-match "$ETAG"
+  expect "the match" "$(field .is_clean)" true
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the bracket's valuation after the invoice" "$(valuation "$MATERIAL")" "288 EA: 724.00 CAD at 2.51 per 1 EA"
+  QUIET=1 api 200 '' listGrIrBalances -p "legal_entity_id=$LE" -p "purchase_order_id=$po" -p open_only=false
+  expect "the order's GR/IR" "$(field '[.items[] | .balance.amount] | join(" ")')" "0.00 0.00"
+  say "An invoice that revalued stock is not reversed, as the stock may have been issued since; a credit memo corrects it:"
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$inv"
+  refused 409 payables.invoice_revalued_stock reverseSupplierInvoice -p "id=$inv" -if-match "$ETAG" -body '{"reason": "Wrong price"}'
+  passed
+}
+
 # step_debit_memo is T75j (ADR-0063 §7 As built): Maple charges Northwind
 # freight its invoice of step 55 left out. Ruth enters a debit memo, the
 # customer invoice document with the kind debit_memo, and posts it as an
 # invoice is posted, as its own journal document type DD (range
-# journal_dd, which the pilot's settings of step 2 add): Dr Northwind on
+# journal_dd, which Canada 2026.10 brings in step 2): Dr Northwind on
 # 1200, Cr 4000 and 2300. The memo is Northwind's open item, due by
 # Northwind's term from its own date; a debit memo naming an invoice is
 # refused. step_memo_reversal reverses it.
@@ -13660,17 +13792,21 @@ step_price_scales() {
 }
 
 # step_price_groups is T80f (ADR-0067 §13): Ada adds the customer price
-# groups 01 Wholesale and 02 Retail through a governed change; Paula puts
-# Contoso and Northwind in 01 in their sales data for Maple and records
-# 01's price of BRACKET-M8; a second sales data and a record for a
-# customer and a group are refused. Sally's quotation to Contoso takes
-# the group's price, Northwind's its own price and discount: each
-# condition says which step of the access found it. Paula moves Contoso to
-# 02, which has no record, and its next item takes the general price; an
-# unknown group and a stale version are refused.
+# groups 01 Wholesale and 02 Retail through a governed change. Customers'
+# sales data have their own permission (product owner, 2026-11-18):
+# finance_staff does not hold sales.customer_sales_data.write, so Paula,
+# the pricing analyst, is refused setting one up and reads them; Ada gives
+# Sally the role sales_master_data, and Sally puts Contoso and Northwind
+# in 01 in their sales data for Maple; Paula records 01's price of
+# BRACKET-M8; a second sales data and a record for a customer and a group
+# are refused. Sally's quotation to Contoso takes the group's price,
+# Northwind's its own price and discount: each condition says which step
+# of the access found it. Sally moves Contoso to 02, which has no record,
+# and its next item takes the general price; an unknown group and a stale
+# version are refused.
 step_price_groups() {
-  heading "Step 129 — Prices per customer price group: price groups through a governed change, a customer's group in its sales data, a group's price before the general one and after the customer's own, each condition naming its access; a changed group holding for items priced after it"
-  local customer=$CUSTOMER contoso sales until base cr bracket conditions data tag
+  heading "Step 129 — Prices per customer price group: price groups through a governed change; a customer's group in its sales data, under its own permission; the access customer, group, general"
+  local customer=$CUSTOMER contoso sales until base cr bracket conditions data tag role sally
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as ada
   say "Maple sells to wholesalers below its list price. Customer price groups are the tenant's configuration"
@@ -13692,8 +13828,23 @@ step_price_groups() {
   as ruth
   QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Contoso
   contoso=$(field '.items[0].id')
+  as ada
+  say "A customer's price group decides its prices, so who assigns it is kept apart from who maintains prices"
+  say "(product owner, 2026-11-18): the sales data take sales.customer_sales_data.write, which finance_staff does not"
+  say "hold. Ada creates the role of the sales master data team and gives it to Sally:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "sales_master_data", "name": "Sales master data"}'
+  role=$(field .id)
+  grant "$role" sales.customer_sales_data.write
+  sally=$(awk -F'\t' '$2 == "Sally Sales" { print $1 }' "$WORK/names")
+  [ -n "$sally" ] || fail "step 62's Sally is not there"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$sally\", \"role_id\": \"$role\"}"
   as paula
-  say "Paula puts Contoso and Northwind in the wholesale group, in their sales data for Maple:"
+  say "Paula maintains prices; she may read customers' sales data but not set them up:"
+  refused 403 identity.permission_missing createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"01\"}"
+  api 200 '"Contoso'"'"'s sales data: \(.items | length), none set up yet"' listCustomerSalesData -p "customer_id=$contoso"
+  expect "Contoso's sales data, read by Paula" "$(field '.items | length')" 0
+  as sally
+  say "Sally puts Contoso and Northwind in the wholesale group, in their sales data for Maple:"
   api 201 '"sales data of \(.customer_number) \(.customer_name) in \(.company_code): price group \(.price_group) \(.price_group_name), version \(.version)"' \
     createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"01\"}"
   data=$(field .id)
@@ -13703,6 +13854,7 @@ step_price_groups() {
     createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"price_group\": \"01\"}"
   say "A customer has one sales data per company: a second is refused, and the one there is changed instead:"
   refused 409 sales.customer_sales_data_exists createCustomerSalesData -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"price_group\": \"02\"}"
+  as paula
   say "Paula records the wholesale price of the bracket, 11.75 CAD. A record is for one customer or for a group, not both:"
   api 201 '"price of \(.item_key) for price group \(.price_group): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), valid from \(.valid_from)"' \
     createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"price_group\": \"01\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"11.75\", \"currency\": \"CAD\"}, \"valid_from\": \"$YEAR-01-01\"}"
@@ -13724,8 +13876,8 @@ step_price_groups() {
     -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$bracket]}"
   expect "Northwind's conditions" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.access) \(.amount.amount)"] | join(", ")')" \
     "PR00 customer 1174.99, K007 customer -58.75"
-  as paula
-  say "Contoso becomes a retail customer. Paula moves it to 02 with her version of its sales data; a group the"
+  as sally
+  say "Contoso becomes a retail customer. Sally moves it to 02 with her version of its sales data; a group the"
   say "configuration does not have is refused, and so is her version once it is stale:"
   refused 422 sales.unknown_price_group updateCustomerSalesData -p "id=$data" -if-match "$tag" -body '{"price_group": "09"}'
   api 200 '"sales data of \(.customer_number): price group \(.price_group) \(.price_group_name), version \(.version)"' \
@@ -13738,6 +13890,244 @@ step_price_groups() {
     -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$bracket]}"
   expect "Contoso's conditions in 02" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.access) \(.amount.amount)"] | join(", ")')" \
     "PR00 general 1325.00"
+  passed
+}
+
+# step_credit_limit_validity is T77c (ADR-0066, As built T77c): Ruth
+# plans the next review of Northwind's limit in a month and lets it end in
+# a year, which Carla, the controller, approves, since a validity decides
+# when the limit restricts (T77d); the worklist by the review date lists
+# it, by the day before it does not. She ends the limit yesterday,
+# approved too: on Maple's day it is not used,
+# so the exposure shows no limit, naming it all the same, and an amount
+# far above it is within; a validity starting after it ends is refused.
+# She opens its end again and the limit is used as before. The step
+# leaves the limit's amount as it found it.
+step_credit_limit_validity() {
+  heading "Step 131 — Credit limit validity and reviews: a limit's next review and end of validity set, the worklist of limits due by a day, a limit not used outside its validity on the company's day, a validity ending before it starts refused"
+  local customer=$CUSTOMER id day review end yesterday amount
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ruth
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  id=$(field '.items[0].id') amount=$(field '.items[0].limit.amount')
+  [ -n "$id" ] || fail "step 59's credit limit is not there"
+  day=$(company_day)
+  review=$(date_add "$day" 30) end=$(date_add "$day" 365) yesterday=$(date_add "$day" -1)
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth plans the next review of Northwind's limit for $review and lets the limit run until $end, a year from"
+  say "today; a limit is used on Maple's days within its validity, both ends included (T77c). A change of the"
+  say "validity waits for the controller's approval (T77d), which Carla gives:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), change waiting: \(has("pending_change_id"))"' \
+    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"next_review_on\": \"$review\", \"valid_to\": \"$end\"}"
+  approve_credit_limit "$(field .pending_change_id)"
+  expect "the limit's dates" "$(field '"\(.limit.amount) \(.valid_from // "open") \(.valid_to) \(.next_review_on)"')" "$amount open $end $review"
+  say "Her worklist of limits due for review or expiring lists it by the review date, and not by the day before:"
+  api 200 '"due by '"$review"': \([.items[] | "\(.customer_number) \(.customer_name), review \(.next_review_on // "none"), valid to \(.valid_to // "open")"] | join("; "))"' \
+    listCreditLimits -p "legal_entity_id=$LE" -p "due_by=$review"
+  expect "Northwind on the worklist by its review date" "$(field "[.items[] | select(.id == \"$id\")] | length")" 1
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "due_by=$(date_add "$review" -1)"
+  expect "Northwind not on the worklist the day before" "$(field "[.items[] | select(.id == \"$id\")] | length")" 0
+  say "Northwind's agreement ended yesterday, so Ruth ends the limit on $yesterday. On Maple's day it is not used: the"
+  say "exposure shows no limit, naming the limit all the same, and the customer is treated as one without a limit:"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  QUIET=1 api 200 '' updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"valid_to\": \"$yesterday\"}"
+  approve_credit_limit "$(field .pending_change_id)"
+  api 200 '"on \(.day): limit set: \(.has_limit) (credit limit \(.credit_limit_id)); 1000000.00 within: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=1000000.00
+  expect "no limit used outside its validity" "$(field '"\(.has_limit) \(.credit_limit_id) \(has("limit")) \(has("available")) \(.is_within_limit)"')" "false $id false false true"
+  expect_today "the day judged on" "$(field .day)" "$day"
+  say "A validity that starts after it ends is refused:"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  refused 422 credit.invalid_validity updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"valid_from\": \"$day\"}"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth opens the limit's end again, and it is used once more:"
+  QUIET=1 api 200 '' updateCreditLimit -p "id=$id" -if-match "$ETAG" -body '{"valid_to": null, "next_review_on": null}'
+  approve_credit_limit "$(field .pending_change_id)"
+  api 200 '"on \(.day): limit \(.limit.amount) \(.limit.currency), available \(.available.amount); within the limit: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the limit used again" "$(field '"\(.has_limit) \(.limit.amount)"')" "true $amount"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=credit.credit_limit -p "object_id=$id"
+  expect "the dates' changes audited" "$(field "[.items[] | select(.action == \"credit.credit_limit.change\" and .detail.valid_to_before == \"$yesterday\")] | length")" 1
+  passed
+}
+
+# step_credit_limit_approval is T77d (ADR-0066, As built T77d): Ruth
+# raises Northwind's limit by 1,000.00; the raise waits for its approval
+# and the exposure is checked against the limit as it is; a second change
+# waits for the first. Carla, the controller, approves it and it holds.
+# Ruth lowers the limit back, which holds at once; a raise Carla rejects
+# leaves the limit as it was. The step leaves the limit's amount as it
+# found it.
+step_credit_limit_approval() {
+  heading "Step 132 — Approval of credit limit changes: a raise waiting for the controller's approval, the old limit used meanwhile, a second change refused while it waits; approved, the raise holds; a lowering holding at once; a rejected raise leaving the limit as it was"
+  local customer=$CUSTOMER id amount raised change request
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ruth
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  id=$(field '.items[0].id') amount=$(field '.items[0].limit.amount')
+  raised=$(awk -v x="$amount" 'BEGIN { printf "%.2f", x + 1000 }')
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth raises Northwind's limit from $amount to $raised CAD. A raise takes effect once another person approves it;"
+  say "until then the limit is answered, and used, as it is:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), change waiting: \(has("pending_change_id"))"' \
+    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$raised\", \"currency\": \"CAD\"}}"
+  change=$(field .pending_change_id)
+  expect "the limit as it is, naming the raise" "$(field '"\(.limit.amount) \(.pending_change_id)"')" "$amount $change"
+  api 200 '"the change: \(.kind) to \(.limit.amount) \(.limit.currency) from \(.limit_before.amount), \(.status), approval request \(.workflow_request_id)"' \
+    getCreditLimitChange -p "id=$change"
+  expect "the change asked for" "$(field '"\(.kind) \(.limit.amount) \(.limit_before.amount) \(.status)"')" "change $raised $amount pending"
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the exposure checked against the limit as it is" "$(field .limit.amount)" "$amount"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "A second change waits for the first to be decided:"
+  refused 409 credit.change_pending updateCreditLimit -p "id=$id" -if-match "$ETAG" -body '{"limit": {"amount": "1.00", "currency": "CAD"}}'
+  say "Carla, the controller, approves the raise, and it holds:"
+  approve_credit_limit "$change"
+  expect "the raise approved" "$(field '"\(.limit.amount) \(.status) \(has("pending_change_id"))"')" "$raised active false"
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the exposure checked against the raised limit" "$(field .limit.amount)" "$raised"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  say "Ruth lowers it back to $amount CAD: a lowering restricts more, and holds at once:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), change waiting: \(has("pending_change_id"))"' \
+    updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$amount\", \"currency\": \"CAD\"}}"
+  expect "the lowering at once" "$(field '"\(.limit.amount) \(has("pending_change_id"))"')" "$amount false"
+  say "She asks for the raise again; Carla rejects it, and the limit stays as it was:"
+  QUIET=1 api 200 '' updateCreditLimit -p "id=$id" -if-match "$ETAG" -body "{\"limit\": {\"amount\": \"$raised\", \"currency\": \"CAD\"}}"
+  change=$(field .pending_change_id)
+  QUIET=1 api 200 '' getCreditLimitChange -p "id=$change"
+  request=$(field .workflow_request_id)
+  as carla
+  QUIET=1 api 200 '' getApprovalRequest -p "id=$request"
+  api 200 '"approval request \(.object_type): \(.status)"' rejectApprovalRequest -p "id=$request" -if-match "$ETAG" \
+    -body '{"comment": "Not before the open invoices are paid."}'
+  as ruth
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  expect "the limit after the rejection" "$(field '"\(.limit.amount) \(has("pending_change_id"))"')" "$amount false"
+  QUIET=1 api 200 '' listCreditLimitChanges -p "credit_limit_id=$id" -p page_size=2
+  expect "the last two changes, newest first" "$(field '[.items[] | "\(.status)"] | join(" ")')" "rejected applied"
+  passed
+}
+
+# step_aging_as_at is T75l (ADR-0063 §10 As built T75l): the AR aging as
+# it stood on a past key date, and by document date. Ruth sets up a new
+# customer, Harbour Tools, so the figures are its own whatever earlier
+# steps left open. Alex charges it CAD 300.00 by a manual entry on day
+# FIRST and reverses it on day SECOND; Ruth's invoice of CAD 1,000.00,
+# dated today on NT30, posts on SECOND. FIRST and SECOND are two days of
+# today's period: its first day and today, or, on the period's first day,
+# today and tomorrow. The aging as at FIRST shows the charge, as at SECOND
+# and now the invoice alone. 45 days from today the invoice is 15 days
+# past its net due date and 45 past its document date. AGING_CUSTOMER is
+# the customer, for step_aging_by_center.
+step_aging_as_at() {
+  heading "Step 133 — AR aging as at a key date: the items open on a past key date, though reversed or posted since; the items aged by their document date instead of their net due date"
+  local customer ar sales first second later charge key want
+  as ruth
+  ar=$(account 1200)
+  sales=$(account 4000)
+  say "Ruth sets up Harbour Tools as a customer of Maple, on net 30 days; Carla approves it:"
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Harbour Tools\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$ar\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys tooling from Maple\"}"
+  customer=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its order"
+  if [ "${TODAY:8:2}" = 01 ]; then
+    first=$TODAY second=$(date_add "$TODAY" 1)
+  else
+    first="${TODAY:0:8}01" second=$TODAY
+  fi
+  later=$(date_add "$TODAY" 45)
+  as alex
+  say "Alex charges Harbour Tools CAD 300.00 for a tooling service by a manual entry on $first, and reverses it"
+  say "on $second: the service was Northwind's."
+  api 201 '"journal entry \(.document_number) of \(.posting_date): \([.lines[] | "\(.account_id | acct) \(.amount.amount)"] | join(" / ")) \(.currency)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$first\", \"posting_date\": \"$first\", \"currency\": \"CAD\", \"header_text\": \"Tooling service\", \"lines\": [{\"account_id\": \"$ar\", \"amount\": {\"amount\": \"300.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$customer\"}, {\"account_id\": \"$sales\", \"amount\": {\"amount\": \"-300.00\", \"currency\": \"CAD\"}}]}"
+  charge=$(field .id)
+  api 200 '"journal entry \(.document_number) of \(.posting_date): the charge reversed"' reverseJournalEntry -p "id=$charge" -if-match "$ETAG" \
+    -body "{\"posting_date\": \"$second\", \"header_text\": \"The service was Northwind's\"}"
+  expect "the reversal's date" "$(field .posting_date)" "$second"
+  as ruth
+  say "Ruth invoices Harbour Tools CAD 1,000.00 for tooling, dated today on NT30, and posts it on $second:"
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"description\": \"Tooling\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1000.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"customer invoice \(.document_number): \(.status) on \(.posting_date), gross \(.gross_amount.amount) \(.currency), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$second\"}"
+  say "The aging of Harbour Tools with the items open now is the invoice alone: the charge and its reversal clear"
+  say "each other. As at $first (open_on key_date, T75l) it is the charge: the invoice was not posted yet and"
+  say "the charge not yet reversed. The day before, nothing was open; as at $second, the invoice alone:"
+  api 200 '"aging open now, on \(.key_date): \(.totals.item_count) items, \(.totals.amount.amount) \(.totals.amount.currency)"' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$first" -p "customer_id=$customer"
+  expect "the items open now" "$(field '"\(.open_on) \(.totals.item_count) \(.totals.amount.amount)"')" "now 1 1000.00"
+  for key in "$first=1 300.00" "$(date_add "$first" -1)=0 0.00" "$second=1 1000.00"; do
+    want=${key#*=} key=${key%%=*}
+    api 200 '"aging as at \(.key_date) (open_on \(.open_on)): \(.totals.item_count) items, \(.totals.amount.amount) \(.totals.amount.currency)"' \
+      getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$key" -p open_on=key_date -p "customer_id=$customer"
+    expect "the items open on $key" "$(field '"\(.open_on) \(.totals.item_count) \(.totals.amount.amount)"')" "key_date $want"
+  done
+  say "On $later the invoice is 15 days past its net due date, and 45 past its document date (aging_basis"
+  say "document_date, T75l):"
+  for key in net_due_date=1 document_date=2; do
+    api 200 '"by \(.aging_basis) on \(.key_date): \([.totals.buckets[] | select(.item_count > 0) | "\(.bucket) \(.days_from)-\(.days_to // "") days \(.amount.amount)"] | join(", "))"' \
+      getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$later" -p aging_days=30,60 -p "aging_basis=${key%=*}" -p "customer_id=$customer"
+    expect "the invoice's bucket by its ${key%=*}" "$(field '[.totals.buckets[] | .item_count] | to_entries | map(select(.value == 1)) | .[0].key')" "${key#*=}"
+  done
+  say "A value the contract does not list is refused, the field named:"
+  refused 400 request.invalid_parameter getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p open_on=yesterday
+  expect "the field refused" "$(field '.errors[0].field')" open_on
+  AGING_CUSTOMER=$customer
+  passed
+}
+
+# step_aging_by_center is T75m (ADR-0063 As built T75m): the AR aging by
+# profit center or segment, the item's own assignment as its customer
+# line carries it, and its CSV. Alex charges Harbour Tools (step 133's
+# AGING_CUSTOMER) CAD 200.00 on profit center PC-MTL of segment CA (step
+# 12) by a manual entry; the invoice of step 133, posted by receivables,
+# carries no profit center. The aging of Harbour Tools by profit center
+# has the row without one (the invoice) first, then PC-MTL's; filtered by
+# PC-MTL it is the charge; by segment, CA's row; the company's groups add
+# up to its totals; the CSV holds the rows and the totals.
+step_aging_by_center() {
+  heading "Step 134 — AR aging by profit center or segment: a row per profit center or segment the items' customer lines carry and one without, a filter by either, and the report as CSV for a spreadsheet"
+  local customer=$AGING_CUSTOMER ar sales pc csv
+  [ -n "$customer" ] || fail "step 133's customer is not there"
+  ar=$(account 1200)
+  sales=$(account 4000)
+  as alex
+  QUIET=1 api 200 '' listProfitCenters -p code=PC-MTL
+  pc=$(field '.items[0].id')
+  say "Alex charges Harbour Tools CAD 200.00 for tooling repairs done by the Montreal office, the customer line and the"
+  say "revenue on its profit center PC-MTL (segment CA):"
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) on \(.profit_center_code) \(.segment_code // "")"] | join(" / ")) \(.currency)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Tooling repairs\", \"lines\": [{\"account_id\": \"$ar\", \"amount\": {\"amount\": \"200.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$customer\", \"profit_center_id\": \"$pc\"}, {\"account_id\": \"$sales\", \"amount\": {\"amount\": \"-200.00\", \"currency\": \"CAD\"}, \"profit_center_id\": \"$pc\"}]}"
+  expect "the customer line's profit center" "$(field '.lines[0].profit_center_code')" PC-MTL
+  as ruth
+  say "Ruth reads Harbour Tools' aging by profit center (T75m): the invoice of step 133, posted by receivables,"
+  say "carries none, so it is in the row without a profit center, first; the charge is PC-MTL's:"
+  api 200 '"aging of Harbour Tools by \(.group_by) on \(.key_date)", (.groups[] | "  \(.profit_center_code // "no profit center") \(.profit_center_name // ""): \(.item_count) items, \(.amount.amount) \(.amount.currency)")' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p group_by=profit_center -p "customer_id=$customer"
+  expect "the groups" "$(field '[.groups[] | "\(.profit_center_code // "-") \(.item_count) \(.amount.amount)"] | join(", ")')" "- 1 1000.00, PC-MTL 1 200.00"
+  expect "no customers' rows when grouped" "$(field '.items | length')" 0
+  say "Filtered by PC-MTL, the report is the charge; by segment, CA's row holds it:"
+  api 200 '"aging of PC-MTL: \(.totals.item_count) items, \(.totals.amount.amount) \(.totals.amount.currency)"' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p "profit_center_id=$pc" -p "customer_id=$customer"
+  expect "PC-MTL's totals" "$(field '"\(.totals.item_count) \(.totals.amount.amount)"')" "1 200.00"
+  api 200 '(.groups[] | "  \(.segment_code // "no segment") \(.segment_name // ""): \(.item_count) items, \(.amount.amount) \(.amount.currency)")' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p group_by=segment -p "customer_id=$customer"
+  expect "the segments" "$(field '[.groups[] | "\(.segment_code // "-") \(.amount.amount)"] | join(", ")')" "- 1000.00, CA 200.00"
+  say "Over all of Maple's customers the groups add up to the totals:"
+  api 200 '"aging of \(.company_code) by profit center: \(.groups | length) groups, \(.totals.customer_count) customers, \(.totals.amount.amount) \(.totals.amount.currency)"' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p group_by=profit_center -p page_size=500
+  expect "the groups add up to the totals" "$(field '([.groups[].amount.amount | sub("\\."; "") | tonumber] | add) == (.totals.amount.amount | sub("\\."; "") | tonumber)')" true
+  say "Ruth exports Harbour Tools' aging by profit center as CSV for a spreadsheet (format=csv): a row per group and"
+  say "the totals, a column per bucket:"
+  csv="$WORK/aging.csv"
+  api 200 '' getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p group_by=profit_center -p "customer_id=$customer" -p aging_days=30 \
+    -p format=csv -out "$csv"
+  LC_ALL=C sed $'s/^\xef\xbb\xbf//; s/^/     /' "$csv"
+  expect "the byte order mark" "$(head -c 3 "$csv" | od -An -tx1 | tr -d ' \n')" efbbbf
+  expect "the header" "$(head -1 "$csv" | LC_ALL=C sed $'s/^\xef\xbb\xbf//')" '"row","id","code","name","currency","customer_count","item_count","amount","not_due","overdue_1_30","overdue_31_plus","no_due_date"'
+  expect "PC-MTL's row" "$(grep -c "^\"profit_center\",\"$pc\",\"PC-MTL\",\"Montreal office\",\"CAD\",1,1,200.00,200.00,0.00,0.00,0.00\$" "$csv" || true)" 1
+  expect "the totals' row" "$(tail -1 "$csv")" '"total",,,,"CAD",1,2,1200.00,1200.00,0.00,0.00,0.00'
   passed
 }
 
@@ -15771,7 +16161,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_debit_memo step_memo_reversal step_price_scales step_price_groups step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_close'
 
 main() {
   stop_unseen

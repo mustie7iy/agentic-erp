@@ -372,6 +372,29 @@ settings cannot simply overwrite their document.
   in the packs says so; the invoice is the accounting record, not the
   legal tax invoice, ADR-0063 §2) and the ranges of asset accounting
   (`asset`, `journal_aa`, `journal_af`), which the decision does not name.
+- **As built (the debit memos' journal range, po:2026-11-18): Canada
+  2026.10 and UAE 2026.7** are 2026.9 and 2026.6 plus one range,
+  `journal_dd` (DD, 1 to 9999999, not gapless), which customer debit
+  memos' entries draw from (ADR-0063 As built T75j). A company activated
+  from 2026.9 or 2026.6 alone answered 422 `config.no_number_range` on
+  posting a debit memo; the walkthrough's pilot added the range in its
+  own settings until this version. Only `numbering.yaml` and `pack.yaml`
+  (version, header comment) differ, the tax content byte for byte the
+  previous version's (`TestCanadaPack2026_10`, `TestUAEPack2026_7`;
+  `numberingOnly` and `adoptsAddedRanges` now take the ranges a version
+  adds, and the latest version is checked by its own test, 2026.10 after
+  2026.9 by number). **Sign-off:** the product owner answered on
+  2026-11-18 that the sign-off of 2026-11-09 carries to these
+  numbering-only versions, as it did to 2026.9 and 2026.6 on 2026-11-13,
+  so both carry `sign_off: {tax_specialist: "Musto Ibrahim", date:
+  2026-11-09}` from their release. The walkthrough's step 2 applies Canada
+  2026.10 (23 ranges, signed off) and step 41 UAE 2026.7. **Decided by
+  default:** a future numbering-only version carries the sign-off the same
+  way (the product owner's rule of 2026-11-18); any change of tax content
+  still needs a sign-off. The other ranges the pilot's settings still add
+  (`returns_order`, `credit_memo_request`, `lease_contract`,
+  `expense_report`, `material`, `material_document`, `journal_wa`,
+  `journal_pr`) stay out of the packs: no decision names them.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

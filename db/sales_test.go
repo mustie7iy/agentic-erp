@@ -26,7 +26,7 @@ func TestSalesPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "sales.billing.post sales.billing.read sales.billing.write sales.credit_memo_request.approve sales.credit_memo_request.read sales.credit_memo_request.write sales.delivery.confirm sales.order.capture sales.order.confirm sales.order.credit_release sales.order.read sales.order.write sales.price.read sales.price.write sales.quotation.read sales.quotation.write sales.return.confirm sales.return.read sales.return.receive sales.return.write"; got != want {
+	if got, want := strings.Join(codes, " "), "sales.billing.post sales.billing.read sales.billing.write sales.credit_memo_request.approve sales.credit_memo_request.read sales.credit_memo_request.write sales.customer_sales_data.read sales.customer_sales_data.write sales.delivery.confirm sales.order.capture sales.order.confirm sales.order.credit_release sales.order.read sales.order.write sales.price.read sales.price.write sales.quotation.read sales.quotation.write sales.return.confirm sales.return.read sales.return.receive sales.return.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }

@@ -158,6 +158,29 @@ var objectReads = map[string]objectRead{
 		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
 			return c.GetMaterialChange(ctx, gen.GetMaterialChangeParams{ID: id})
 		})},
+	"credit_limit_change": {op: Operation{ID: "getCreditLimitChange", HiddenBy: "credit.limit.read", PerObject: true},
+		call: byObjectID(func(ctx context.Context, c *gen.Client, id uuid.UUID) (any, error) {
+			return c.GetCreditLimitChange(ctx, gen.GetCreditLimitChangeParams{ID: id})
+		})},
+}
+
+// creditLimitSummary is a credit limit change as its approver judges it:
+// the limit asked for beside the limit before, and the validity asked for,
+// which a change may move alone (T77d).
+func creditLimitSummary(c gen.CreditLimitChange) *ui.ObjectSummary {
+	rows := []ui.Row{{Key: i18n.SummaryKind, Value: ui.Code(c.Kind)},
+		{Key: i18n.SummaryTitle, Value: ui.Data(c.CustomerNumber + " " + c.CustomerName + ", " + c.CompanyCode)}}
+	if before, ok := c.LimitBefore.Get(); ok {
+		rows = append(rows, ui.Row{Key: i18n.SummaryTotalBefore, Value: ui.Amount(moneyOf(before))})
+	}
+	rows = append(rows, ui.Row{Key: i18n.SummaryTotalAfter, Value: ui.Amount(moneyOf(c.Limit))})
+	if d, ok := c.ValidFrom.Get(); ok {
+		rows = append(rows, ui.Row{Key: i18n.SummaryFrom, Value: ui.Day(d)})
+	}
+	if d, ok := c.ValidTo.Get(); ok {
+		rows = append(rows, ui.Row{Key: i18n.SummaryTo, Value: ui.Day(d)})
+	}
+	return &ui.ObjectSummary{Rows: append(rows, ui.Row{Key: i18n.SummaryStatus, Value: ui.Code(c.Status)})}
 }
 
 // objectOps are the object reads in the inventory: a request's page calls
@@ -210,6 +233,8 @@ func summaryOf(res any) (*ui.ObjectSummary, bool) {
 		return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(c.Number)}, {Key: i18n.SummaryKind, Value: ui.Code(c.Kind)},
 			{Key: i18n.SummaryTitle, Value: ui.Data(c.MaterialNumber + " " + c.MaterialDescription)}, {Key: i18n.SummaryStatus, Value: ui.Code(c.Status)},
 			{Key: i18n.SummaryReason, Value: ui.Data(c.Reason)}}}, true
+	case *gen.CreditLimitChangeHeaders:
+		return creditLimitSummary(v.Response), true
 	case *gen.GetPartnerChangeOKHeaders:
 		c := v.Response
 		return &ui.ObjectSummary{Rows: []ui.Row{{Key: i18n.SummaryNumber, Value: ui.Code(c.Number)}, {Key: i18n.SummaryKind, Value: ui.Code(c.Kind)},

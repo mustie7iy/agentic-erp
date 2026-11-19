@@ -60,6 +60,7 @@ var webPlatform = map[string]bool{
 	"platform/proxyproto": true, "platform/secrets": true, "platform/telemetry": true, "platform/tlsconf": true, "platform/worker": true,
 	"platform/database": true, // web/session's alone: webStore
 	"platform/rdsiam":   true, // signs the directory login's RDS IAM token; holds no connection (ADR-0035)
+	"platform/csvcell":  true, // spreadsheet-safe CSV cells, shared with the API's CSV (ADR-0052 Built in T73j4, ADR-0063 As built T75m)
 }
 
 // webStore is the one package of the workspace that holds a database pool:
@@ -103,9 +104,9 @@ var allowed = map[string][]string{
 	"collections":             {"config", "ledger", "partner", "tenancy"}, // a leaf (ADR-0065 §1): the ledger's customer open items, partners' names, tenancy and configuration through its ports, by the types their published APIs give
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
-	"consolidation":           {"config"},                                          // a leaf (ADR-0059 §2): configuration and tenancy (the ledger and identity in later slices) through ports the composition root wires
-	"credit":                  {"ledger", "partner", "tenancy"},                    // a leaf (ADR-0066 §1): the ledger's customer open items, partners' customers and names and tenancy through its ports, by the types their published APIs give
-	"controlling":             {"config", "ledger", "partner", "sales", "tenancy"}, // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2); config: a company's date in its time zone (config.DocumentDay over controlling.Settings, ADR-0064 §3); sales and partner: net revenue by segment from sales.Orders.Segments and the customers' names (ADR-0075 §6)
+	"consolidation":           {"config"},                                              // a leaf (ADR-0059 §2): configuration and tenancy (the ledger and identity in later slices) through ports the composition root wires
+	"credit":                  {"approvals", "config", "ledger", "partner", "tenancy"}, // a leaf (ADR-0066 §1): the ledger's customer open items, partners' customers and names and tenancy through its ports, by the types their published APIs give; the configuration's company day (As built T77c); approvals: its limit changes' requests, as materials' (As built T77d)
+	"controlling":             {"config", "ledger", "partner", "sales", "tenancy"},     // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2); config: a company's date in its time zone (config.DocumentDay over controlling.Settings, ADR-0064 §3); sales and partner: net revenue by segment from sales.Orders.Segments and the customers' names (ADR-0075 §6)
 	"countrypack":             {"config"},
 	"collectionsagent":        {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
 	"creditagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
@@ -123,9 +124,9 @@ var allowed = map[string][]string{
 	"nfr":                     {"analytics", "app", "ledger"},
 	"offboarding":             {"tenancy"},
 	"partner":                 {"approvals", "bankfile", "config", "tenancy"},
-	"payables":                {"approvals", "capture", "config", "configuration", "ledger", "operations", "partner", "procurement", "tenancy"},
+	"payables":                {"approvals", "capture", "config", "configuration", "inventory", "ledger", "operations", "partner", "procurement", "tenancy"}, // inventory's published API for stock items' invoices (ADR-0082 As built S1e)
 	"payments":                {"approvals", "bankfile", "bankstatement", "config", "ledger", "operations", "partner", "tenancy"},
-	"procurement":             {"approvals", "config", "ledger", "partner", "tenancy"},
+	"procurement":             {"approvals", "config", "inventory", "ledger", "materials", "partner", "tenancy"}, // materials and inventory's published APIs for stock items (ADR-0082 §3, S1e)
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"receivables":             {"config", "ledger", "partner", "tenancy"},                                         // as payables reads them (ADR-0063 §1)
 	"sales":                   {"capture", "config", "ledger", "operations", "partner", "receivables", "tenancy"}, // as receivables reads them; receivables itself for billing, which posts through it (ADR-0067 §1, §9); capture and operations for order capture, as payables' capture (ADR-0067 As built T90a)

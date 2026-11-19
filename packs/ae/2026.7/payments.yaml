@@ -1,0 +1,9 @@
+# Net payment terms, the same keys and terms as the Canada pack's: a
+# commercial choice, not law. None grants a cash discount: payment terms
+# are the document's, shared by its companies, and a discount term
+# requires a cash discount account in every company (T36a).
+payment_terms:
+  - {key: IMM, description: Due on receipt, net_days: 0}
+  - {key: NT15, description: 15 days net, net_days: 15}
+  - {key: NT30, description: 30 days net, net_days: 30}
+  - {key: NT60, description: 60 days net, net_days: 60}

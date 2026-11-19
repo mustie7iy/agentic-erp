@@ -21,8 +21,11 @@
 // cost centers, fiscal calendar and account determination and the
 // configuration's number ranges, company dates and valuation classes, and
 // posts through the ledger's posting port, through the ports below, which
-// the composition root wires; procurement will post its goods receipts
-// through it (ADR-0082 §2-§3, S1e).
+// the composition root wires. Procurement posts its goods receipts of
+// stock items and their reversals through it (ReceiveForOrder,
+// ReverseForOrder), their value on the GR/IR entry procurement posts, and
+// payables the price differences of their invoices on a moving-priced
+// stock (InvoiceDifferences; ADR-0082 §2-§3 and As built S1e).
 package inventory
 
 import (
@@ -62,11 +65,18 @@ type movementType struct {
 	costCenter bool
 	reversal   string
 	reverses   string
+	// order: a purchase order's goods receipt or its reversal, which
+	// procurement's goods movement posts (S1e), never a person here.
+	order bool
 }
 
 // movementTypes are the forward movement types a person posts and their
-// reversals, which only reverseMaterialDocument posts.
+// reversals, which only reverseMaterialDocument posts, and a purchase
+// order's goods receipt and its reversal, which procurement posts
+// (ReceiveForOrder, ReverseForOrder).
 var movementTypes = map[string]movementType{
+	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true},
+	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true},
 	"501": {name: "Receipt without purchase order", sign: 1, reversal: "502"},
 	"502": {name: "Reversal of a receipt without purchase order", sign: -1, reverses: "501"},
 	"561": {name: "Initial entry of stock", sign: 1, reversal: "562"},
@@ -199,6 +209,9 @@ type Document struct {
 	ReversedByNumber *string
 	CreatedAt        time.Time
 	CreatedBy        uuid.UUID
+	// Reference is the goods movement's number of a purchase order's
+	// goods receipt or its reversal (101, 102), nil on another document.
+	Reference *string
 	// Currency and Exponent are what its lines are valued in, the
 	// company's; empty on a document posted before valuation (S1c). The
 	// entry is the journal entry that posted its value, nil when none.

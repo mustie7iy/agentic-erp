@@ -230,6 +230,9 @@ type grirPosting struct {
 	// asset clearing accounts of the company (GRIRItem.ItemAccountID),
 	// which those items' differences post to.
 	assets map[uuid.UUID]AccountRef
+	// stock is what each stock item put on its stock and price difference
+	// accounts (GRIRItem.Stock), by item index; nil without stock items.
+	stock []StockPosted
 }
 
 // prepareGRIR resolves what a GR/IR posting books with: the legal entity,
@@ -242,6 +245,14 @@ func (p Postings) prepareGRIR(ctx context.Context, tx pgx.Tx, in Posting) (grirP
 	var err error
 	if g.le, err = e.legalEntity(ctx, in.LegalEntityID, "legal_entity_id"); err != nil {
 		return g, err
+	}
+	if slices.ContainsFunc(in.GRIR, func(it GRIRItem) bool { return it.Stock != nil }) {
+		// A valuation is kept in the company's currency, so what a stock
+		// item moves on its stock is too; its callers post nothing else.
+		if in.Currency != g.le.LocalCurrency {
+			return g, fmt.Errorf("ledger: stock items post in %s's currency %s, not %s", g.le.Code, g.le.LocalCurrency, in.Currency)
+		}
+		g.stock = make([]StockPosted, len(in.GRIR))
 	}
 	if err = checkForeignTakeOver(in, g.le.LocalCurrency); err != nil {
 		return g, err
@@ -377,15 +388,81 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, taken map[orderItem]
 		lines = append(lines, Line{AccountID: g.grir, TC: tc, LC: lc, GC: gc, Quantity: &g.in.GRIR[i].Quantity, Unit: &g.in.GRIR[i].Unit,
 			Text: it.Text, PurchaseOrderID: &g.in.GRIR[i].PurchaseOrderID, POItemNo: &g.in.GRIR[i].POItemNo, TaxCode: code})
 		kept = append(kept, true)
-		counter, keep, err := g.counterLine(it, tc, lc, gc, code)
+		counter, keep, err := g.counters(i, it, tc, lc, gc, code)
 		if err != nil {
 			return nil, nil, err
 		}
-		if counter != nil {
-			lines, kept = append(lines, *counter), append(kept, keep)
-		}
+		lines, kept = append(lines, counter...), append(kept, keep...)
 	}
 	return lines, kept, nil
+}
+
+// counters are item i's lines against its GR/IR line: a stock item's
+// (stockLines), else its counter line if it has one (counterLine).
+func (g grirPosting) counters(i int, it GRIRItem, tc, lc, gc money.Minor, code *string) ([]Line, []bool, error) {
+	if it.Stock != nil {
+		return g.stockLines(i, it, tc, lc, gc, code)
+	}
+	counter, keep, err := g.counterLine(it, tc, lc, gc, code)
+	if err != nil || counter == nil {
+		return nil, nil, err
+	}
+	return []Line{*counter}, []bool{keep}, nil
+}
+
+// stockLines are a stock item's lines against its GR/IR line (GRIRStock)
+// and which keep the amounts they are given: a goods movement's mirror on
+// the stock account, kept as counterLine keeps it, when the stock takes
+// all of it; otherwise the stock's part and the rest on the price
+// difference account, converted at the posting's rates as an invoice's
+// difference is (the entry is in the company's currency, so only the
+// group amounts are converted, and what they leave is an exchange
+// difference). An invoice's price difference line, if any, else its stock
+// line, is the one its tax borne is recorded beside (B10). It records in
+// g.stock what the item put on either account.
+func (g grirPosting) stockLines(i int, it GRIRItem, tc, lc, gc money.Minor, code *string) ([]Line, []bool, error) {
+	st := it.Stock
+	var total, onStock money.Minor
+	var err error
+	switch {
+	case it.OffsetAccountID != nil:
+		total, onStock = -tc, -tc
+		if st.Amount != nil {
+			onStock = *st.Amount
+		}
+		if onStock == total {
+			g.stock[i] = StockPosted{Stock: onStock}
+			if tc == 0 && lc == 0 && gc == 0 {
+				return nil, nil, nil
+			}
+			return []Line{{AccountID: st.AccountID, TC: -tc, LC: -lc, GC: -gc, Text: it.Text}}, []bool{true}, nil
+		}
+	case it.Invoiced != nil && st.Share != nil:
+		if total, err = money.Diff(*it.Invoiced, tc); err == nil {
+			onStock, err = money.Round(new(big.Rat).Mul(new(big.Rat).SetInt64(int64(total)), st.Share), 0)
+		}
+		if err != nil {
+			return nil, nil, errTotalTooLarge("grir")
+		}
+	default:
+		return nil, nil, fmt.Errorf("ledger: stock item %d of order %s names a goods movement's offset account or an invoice's amount and share", it.POItemNo,
+			it.PurchaseOrderID)
+	}
+	rest := total - onStock // both within the range of the difference they divide
+	g.stock[i] = StockPosted{Stock: onStock, Difference: rest}
+	var differs *priceDifference
+	if it.Invoiced != nil {
+		differs = &priceDifference{order: it.PurchaseOrderID, item: it.POItemNo, taxBorne: it.TaxBorne}
+	}
+	var lines []Line
+	if rest != 0 {
+		lines = append(lines, Line{AccountID: st.DifferenceAccountID, TC: rest, Text: it.Text, TaxCode: code, differs: differs})
+		differs = nil
+	}
+	if onStock != 0 {
+		lines = append([]Line{{AccountID: st.AccountID, TC: onStock, Text: it.Text, TaxCode: code, differs: differs}}, lines...)
+	}
+	return lines, make([]bool, len(lines)), nil
 }
 
 // counterLine is an item's line against its GR/IR line, if it has one,
@@ -548,6 +625,7 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 	if err := keepItemData(ctx, tx, posted, in); err != nil {
 		return Entry{}, err
 	}
+	posted.Stock = g.stock
 	return posted, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.post", ObjectType: "ledger.journal_entry", ObjectID: posted.ID,
 		Outcome: "succeeded", Detail: map[string]any{"document_number": posted.DocumentNumber, "fiscal_year": posted.FiscalYear, "lines": len(lines),
 			"source_context": posted.SourceContext}})

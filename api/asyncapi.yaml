@@ -4511,9 +4511,11 @@ components:
       title: Credit limit changed
       summary: A customer's credit limit in a company was set or changed.
       description: |
-        Emitted when a customer's credit limit in a company is set
-        (`limit_before` null) and at each change of its amount (ADR-0066
-        §5, T77a), with the limit after the change and the one before. It
+        Emitted when a customer's credit limit in a company comes into
+        effect, its create change approved (`limit_before` null), and at
+        each change of its amount, its validity or its next review date
+        (ADR-0066 §5, T77a, T77c), applied at once or once approved
+        (T77d), with the limit after the change and the amount before. It
         names the customer by id and number, never by name. It does not
         carry what the customer owes: `GET /v1/credit-exposure` returns
         the exposure and the check against the limit, and
@@ -4529,10 +4531,10 @@ components:
       examples:
         - name: set
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f05, source: /erp/eu-1/credit, type: com.example.erp.credit.credit_limit_changed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '5000.00', currency: CAD}, limit_before: null, version: 1}
+          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '5000.00', currency: CAD}, limit_before: null, valid_from: null, valid_to: '2027-12-31', next_review_on: '2027-10-01', credit_limit_change_id: 0192a000-0000-7000-8000-000000000f61, version: 2}
         - name: changed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f06, source: /erp/eu-1/credit, type: com.example.erp.credit.credit_limit_changed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '7500.00', currency: CAD}, limit_before: {amount: '5000.00', currency: CAD}, version: 2}
+          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '7500.00', currency: CAD}, limit_before: {amount: '5000.00', currency: CAD}, valid_from: null, valid_to: '2027-12-31', next_review_on: '2027-10-01', credit_limit_change_id: null, version: 3}
     IncomingPaymentApplied:
       name: IncomingPaymentApplied
       x-webhook: true
@@ -6162,6 +6164,10 @@ components:
         customer_number: {type: string, description: "The customer's business partner number."}
         limit: {$ref: '#/components/schemas/Money', description: "The limit after the change, in the company's currency."}
         limit_before: {oneOf: [{$ref: '#/components/schemas/Money'}, {type: 'null'}], description: 'The limit before the change; null when the limit was set for the first time.'}
+        valid_from: {type: [string, 'null'], format: date, description: "The company's first day the limit is used on after the change (T77c); null: from the start. Always present from T77c on; absent in events published before."}
+        valid_to: {type: [string, 'null'], format: date, description: "The company's last day the limit is used on after the change; null: no end."}
+        next_review_on: {type: [string, 'null'], format: date, description: "The day the limit's next review is planned for after the change; null: none."}
+        credit_limit_change_id: {oneOf: [{$ref: '#/components/schemas/Uuid'}, {type: 'null'}], description: 'The credit limit change whose approval applied it (`credit.credit_limit_change.id`, T77d); null for a change that applied at once. Always present from T77d on; absent in events published before.'}
         version: {type: integer, description: "The limit's version after the change."}
     IncomingPaymentAppliedV1:
       type: object
@@ -6615,7 +6621,7 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company of its plants.}
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         fiscal_year: {type: integer, description: The fiscal year of its posting date.}
-        movement_type: {type: string, description: 'Open enum: 501, 502, 561, 562, 201, 202, 551, 552, 311, 312, 301, 302.'}
+        movement_type: {type: string, description: 'Open enum: 101, 102, 501, 502, 561, 562, 201, 202, 551, 552, 311, 312, 301, 302.'}
         posting_date: {$ref: '#/components/schemas/Date', description: "The company's date it was posted on."}
         reversal_of_id:
           description: "The document it reverses, `inventory.material_document.id`; null when it reverses none."
@@ -6630,6 +6636,7 @@ components:
             - type: 'null'
         journal_entry_year: {type: [integer, 'null'], description: "That entry's fiscal year; null with it."}
         journal_entry_number: {type: [string, 'null'], description: "That entry's document number; null with it."}
+        reference: {type: [string, 'null'], description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's document number, `procurement.goods_movement.document_number`, whose WE entry is `journal_entry_id` (S1e); null on any other document. Not among the required fields (ADR-0041)."}
         lines:
           type: array
           description: Its lines, in line order.

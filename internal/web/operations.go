@@ -59,6 +59,7 @@ var objectApprovers = map[string]string{
 	"bank_clearing": "payments.statement.clearing.approve", "center_change": "ledger.cost_center.approve",
 	"payment_run_release": "payments.run.release", "gr_ir_clearing": "procurement.gr_ir.clear.approve",
 	"tax_return": "tax.return.approve", "material_change": "materials.change.approve",
+	"credit_limit_change": "credit.limit.approve",
 }
 
 // Operation is one API operation a route calls: its operationId, the

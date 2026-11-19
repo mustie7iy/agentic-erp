@@ -17932,15 +17932,22 @@ func (s *Server) handleCreateCostCenterRequest(args [0]string, argsEscaped bool,
 //
 // Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
 // one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
-// holds at once: there is no approval of it and no validity period. The customer is a business partner
-// with the customer role and customer data in the company (422 `request.reference_not_found` naming
-// `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
-// per company: a second is refused (409 `credit.limit_exists`), and the first is found with
+// is created `pending`, not in effect, with a credit limit change of kind `create` waiting for its
+// approval (`pending_change_id`, `GET /v1/credit-limit-changes/{id}`; T77d): approved by a holder of
+// the role `controller` other than the requester, it is `active` and CreditLimitChanged is published;
+// rejected or withdrawn, it stays `pending` and is asked for again with `updateCreditLimit`. It may be
+// given a validity, `valid_from` to `valid_to`, both included and either open (T77c): the credit check
+// and `getCreditExposure` use it only on the company's days within it; a validity ending before it
+// starts is refused (422 `credit.invalid_validity`, naming `valid_to`). `next_review_on` plans its
+// next review, which the worklist `listCreditLimits?due_by=` lists it by. The customer is a business
+// partner with the customer role and customer data in the company (422 `request.reference_not_found`
+// naming `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one
+// limit per company: a second is refused (409 `credit.limit_exists`), and the first is found with
 // `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
 // amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming
 // `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`).
 // Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount
-// against. An audit record and CreditLimitChanged are written with it. A retry with the same
+// against once it is active. An audit record is written with it. A retry with the same
 // `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`).
 //
 // POST /v1/credit-limits
@@ -18839,7 +18846,10 @@ func (s *Server) handleCreateCustomerInvoiceRequest(args [0]string, argsEscaped 
 // records. A customer has one sales data per company: a second is refused (409
 // `sales.customer_sales_data_exists`), and the first is found with
 // `GET /v1/customer-sales-data?legal_entity_id=&customer_id=` and changed with
-// `updateCustomerSalesData`. The items priced before keep their prices. Audited, and published as
+// `updateCustomerSalesData`. The items priced before keep their prices. Setting up and changing sales
+// data takes `sales.customer_sales_data.write` and reading it `.read`, not the price permissions, so
+// maintaining prices and assigning customers to price groups can be held by different roles
+// (segregation of duties, product owner 2026-11-18). Audited, and published as
 // CustomerSalesDataChanged. A retry with the same `Idempotency-Key` answers the sales data created.
 // Human-only (`x-agent: false`).
 //
@@ -46067,12 +46077,14 @@ func (s *Server) handleGetCostCenterRequest(args [1]string, argsEscaped bool, w 
 // yet posted as a customer invoice, at its net value plus the output tax its items' tax codes give on
 // the order's date, converted into the company's currency at the average rate valid on the order's
 // date when the order is in another; what is posted as an invoice counts as an open item from then on,
-// never twice. `exposure` is the two together. With a credit limit set for the customer in the company
-// (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when
-// the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency;
-// without it nothing is added. `is_within_limit` says whether the exposure and the amount together are
-// no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit`
-// and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks
+// never twice. `exposure` is the two together. With a credit limit of the customer in the company that
+// is valid on the company's day (`day`, in its time zone; T77c), `has_limit` is true, `limit` is the
+// limit and `available` the limit less the exposure, negative when the exposure exceeds it. `amount`
+// is an amount to check, zero or more, in the company's currency; without it nothing is added.
+// `is_within_limit` says whether the exposure and the amount together are no more than the limit. A
+// customer without a limit is not restricted: `has_limit` is false, `limit` and `available` are absent
+// and `is_within_limit` is true; so is a customer whose limit is not valid on `day` or still `pending`
+// its approval (T77d), which `credit_limit_id` still names. The check changes nothing and blocks
 // nothing: what a consumer does with the answer is its own; confirming a sales order makes the same
 // check on the order's gross value and blocks the order when it is not within the limit
 // (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read
@@ -46460,6 +46472,195 @@ func (s *Server) handleGetCreditLimitRequest(args [1]string, argsEscaped bool, w
 	}
 
 	if err := encodeGetCreditLimitResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetCreditLimitChangeRequest handles getCreditLimitChange operation.
+//
+// One credit limit change (ADR-0066, As built T77d), as its approver reads it: its limit's company and
+// customer, the amount and dates it asks for and the limit's before, its status and its approval
+// request. One of a company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/credit-limit-changes/{id}
+func (s *Server) handleGetCreditLimitChangeRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCreditLimitChange"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/credit-limit-changes/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetCreditLimitChangeOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetCreditLimitChangeOperation,
+			ID:   "getCreditLimitChange",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetCreditLimitChangeOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetCreditLimitChangeParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetCreditLimitChangeRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetCreditLimitChangeOperation,
+			OperationSummary: "Get a credit limit change",
+			OperationID:      "getCreditLimitChange",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetCreditLimitChangeParams
+			Response = GetCreditLimitChangeRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetCreditLimitChangeParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetCreditLimitChange(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetCreditLimitChange(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetCreditLimitChangeResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -59340,25 +59541,49 @@ func (s *Server) handleGetQuotationRequest(args [1]string, argsEscaped bool, w h
 //
 // The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
 // key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on
-// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
-// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
-// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
-// one bucket by its net due date: the baseline date plus the net days of the payment terms it was
-// posted with, as `GET /v1/open-items` ages it with `aging_key_date`, or, for an item posted without
-// payment terms (a manual or migrated entry's), its document date, where that list shows it as
-// `no_due_date`. An item is `not_due` when due on the key date or later, else in the `overdue` bucket
-// holding its days past the due date, so an item without terms is overdue from the day after its
-// document date; a credit item ages the same way, with or without terms. `aging_days` are the overdue
-// buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to 60, 61 to 90 and more than 90
-// days); every bucket is given, an empty one with no items and an amount of 0, in the order not due,
-// overdue by days, no due date; `no_due_date` is always empty, since every item has a due date, and is
-// kept so that the response keeps its shape. Amounts are in the company's local currency (`currency`),
-// as the items were booked, a debit positive: a credit item (a credit memo, a payment on the account)
-// is negative and reduces its customer's bucket and total. `totals` are those of every customer the
-// request selects, on every page, and equal the open items of the company's customer reconciliation
-// accounts. `items` is one row per customer with open items, by customer id, in cursor pages;
-// `customer_id` selects one customer. The company must be one the caller may act in. The key date is
-// in the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`).
+// read from the ledger's customer items of the leading ledger: invoices, credit memos, and the
+// customer items manual and migrated entries posted, special G/L items included. With `open_on` `now`
+// (the default) they are the items open now, cleared items and reversed entries left out, whatever
+// their dates; with `open_on` `key_date` (T75l) they are the items open on the key date, as the report
+// stood that day: posted on or before it and neither cleared by then (by a clearing dated on or before
+// it; a clearing that was reset counts only until the reversal of its clearing entry, by that
+// reversal's posting date) nor reversed by then (by a reversal posted on or before it), so an item
+// paid or cleared after the key date is aged as open and one posted after it is left out. With
+// `aging_basis` `net_due_date` (the default) each item falls in exactly one bucket by its net due
+// date: the baseline date plus the net days of the payment terms it was posted with, as
+// `GET /v1/open-items` ages it with `aging_key_date`, or, for an item posted without payment terms (a
+// manual or migrated entry's), its document date, where that list shows it as `no_due_date`. An item
+// is `not_due` when due on the key date or later, else in the `overdue` bucket holding its days past
+// the due date, so an item without terms is overdue from the day after its document date; a credit
+// item ages the same way, with or without terms. With `aging_basis` `document_date` (T75l) each item
+// is aged by its document date instead, as if due that day: `not_due` when dated on the key date or
+// later, else in the `overdue` bucket holding its days past its document date, its terms aside.
+// `aging_days` are the overdue buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to
+// 60, 61 to 90 and more than 90 days); every bucket is given, an empty one with no items and an amount
+// of 0, in the order not due, overdue by days, no due date; `no_due_date` is always empty, since every
+// item has a due date, and is kept so that the response keeps its shape. Amounts are in the company's
+// local currency (`currency`), as the items were booked, a debit positive: a credit item (a credit
+// memo, a payment on the account) is negative and reduces its customer's bucket and total. `totals`
+// are those of every customer the request selects, on every page, and equal the open items of the
+// company's customer reconciliation accounts. `items` is one row per customer with open items, by
+// customer id, in cursor pages; `customer_id` selects one customer. `profit_center_id` and
+// `segment_id` (T75m) select the items whose customer line carries that profit center or segment, the
+// item's own assignment as posted (ADR-0050 §5; a customer invoice's line carries none), and the
+// totals are then theirs; an id that names no center selects nothing. With `group_by` `profit_center`
+// or `segment` (T75m) the rows are `groups` instead, one per profit center or segment the selected
+// items carry, by its id, and one without (`profit_center_id` or `segment_id` absent) for the items
+// carrying none, first; each with its code and name, how many customers and items and their amount and
+// buckets, in cursor pages; `items` is then empty. `format` `csv` (T75m) gives the page as CSV
+// instead, for a spreadsheet: UTF-8 with a byte order mark, lines ending in LF, a header row
+// `row,id,code,name,currency,customer_count,item_count,amount` and a column per bucket (`not_due`,
+// `overdue_<from>_<to>`, the last overdue bucket `overdue_<from>_plus`, `no_due_date`), then a row per
+// row of the page (`row` `customer`, `profit_center` or `segment`; `id` the customer's or the
+// center's, empty for the row without; `code` the customer's number or the center's code) and, on the
+// last page only, the totals' row (`row` `total`); every amount an exact decimal in `currency`; a text
+// cell quoted, and one beginning as a formula (`=`, `+`, `-`, `@`, a tab or a line break) kept as text
+// by a leading apostrophe, as OWASP's CSV injection guidance advises; the next page's token in
+// `Next-Page-Token`, as with JSON. The company must be one the caller may act in. The key date is in
+// the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`).
 //
 // GET /v1/receivables-aging
 func (s *Server) handleGetReceivablesAgingRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -59515,6 +59740,30 @@ func (s *Server) handleGetReceivablesAgingRequest(args [0]string, argsEscaped bo
 					Name: "customer_id",
 					In:   "query",
 				}: params.CustomerID,
+				{
+					Name: "profit_center_id",
+					In:   "query",
+				}: params.ProfitCenterID,
+				{
+					Name: "segment_id",
+					In:   "query",
+				}: params.SegmentID,
+				{
+					Name: "group_by",
+					In:   "query",
+				}: params.GroupBy,
+				{
+					Name: "format",
+					In:   "query",
+				}: params.Format,
+				{
+					Name: "open_on",
+					In:   "query",
+				}: params.OpenOn,
+				{
+					Name: "aging_basis",
+					In:   "query",
+				}: params.AgingBasis,
 				{
 					Name: "page_size",
 					In:   "query",
@@ -77498,12 +77747,219 @@ func (s *Server) handleListCountryPacksRequest(args [0]string, argsEscaped bool,
 	}
 }
 
+// handleListCreditLimitChangesRequest handles listCreditLimitChanges operation.
+//
+// Credit limit changes waiting for or given their approval (ADR-0066, As built T77d), newest first, of
+// the companies the caller may act in: each with its limit's company and customer, its kind, its
+// status, the amount and dates it asks for, the limit's before (a `change`'s) and its approval
+// request. Filtered by limit and status. Sortable by: `created_at`.
+//
+// GET /v1/credit-limit-changes
+func (s *Server) handleListCreditLimitChangesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCreditLimitChanges"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/credit-limit-changes"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListCreditLimitChangesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListCreditLimitChangesOperation,
+			ID:   "listCreditLimitChanges",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListCreditLimitChangesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListCreditLimitChangesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListCreditLimitChangesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListCreditLimitChangesOperation,
+			OperationSummary: "List credit limit changes",
+			OperationID:      "listCreditLimitChanges",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "credit_limit_id",
+					In:   "query",
+				}: params.CreditLimitID,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListCreditLimitChangesParams
+			Response = ListCreditLimitChangesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListCreditLimitChangesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListCreditLimitChanges(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListCreditLimitChanges(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListCreditLimitChangesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleListCreditLimitsRequest handles listCreditLimits operation.
 //
 // The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
-// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the
-// limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number`
-// (default).
+// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, the
+// limit in the company's currency, its validity and its next review date. Filtered by company,
+// customer and status (T77d), and by `due_by`, the worklist of limits due for review or expiring
+// (T77c). Sortable by: `customer_number` (default).
 //
 // GET /v1/credit-limits
 func (s *Server) handleListCreditLimitsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -77652,6 +78108,14 @@ func (s *Server) handleListCreditLimitsRequest(args [0]string, argsEscaped bool,
 					Name: "customer_id",
 					In:   "query",
 				}: params.CustomerID,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "due_by",
+					In:   "query",
+				}: params.DueBy,
 				{
 					Name: "page_size",
 					In:   "query",
@@ -118680,9 +119144,15 @@ func (s *Server) handleReverseInternalOrderSettlementRequest(args [2]string, arg
 // (a depreciation run's entries never one by one); an accounts receivable entry (`receivables`) is 409
 // `ledger.entry_owned_elsewhere` naming its paths: a customer credit memo or debit memo is reversed
 // with `POST /v1/customer-invoices/{id}:reverse` (T75k), a customer invoice is corrected by a credit
-// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`.
-// Entries of any other context are 409 `ledger.entry_owned_elsewhere` too: no reversal path exists for
-// them yet. Returns the new reversal entry. Human-only.
+// memo, an incoming payment's application is undone with `POST /v1/incoming-payments/{id}:reset`; an
+// inventory entry (`inventory`) is 409 `ledger.entry_owned_elsewhere` naming its path: a material
+// document's entry is reversed with `POST /v1/material-documents/{id}:reverse`, which posts its own
+// entry, and a price change's (document type `PR`) is not reversed but corrected by another price
+// change: the detail names the material by its number, whose plant's valuation
+// (`GET /v1/materials?number=`, `GET /v1/material-valuations?material_id=`) takes the new price
+// (`POST /v1/material-valuations/{id}:changePrice`). Entries of any other context are 409
+// `ledger.entry_owned_elsewhere` too: no reversal path exists for them yet. Returns the new reversal
+// entry. Human-only.
 //
 // POST /v1/journal-entries/{id}:reverse
 func (s *Server) handleReverseJournalEntryRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -127043,13 +127513,23 @@ func (s *Server) handleUpdateCostCenterRequest(args [1]string, argsEscaped bool,
 
 // handleUpdateCreditLimitRequest handles updateCreditLimit operation.
 //
-// Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another
-// change came first): the new limit holds at once, in the limit's currency, zero or more (422
-// `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`).
-// The customer, the company and the currency of a limit do not change. A change to the amount the
-// limit already has is refused (422 `credit.nothing_to_change`). The audit record and
-// CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field
-// that changes. A limit of a company the caller may not act in is not found (404). Human-only
+// Changes the amount, the validity or the next review date of a credit limit, with the caller's
+// version of it (`If-Match`; 412 when another change came first). The amount is in the limit's
+// currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`,
+// `credit.invalid_amount` naming `limit.amount`); `valid_from`, `valid_to` and `next_review_on` are
+// days, `null` clearing them (T77c), and a validity ending before it starts is refused (422
+// `credit.invalid_validity`, naming `valid_to`). A change of an `active` limit that raises nothing,
+// its amount not above the limit's and its validity as it is (the next review date may change with
+// it), holds at once. Any other (a raise, a change of the validity) and any change of a `pending`
+// limit opens a credit limit change waiting for its approval by a holder of the role `controller`
+// other than the requester (T77d): the limit is answered as it is, naming the change in
+// `pending_change_id`, and takes the change's amount and dates when it is approved; rejected or
+// withdrawn, it stays as it is. A limit with a change waiting is refused (409
+// `credit.change_pending`). The customer, the company and the currency of a limit do not change. A
+// change that leaves an active limit as it is is refused (422 `credit.nothing_to_change`); a pending
+// limit is asked for again as it is. The audit record carries what changed before and after, and
+// CreditLimitChanged the limit after and its amount before. JSON Merge Patch (RFC 7396): absent fields
+// stay. A limit of a company the caller may not act in is not found (404). Human-only
 // (`x-agent: false`).
 //
 // PATCH /v1/credit-limits/{id}

@@ -47,15 +47,26 @@ Supply chain adds:
 
 ## Pilot relevance
 
-The pilot's questionnaire answers are not known. **Assumption, for the
-product owner to confirm:** the pilot company (Maple Industries Canada,
-the walkthrough's) buys and sells physical goods it keeps in stock at one
-or two plants, values them at moving average price, and has no batches,
-serial numbers, intercompany stock transfers, MRP or external warehouse,
-transport or trade systems at go-live. Under that assumption the slices
-marked **pilot** below are pilot-relevant; the others are not until the
-questionnaire says so. No tracker leaf carries the `pilot` tag for this:
-the pilot scope changes only by the product owner's decision.
+The pilot's questionnaire answers are not known. **Assumption, confirmed
+by the product owner on 2026-11-18:** the pilot company (Maple Industries
+Canada, the walkthrough's) buys and sells physical goods it keeps in stock
+and manufactures some of them; it has one plant per physical stock site.
+Materials are valued by material type, as SAP practice is: purchased
+materials (`raw_material`, `trading_good`) at moving average price,
+own-produced ones (`semi_finished`, `finished_good`) at standard price.
+Production stays outside this ERP (option A; manufacturing, production
+orders and product costing come after completion): the pilot runs it in
+its own system (SAP PP, for instance), receives finished goods into stock
+by a goods movement (S1c's `501`) at a standard price maintained by hand
+(S1d's price change), and issues components by goods issue (S1c's `201`).
+It has no batches, serial numbers, intercompany stock transfers, MRP or
+external warehouse, transport or trade systems at go-live. Under that
+assumption the slices marked **pilot** below are pilot-relevant; the
+others are not until the questionnaire says so. No tracker leaf carries
+the `pilot` tag for this: the pilot scope changes only by the product
+owner's decision. Which price control a valuation takes stays the
+inventory accountant's choice when it is created (S1d); a default by
+material type is not built.
 
 ## Build order and lanes
 
@@ -280,6 +291,7 @@ against the receipt clears GR/IR and puts a price difference on the stock
   invoice is posted; an item without a material behaves as before
   (expense or asset account assignment); the receipt's reversal reverses
   stock and GR/IR once.
+- **As built** (2026-11-18): ADR-0082 As built S1e, walkthrough step 130.
 
 **Later for the goods receipt into stock:** goods receipt into quality
 inspection, delivery tolerances against the order (over- and

@@ -35770,6 +35770,8 @@ type CreditExposure struct {
 	CustomerName string `json:"customer_name"`
 	// The company's currency (ISO 4217), the currency of every amount.
 	Currency string `json:"currency"`
+	// The company's day, in its time zone, that the limit's validity is judged on (T77c): today.
+	Day time.Time `json:"day"`
 	// The customer's open items in the company (`GET /v1/open-items?legal_entity_id=&partner_id=`), which
 	// `open_items` adds up.
 	OpenItemCount int32 `json:"open_item_count"`
@@ -35788,15 +35790,16 @@ type CreditExposure struct {
 	// The exposure: `open_items` and `open_orders` together; negative when the customer's credits exceed
 	// what it owes and has ordered.
 	Exposure Money `json:"exposure"`
-	// Whether a credit limit is set for the customer in the company. False: no limit is set, and the
-	// customer is not restricted.
+	// Whether the customer has a credit limit in the company that is active and valid on `day`. False:
+	// none is, and the customer is not restricted.
 	HasLimit bool `json:"has_limit"`
-	// The credit limit (`GET /v1/credit-limits/{id}`); absent when none is set.
+	// The customer's credit limit in the company (`GET /v1/credit-limits/{id}`), in effect on `day` or not
+	// (pending, or outside its validity); absent when none is set.
 	CreditLimitID OptUUID `json:"credit_limit_id"`
-	// The credit limit; absent when none is set.
+	// The credit limit; absent when none is valid on `day`.
 	Limit OptMoney `json:"limit"`
 	// The limit less the exposure: what the customer may still come to owe; negative when the exposure
-	// exceeds the limit. Absent when no limit is set.
+	// exceeds the limit. Absent when no limit is valid on `day`.
 	Available OptMoney `json:"available"`
 	// The amount checked, as the request gave it; absent when it gave none.
 	Amount OptMoney `json:"amount"`
@@ -35838,6 +35841,11 @@ func (s *CreditExposure) GetCustomerName() string {
 // GetCurrency returns the value of Currency.
 func (s *CreditExposure) GetCurrency() string {
 	return s.Currency
+}
+
+// GetDay returns the value of Day.
+func (s *CreditExposure) GetDay() time.Time {
+	return s.Day
 }
 
 // GetOpenItemCount returns the value of OpenItemCount.
@@ -35928,6 +35936,11 @@ func (s *CreditExposure) SetCustomerName(val string) {
 // SetCurrency sets the value of Currency.
 func (s *CreditExposure) SetCurrency(val string) {
 	s.Currency = val
+}
+
+// SetDay sets the value of Day.
+func (s *CreditExposure) SetDay(val time.Time) {
+	s.Day = val
 }
 
 // SetOpenItemCount sets the value of OpenItemCount.
@@ -36055,6 +36068,386 @@ func (s *CreditLimit) SetCredited(val Money) {
 func (s *CreditLimit) SetAttempted(val Money) {
 	s.Attempted = val
 }
+
+// Merged schema.
+// Ref: #/components/schemas/CreditLimitChange
+type CreditLimitChange struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The credit limit (`GET /v1/credit-limits/{id}`).
+	CreditLimitID uuid.UUID `json:"credit_limit_id"`
+	// The limit's company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// `create`: a pending limit's approval, asked for when it is set or again after a rejection. `change`:
+	// a change of an active limit. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// `pending`: waiting for its approval. `applied`: written to the limit. `rejected`: refused by its
+	// approver. `cancelled`: withdrawn by its requester. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The limit asked for, in the company's currency.
+	Limit Money `json:"limit"`
+	// The first day asked for; absent: from the start.
+	ValidFrom OptDate `json:"valid_from"`
+	// The last day asked for; absent: no end.
+	ValidTo OptDate `json:"valid_to"`
+	// The next review date asked for; absent: none.
+	NextReviewOn OptDate `json:"next_review_on"`
+	// A `change`'s limit when it was asked for; absent on a `create`, whose limit was never in effect.
+	LimitBefore OptMoney `json:"limit_before"`
+	// A `change`'s limit's first day when it was asked for; absent when open, or on a `create`.
+	ValidFromBefore OptDate `json:"valid_from_before"`
+	// A `change`'s limit's last day when it was asked for; absent when open, or on a `create`.
+	ValidToBefore OptDate `json:"valid_to_before"`
+	// A `change`'s limit's review date when it was asked for; absent when none, or on a `create`.
+	NextReviewOnBefore OptDate `json:"next_review_on_before"`
+	// Its approval request (`GET /v1/approval-requests/{id}`).
+	WorkflowRequestID OptUUID `json:"workflow_request_id"`
+	// Who asked for it.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	// When it was applied, rejected or withdrawn; absent while it is pending.
+	DecidedAt OptDateTime `json:"decided_at"`
+}
+
+// GetID returns the value of ID.
+func (s *CreditLimitChange) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CreditLimitChange) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CreditLimitChange) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CreditLimitChange) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CreditLimitChange) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CreditLimitChange) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetCreditLimitID returns the value of CreditLimitID.
+func (s *CreditLimitChange) GetCreditLimitID() uuid.UUID {
+	return s.CreditLimitID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CreditLimitChange) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CreditLimitChange) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CreditLimitChange) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CreditLimitChange) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CreditLimitChange) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CreditLimitChange) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetKind returns the value of Kind.
+func (s *CreditLimitChange) GetKind() string {
+	return s.Kind
+}
+
+// GetStatus returns the value of Status.
+func (s *CreditLimitChange) GetStatus() string {
+	return s.Status
+}
+
+// GetLimit returns the value of Limit.
+func (s *CreditLimitChange) GetLimit() Money {
+	return s.Limit
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *CreditLimitChange) GetValidFrom() OptDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CreditLimitChange) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetNextReviewOn returns the value of NextReviewOn.
+func (s *CreditLimitChange) GetNextReviewOn() OptDate {
+	return s.NextReviewOn
+}
+
+// GetLimitBefore returns the value of LimitBefore.
+func (s *CreditLimitChange) GetLimitBefore() OptMoney {
+	return s.LimitBefore
+}
+
+// GetValidFromBefore returns the value of ValidFromBefore.
+func (s *CreditLimitChange) GetValidFromBefore() OptDate {
+	return s.ValidFromBefore
+}
+
+// GetValidToBefore returns the value of ValidToBefore.
+func (s *CreditLimitChange) GetValidToBefore() OptDate {
+	return s.ValidToBefore
+}
+
+// GetNextReviewOnBefore returns the value of NextReviewOnBefore.
+func (s *CreditLimitChange) GetNextReviewOnBefore() OptDate {
+	return s.NextReviewOnBefore
+}
+
+// GetWorkflowRequestID returns the value of WorkflowRequestID.
+func (s *CreditLimitChange) GetWorkflowRequestID() OptUUID {
+	return s.WorkflowRequestID
+}
+
+// GetRequestedBy returns the value of RequestedBy.
+func (s *CreditLimitChange) GetRequestedBy() uuid.UUID {
+	return s.RequestedBy
+}
+
+// GetDecidedAt returns the value of DecidedAt.
+func (s *CreditLimitChange) GetDecidedAt() OptDateTime {
+	return s.DecidedAt
+}
+
+// SetID sets the value of ID.
+func (s *CreditLimitChange) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CreditLimitChange) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CreditLimitChange) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CreditLimitChange) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CreditLimitChange) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CreditLimitChange) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetCreditLimitID sets the value of CreditLimitID.
+func (s *CreditLimitChange) SetCreditLimitID(val uuid.UUID) {
+	s.CreditLimitID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CreditLimitChange) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CreditLimitChange) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CreditLimitChange) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CreditLimitChange) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CreditLimitChange) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CreditLimitChange) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CreditLimitChange) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CreditLimitChange) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *CreditLimitChange) SetLimit(val Money) {
+	s.Limit = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CreditLimitChange) SetValidFrom(val OptDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CreditLimitChange) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetNextReviewOn sets the value of NextReviewOn.
+func (s *CreditLimitChange) SetNextReviewOn(val OptDate) {
+	s.NextReviewOn = val
+}
+
+// SetLimitBefore sets the value of LimitBefore.
+func (s *CreditLimitChange) SetLimitBefore(val OptMoney) {
+	s.LimitBefore = val
+}
+
+// SetValidFromBefore sets the value of ValidFromBefore.
+func (s *CreditLimitChange) SetValidFromBefore(val OptDate) {
+	s.ValidFromBefore = val
+}
+
+// SetValidToBefore sets the value of ValidToBefore.
+func (s *CreditLimitChange) SetValidToBefore(val OptDate) {
+	s.ValidToBefore = val
+}
+
+// SetNextReviewOnBefore sets the value of NextReviewOnBefore.
+func (s *CreditLimitChange) SetNextReviewOnBefore(val OptDate) {
+	s.NextReviewOnBefore = val
+}
+
+// SetWorkflowRequestID sets the value of WorkflowRequestID.
+func (s *CreditLimitChange) SetWorkflowRequestID(val OptUUID) {
+	s.WorkflowRequestID = val
+}
+
+// SetRequestedBy sets the value of RequestedBy.
+func (s *CreditLimitChange) SetRequestedBy(val uuid.UUID) {
+	s.RequestedBy = val
+}
+
+// SetDecidedAt sets the value of DecidedAt.
+func (s *CreditLimitChange) SetDecidedAt(val OptDateTime) {
+	s.DecidedAt = val
+}
+
+// CreditLimitChangeHeaders wraps CreditLimitChange with response headers.
+type CreditLimitChangeHeaders struct {
+	ETag     OptString
+	Response CreditLimitChange
+}
+
+// GetETag returns the value of ETag.
+func (s *CreditLimitChangeHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *CreditLimitChangeHeaders) GetResponse() CreditLimitChange {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CreditLimitChangeHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CreditLimitChangeHeaders) SetResponse(val CreditLimitChange) {
+	s.Response = val
+}
+
+func (*CreditLimitChangeHeaders) getCreditLimitChangeRes() {}
+
+// One page of credit limit changes.
+// Ref: #/components/schemas/CreditLimitChangePage
+type CreditLimitChangePage struct {
+	// The credit limit changes on this page.
+	Items []CreditLimitChange `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CreditLimitChangePage) GetItems() []CreditLimitChange {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CreditLimitChangePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CreditLimitChangePage) SetItems(val []CreditLimitChange) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CreditLimitChangePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CreditLimitChangePage) listCreditLimitChangesRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/CreditMemoRequest
@@ -37604,6 +37997,20 @@ type CustomerCreditLimit struct {
 	CustomerName string `json:"customer_name"`
 	// The limit, in the company's currency.
 	Limit Money `json:"limit"`
+	// The company's first day the limit is used on (T77c); absent: from the start.
+	ValidFrom OptDate `json:"valid_from"`
+	// The company's last day the limit is used on; absent: no end. On another day the customer is treated
+	// as one without a limit.
+	ValidTo OptDate `json:"valid_to"`
+	// The day the limit's next review is planned for; absent: none is planned.
+	NextReviewOn OptDate `json:"next_review_on"`
+	// `pending`: asked for and not yet approved, not in effect: the customer is treated as one without a
+	// limit (T77d). `active`: approved, in effect within its validity. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// Its credit limit change waiting for approval (`GET /v1/credit-limit-changes/{id}`); absent when none
+	// is.
+	PendingChangeID OptUUID `json:"pending_change_id"`
 }
 
 // GetID returns the value of ID.
@@ -37671,6 +38078,31 @@ func (s *CustomerCreditLimit) GetLimit() Money {
 	return s.Limit
 }
 
+// GetValidFrom returns the value of ValidFrom.
+func (s *CustomerCreditLimit) GetValidFrom() OptDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CustomerCreditLimit) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetNextReviewOn returns the value of NextReviewOn.
+func (s *CustomerCreditLimit) GetNextReviewOn() OptDate {
+	return s.NextReviewOn
+}
+
+// GetStatus returns the value of Status.
+func (s *CustomerCreditLimit) GetStatus() string {
+	return s.Status
+}
+
+// GetPendingChangeID returns the value of PendingChangeID.
+func (s *CustomerCreditLimit) GetPendingChangeID() OptUUID {
+	return s.PendingChangeID
+}
+
 // SetID sets the value of ID.
 func (s *CustomerCreditLimit) SetID(val uuid.UUID) {
 	s.ID = val
@@ -37736,6 +38168,31 @@ func (s *CustomerCreditLimit) SetLimit(val Money) {
 	s.Limit = val
 }
 
+// SetValidFrom sets the value of ValidFrom.
+func (s *CustomerCreditLimit) SetValidFrom(val OptDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CustomerCreditLimit) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetNextReviewOn sets the value of NextReviewOn.
+func (s *CustomerCreditLimit) SetNextReviewOn(val OptDate) {
+	s.NextReviewOn = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CustomerCreditLimit) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetPendingChangeID sets the value of PendingChangeID.
+func (s *CustomerCreditLimit) SetPendingChangeID(val OptUUID) {
+	s.PendingChangeID = val
+}
+
 // Set a customer's credit limit in a company.
 // Ref: #/components/schemas/CustomerCreditLimitCreate
 type CustomerCreditLimitCreate struct {
@@ -37745,6 +38202,14 @@ type CustomerCreditLimitCreate struct {
 	CustomerID uuid.UUID `json:"customer_id"`
 	// The most the customer may owe the company, in the company's currency; zero or more.
 	Limit Money `json:"limit"`
+	// The company's first day the limit is used on (T77c). Absent: used from the start.
+	ValidFrom OptDate `json:"valid_from"`
+	// The company's last day the limit is used on, `valid_from` or later (422 `credit.invalid_validity`).
+	// Absent: no end.
+	ValidTo OptDate `json:"valid_to"`
+	// The day the limit's next review is planned for, which the worklist lists it by
+	// (`listCreditLimits?due_by=`). Absent: none is planned.
+	NextReviewOn OptDate `json:"next_review_on"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -37762,6 +38227,21 @@ func (s *CustomerCreditLimitCreate) GetLimit() Money {
 	return s.Limit
 }
 
+// GetValidFrom returns the value of ValidFrom.
+func (s *CustomerCreditLimitCreate) GetValidFrom() OptDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CustomerCreditLimitCreate) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// GetNextReviewOn returns the value of NextReviewOn.
+func (s *CustomerCreditLimitCreate) GetNextReviewOn() OptDate {
+	return s.NextReviewOn
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *CustomerCreditLimitCreate) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -37775,6 +38255,21 @@ func (s *CustomerCreditLimitCreate) SetCustomerID(val uuid.UUID) {
 // SetLimit sets the value of Limit.
 func (s *CustomerCreditLimitCreate) SetLimit(val Money) {
 	s.Limit = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CustomerCreditLimitCreate) SetValidFrom(val OptDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CustomerCreditLimitCreate) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SetNextReviewOn sets the value of NextReviewOn.
+func (s *CustomerCreditLimitCreate) SetNextReviewOn(val OptDate) {
+	s.NextReviewOn = val
 }
 
 // CustomerCreditLimitHeaders wraps CustomerCreditLimit with response headers.
@@ -37858,21 +38353,59 @@ func (s *CustomerCreditLimitPage) SetNextPageToken(val OptString) {
 
 func (*CustomerCreditLimitPage) listCreditLimitsRes() {}
 
-// Merge patch of a credit limit: its amount.
+// Merge patch of a credit limit: its amount, its validity or its next review date; what is absent
+// stays, and a patch that changes nothing of an active limit is refused (422
+// `credit.nothing_to_change`).
 // Ref: #/components/schemas/CustomerCreditLimitUpdate
 type CustomerCreditLimitUpdate struct {
 	// The new limit, in the limit's currency; zero or more.
-	Limit Money `json:"limit"`
+	Limit OptMoney `json:"limit"`
+	// The company's first day the limit is used on; `null`: from the start.
+	ValidFrom OptNilDate `json:"valid_from"`
+	// The company's last day the limit is used on, `valid_from` or later; `null`: no end.
+	ValidTo OptNilDate `json:"valid_to"`
+	// The day the next review is planned for; `null`: none.
+	NextReviewOn OptNilDate `json:"next_review_on"`
 }
 
 // GetLimit returns the value of Limit.
-func (s *CustomerCreditLimitUpdate) GetLimit() Money {
+func (s *CustomerCreditLimitUpdate) GetLimit() OptMoney {
 	return s.Limit
 }
 
+// GetValidFrom returns the value of ValidFrom.
+func (s *CustomerCreditLimitUpdate) GetValidFrom() OptNilDate {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *CustomerCreditLimitUpdate) GetValidTo() OptNilDate {
+	return s.ValidTo
+}
+
+// GetNextReviewOn returns the value of NextReviewOn.
+func (s *CustomerCreditLimitUpdate) GetNextReviewOn() OptNilDate {
+	return s.NextReviewOn
+}
+
 // SetLimit sets the value of Limit.
-func (s *CustomerCreditLimitUpdate) SetLimit(val Money) {
+func (s *CustomerCreditLimitUpdate) SetLimit(val OptMoney) {
 	s.Limit = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *CustomerCreditLimitUpdate) SetValidFrom(val OptNilDate) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *CustomerCreditLimitUpdate) SetValidTo(val OptNilDate) {
+	s.ValidTo = val
+}
+
+// SetNextReviewOn sets the value of NextReviewOn.
+func (s *CustomerCreditLimitUpdate) SetNextReviewOn(val OptNilDate) {
+	s.NextReviewOn = val
 }
 
 // Merged schema.
@@ -48953,6 +49486,18 @@ type GetCreditLimitBadRequest Problem
 
 func (*GetCreditLimitBadRequest) getCreditLimitRes() {}
 
+type GetCreditLimitChangeBadRequest Problem
+
+func (*GetCreditLimitChangeBadRequest) getCreditLimitChangeRes() {}
+
+type GetCreditLimitChangeForbidden Problem
+
+func (*GetCreditLimitChangeForbidden) getCreditLimitChangeRes() {}
+
+type GetCreditLimitChangeNotFound Problem
+
+func (*GetCreditLimitChangeNotFound) getCreditLimitChangeRes() {}
+
 type GetCreditLimitForbidden Problem
 
 func (*GetCreditLimitForbidden) getCreditLimitRes() {}
@@ -50881,6 +51426,51 @@ type GetReceivablesAgingForbidden Problem
 
 func (*GetReceivablesAgingForbidden) getReceivablesAgingRes() {}
 
+// A header row `row,id,code,name,currency,customer_count,item_count,amount` and a column per bucket, a
+// row per row of the page and, on the last page, the totals' row; UTF-8 with a byte order mark, lines
+// ending in LF, text cells safe for a spreadsheet.
+type GetReceivablesAgingOKTextCsv struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetReceivablesAgingOKTextCsv) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// GetReceivablesAgingOKTextCsvHeaders wraps GetReceivablesAgingOKTextCsv with response headers.
+type GetReceivablesAgingOKTextCsvHeaders struct {
+	NextPageToken OptString
+	Response      GetReceivablesAgingOKTextCsv
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *GetReceivablesAgingOKTextCsvHeaders) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetResponse returns the value of Response.
+func (s *GetReceivablesAgingOKTextCsvHeaders) GetResponse() GetReceivablesAgingOKTextCsv {
+	return s.Response
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *GetReceivablesAgingOKTextCsvHeaders) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetReceivablesAgingOKTextCsvHeaders) SetResponse(val GetReceivablesAgingOKTextCsv) {
+	s.Response = val
+}
+
+func (*GetReceivablesAgingOKTextCsvHeaders) getReceivablesAgingRes() {}
+
 type GetReceivablesAgingUnprocessableEntity Problem
 
 func (*GetReceivablesAgingUnprocessableEntity) getReceivablesAgingRes() {}
@@ -52093,10 +52683,17 @@ type GoodsReceipt struct {
 	Reason OptString `json:"reason"`
 	// Journal entry (document type WE) the movement posted: Dr the order item's account / Cr GR/IR for a
 	// receipt (101) or a return's reversal (123), the other way for a receipt's reversal (102) or a return
-	// (122). Only for items of orders valued `gr_ir`; absent when it has none.
+	// (122); a stock item's debit on its valuation class's stock and price difference accounts instead
+	// (S1e). Only for items of orders valued `gr_ir`; absent when it has none.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
 	// Fiscal year of the journal entry, set with `journal_entry_id`.
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The material document (`GET /v1/material-documents/{id}`, movement type 101 or 102) that moved the
+	// stock of the movement's stock items (S1e: items of order items naming a storage location), whose
+	// value the WE entry posts against GR/IR; absent when the movement has no stock items.
+	MaterialDocumentID OptUUID `json:"material_document_id"`
+	// That material document's number; absent with it.
+	MaterialDocumentNumber OptString `json:"material_document_number"`
 	// Items.
 	Items []GoodsReceiptItem `json:"items"`
 }
@@ -52169,6 +52766,16 @@ func (s *GoodsReceipt) GetJournalEntryID() OptUUID {
 // GetJournalEntryYear returns the value of JournalEntryYear.
 func (s *GoodsReceipt) GetJournalEntryYear() OptInt32 {
 	return s.JournalEntryYear
+}
+
+// GetMaterialDocumentID returns the value of MaterialDocumentID.
+func (s *GoodsReceipt) GetMaterialDocumentID() OptUUID {
+	return s.MaterialDocumentID
+}
+
+// GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
+func (s *GoodsReceipt) GetMaterialDocumentNumber() OptString {
+	return s.MaterialDocumentNumber
 }
 
 // GetItems returns the value of Items.
@@ -52244,6 +52851,16 @@ func (s *GoodsReceipt) SetJournalEntryID(val OptUUID) {
 // SetJournalEntryYear sets the value of JournalEntryYear.
 func (s *GoodsReceipt) SetJournalEntryYear(val OptInt32) {
 	s.JournalEntryYear = val
+}
+
+// SetMaterialDocumentID sets the value of MaterialDocumentID.
+func (s *GoodsReceipt) SetMaterialDocumentID(val OptUUID) {
+	s.MaterialDocumentID = val
+}
+
+// SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
+func (s *GoodsReceipt) SetMaterialDocumentNumber(val OptString) {
+	s.MaterialDocumentNumber = val
 }
 
 // SetItems sets the value of Items.
@@ -64413,6 +65030,14 @@ type ListCountryPacksForbidden Problem
 
 func (*ListCountryPacksForbidden) listCountryPacksRes() {}
 
+type ListCreditLimitChangesBadRequest Problem
+
+func (*ListCreditLimitChangesBadRequest) listCreditLimitChangesRes() {}
+
+type ListCreditLimitChangesForbidden Problem
+
+func (*ListCreditLimitChangesForbidden) listCreditLimitChangesRes() {}
+
 type ListCreditLimitsBadRequest Problem
 
 func (*ListCreditLimitsBadRequest) listCreditLimitsRes() {}
@@ -67090,6 +67715,11 @@ type MaterialDocument struct {
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
 	// That entry's document number; absent with it.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number`
+	// (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock
+	// against GR/IR (S1e); absent on every other document. Such a document is reversed by reversing its
+	// goods receipt (409 `inventory.reverse_goods_receipt` here).
+	Reference OptString `json:"reference"`
 	// Its lines, in line order.
 	Lines []MaterialDocumentLine `json:"lines"`
 	// When it was posted.
@@ -67176,6 +67806,11 @@ func (s *MaterialDocument) GetJournalEntryYear() OptInt32 {
 // GetJournalEntryNumber returns the value of JournalEntryNumber.
 func (s *MaterialDocument) GetJournalEntryNumber() OptString {
 	return s.JournalEntryNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *MaterialDocument) GetReference() OptString {
+	return s.Reference
 }
 
 // GetLines returns the value of Lines.
@@ -67271,6 +67906,11 @@ func (s *MaterialDocument) SetJournalEntryYear(val OptInt32) {
 // SetJournalEntryNumber sets the value of JournalEntryNumber.
 func (s *MaterialDocument) SetJournalEntryNumber(val OptString) {
 	s.JournalEntryNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *MaterialDocument) SetReference(val OptString) {
+	s.Reference = val
 }
 
 // SetLines sets the value of Lines.
@@ -90462,6 +91102,35 @@ type PurchaseOrderItem struct {
 	TaxCode OptString `json:"tax_code"`
 	// Contract item the price comes from.
 	ContractItemNo OptInt32 `json:"contract_item_no"`
+	// With `storage_location_id`, makes the item a stock item of `material_id` (S1e; ADR-0082 As built):
+	// the plant (an org unit of kind `plant` of the order's legal entity) whose storage location its goods
+	// are received into. A stock item names its material, plant and storage location together, is assigned
+	// to no cost center (`account_assignment` `none`), is ordered in the company's currency, which its
+	// stock is valued in, of an active material kept at that storage location, in a unit of the material
+	// whose ordered quantity converts exactly to its base unit (422 `procurement.invalid_stock_item`
+	// otherwise). Its goods receipt (101) is also a material document (`material_document_id` on the goods
+	// receipt) that moves the stock, valued by the material's valuation in the plant (refused, receiving
+	// nothing, without one: 422 `inventory.no_valuation`); its WE entry debits the valuation class's stock
+	// account rather than `account_id` (at a standard price its quantity at the price, the rest on the
+	// class's price difference account), and its invoice's price difference goes to the stock as far as
+	// the stock still holds the invoiced quantity at a moving price, to the class's price difference
+	// account otherwise. A stock item is not returned to the supplier (122) yet. A released order's item
+	// keeps its plant and storage location (422 `procurement.invalid_change`); an order change that sends
+	// neither keeps them, and a kept item is checked only for its quantity's exact conversion, not again
+	// for its material's status or extension, so a change still brings down the open quantity of an item
+	// whose material was blocked since.
+	PlantID OptUUID `json:"plant_id"`
+	// The storage location (an org unit of kind `storage_location` under `plant_id`) a stock item is
+	// received into; see `plant_id`.
+	StorageLocationID OptUUID `json:"storage_location_id"`
+	// Derived: `plant_id`'s code (`GET /v1/org-units/{id}`); with it.
+	PlantCode OptString `json:"plant_code"`
+	// Derived: `plant_id`'s name; with it.
+	PlantName OptString `json:"plant_name"`
+	// Derived: `storage_location_id`'s code; with it.
+	StorageLocationCode OptString `json:"storage_location_code"`
+	// Derived: `storage_location_id`'s name; with it.
+	StorageLocationName OptString `json:"storage_location_name"`
 	// The day the item is expected to be delivered (SAP's delivery date, EKET-EINDT; ADR-0051 §5, T53g).
 	// Optional. An item that gives none takes the `needed_by` of the requisition its order was created
 	// from, if it has one; in an order change, an item the order has keeps its own date first. The
@@ -90536,6 +91205,36 @@ func (s *PurchaseOrderItem) GetTaxCode() OptString {
 // GetContractItemNo returns the value of ContractItemNo.
 func (s *PurchaseOrderItem) GetContractItemNo() OptInt32 {
 	return s.ContractItemNo
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *PurchaseOrderItem) GetPlantID() OptUUID {
+	return s.PlantID
+}
+
+// GetStorageLocationID returns the value of StorageLocationID.
+func (s *PurchaseOrderItem) GetStorageLocationID() OptUUID {
+	return s.StorageLocationID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *PurchaseOrderItem) GetPlantCode() OptString {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *PurchaseOrderItem) GetPlantName() OptString {
+	return s.PlantName
+}
+
+// GetStorageLocationCode returns the value of StorageLocationCode.
+func (s *PurchaseOrderItem) GetStorageLocationCode() OptString {
+	return s.StorageLocationCode
+}
+
+// GetStorageLocationName returns the value of StorageLocationName.
+func (s *PurchaseOrderItem) GetStorageLocationName() OptString {
+	return s.StorageLocationName
 }
 
 // GetDeliveryDate returns the value of DeliveryDate.
@@ -90616,6 +91315,36 @@ func (s *PurchaseOrderItem) SetTaxCode(val OptString) {
 // SetContractItemNo sets the value of ContractItemNo.
 func (s *PurchaseOrderItem) SetContractItemNo(val OptInt32) {
 	s.ContractItemNo = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *PurchaseOrderItem) SetPlantID(val OptUUID) {
+	s.PlantID = val
+}
+
+// SetStorageLocationID sets the value of StorageLocationID.
+func (s *PurchaseOrderItem) SetStorageLocationID(val OptUUID) {
+	s.StorageLocationID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *PurchaseOrderItem) SetPlantCode(val OptString) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *PurchaseOrderItem) SetPlantName(val OptString) {
+	s.PlantName = val
+}
+
+// SetStorageLocationCode sets the value of StorageLocationCode.
+func (s *PurchaseOrderItem) SetStorageLocationCode(val OptString) {
+	s.StorageLocationCode = val
+}
+
+// SetStorageLocationName sets the value of StorageLocationName.
+func (s *PurchaseOrderItem) SetStorageLocationName(val OptString) {
+	s.StorageLocationName = val
 }
 
 // SetDeliveryDate sets the value of DeliveryDate.
@@ -91246,13 +91975,30 @@ type ReceivablesAging struct {
 	CompanyName string `json:"company_name"`
 	// The date the items are aged on.
 	KeyDate time.Time `json:"key_date"`
+	// Which items are aged: `now`, those open now; `key_date`, those open on the key date. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	OpenOn string `json:"open_on"`
+	// The date an item's days are counted from: its net due date or its document date. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	AgingBasis string `json:"aging_basis"`
+	// What a row is: a customer (`items`), a profit center or a segment (`groups`). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	GroupBy string `json:"group_by"`
+	// The profit center the items were selected by, when one was.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The segment the items were selected by, when one was.
+	SegmentID OptUUID `json:"segment_id"`
 	// The company's local currency (ISO 4217), every amount's.
 	Currency string `json:"currency"`
 	// The overdue buckets' last days, as asked for or the default.
 	AgingDays []int32                `json:"aging_days"`
 	Totals    ReceivablesAgingTotals `json:"totals"`
-	// The customers on this page, by customer id.
+	// The customers on this page, by customer id; empty with `group_by` `profit_center` or `segment`.
 	Items []ReceivablesAgingCustomer `json:"items"`
+	// With `group_by` `profit_center` or `segment`: the groups on this page, the one without first, then
+	// by id; absent otherwise.
+	Groups []ReceivablesAgingGroup `json:"groups"`
 	// Opaque cursor for the next page; absent on the last page.
 	NextPageToken OptString `json:"next_page_token"`
 }
@@ -91277,6 +92023,31 @@ func (s *ReceivablesAging) GetKeyDate() time.Time {
 	return s.KeyDate
 }
 
+// GetOpenOn returns the value of OpenOn.
+func (s *ReceivablesAging) GetOpenOn() string {
+	return s.OpenOn
+}
+
+// GetAgingBasis returns the value of AgingBasis.
+func (s *ReceivablesAging) GetAgingBasis() string {
+	return s.AgingBasis
+}
+
+// GetGroupBy returns the value of GroupBy.
+func (s *ReceivablesAging) GetGroupBy() string {
+	return s.GroupBy
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *ReceivablesAging) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *ReceivablesAging) GetSegmentID() OptUUID {
+	return s.SegmentID
+}
+
 // GetCurrency returns the value of Currency.
 func (s *ReceivablesAging) GetCurrency() string {
 	return s.Currency
@@ -91295,6 +92066,11 @@ func (s *ReceivablesAging) GetTotals() ReceivablesAgingTotals {
 // GetItems returns the value of Items.
 func (s *ReceivablesAging) GetItems() []ReceivablesAgingCustomer {
 	return s.Items
+}
+
+// GetGroups returns the value of Groups.
+func (s *ReceivablesAging) GetGroups() []ReceivablesAgingGroup {
+	return s.Groups
 }
 
 // GetNextPageToken returns the value of NextPageToken.
@@ -91322,6 +92098,31 @@ func (s *ReceivablesAging) SetKeyDate(val time.Time) {
 	s.KeyDate = val
 }
 
+// SetOpenOn sets the value of OpenOn.
+func (s *ReceivablesAging) SetOpenOn(val string) {
+	s.OpenOn = val
+}
+
+// SetAgingBasis sets the value of AgingBasis.
+func (s *ReceivablesAging) SetAgingBasis(val string) {
+	s.AgingBasis = val
+}
+
+// SetGroupBy sets the value of GroupBy.
+func (s *ReceivablesAging) SetGroupBy(val string) {
+	s.GroupBy = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *ReceivablesAging) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *ReceivablesAging) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *ReceivablesAging) SetCurrency(val string) {
 	s.Currency = val
@@ -91342,26 +92143,30 @@ func (s *ReceivablesAging) SetItems(val []ReceivablesAgingCustomer) {
 	s.Items = val
 }
 
+// SetGroups sets the value of Groups.
+func (s *ReceivablesAging) SetGroups(val []ReceivablesAgingGroup) {
+	s.Groups = val
+}
+
 // SetNextPageToken sets the value of NextPageToken.
 func (s *ReceivablesAging) SetNextPageToken(val OptString) {
 	s.NextPageToken = val
 }
-
-func (*ReceivablesAging) getReceivablesAgingRes() {}
 
 // One bucket of the AR aging: the open items in it and their amount in the company's local currency, a
 // credit item negative.
 // Ref: #/components/schemas/ReceivablesAgingBucket
 type ReceivablesAgingBucket struct {
 	// `not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net
-	// due date (the last overdue bucket without `days_to`); `no_due_date`: always empty, since an item
-	// posted without payment terms is due on its document date (until 2026-11-12 it was counted here).
-	// Open enumeration: clients must accept and preserve values not listed here; values may be added
-	// within /v1.
+	// due date, or past the document date with `aging_basis` `document_date` (the last overdue bucket
+	// without `days_to`); `no_due_date`: always empty, since an item posted without payment terms is due
+	// on its document date (until 2026-11-12 it was counted here). Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
 	Bucket string `json:"bucket"`
-	// An overdue bucket's first day past the net due date.
+	// An overdue bucket's first day past the net due date (the document date, by `aging_basis`).
 	DaysFrom OptInt32 `json:"days_from"`
-	// An overdue bucket's last day past the net due date; absent on the last overdue bucket.
+	// An overdue bucket's last day past the net due date (the document date, by `aging_basis`); absent on
+	// the last overdue bucket.
 	DaysTo OptInt32 `json:"days_to"`
 	// How many open items the bucket holds.
 	ItemCount int64 `json:"item_count"`
@@ -91496,6 +92301,162 @@ func (s *ReceivablesAgingCustomer) SetAmount(val Money) {
 func (s *ReceivablesAgingCustomer) SetBuckets(val []ReceivablesAgingBucket) {
 	s.Buckets = val
 }
+
+// A profit center's or a segment's row of the AR aging (T75m): the open items whose customer line
+// carries it, or, without `profit_center_id` and `segment_id`, those carrying none.
+// Ref: #/components/schemas/ReceivablesAgingGroup
+type ReceivablesAgingGroup struct {
+	// The profit center (`GET /v1/profit-centers/{id}`), with `group_by` `profit_center`; absent on the
+	// row of the items without one.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The profit center's code.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+	// The profit center's name, as it is now.
+	ProfitCenterName OptString `json:"profit_center_name"`
+	// The segment (`GET /v1/segments/{id}`), with `group_by` `segment`; absent on the row of the items
+	// without one.
+	SegmentID OptUUID `json:"segment_id"`
+	// The segment's code.
+	SegmentCode OptString `json:"segment_code"`
+	// The segment's name, as it is now.
+	SegmentName OptString `json:"segment_name"`
+	// How many customers the group's items are of.
+	CustomerCount int64 `json:"customer_count"`
+	// How many open items the group has.
+	ItemCount int64 `json:"item_count"`
+	// The group's open items in local currency, added up; the sum of `buckets`.
+	Amount Money `json:"amount"`
+	// The group's items by bucket: every bucket of the report, in its order.
+	Buckets []ReceivablesAgingBucket `json:"buckets"`
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *ReceivablesAgingGroup) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *ReceivablesAgingGroup) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// GetProfitCenterName returns the value of ProfitCenterName.
+func (s *ReceivablesAgingGroup) GetProfitCenterName() OptString {
+	return s.ProfitCenterName
+}
+
+// GetSegmentID returns the value of SegmentID.
+func (s *ReceivablesAgingGroup) GetSegmentID() OptUUID {
+	return s.SegmentID
+}
+
+// GetSegmentCode returns the value of SegmentCode.
+func (s *ReceivablesAgingGroup) GetSegmentCode() OptString {
+	return s.SegmentCode
+}
+
+// GetSegmentName returns the value of SegmentName.
+func (s *ReceivablesAgingGroup) GetSegmentName() OptString {
+	return s.SegmentName
+}
+
+// GetCustomerCount returns the value of CustomerCount.
+func (s *ReceivablesAgingGroup) GetCustomerCount() int64 {
+	return s.CustomerCount
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingGroup) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingGroup) GetAmount() Money {
+	return s.Amount
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *ReceivablesAgingGroup) GetBuckets() []ReceivablesAgingBucket {
+	return s.Buckets
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *ReceivablesAgingGroup) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *ReceivablesAgingGroup) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// SetProfitCenterName sets the value of ProfitCenterName.
+func (s *ReceivablesAgingGroup) SetProfitCenterName(val OptString) {
+	s.ProfitCenterName = val
+}
+
+// SetSegmentID sets the value of SegmentID.
+func (s *ReceivablesAgingGroup) SetSegmentID(val OptUUID) {
+	s.SegmentID = val
+}
+
+// SetSegmentCode sets the value of SegmentCode.
+func (s *ReceivablesAgingGroup) SetSegmentCode(val OptString) {
+	s.SegmentCode = val
+}
+
+// SetSegmentName sets the value of SegmentName.
+func (s *ReceivablesAgingGroup) SetSegmentName(val OptString) {
+	s.SegmentName = val
+}
+
+// SetCustomerCount sets the value of CustomerCount.
+func (s *ReceivablesAgingGroup) SetCustomerCount(val int64) {
+	s.CustomerCount = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingGroup) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingGroup) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *ReceivablesAgingGroup) SetBuckets(val []ReceivablesAgingBucket) {
+	s.Buckets = val
+}
+
+// ReceivablesAgingHeaders wraps ReceivablesAging with response headers.
+type ReceivablesAgingHeaders struct {
+	NextPageToken OptString
+	Response      ReceivablesAging
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReceivablesAgingHeaders) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetResponse returns the value of Response.
+func (s *ReceivablesAgingHeaders) GetResponse() ReceivablesAging {
+	return s.Response
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReceivablesAgingHeaders) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ReceivablesAgingHeaders) SetResponse(val ReceivablesAging) {
+	s.Response = val
+}
+
+func (*ReceivablesAgingHeaders) getReceivablesAgingRes() {}
 
 // The totals of the AR aging: every customer the request selects, whatever the page.
 // Ref: #/components/schemas/ReceivablesAgingTotals
@@ -112723,6 +113684,7 @@ func (*TooManyRequestsHeaders) getControlMatrixRes()                      {}
 func (*TooManyRequestsHeaders) getControlRes()                            {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCreditExposureRes()                     {}
+func (*TooManyRequestsHeaders) getCreditLimitChangeRes()                  {}
 func (*TooManyRequestsHeaders) getCreditLimitRes()                        {}
 func (*TooManyRequestsHeaders) getCreditMemoRequestRes()                  {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
@@ -112878,6 +113840,7 @@ func (*TooManyRequestsHeaders) listCostCenterPathsRes()                   {}
 func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()              {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                       {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
+func (*TooManyRequestsHeaders) listCreditLimitChangesRes()                {}
 func (*TooManyRequestsHeaders) listCreditLimitsRes()                      {}
 func (*TooManyRequestsHeaders) listCreditMemoRequestsRes()                {}
 func (*TooManyRequestsHeaders) listCustomerContactsRes()                  {}
@@ -113660,6 +114623,7 @@ func (*UnauthorizedHeaders) getControlMatrixRes()                      {}
 func (*UnauthorizedHeaders) getControlRes()                            {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCreditExposureRes()                     {}
+func (*UnauthorizedHeaders) getCreditLimitChangeRes()                  {}
 func (*UnauthorizedHeaders) getCreditLimitRes()                        {}
 func (*UnauthorizedHeaders) getCreditMemoRequestRes()                  {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
@@ -113815,6 +114779,7 @@ func (*UnauthorizedHeaders) listCostCenterPathsRes()                   {}
 func (*UnauthorizedHeaders) listCostCenterPlanActualRes()              {}
 func (*UnauthorizedHeaders) listCostCentersRes()                       {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
+func (*UnauthorizedHeaders) listCreditLimitChangesRes()                {}
 func (*UnauthorizedHeaders) listCreditLimitsRes()                      {}
 func (*UnauthorizedHeaders) listCreditMemoRequestsRes()                {}
 func (*UnauthorizedHeaders) listCustomerContactsRes()                  {}

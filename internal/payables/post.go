@@ -74,7 +74,7 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	entry, err := e.Postings.Post(ctx, in)
+	entry, err := e.post(ctx, v, grirOnly(order), in)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -633,6 +633,9 @@ func (e *Endpoints) ReverseInvoice(ctx context.Context, id uuid.UUID, ifMatch fu
 		return Invoice{}, err
 	}
 	if err := e.reversible(ctx, tx, v); err != nil {
+		return Invoice{}, err
+	}
+	if err := e.requireStockUnrevalued(ctx, v); err != nil {
 		return Invoice{}, err
 	}
 	if postingDate == nil {

@@ -51,6 +51,12 @@ type ReceivableItem struct {
 	Reference        *string
 	SourceContext    string
 	SourceDocumentID *uuid.UUID
+	// ProfitCenterID and SegmentID are the customer line's own
+	// assignment as posted (ADR-0050 §5), nil for none: a customer
+	// invoice's line carries none, a manual entry's what it names (the
+	// AR aging by profit center or segment, T75m).
+	ProfitCenterID *uuid.UUID
+	SegmentID      *uuid.UUID
 }
 
 // NetDueDate is when the customer item is due: by the payment terms it
@@ -76,8 +82,17 @@ func (r ReceivableItem) NetDueDate() time.Time {
 // zone: a company's date (config.CompanyDay) or a key date a request
 // names.
 func (r ReceivableItem) DaysOverdue(on time.Time) int {
-	day := time.Date(on.Year(), on.Month(), on.Day(), 0, 0, 0, 0, time.UTC) // due dates are dates, read at midnight UTC
-	return max(int(day.Sub(r.NetDueDate()).Hours()/24), 0)
+	return DaysPast(on, r.NetDueDate())
+}
+
+// DaysPast is how many days the date on is past date, 0 when it is not:
+// only on's calendar date counts, as DaysOverdue counts it, and date is a
+// date read at midnight UTC (a due date, a document date). The AR aging
+// by document date (T75l) counts an item's days from its document date
+// with it.
+func DaysPast(on, date time.Time) int {
+	day := time.Date(on.Year(), on.Month(), on.Day(), 0, 0, 0, 0, time.UTC) // dates are read at midnight UTC
+	return max(int(day.Sub(date).Hours()/24), 0)
 }
 
 // Receivable returns the legal entity's open customer items, of the
@@ -129,7 +144,7 @@ func (OpenItems) ReceivableItem(ctx context.Context, legalEntity uuid.UUID, ref 
 const (
 	receivableSelect = `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, l.posting_date,
 			e.currency_tc, ctc.exponent, l.amount_tc, e.currency_lc, clc.exponent, l.amount_lc, l.special_gl, e.document_number, e.reference,
-			e.source_context, e.source_document_id, ` + termsColumns + `
+			e.source_context, e.source_document_id, l.profit_center_id, l.segment_id, ` + termsColumns + `
 		FROM ledger.journal_line l
 		LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
 			AND t.line_no = l.line_no
@@ -148,6 +163,6 @@ func scanReceivable(r pgx.CollectableRow) (ReceivableItem, error) {
 	var err error
 	it.Terms, err = scanWithTerms(r, "scan receivable item", []any{&it.FiscalYear, &it.EntryID, &it.LineNo, &it.AccountID, &it.PartnerID, &it.DocumentDate,
 		&it.PostingDate, &it.Currency, &it.Exponent, &it.Amount, &it.LocalCurrency, &it.LocalExponent, &it.AmountLC, &it.SpecialGL, &it.Number, &it.Reference,
-		&it.SourceContext, &it.SourceDocumentID})
+		&it.SourceContext, &it.SourceDocumentID, &it.ProfitCenterID, &it.SegmentID})
 	return it, err
 }
