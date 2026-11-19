@@ -2825,11 +2825,47 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Sending sales e-invoices (phase 3, after issuing sales invoices): rendered as PINT AE from the sales invoice's lines and tax items, checked before sending, given to the provider after the commit, the provider's and the authority's reports recorded as they come (to confirm with the provider and the specialist); sliced with phase 3's sales design",
-        "r": "ADR-0061 §9 · T65h",
-        "src": "adr:ADR-0061",
-        "c": []
+        "s": "P",
+        "t": "UAE e-invoices sent and received inside the ERP through Evatra, the first accredited service provider (Hamt Information Technology L.L.C, ASP 144576), behind the provider-neutral port: the ERP renders PINT AE itself, polls statuses and opens no inbound endpoint (product owner 2026-11-19, superseding receive-only until phase 3)",
+        "r": "ADR-0061 §3, §9 and As built · T65h (split E1-E4, Later) · coordinator plan einvoicing-evatra",
+        "src": "adr:ADR-0061 · po:2026-11-19",
+        "c": [
+         {
+          "s": "D",
+          "t": "E1 Evatra connector and inbound: the einvoice_provider connector's adapter evatra (environment stage or prod, Evatra's base URL derived from it, its two hosts only; company_id; participants 0235: and each company's TIN; the API key and email as the tenant-scoped connector secret; Evatra's sandbox refused in production, the stand-in still refused there); the Evatra adapter: POST /auth/login, the token kept until its expirationDate and sent as R-Auth, one new login on a 401, never logged, audited or put in an error; Pending through POST /invoice/search-documents (documentType INCOMING, by each company's TIN, pages of 200, the last 60 days), Fetch through GET /invoice/get-document/{id}/XML (Base64, at most MaxDocument), Acknowledge local only, so a fetch leaves out what is recorded and acknowledged; the stand-in speaks Evatra's API for these calls; ADR-0061 §3 (the port's Send and Status for E3), §9 and Q1 answered; walkthrough step_evatra_inbound: an evatra connector against the stand-in, an incoming PINT AE e-invoice received through the existing path, a second fetch leaving it out",
+          "r": "einvoicing.Evatra · einvoicing.EvatraHosts · einvoicing.LocalAcknowledgement · einvoicetest.Evatra · integration.EvatraAdapter · walkthrough step_evatra_inbound · ADR-0061 §3, §9, Q1 and As built E1 · coordinator plan einvoicing-evatra E1",
+          "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "E2 PINT AE rendering: tax invoice 380 from a billing document and tax credit note 381 (reason BTAE-03) from a customer credit memo, UBL 2.1, CustomizationID urn:peppol:pint:billing-1@ae-1; seller and buyer with TRN and endpoint 0235: and the TIN, emirate code, lines, VAT categories from the tax items (ADR-0049's boundary), AED VAT totals when the invoice currency is not AED, BTAE-02 transaction type flags; in-house validation of the mandatory fields; the rendered XML archived with the billing document; read GET /v1/e-invoices/{id}; walkthrough step_einvoice_render",
+          "r": "ADR-0061 §9 and As built E2 · coordinator plan einvoicing-evatra E2",
+          "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "E3 Sending: the outbox to a submission row written before the call, then Evatra's POST /invoice/send-document-async (base64Document, invoiceType UAE_PINT, businessType B2B or B2G, invoiceSource ERP); the port's Send and Status; status by polling GET /invoice/document-status/{trackingId} in a workflow per submission with backoff; after a lost answer the document looked up (document-process/search by filename) before any resend; resend of SENDING_FAILED, PERMANENT_FAILED to a worklist; a worklist of billing documents not transmitted within 14 business days of the UAE company's calendar; walkthrough step_einvoice_send",
+          "r": "ADR-0061 §3, §9 · coordinator plan einvoicing-evatra E3, defaults 3, 4, 9",
+          "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "E4 Delivery status and FTA reporting: the Peppol message level responses (ACCEPTANCE, REJECTION, BUSINESS_RULE_FATAL and the others) and the tax data document's status shown on the invoice; a rejection or a fatal rule puts it on a worklist to correct by credit note; the tax data document's retry and withdrawal offered to a person only, never an agent; walkthrough step_einvoice_send extended",
+          "r": "ADR-0061 §9 · coordinator plan einvoicing-evatra E4, default 8",
+          "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "Later: self-billing (389, 261), out-of-scope and export types (480, 81), deemed supply endpoints, summary and continuous supply invoices, the margin scheme, the list of invalid inbound Peppol documents, a PDF through Evatra's generate/pdf, a second accredited provider",
+          "r": "coordinator plan einvoicing-evatra Later",
+          "src": "po:2026-11-19",
+          "c": []
+         }
+        ]
        }
       ]
      },

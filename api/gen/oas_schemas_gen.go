@@ -28150,11 +28150,15 @@ type Connector struct {
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-	// answers 422 `integration.adapter_not_certified`.
+	// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+	// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+	// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+	// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+	// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+	// are refused in production: creating or enabling one there answers 422
+	// `integration.adapter_not_certified`.
 	Settings ConnectorSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28303,11 +28307,15 @@ type ConnectorCreate struct {
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-	// answers 422 `integration.adapter_not_certified`.
+	// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+	// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+	// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+	// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+	// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+	// are refused in production: creating or enabling one there answers 422
+	// `integration.adapter_not_certified`.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28375,11 +28383,15 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 // `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 // its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-// answers 422 `integration.adapter_not_certified`.
+// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+// are refused in production: creating or enabling one there answers 422
+// `integration.adapter_not_certified`.
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -28503,11 +28515,15 @@ func (*ConnectorPage) listConnectorsRes() {}
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 // `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 // its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-// answers 422 `integration.adapter_not_certified`.
+// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+// are refused in production: creating or enabling one there answers 422
+// `integration.adapter_not_certified`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -28537,11 +28553,15 @@ type ConnectorUpdate struct {
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-	// answers 422 `integration.adapter_not_certified`.
+	// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+	// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+	// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+	// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+	// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+	// are refused in production: creating or enabling one there answers 422
+	// `integration.adapter_not_certified`.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28594,11 +28614,15 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 // `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 // its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-// answers 422 `integration.adapter_not_certified`.
+// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+// are refused in production: creating or enabling one there answers 422
+// `integration.adapter_not_certified`.
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {

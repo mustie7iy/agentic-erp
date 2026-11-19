@@ -130,12 +130,12 @@ network in the lane).
   once the product owner names one (§3, question Q1).
 - **The FTA Audit File** of a UAE registration, built when the specialist
   supplies its specification (§10).
-- **The design of sending** (§9), built with issuing sales invoices in
-  phase 3.
+- **Sending** (§9): from billing documents and customer credit memos,
+  through Evatra (po:2026-11-19, E2-E4), no longer phase 3's.
 
 **Out:**
-- Issuing sales invoices, and so sending e-invoices before phase 3 (§9,
-  question Q2 for the 2027 date).
+- ~~Issuing sales invoices, and so sending e-invoices before phase 3~~:
+  superseded by the product owner on 2026-11-19 (§9).
 - A Peppol access point of our own (07 §7.6, phase 2 decisions).
 - Formats other than PINT AE (the leaf "Country formats"): XRechnung,
   FatturaPA, SAF-T and the like are built when a country pack needs one,
@@ -179,30 +179,49 @@ its allowed imports.
 ### 3. The provider port and its connector
 ```go
 // Provider is an accredited e-invoicing provider as one tenant's access
-// point. Implementations: the stand-in (tests, walkthrough) and, once
-// chosen, one adapter per provider (Q1).
+// point. Implementations: Evatra's adapter (the first provider, Q1
+// answered, po:2026-11-19), the stand-in (tests, walkthrough); a second
+// provider is one more adapter.
 type Provider interface {
     // Pending lists the documents received and not yet acknowledged.
     Pending(ctx context.Context) ([]Message, error)
     // Fetch reads one document's bytes, at most MaxDocument.
     Fetch(ctx context.Context, id string) ([]byte, error)
     // Acknowledge tells the provider the document is kept; acknowledging
-    // twice is not an error.
+    // twice is not an error (local only at a provider that keeps no
+    // acknowledgement, such as Evatra).
     Acknowledge(ctx context.Context, id string) error
-    // Send and Status are phase 3's (§9).
+    // Send gives the provider one rendered document, as it is archived
+    // (§9), and answers the provider's tracking id; Status reads what the
+    // provider reports of it since. Signatures only: E3 builds them.
+    Send(ctx context.Context, d Outgoing) (Submission, error)
+    Status(ctx context.Context, trackingID string) (Report, error)
 }
 ```
 - **Connector kind `einvoice_provider`** (added to the open enumeration).
-  Settings: `adapter` (the implementation; `standin` until Q1 names a
-  provider), `base_url` (https), `participants` (per company code, the
-  company's participant identifier at the provider; its scheme is to
-  confirm), `format` (`pint_ae`, the only one); `secret_ref` names the
-  credentials. Created and changed with `integration.connector.manage`,
-  as every connector.
+  Settings: `adapter` (the implementation: `evatra`, Evatra's, or
+  `standin`, the stand-in's), `participants` (per company code, the
+  company's participant identifier at the provider: at Evatra `0235:` and
+  the company's TIN, §5 C6), `format` (`pint_ae`, the only one); the
+  stand-in adds `base_url` (https); Evatra adds `environment` (`stage`,
+  its sandbox, or `prod`), from which its base URL is derived (one of its
+  two hosts, never a setting), and `company_id` (the company's id at
+  Evatra); `secret_ref` names the credentials (Evatra's API key and the
+  account's email). Created and changed with
+  `integration.connector.manage`, as every connector.
+- **The `evatra` adapter** (E1, As built): logs in (`POST /auth/login`),
+  keeps the token until its `expirationDate` and sends it as `R-Auth`,
+  logging in once again on a 401; lists received documents
+  (`POST /invoice/search-documents`, `documentType` INCOMING) and reads
+  one (`GET /invoice/get-document/{id}/XML`, Base64); acknowledges
+  locally. Sending (`POST /invoice/send-document-async`) and statuses
+  (`GET /invoice/document-status/{trackingId}`) are E3's.
 - **Production refuses the stand-in**: creating or enabling an
   `einvoice_provider` connector whose adapter is `standin` there answers
   422 `integration.adapter_not_certified`, as EBICS is refused until
   certified with a bank (ADR-0038); a stored one is refused at use.
+  Evatra's adapter is allowed there in its `prod` environment; its
+  `stage` sandbox is refused there the same way (E1, As built).
 - **Egress**: the adapter calls the provider through the egress client
   (public addresses only, no redirects, system roots), with its own
   response limit, `MaxDocument` = 10 MiB (the egress client gains a
@@ -212,7 +231,7 @@ type Provider interface {
 - **Pull, not push.** The ERP polls; it opens no endpoint for the
   provider to call. An adapter for a provider that only pushes needs an
   inbound endpoint, which is a security-posture decision (question Q3).
-- **Formats behind the port.** A `Format` (parse, and in phase 3 render)
+- **Formats behind the port.** A `Format` (parse, and from E2 render)
   per document syntax; `pint_ae` is the only one in T65. A later format is
   one more implementation and a connector setting, not a change to the
   context.
@@ -495,22 +514,31 @@ particular form of keeping is to confirm; a compliance-mode retention
 lock (as audit anchors have) is not applied by default, since erasure of
 an offboarded tenant (ADR-0021) must still remove the documents.
 
-### 9. Sending (phase 3)
-Issuing sales invoices is phase 3 (ADR-0049 §1), so the ERP sends no
-e-invoice before it; the pilots' sales invoices are issued, and in the UAE
-transmitted, by their billing systems (P2). When sales invoices exist:
+### 9. Sending (E3, E4; product owner 2026-11-19)
+The product owner asked on 2026-11-19 for UAE e-invoices to be sent as
+well as received inside the ERP ("companies do not want to operate on
+different platforms"), through Evatra (po:2026-11-19), superseding
+"sending with phase 3's sales invoices" (po-2026-11-09 items 1-2; item 3,
+no inbound endpoint, stands). Sending is no longer phase 3's: the ERP's
+billing documents and customer credit memos (ADR-0049's sales side, T75)
+are its source. The plan is the coordinator's (einvoicing-evatra, slices
+E1-E4 under T65h):
 
-- an issued sales invoice is rendered as PINT AE from its lines and tax
-  items (code, category, rate, base, tax: ADR-0049's boundary, no second
-  mapping), checked by §5's rules before it is sent, and given to the
-  provider (`Provider.Send`) in the outbox's pattern: the document is
-  recorded with the invoice in one transaction and sent after the commit,
-  idempotent by the document's id;
-- what the provider and the authority report back (statuses, rejections
-  and their reasons) and how a rejected or wrong e-invoice is corrected
-  are provider-specific and to confirm with Q1 and the specialist; the
-  ERP records each report as it comes (`Provider.Status`, polled);
-- phase 3's sales design slices it; T65h is its tracker leaf.
+- **E2** renders a billing document as a PINT AE tax invoice (380) and a
+  customer credit memo as a tax credit note (381, reason BTAE-03) from
+  their lines and tax items (code, category, rate, base, tax: ADR-0049's
+  boundary, no second mapping), checks them by §5's rules before anything
+  is sent, and archives the rendered XML with the document (§8);
+- **E3** gives it to the provider (`Provider.Send`) in the outbox's
+  pattern: a submission recorded before the call, sent after the commit;
+  Evatra has no idempotency key, so after a lost answer the document is
+  looked up before any resend; statuses are polled (`Provider.Status`) in
+  a workflow per submission; a worklist of billing documents not
+  transmitted within 14 business days;
+- **E4** records what the provider and the authority report back (the
+  Peppol message level responses and the tax data document's status) on
+  the invoice, puts a rejection on a worklist to correct by credit note,
+  and offers the tax data document's retry and withdrawal to people only.
 
 ### 10. Statutory reports: the FTA Audit File
 - The repository records only the audit file's name (ADR-0049 §1). Its
@@ -580,7 +608,7 @@ an e-invoice's invoice held for its codes, as to any held invoice; it may
 read e-invoices' fields (`einvoicing.einvoice.read`) to recommend the
 order for a held one, which a person acts on with `:link` or by
 correcting the order and `:retry`. Agents never fetch, retry, link or
-dismiss e-invoices, never send one (phase 3), and never generate or read
+dismiss e-invoices, never send one (E3), and never generate or read
 an audit file. No new agent type and no new evaluation suite in T65.
 
 ### 14. Budgets
@@ -648,8 +676,8 @@ an audit file. No new agent type and no new evaluation suite in T65.
 - A UAE supplier's e-invoice reaches the AP queue without a model,
   without a person's upload, with its order items and tax codes matched
   by capture's rules.
-- Nothing is sent before phase 3: the UAE pilot company's outgoing
-  e-invoices, if it is in the mandate, are its billing system's (Q2).
+- Sending comes with E2-E4 (§9, po:2026-11-19); until then the UAE pilot
+  company's outgoing e-invoices are its billing system's (Q2).
 - The audit file and any Canadian report wait for the specialist; their
   slices are blocked on it, not on code.
 - Until Q1 is answered only the stand-in exists, and production refuses
@@ -665,7 +693,8 @@ an audit file. No new agent type and no new evaluation suite in T65.
   and audit files.
 - **T71 (regulatory agent)**: proposes pack changes when the UAE's
   e-invoicing rules change.
-- **Phase 3 (sales)**: issuing sales invoices, and with it T65h.
+- **Sales and billing (T75)**: the billing documents and customer credit
+  memos E2 renders and E3 sends (T65h, split E1-E4, po:2026-11-19).
 
 ## Steps (slices)
 Each is a slice (ADR-0053): contract, migration, domain code, tests (real
@@ -689,7 +718,7 @@ of §13.
 | T65e | **E-invoice credit notes** | A credit note entered as a `credit_memo` naming the invoice it cites, by capture's rule (none, a posted invoice, or `on_hold` naming the number); credit notes recorded before, left `received` by T65d, are processed by the next fetch. Walkthrough: the stand-in delivers a credit note citing the e-invoice of T65d; a fetch enters it as a credit memo referencing that invoice |
 | T65f | **Held e-invoices resolved by people** | `:retry` (`held` → `held` allowed by the trigger, schema test), `:link` with `payables.EInvoices.Attach` and the partial unique index (schema test, `einvoicing.invoice_already_linked`), `:dismiss` (§7, `FOR UPDATE`, `einvoicing.einvoice_not_held`, `einvoicing.link_mismatch`); agents refused. Walkthrough: Alex retries the held e-invoice before the order is fixed and it stays held; he enters it by hand and links it, the invoice's document becomes the XML; linking a second e-invoice to it is refused with `einvoicing.invoice_already_linked`; another is dismissed with a reason; an agent's `:dismiss` is refused |
 | T65g | **FTA Audit File** (when the specialist supplies the specification) | As §10, the contract from the specification; `tax.audit_file`; `tax.audit_file.generate` and `.read`; people only; `TaxAuditFileGenerated`; golden test signed off by the specialist; nfr budget. Walkthrough: Carla generates AE01's audit file as the specification asks it and downloads it; an agent is refused |
-| T65h | **Sending sales e-invoices** (phase 3, after issuing sales invoices) | §9; sliced with phase 3's sales design |
+| T65h | **E-invoices through Evatra** (po:2026-11-19) | §3, §9; split into E1 (the Evatra connector and inbound), E2 (PINT AE rendering), E3 (sending), E4 (delivery status and FTA reporting) and Later in the tracker |
 
 Each slice updates 02 §2.2 (T65a: the context's row from planned to
 built), 03 §3.25 (and §3.20 with T65g) and this ADR's "As built".
@@ -722,7 +751,11 @@ built), 03 §3.25 (and §3.20 with T65g) and this ADR's "As built".
     needs one (§1, §3).
 
 ## Questions for the product owner
-- **Q1. The provider** (new scope, cost, security posture). Options: (a)
+- **Q1. The provider** (new scope, cost, security posture). **Answered
+  (po:2026-11-19):** Evatra (Hamt Information Technology L.L.C, the
+  Ministry of Finance's accredited service provider no. 144576), built in
+  as the first adapter behind the provider-neutral port, for sending and
+  receiving (§3, §9; E1-E4). The question as asked: Options: (a)
   the accredited provider the UAE pilot company already uses or
   chooses, one adapter for it; (b) one provider the platform contracts
   for every tenant; (c) no provider yet: the port and the stand-in only.
@@ -1006,3 +1039,104 @@ default:
   has no requester and records no request. The access agent's
   `accessagent.Unaudited`, which classed `einvoicing.einvoice.manage` as
   "use not recorded" until then, is removed (ADR-0072).
+
+**E1 (the Evatra connector and inbound; po:2026-11-19, the coordinator's
+plan einvoicing-evatra).** Built as §3 for Evatra's adapter and the
+receiving side of §4; no migration (the connector's settings are JSON,
+validated by integration). Evatra's API as the plan read it on 2026-11-19
+(https://evatra.com/api; its page needs JavaScript, so it was not fetched
+again here) is the source of every path and field below; what that page
+does not say is decided by default and listed for the specialist and
+Evatra. Decided by default:
+
+- **Settings.** `adapter` is `evatra` or `standin`; the keys are the
+  adapter's own (`base_url` is the stand-in's and refused on an Evatra
+  connector). Evatra's take `environment` (`stage` or `prod`) and
+  `company_id` (its `companyId`, 1-100 letters, digits or `._-`: its form
+  is not documented). Its participants are `0235:` and 10 digits (§5 C6),
+  since the listing is asked per company by its TIN.
+- **The hosts.** The base URL is derived from the environment,
+  `einvoicing.EvatraHosts`: `https://api-stage.evatrauae.com` and
+  `https://api.evatrauae.com`, the only hosts the adapter calls, through
+  the provider's egress client (public addresses only, no redirects,
+  system roots). No setting names a URL; only the walkthrough replaces both
+  with its stand-in (`app.Config.EvatraHosts`, set by erp-server from
+  `ERP_WALKTHROUGH_PROVIDER`, which `config.Load` refuses outside
+  development). The cell's network policy allows the server 443 outward
+  (ADR-0035); there is no per-host list there to extend.
+- **Production.** Evatra's `prod` is allowed; its `stage`, the sandbox, is
+  refused there as the stand-in is (422 `integration.adapter_not_certified`
+  on create or enable, and at use): a sandbox document entered in a
+  production tenant would not be a statutory one. A security-posture
+  default, for the product owner to overrule.
+- **Credentials.** The tenant-scoped connector secret (po-2026-11-16 H2)
+  holds a JSON object `{"apiKey", "email"}`, the body of Evatra's
+  `POST /auth/login`. One not of that form is refused when a fetch is
+  asked for (the adapter is built then, without a call) and at use, 422
+  `integration.secret_unavailable`; Evatra answering the login 401 or 403
+  fails the fetch with the same code, and is not retried. The secret and
+  the token are never logged, audited or put in an error: errors name the
+  path and status only.
+- **The token.** `jwt` is sent as `R-Auth`; it is kept in memory
+  (`einvoicing.EvatraSessions`, one per server, keyed by the connector and
+  a SHA-256 of its credentials, so a rotated secret logs in again) until a
+  minute before its `expirationDate`, read as RFC 3339; one Evatra dates
+  otherwise, or already past, serves its call and is not kept. A call
+  answered 401 drops the token and is sent once more after a new login; a
+  second 401 fails the step (retried by the workflow). No lock is held
+  across a call: two steps racing may both log in.
+- **Pending.** `POST /invoice/search-documents` with `companyId`, the
+  participant's TIN as `tin`, `documentType` INCOMING, `startDate` 60 days
+  back and `endDate` tomorrow (UTC dates, `YYYY-MM-DD`), `page` from 1 and
+  `size` 200, until `totalCount` is reached; each `invoiceList` entry's
+  `documentId` is the message id (the name get-document's path gives it)
+  and the participant asked for its receiver, so the document takes that
+  company. Fifty pages (10,000 documents of one company in the lookback)
+  fail the step rather than read on. The 60 days bound the listing, as
+  Evatra keeps no acknowledgement; a document a fetch outage kept unread
+  longer than that is not listed (the mandate's 14 business days to
+  transmit fall well within it).
+- **Acknowledgement, local only.** Evatra has no acknowledgement
+  (`Acknowledge` does nothing; the adapter is a
+  `LocalAcknowledgement`), so `PendingEInvoices` leaves out the documents
+  of the connector recorded and acknowledged, in a transaction of its own
+  after Evatra answered; one whose local acknowledgement was lost is
+  listed again and found already recorded, as §4's lost acknowledgement
+  is repaired. Bytes Evatra changed under a document id already
+  acknowledged are therefore not seen (§4's changed redelivery is the
+  stand-in's).
+- **Fetch.** `GET /invoice/get-document/{id}/XML` answers the XML in
+  Base64, read as text or as a JSON string; content that is not Base64 is
+  refused `einvoicing.unreadable` and not recorded (the fetch names it, as
+  it names a document too large). The provider client reads answers of up
+  to `MaxAnswer` (a Base64 `MaxDocument` with 4 KiB to spare); each adapter
+  holds the document to `MaxDocument` (10 MiB) once decoded.
+- **The port.** `Send` and `Status` are in §3 as signatures only; the Go
+  interface gains them with E3, which builds them, so no adapter carries a
+  method nothing calls.
+- **The stand-in** (`einvoicetest.Evatra`) emulates these three calls
+  under `/evatra` of the test server and of the walkthrough's
+  `providerstub` (`-evatra` the account, `-evatra-inbox` its documents,
+  apart from the stand-in protocol's inbox, which acknowledges): login
+  with the account's API key and email, tokens of an hour, 401 to any
+  other, search by `companyId`, `tin` and INCOMING with pages, the
+  document in Base64.
+- **Not built here:** validation and entering (T65c, T65d) do not exist
+  yet, so a document received through Evatra is `received`, as the
+  stand-in's are, until those slices process it.
+- **The walkthrough.** `step_evatra_inbound` (step 144, before
+  `step_close`): Ada connects the UAE company 5000 to Evatra's sandbox
+  (participant `0235:1001234567`, the first 10 digits of its FTA
+  registration 100123456789003, Evatra's company id illustrative); Evatra
+  has received an illustrative PINT AE invoice GOI-2002 as its document
+  EVA-77001; Alex fetches, it
+  is recorded `received` for 5000, its SHA-256 Evatra's decoded bytes',
+  acknowledged locally, and downloaded as received; a second fetch counts
+  nothing, leaving it out.
+- **For the specialist and Evatra (not in Evatra's docs as read):** the
+  response fields of `search-documents` (`documentId` assumed) and the
+  date its `startDate`/`endDate` filter (issue or receipt) and their
+  format; `expirationDate`'s format; whether `get-document` answers Base64
+  as plain text or JSON; the form of `compId`/`companyId`; whether
+  `search-documents` with `tin` returns documents received for that
+  participant; the sandbox's behaviour; rate limits.

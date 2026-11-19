@@ -12,11 +12,13 @@
 // answers requests bearing the token in the token file and runs until it
 // is stopped. With -evatra it also emulates Evatra's API under /evatra
 // (einvoicetest.Evatra, ADR-0061 As built E1) for the account the file
-// holds as JSON ({"apiKey", "email", "companyId"}), over the same inbox:
-// the walkthrough's Evatra connector reads from there, as the server
-// replaces Evatra's hosts with the stand-in in the walkthrough alone.
+// holds as JSON ({"apiKey", "email", "companyId"}), over the documents of
+// the -evatra-inbox directory, in the inbox's form (Evatra keeps no
+// acknowledgement, so it lists them all): the walkthrough's Evatra
+// connector reads from there, as the server replaces Evatra's hosts with
+// the stand-in in the walkthrough alone.
 //
-//	providerstub -addr 127.0.0.1:18444 -ca provider.pem -token token -inbox inbox [-evatra evatra.json]
+//	providerstub -addr 127.0.0.1:18444 -ca provider.pem -token token -inbox inbox [-evatra evatra.json -evatra-inbox evatra]
 package main
 
 import (
@@ -55,9 +57,10 @@ func main() {
 	token := flag.String("token", "", "the file holding the bearer token requests must bear")
 	inbox := flag.String("inbox", "", "the directory of the messages")
 	evatra := flag.String("evatra", "", "the file holding the Evatra account to emulate, JSON; empty: none")
+	evatraInbox := flag.String("evatra-inbox", "", "the directory of the documents Evatra received")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := run(ctx, *addr, *ca, *token, *inbox, *evatra)
+	err := run(ctx, *addr, *ca, *token, *inbox, evatraFiles{account: *evatra, inbox: *evatraInbox})
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "providerstub:", err)
@@ -65,7 +68,11 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, addr, ca, tokenFile, inbox, evatraFile string) error {
+// evatraFiles are Evatra's emulation's: its account file and its inbox
+// directory; no account file: none.
+type evatraFiles struct{ account, inbox string }
+
+func run(ctx context.Context, addr, ca, tokenFile, inbox string, evatra evatraFiles) error {
 	ap, err := netip.ParseAddrPort(addr)
 	if err != nil || !ap.Addr().IsLoopback() {
 		return errors.New("addr: the walkthrough's provider listens on a loopback address and port only")
@@ -74,7 +81,7 @@ func run(ctx context.Context, addr, ca, tokenFile, inbox, evatraFile string) err
 	if err != nil {
 		return fmt.Errorf("token: %w", err)
 	}
-	handler, err := handler(dir(inbox), strings.TrimSpace(string(token)), evatraFile)
+	handler, err := handler(dir(inbox), strings.TrimSpace(string(token)), evatra)
 	if err != nil {
 		return err
 	}
@@ -107,12 +114,15 @@ func run(ctx context.Context, addr, ca, tokenFile, inbox, evatraFile string) err
 
 // handler serves the stand-in's protocol at the root and, with an Evatra
 // account file, Evatra's API under /evatra.
-func handler(store dir, token, evatraFile string) (http.Handler, error) {
+func handler(store dir, token string, evatra evatraFiles) (http.Handler, error) {
 	standIn := einvoicetest.Handler(store, token)
-	if evatraFile == "" {
+	if evatra.account == "" {
 		return standIn, nil
 	}
-	raw, err := os.ReadFile(evatraFile) // #nosec G304 G703 -- the walkthrough names its own file
+	if evatra.inbox == "" {
+		return nil, errors.New("evatra: -evatra-inbox names the directory of its documents")
+	}
+	raw, err := os.ReadFile(evatra.account) // #nosec G304 G703 -- the walkthrough names its own file
 	if err != nil {
 		return nil, fmt.Errorf("evatra: %w", err)
 	}
@@ -126,7 +136,7 @@ func handler(store dir, token, evatraFile string) (http.Handler, error) {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/", standIn)
-	mux.Handle("/evatra/", http.StripPrefix("/evatra", (&einvoicetest.Evatra{Store: store,
+	mux.Handle("/evatra/", http.StripPrefix("/evatra", (&einvoicetest.Evatra{Store: dir(evatra.inbox),
 		Account: einvoicetest.EvatraAccount{APIKey: account.APIKey, Email: account.Email, CompanyID: account.CompanyID}}).Handler()))
 	return mux, nil
 }
