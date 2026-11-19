@@ -14392,6 +14392,127 @@ step_payment_difference_reasons() {
   passed
 }
 
+# step_dunning_postings is T76h and T76i (ADR-0065 As built): Ada names Maple's
+# dunning charge and interest accounts, new revenue accounts of its chart,
+# through a governed change, so that a confirmed dunning run posts its
+# notices' charges and interest to the customers. Ruth posts Bayview
+# Marine, a new customer, a CAD 400.00 invoice on net 30 days. A run ten
+# days past its due date dunns it at level 1, which charges nothing, and
+# is confirmed without a debit memo for it; thirty days past, at level 2,
+# the confirmed run posts Bayview a debit memo of the level's CAD 15.00
+# and the interest of 2.96, which is Bayview's open item, the charge and
+# the interest on their accounts. The run is company-wide, so other
+# customers' notices are confirmed and charged with it; the step reads
+# Bayview's. A run fifty days past the due date reaches level 3 and posts
+# a second memo. Both runs are then taken back (T76i): the earlier one
+# cannot be cancelled first, the later run having dunned its items from
+# its levels; the later one is cancelled, then the earlier, each memo
+# reversed on its posting date and no longer open; a second cancellation
+# is refused, and a new run dunns the invoice from level 1 again. The key
+# dates are the requests'.
+step_dunning_postings() {
+  heading "Step 138 — Dunning charges and interest posted, and a confirmed run cancelled: the company's dunning accounts through a governed change; a confirmed run posts each notice's charge and interest to its customer as a debit memo; a run cancelled, latest first, its levels set back and its memos reversed"
+  local customer invoice due k1 k2 k3 run later tag notice memo memo2 entry id
+  due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  k1=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
+  k2=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 60 * 86400 | strftime("%Y-%m-%d")')
+  k3=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 80 * 86400 | strftime("%Y-%m-%d")')
+  as ada
+  say "Maple's dunning notices ask for charges and interest (step 111), which nobody has booked so far. Ada adds two"
+  say "revenue accounts, 4810 for dunning charges and 4820 for interest on overdue receivables, and names them in the"
+  say "account determination (T76h): from now on a confirmed dunning run posts them to the customers. A change of the"
+  say "chart, tier 4:"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  jq "{title: \"Dunning accounts\", rationale: \"Dunning charges and interest posted to the customers (T76h)\", base_version: .items[0].number,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= (
+      (if any(.chart_of_accounts[]; .group_account) then {group_account: \"G4000\"} else {} end) as \$g
+      | .chart_of_accounts += [{\"number\": \"4810\", \"name\": \"Dunning charges\", \"type\": \"revenue\"} + \$g,
+        {\"number\": \"4820\", \"name\": \"Interest on overdue receivables\", \"type\": \"revenue\"} + \$g]
+      | .account_determination += {dunning_charges: \"4810\", dunning_interest: \"4820\"}))}" "$WORK/last.json" >"$WORK/dunning-accounts.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @dunning-accounts.json
+  governed "$(field .id)" "the dunning accounts"
+  accounts
+  as ruth
+  say "Bayview Marine starts buying from Maple. Ruth creates it as a customer on net 30 days, Carla approves it, and"
+  say "Ruth posts it a CAD 400.00 invoice, due $due:"
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Bayview Marine\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$(account 1200)\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys marine pumps from Maple\"}"
+  customer=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its first order"
+  as ruth
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
+    \"items\": [{\"description\": \"Bilge pump\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"400.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"customer invoice \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  invoice=$(field .journal_entry_id)
+  say "On $k1 the invoice is 10 days overdue and reaches level 1, which charges nothing. Ruth confirms the run, which"
+  say "posts no debit memo for Bayview:"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k1\"}"
+  run=$(field .id) tag=$ETAG
+  api 200 '"dunning run at \(.key_date): \(.status), \(.notice_count) notice(s), \(.charge_document_count) debit memo(s) posted"' \
+    confirmDunningRun -p "id=$run" -if-match "$tag"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$run" -p "customer_id=$customer"
+  expect "Bayview's first notice" "$(field '[.items[] | "\(.level) \(.charge_amount.amount) \(.interest_amount.amount) \(has("charge_document"))"] | join(", ")')" "1 0.00 0.00 false"
+  say "On $k2 it is 30 days overdue and reaches level 2: CAD 15.00 and interest at 9% a year, 400.00 x 9% x 30/365 = 2.96."
+  say "Confirmed, the run posts Bayview a debit memo of the two:"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k2\"}"
+  run=$(field .id) tag=$ETAG
+  api 200 '"dunning run at \(.key_date): \(.status), \(.notice_count) notice(s), \(.charge_amount.amount) charges and \(.interest_amount.amount) interest, \(.charge_document_count) debit memo(s) posted"' \
+    confirmDunningRun -p "id=$run" -if-match "$tag"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level), \(.charge_amount.amount) + \(.interest_amount.amount) \(.charge_amount.currency) posted as debit memo \(.charge_document.customer_invoice_number) on \(.charge_document.posting_date)"' \
+    listDunningNotices -p "id=$run" -p "customer_id=$customer"
+  expect "Bayview's second notice" "$(field '[.items[] | "\(.level) \(.charge_amount.amount) \(.interest_amount.amount)"] | join(", ")')" "2 15.00 2.96"
+  notice=$(field '.items[0].id') memo=$(field '.items[0].charge_document.customer_invoice_id') entry=$(field '.items[0].charge_document.journal_entry_id')
+  api 200 '"customer \(.kind | sub("_"; " ")) \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), dated \(.invoice_date), due \(.net_due_date)", (.items[] | "  \(.description): \(.net_amount.amount) on \(.account_number)")' \
+    getCustomerInvoice -p "id=$memo"
+  expect "the debit memo" "$(field '"\(.kind) \(.status) \(.gross_amount.amount) \(.tax_amount.amount) \(.invoice_date) \(.source_document_id)"')" "debit_memo posted 17.96 0.00 $TODAY $notice"
+  expect "the memo's accounts" "$(field '[.items[] | "\(.account_number) \(.net_amount.amount)"] | join(", ")')" "4810 15.00, 4820 2.96"
+  say "The memo is Bayview's open item beside its invoice:"
+  api 200 '.items[] | "open item \(.document_number) (\(.reference)): \(.amount.amount) \(.amount.currency), due \(.net_due_date)"' \
+    listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "Bayview's open items" "$(field "[.items[] | select(.journal_entry_id == \"$invoice\" or .journal_entry_id == \"$entry\") | .amount.amount] | sort | join(\" \")")" "17.96 400.00"
+  say "Ruth starts the next run twenty days later, on $k3: the invoice is 50 days overdue and reaches level 3, CAD 25.00 and"
+  say "400.00 x 9% x 50/365 = 4.93 of interest. She confirms it, a second debit memo:"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k3\"}"
+  later=$(field .id) tag=$ETAG
+  api 200 '"dunning run at \(.key_date): \(.status), \(.charge_document_count) debit memo(s) posted"' confirmDunningRun -p "id=$later" -if-match "$tag"
+  QUIET=1 api 200 '' listDunningNotices -p "id=$later" -p "customer_id=$customer"
+  expect "Bayview's third notice" "$(field '[.items[] | "\(.level) \(.charge_amount.amount) \(.interest_amount.amount) \(.charge_document.status)"] | join(", ")')" "3 25.00 4.93 posted"
+  memo2=$(field '.items[0].charge_document.customer_invoice_id')
+  say "The controller finds that the runs went out while Bayview's payment was being agreed: both are to be taken back"
+  say "(T76i). The run of $k2 cannot be cancelled first: the run of $k3 dunned its items from the level it recorded:"
+  QUIET=1 api 200 '' getDunningRun -p "id=$run"
+  refused 409 collections.run_superseded cancelDunningRun -p "id=$run" -if-match "$ETAG" -body '{"reason": "Payment being agreed with the customer"}'
+  say "Ruth cancels the run of $k3, then the run of $k2: each one's levels no longer count, and its debit memos are"
+  say "reversed on their posting dates:"
+  QUIET=1 api 200 '' getDunningRun -p "id=$later"
+  api 200 '"dunning run at \(.key_date): \(.status) (\(.cancellation_reason)), version \(.version)"' cancelDunningRun -p "id=$later" -if-match "$ETAG" \
+    -body '{"reason": "Payment being agreed with the customer"}'
+  expect "the later run" "$(field .status)" cancelled
+  QUIET=1 api 200 '' getDunningRun -p "id=$run"
+  api 200 '"dunning run at \(.key_date): \(.status) (\(.cancellation_reason)), version \(.version)"' cancelDunningRun -p "id=$run" -if-match "$ETAG" \
+    -body '{"reason": "Payment being agreed with the customer"}'
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): debit memo \(.charge_document.customer_invoice_number) \(.charge_document.status) on \(.charge_document.reversal_date)"' \
+    listDunningNotices -p "id=$run" -p "customer_id=$customer"
+  expect "Bayview's memo of the run of $k2" "$(field '[.items[].charge_document | "\(.status) \(.reversal_date == .posting_date)"] | join(", ")')" "reversed true"
+  for id in "$memo" "$memo2"; do
+    QUIET=1 api 200 '' getCustomerInvoice -p "id=$id"
+    expect "debit memo $(field .document_number)" "$(field .status)" reversed
+  done
+  say "A second cancellation is refused; a reversed memo is no longer Bayview's open item, and a new run at $k2 dunns the"
+  say "invoice from level 1 again, the level the run of $k1 recorded:"
+  QUIET=1 api 200 '' getDunningRun -p "id=$run"
+  refused 409 collections.invalid_status cancelDunningRun -p "id=$run" -if-match "$ETAG" -body '{"reason": "Payment being agreed with the customer"}'
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "Bayview's open items" "$(field "[.items[] | select(.journal_entry_id == \"$invoice\" or .journal_entry_id == \"$entry\") | .amount.amount] | join(\" \")")" "400.00"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$k2\"}"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level)", (.items[] | "  item \(.document_number): level \(.previous_level) -> \(.level)")' \
+    listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "the invoice's levels" "$(field "[.items[].items[] | select(.journal_entry_id == \"$invoice\") | \"\(.previous_level) \(.level)\"] | join(\", \")")" "1 2"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -16422,7 +16543,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_close'
 
 main() {
   stop_unseen

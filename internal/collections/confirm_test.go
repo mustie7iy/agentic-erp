@@ -122,7 +122,8 @@ func TestConfirm(t *testing.T) {
 	}
 	want := map[string]any{"dunning_run_id": id, "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "key_date": keyDate,
 		"notice_count": float64(2), "item_count": float64(3), "overdue_amount": map[string]any{"amount": "310.00", "currency": "EUR"},
-		"charge_amount": zero, "interest_amount": zero, "status": "confirmed", "status_before": "proposed", "version": float64(2)}
+		"charge_amount": zero, "interest_amount": zero, "charge_document_count": float64(0), "status": "confirmed", "status_before": "proposed",
+		"version": float64(2)}
 	if a, b := mustJSON(t, changes[1]), mustJSON(t, want); a != b {
 		t.Errorf("the confirmation's event: got %s, want %s", a, b)
 	}
@@ -140,7 +141,8 @@ func TestConfirm(t *testing.T) {
 			want := map[string]any{"dunning_notice_id": notices[i]["id"], "dunning_run_id": id, "legal_entity_id": e.DE.String(),
 				"legal_entity_code": "2000", "customer_id": w.customer.String(), "customer_number": w.number, "dunning_date": keyDate,
 				"level": float64(1), "item_count": w.items, "overdue_amount": map[string]any{"amount": w.overdue, "currency": "EUR"},
-				"charge_amount": zero, "interest_amount": zero, "total_amount": map[string]any{"amount": w.overdue, "currency": "EUR"}}
+				"charge_amount": zero, "interest_amount": zero, "total_amount": map[string]any{"amount": w.overdue, "currency": "EUR"},
+				"customer_invoice_id": nil, "customer_invoice_number": nil}
 			if a, b := mustJSON(t, issued[i]), mustJSON(t, want); a != b {
 				t.Errorf("got %s, want %s", a, b)
 			}

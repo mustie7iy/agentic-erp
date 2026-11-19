@@ -61,9 +61,9 @@ const maxInterestRate = 100_000
 // grace days 0-MaxGraceDays, the minimum amount and the levels' charges
 // amounts of the company's currency not below zero, the interest rate
 // above zero and below 100% with at most three places, and set when a
-// level charges interest.
-func (v *validator) dunning(p string, co *Company) {
-	p += ".dunning"
+// level charges interest; and the accounts its charges post to (T76h).
+func (v *validator) dunning(cp string, co *Company) {
+	p := cp + ".dunning"
 	d := co.Dunning
 	exp, known := v.exponents[co.Currency]
 	if d.GraceDays < 0 || d.GraceDays > MaxGraceDays {
@@ -78,6 +78,37 @@ func (v *validator) dunning(p string, co *Company) {
 		}
 	}
 	v.dunningLevels(p+".levels", d, exp, known)
+	v.dunningAccounts(cp, co, exp)
+}
+
+// dunningAccounts checks the accounts a company's dunning charges and
+// interest post to (T76h): a company naming neither posts nothing; one
+// naming either posts, and then names the account of each its levels
+// charge, a charge above zero the charge account and interest the
+// interest account, each a revenue account of its chart.
+func (v *validator) dunningAccounts(p string, co *Company, exp int) {
+	ad := co.AccountDetermination
+	if ad.DunningCharges == "" && ad.DunningInterest == "" {
+		return
+	}
+	var charges, interest bool
+	for _, l := range co.Dunning.Levels {
+		charges = charges || l.ChargeOf(exp) > 0
+		interest = interest || l.Interest
+	}
+	p += ".account_determination."
+	if charges || ad.DunningCharges != "" {
+		v.account(p+"dunning_charges", co, ad.DunningCharges, Revenue, false)
+	}
+	if interest || ad.DunningInterest != "" {
+		v.account(p+"dunning_interest", co, ad.DunningInterest, Revenue, false)
+	}
+}
+
+// PostsCharges says whether the company posts its dunning charges and
+// interest to the customer (T76h): it names the account of either.
+func (ad AccountDetermination) PostsCharges() bool {
+	return ad.DunningCharges != "" || ad.DunningInterest != ""
 }
 
 // dunningLevels checks the levels of a company's dunning (dunning).

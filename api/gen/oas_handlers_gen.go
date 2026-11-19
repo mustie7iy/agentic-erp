@@ -6674,6 +6674,241 @@ func (s *Server) handleCancelDownPaymentRequestRequest(args [1]string, argsEscap
 	}
 }
 
+// handleCancelDunningRunRequest handles cancelDunningRun operation.
+//
+// Cancels a confirmed dunning run, once (ADR-0065 As built, T76i), at the version the caller read
+// (`If-Match`), with a `reason`: the run becomes `cancelled` and shows the reason
+// (`cancellation_reason`). The levels and dunning dates its confirmation recorded no longer count: a
+// run started from then on, the collection worklist and a confirmation's comparison read the confirmed
+// runs alone, so each of its items is back at the level the runs before it recorded
+// (`previous_level`), and a proposal started before the cancellation is stale when it is confirmed
+// (409 `collections.proposal_stale`). Each customer debit memo its confirmation posted its notices'
+// charges and interest with (T76h, `charge_document`) is reversed in accounts receivable, in the same
+// transaction, on the memo's posting date with the cancellation's reason: the ledger posts the
+// reversal of its entry and clears the memo's open item against it, the memo becomes `reversed`, and
+// the notice's `charge_document` shows the reversal; each memo's CustomerInvoiceReversed is written
+// beside the run's audit record, DunningRunChanged (`cancelled`, status_before `confirmed`) and one
+// DunningNoticeCancelled per notice. The run's notices, items and amounts stay as they were, for the
+// record. Refused: a run that is not `confirmed`, a proposed or a cancelled one (409
+// `collections.invalid_status`), so a second cancellation reverses nothing; a run a later confirmed
+// run of the company has dunned the items of from the levels this one recorded, or the debit memos it
+// posted (409 `collections.run_superseded`, naming that run: cancel it first); a memo whose open item
+// is cleared, by a payment applied or a clearing (409 `receivables.document_cleared`;
+// `ledger.entry_cleared` when the clearing committed while the request ran: undo that clearing first);
+// a memo posted in a period that is no longer open (409 `ledger.period_not_open`); the reason missing
+// or white space alone (422 `request.validation_failed` naming `reason`). What accounts receivable or
+// the ledger refuses is answered with their code, the memo's number and the customer's leading the
+// detail, and nothing of the cancellation is done. Cancellations and confirmations of a company's runs
+// wait for each other. Cancelling takes the credit controller's permission alone: no permission of
+// accounts receivable is needed. A retry with the same `Idempotency-Key` answers the cancelled run. A
+// run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`).
+//
+// POST /v1/dunning-runs/{id}:cancel
+func (s *Server) handleCancelDunningRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelDunningRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/dunning-runs/{id}:cancel"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CancelDunningRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CancelDunningRunOperation,
+			ID:   "cancelDunningRun",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CancelDunningRunOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCancelDunningRunParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCancelDunningRunRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CancelDunningRunRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CancelDunningRunOperation,
+			OperationSummary: "Cancel a confirmed dunning run",
+			OperationID:      "cancelDunningRun",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *DunningRunCancel
+			Params   = CancelDunningRunParams
+			Response = CancelDunningRunRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCancelDunningRunParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CancelDunningRun(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CancelDunningRun(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCancelDunningRunResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCancelMemoRecordRequest handles cancelMemoRecord operation.
 //
 // Cancels an `active` or `expired` memo record (409 `cash.memo_record_closed`; an agent's proposal is
@@ -12018,8 +12253,28 @@ func (s *Server) handleCompleteYearCloseTaskRequest(args [2]string, argsEscaped 
 // at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
 // an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
 // with it. From then on a run started for the company reads the recorded level as the item's
-// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
-// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+// `previous_level` and proposes the next level, one above it at most; the highest level stays. No
+// letter or e-mail is sent. Where the company's account determination names its dunning accounts
+// (`companies[].account_determination.dunning_charges` and `.dunning_interest`, T76h), each notice
+// charged a charge or interest is posted to its customer, in the same transaction: a customer debit
+// memo (`kind` `debit_memo`, `GET /v1/customer-invoices/{id}`) is entered and posted in accounts
+// receivable with the notice as its source (`source_document_id`), the company's today in its time
+// zone as its date and posting date (the day the charge is raised, in whose fiscal year it is
+// numbered, whatever the key date), the customer's payment term and an item for the charge on the
+// charge account and one for the interest on the interest account, each only when above zero and
+// without a tax code; its entry (document type `DD`) debits the customer's reconciliation account with
+// the two, the customer's open item, and credits the accounts. The notice names its memo
+// (`charge_document`) and the run counts them (`charge_document_count`); DunningNoticeIssued names it
+// too, beside the memo's own CustomerInvoiceChanged and CustomerInvoicePosted. A company that names
+// neither account posts nothing, and the items stay as they were. What accounts receivable or the
+// ledger refuses refuses the confirmation, nothing of it recorded or posted, with their code and the
+// customer's number leading the detail: a customer that is not active, no longer a customer or blocked
+// for posting in the company (422 `receivables.customer_not_usable`), an account that can no longer be
+// posted (422 `receivables.account_not_postable`), a company without the `customer_invoice` or
+// `journal_dd` number range (422 `config.no_number_range`), a posting date in a period not open (409
+// `ledger.period_not_open`); a charge or interest whose account the company no longer names, since the
+// run was started, is refused too (422 `collections.no_charge_account`). Posting takes the credit
+// controller's permission alone: no permission of accounts receivable is needed. Before it is
 // confirmed, the proposal is compared with the open items again: when an item of it was cleared since
 // the run was started, or was dunned since by another confirmed run of the company (its recorded level
 // is no longer the run's `previous_level`), the proposal is stale and refused (409
@@ -12031,8 +12286,9 @@ func (s *Server) handleCompleteYearCloseTaskRequest(args [2]string, argsEscaped 
 // proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that
 // is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records
 // and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run
-// without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a
-// company the caller may not act in is not found (404). Human-only (`x-agent: false`).
+// without notices is confirmed too, and records nothing. A confirmed run is cancelled with
+// `cancelDunningRun` (T76i). A run of a company the caller may not act in is not found (404).
+// Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs/{id}:confirm
 func (s *Server) handleConfirmDunningRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -19727,13 +19983,14 @@ func (s *Server) handleCreateDunningBlockRequest(args [0]string, argsEscaped boo
 // and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a
 // year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away
 // from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges
-// and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused
-// (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused
-// (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed
-// ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet)
-// and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A
-// key date at which nothing is overdue gives a run without notices. A retry with the same
-// `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
+// and interest are what the notices ask for: nothing is posted until the run is confirmed
+// (`confirmDunningRun`, T76h). A key date after 2100-12-31 is refused (422
+// `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422
+// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it
+// lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one
+// whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date
+// at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+// answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (s *Server) handleCreateDunningRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -118720,11 +118977,13 @@ func (s *Server) handleReverseAssetTransferRequest(args [1]string, argsEscaped b
 // invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit
 // memo another context entered from its own document, a billing document's cancellation or a credit
 // memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is
-// corrected there; a memo whose open item is cleared, netted when a payment was applied or cleared
-// against its invoice (409 `receivables.document_cleared`: undo that clearing first;
-// `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under
-// its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry
-// with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`).
+// corrected there, and a debit memo of a dunning notice's charge and interest (T76h; the same code),
+// which the cancellation of its dunning run reverses (`cancelDunningRun`); a memo whose open item is
+// cleared, netted when a payment was applied or cleared against its invoice (409
+// `receivables.document_cleared`: undo that clearing first; `ledger.entry_cleared` when the clearing
+// committed while the request ran). The memo is read under its row lock at the version the client read
+// (`If-Match`, 412 `request.version_mismatch`); a retry with the same `Idempotency-Key` answers the
+// reversed document. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices/{id}:reverse
 func (s *Server) handleReverseCustomerInvoiceRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

@@ -748,3 +748,100 @@ from statement lines; receipts without a statement; direct debits;
 refunds; output tax corrected on a payment difference; resetting a
 clearing without reversing its entry and resetting clearings other than
 incoming payments'.
+
+## dun
+
+Placeholder: "later: dunning variants" (`plan-breadth-week1.md` §T76b,
+Later; `plan-depth-1.md` §T76e, Later; ADR-0065). Two variants are split
+here: posting a confirmed run's dunning charges and interest to the
+customer, and cancelling a confirmed run. Letters and e-mails, procedures
+per customer, charges per currency, blocks in the worklist and runs as a
+workflow stay in the placeholder. SAP S/4HANA is the reference, stated
+from memory and not checked against a source in the lane: interest on
+arrears posted to the customer as an item of its own against an interest
+revenue account (FINT), charges booked as revenue, and a dunning run's
+data reset when a run is withdrawn; nothing below depends on a fact of
+SAP's beyond that shape.
+
+### T76h Dunning charges and interest posted to the customer
+
+**Capability.** A credit controller's confirmed dunning run posts each
+notice's charge and interest to its customer as a customer debit memo,
+an open item the customer owes, against the company's dunning charge and
+interest revenue accounts, in the confirmation's transaction.
+
+- **Reuses:** T76d's charges and interest stored with the notices;
+  T75j's customer debit memo, entered and posted through receivables'
+  published API (`CreateInvoice`, `PostInvoice`) with the notice as its
+  source document (`customer_invoice_source_once`: one memo per notice),
+  as sales enters its billing documents; the ledger's posting port behind
+  it; the confirmation's status guard and company lock (T76b).
+- **Adds:** configuration `companies[].account_determination`
+  `dunning_charges` and `dunning_interest` (revenue accounts, tier 3 as
+  the account determination is): a company that names either posts, and
+  must then name the account of each it charges (a level's charge, a
+  level's interest); one that names neither posts nothing, as before.
+  Table `collections.dunning_charge`: per notice the debit memo (id,
+  number), its journal entry and posting date. The debit memo: the
+  notice's customer, the company's currency, the company's today as its
+  date and posting date, the customer's payment term, an item for the charge and one for the interest (each
+  only when above zero), no tax code (specialist question). `DunningRun`
+  `charge_document_count`; `DunningNotice` `charge_document` (the memo's
+  id and number, its posting date and status); `DunningNoticeIssued`
+  carries the memo. Collections imports receivables' published types
+  (layout), as sales does.
+- **Walkthrough:** `step_dunning_postings` (first half): Ada adds the
+  dunning accounts to the chart and names them through a governed change; Ruth posts Bayview Marine, a
+  new customer, an invoice; a run at level 1 is confirmed and posts
+  nothing for it; one at level 2 is confirmed and its notice names the
+  debit memo, the customer's open item of the charge and interest,
+  posted to the two accounts.
+- **Acceptance:** a notice with a charge or interest gets exactly one
+  posted debit memo for the two together, a notice without either none;
+  a company without the accounts posts nothing; the memo's gross is the
+  notice's charge and interest; a confirmation that receivables or the
+  ledger refuses (customer not usable, number range, period) records and
+  posts nothing; a second confirmation posts nothing; configuration
+  naming one account but charging what the other takes is refused.
+- **Depends on:** T76d, T75j (in `main`).
+
+### T76i A confirmed dunning run cancelled
+
+**Capability.** A credit controller cancels a confirmed dunning run: its
+items' dunning levels are set back to what they were before it, and the
+debit memos it posted are reversed; refused once a memo is cleared, into
+a closed period, or when a later confirmed run has dunned its items.
+
+- **Reuses:** T75k's reversal of a customer debit memo (the ledger's
+  reversal, clearing the memo's item against it); the company lock of
+  confirmations; the run's audit record and `DunningRunChanged`.
+- **Adds:** `POST /v1/dunning-runs/{id}:cancel` (`If-Match`, a reason,
+  permission `collections.dunning.run`, human-only); status `cancelled`
+  with the reason; the levels a cancelled run recorded no longer count
+  (the next run, the worklist and a confirmation's stale check read
+  confirmed runs alone); receivables' `ReverseSourced`, the reversal of a
+  debit memo by the context that entered it, on the memo's posting date
+  (a debit memo entered from a source may now be reversed, by that
+  context alone; the API still refuses it, 409
+  `receivables.entered_from_source`); 409 `collections.run_superseded`
+  when a later confirmed run dunned one of its items or a memo it posted;
+  `DunningNoticeCancelled` per notice; `charge_document` shows the
+  reversal.
+- **Walkthrough:** `step_dunning_postings` (second half): a later run at
+  level 3 is confirmed, posting a second memo; cancelling the first is refused as superseded;
+  the later run is cancelled, its memo reversed; then the first, its memo
+  reversed; the next proposal reaches level 2 again from level 1, the
+  level the run before them recorded; a second cancellation is refused.
+- **Acceptance:** after the cancellation the run's items read the level
+  of the runs before it; each memo reversed once, no longer open; a memo
+  cleared, or posted in a period now closed, refuses the cancellation and
+  nothing changes; a run not confirmed is refused (409
+  `collections.invalid_status`); a proposal started before the
+  cancellation is stale; cancelling twice reverses once.
+- **Depends on:** T76h, T75k (in `main`).
+
+**Later (still in the placeholder):** letters and e-mails; procedures per
+customer; charges and minimum amounts per currency; blocks in the
+collection worklist; scheduled and large runs as a workflow; a
+cancellation's reversal on a date of its own; tax on charges, should a
+pilot country levy it.

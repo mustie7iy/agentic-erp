@@ -18229,7 +18229,7 @@ paths:
       tags:
         - receivables
       summary: Reverse a customer credit memo or debit memo
-      description: "Reverses a posted customer credit memo or debit memo, once (ADR-0063 As built T75k): the ledger posts the reversal of its journal entry, the original's lines with the signs turned, its document type, reference and `source_context` kept, its tax items taken back on the original's tax date, and clears the memo's open item against the reversal's, so neither is open. The reversal posts on `posting_date`, else on the memo's own posting date; that date must be in an open period (409 `ledger.period_not_open`, the period's problem: give a date in an open period) and not before the memo posted (422 `receivables.reversal_before_posting` naming `posting_date`). The document becomes `reversed` and shows its reversal (`reversal_entry_id`, `reversal_entry_year`, `reversal_entry_number`, `reversal_posting_date`) and the `reason`; an audit record and CustomerInvoiceReversed, without the reason, are written with it. A reversed credit memo no longer counts against the gross amount of the invoice it names (`postCustomerInvoice`, 422 `receivables.credit_exceeds_invoice`): the credit it took is free for another memo. Refused: a document that is not posted, a draft or one reversed already (409 `receivables.invalid_status`); an invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit memo another context entered from its own document, a billing document's cancellation or a credit memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is corrected there; a memo whose open item is cleared, netted when a payment was applied or cleared against its invoice (409 `receivables.document_cleared`: undo that clearing first; `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`)."
+      description: "Reverses a posted customer credit memo or debit memo, once (ADR-0063 As built T75k): the ledger posts the reversal of its journal entry, the original's lines with the signs turned, its document type, reference and `source_context` kept, its tax items taken back on the original's tax date, and clears the memo's open item against the reversal's, so neither is open. The reversal posts on `posting_date`, else on the memo's own posting date; that date must be in an open period (409 `ledger.period_not_open`, the period's problem: give a date in an open period) and not before the memo posted (422 `receivables.reversal_before_posting` naming `posting_date`). The document becomes `reversed` and shows its reversal (`reversal_entry_id`, `reversal_entry_year`, `reversal_entry_number`, `reversal_posting_date`) and the `reason`; an audit record and CustomerInvoiceReversed, without the reason, are written with it. A reversed credit memo no longer counts against the gross amount of the invoice it names (`postCustomerInvoice`, 422 `receivables.credit_exceeds_invoice`): the credit it took is free for another memo. Refused: a document that is not posted, a draft or one reversed already (409 `receivables.invalid_status`); an invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit memo another context entered from its own document, a billing document's cancellation or a credit memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is corrected there, and a debit memo of a dunning notice's charge and interest (T76h; the same code), which the cancellation of its dunning run reverses (`cancelDunningRun`); a memo whose open item is cleared, netted when a payment was applied or cleared against its invoice (409 `receivables.document_cleared`: undo that clearing first; `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`)."
       x-permission: receivables.invoice.post
       x-agent: false
       x-problem-codes:
@@ -19136,6 +19136,7 @@ paths:
             x-extensible-enum:
               - proposed
               - confirmed
+              - cancelled
         - name: key_date_from
           in: query
           required: false
@@ -19173,7 +19174,7 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items` (T76e). An item a customer promised to pay (`createPromiseToPay`) by a date on or after the key date is in no notice either, unless blocked: the run lists it in `promised_items` with its promise, outside its totals, and not in `disputed_items` (T76f). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. The company's dunning procedure applies as the configuration has it when the run is started, and the run keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`, and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items` (T76e). An item a customer promised to pay (`createPromiseToPay`) by a date on or after the key date is in no notice either, unless blocked: the run lists it in `promised_items` with its promise, outside its totals, and not in `disputed_items` (T76f). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. The company's dunning procedure applies as the configuration has it when the run is started, and the run keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`, and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges and interest are what the notices ask for: nothing is posted until the run is confirmed (`confirmDunningRun`, T76h). A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -19262,12 +19263,85 @@ paths:
       tags:
         - collections
       summary: Confirm a dunning run
-      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the item or its customer, placed since and holding for the run's key date, blocks (T76e), and one with an item a customer promised since, by a date on or after the run's key date, to pay (T76f). Nothing of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. No letter or e-mail is sent. Where the company's account determination names its dunning accounts (`companies[].account_determination.dunning_charges` and `.dunning_interest`, T76h), each notice charged a charge or interest is posted to its customer, in the same transaction: a customer debit memo (`kind` `debit_memo`, `GET /v1/customer-invoices/{id}`) is entered and posted in accounts receivable with the notice as its source (`source_document_id`), the company's today in its time zone as its date and posting date (the day the charge is raised, in whose fiscal year it is numbered, whatever the key date), the customer's payment term and an item for the charge on the charge account and one for the interest on the interest account, each only when above zero and without a tax code; its entry (document type `DD`) debits the customer's reconciliation account with the two, the customer's open item, and credits the accounts. The notice names its memo (`charge_document`) and the run counts them (`charge_document_count`); DunningNoticeIssued names it too, beside the memo's own CustomerInvoiceChanged and CustomerInvoicePosted. A company that names neither account posts nothing, and the items stay as they were. What accounts receivable or the ledger refuses refuses the confirmation, nothing of it recorded or posted, with their code and the customer's number leading the detail: a customer that is not active, no longer a customer or blocked for posting in the company (422 `receivables.customer_not_usable`), an account that can no longer be posted (422 `receivables.account_not_postable`), a company without the `customer_invoice` or `journal_dd` number range (422 `config.no_number_range`), a posting date in a period not open (409 `ledger.period_not_open`); a charge or interest whose account the company no longer names, since the run was started, is refused too (422 `collections.no_charge_account`). Posting takes the credit controller's permission alone: no permission of accounts receivable is needed. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the item or its customer, placed since and holding for the run's key date, blocks (T76e), and one with an item a customer promised since, by a date on or after the run's key date, to pay (T76f). Nothing of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is cancelled with `cancelDunningRun` (T76i). A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
         - collections.invalid_status
+        - collections.no_charge_account
         - collections.proposal_stale
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.credit_exceeds_invoice
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
+        - receivables.invalid_status
+        - receivables.items_required
+        - receivables.no_tax_account
+        - receivables.reference_not_allowed
+        - receivables.tax_changed
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
+        - receivables.unknown_currency
+        - receivables.unknown_kind
+        - receivables.unknown_payment_term
+        - receivables.unknown_tax_code
+        - request.invalid_amount
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -19276,6 +19350,105 @@ paths:
       responses:
         "200":
           description: "The confirmed run."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-runs/{id}:cancel":
+    post:
+      operationId: cancelDunningRun
+      tags:
+        - collections
+      summary: Cancel a confirmed dunning run
+      description: "Cancels a confirmed dunning run, once (ADR-0065 As built, T76i), at the version the caller read (`If-Match`), with a `reason`: the run becomes `cancelled` and shows the reason (`cancellation_reason`). The levels and dunning dates its confirmation recorded no longer count: a run started from then on, the collection worklist and a confirmation's comparison read the confirmed runs alone, so each of its items is back at the level the runs before it recorded (`previous_level`), and a proposal started before the cancellation is stale when it is confirmed (409 `collections.proposal_stale`). Each customer debit memo its confirmation posted its notices' charges and interest with (T76h, `charge_document`) is reversed in accounts receivable, in the same transaction, on the memo's posting date with the cancellation's reason: the ledger posts the reversal of its entry and clears the memo's open item against it, the memo becomes `reversed`, and the notice's `charge_document` shows the reversal; each memo's CustomerInvoiceReversed is written beside the run's audit record, DunningRunChanged (`cancelled`, status_before `confirmed`) and one DunningNoticeCancelled per notice. The run's notices, items and amounts stay as they were, for the record. Refused: a run that is not `confirmed`, a proposed or a cancelled one (409 `collections.invalid_status`), so a second cancellation reverses nothing; a run a later confirmed run of the company has dunned the items of from the levels this one recorded, or the debit memos it posted (409 `collections.run_superseded`, naming that run: cancel it first); a memo whose open item is cleared, by a payment applied or a clearing (409 `receivables.document_cleared`; `ledger.entry_cleared` when the clearing committed while the request ran: undo that clearing first); a memo posted in a period that is no longer open (409 `ledger.period_not_open`); the reason missing or white space alone (422 `request.validation_failed` naming `reason`). What accounts receivable or the ledger refuses is answered with their code, the memo's number and the customer's leading the detail, and nothing of the cancellation is done. Cancellations and confirmations of a company's runs wait for each other. Cancelling takes the credit controller's permission alone: no permission of accounts receivable is needed. A retry with the same `Idempotency-Key` answers the cancelled run. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: collections.dunning.run
+      x-agent: false
+      x-problem-codes:
+        - collections.invalid_status
+        - collections.run_superseded
+        - config.no_number_range
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unknown_unit
+        - receivables.document_cleared
+        - receivables.entered_from_source
+        - receivables.invalid_status
+        - receivables.invoice_not_reversible
+        - receivables.reversal_before_posting
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of cancelDunningRun.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DunningRunCancel"
+            examples:
+              cancel:
+                summary: Cancel a run confirmed at the wrong key date
+                value:
+                  reason: Run at the wrong key date; the notices were not sent.
+      responses:
+        "200":
+          description: "The cancelled run."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -59156,8 +59329,8 @@ components:
             journal_entry_id: {type: string, format: uuid, description: "The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year. Absent until posted.", readOnly: true}
             journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
-            source_document_id: {type: string, format: uuid, description: "The document the invoice was entered from: the billing document that posted it (`GET /v1/billing-documents/{id}`, `postBillingDocument`). Absent for an invoice a person entered (`createCustomerInvoice`).", readOnly: true}
-            source_document_number: {type: string, description: "That document's number; absent with `source_document_id`.", readOnly: true}
+            source_document_id: {type: string, format: uuid, description: "The document the invoice was entered from: the billing document that posted it (`GET /v1/billing-documents/{id}`, `postBillingDocument`), or, for a debit memo of dunning charges and interest, the dunning notice whose run's confirmation posted it (`listDunningNotices`, `confirmDunningRun`; T76h), which the run's cancellation reverses (`cancelDunningRun`, T76i). Absent for an invoice a person entered (`createCustomerInvoice`).", readOnly: true}
+            source_document_number: {type: string, description: "That document's number, a dunning notice's id for a dunning notice, which has no number; absent with `source_document_id`.", readOnly: true}
             reversal_entry_id: {type: string, format: uuid, description: "The journal entry that reversed the document's entry (`GET /v1/journal-entries/{id}`, `reverseCustomerInvoice`). Absent unless `reversed`.", readOnly: true}
             reversal_entry_year: {type: integer, format: int32, description: "The reversal entry's fiscal year. Absent unless `reversed`.", readOnly: true}
             reversal_entry_number: {type: string, description: "The reversal entry's document number. Absent unless `reversed`.", readOnly: true}
@@ -59679,7 +59852,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, charge_amount, interest_amount, total_amount, grace_days, minimum_amount, below_minimum_notice_count, below_minimum_amount, disputed_item_count, disputed_amount, disputed_items, blocked_item_count, blocked_amount, blocked_items, promised_item_count, promised_amount, promised_items]
+          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, charge_amount, interest_amount, total_amount, grace_days, minimum_amount, below_minimum_notice_count, below_minimum_amount, disputed_item_count, disputed_amount, disputed_items, blocked_item_count, blocked_amount, blocked_items, promised_item_count, promised_amount, promised_items, charge_document_count]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customers the run duns.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -59687,8 +59860,8 @@ components:
             key_date: {type: string, format: date, description: "The date the items' days overdue were counted on.", readOnly: true}
             status:
               type: string
-              x-extensible-enum: [proposed, confirmed]
-              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date, the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [proposed, confirmed, cancelled]
+              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date, the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. `cancelled`: the confirmation was taken back (`cancelDunningRun`, T76i): its recorded levels no longer count, the debit memos it posted are reversed, `cancellation_reason` says why and `updated_at` and `updated_by` when and by whom. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of `overdue_amount`.", readOnly: true}
             notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
@@ -59696,7 +59869,7 @@ components:
             overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were booked."}
             charge_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `charge_amount`, in the company's currency (T76d); 0 when their levels charge none."}
             interest_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `interest_amount`, in the company's currency (T76d); 0 when their levels charge none."}
-            total_amount: {$ref: "#/components/schemas/Money", description: "What the notices ask for in all: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted."}
+            total_amount: {$ref: "#/components/schemas/Money", description: "What the notices ask for in all: `overdue_amount`, `charge_amount` and `interest_amount` together. The charges and interest are posted to the customers when the run is confirmed, where the company names its dunning accounts (`charge_document_count`, T76h)."}
             grace_days: {type: integer, format: int32, minimum: 0, maximum: 365, description: "The company's grace days when the run was started (`companies[].dunning.grace_days`, T76d): an item overdue by no more days was not proposed; 0 for none, and for runs started before grace days existed.", readOnly: true}
             minimum_amount: {$ref: "#/components/schemas/Money", description: "The company's minimum amount when the run was started (`companies[].dunning.minimum_amount`, T76d), in its currency: a notice whose `overdue_amount` would have been below it was not proposed; 0 for none."}
             interest_rate_percent: {type: string, pattern: "^[0-9]{1,2}\\.[0-9]{3}$", description: "The company's annual dunning interest rate when the run was started (`companies[].dunning.interest_rate_percent`, T76d), in percent with three places; absent when it has none.", readOnly: true}
@@ -59723,6 +59896,8 @@ components:
               items: {$ref: "#/components/schemas/DunningRunPromisedItem"}
               description: "The items the run would have proposed but left out, each for a promise to pay whose `promised_date` is on or after the key date (T76f), by customer and item; in no notice and in none of the run's totals. An item blocked is listed in `blocked_items` alone, and an item promised is not listed in `disputed_items`. Empty when none was promised, and for runs started before promises to pay existed."
               readOnly: true
+            cancellation_reason: {type: string, description: "Why the run was cancelled (`cancelDunningRun`, T76i); absent unless `cancelled`.", readOnly: true}
+            charge_document_count: {type: integer, format: int32, minimum: 0, description: "The customer debit memos the run's confirmation posted (T76h): one per notice charged a charge or interest, where the company's account determination names its dunning accounts (`companies[].account_determination.dunning_charges`, `.dunning_interest`); each notice names its own (`charge_document`, `GET /v1/dunning-runs/{id}/notices`). 0 for a run not confirmed, one whose notices are charged nothing, and one of a company that names neither account, which posts nothing.", readOnly: true}
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
           version: 1
@@ -59755,6 +59930,7 @@ components:
           promised_item_count: 0
           promised_amount: {amount: "0.00", currency: CAD}
           promised_items: []
+          charge_document_count: 0
           disputed_items:
             - dispute_case_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
               customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
@@ -59829,12 +60005,13 @@ components:
         overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `local_amount`, in the company's currency."}
         charge_amount: {$ref: "#/components/schemas/Money", description: "The dunning charge of the notice's level (`companies[].dunning.levels[].charge`, T76d), in the company's currency; 0 when the level charges none. A level above the configured ones (kept from a confirmed run after the company dropped levels) takes the highest configured level's charge and interest."}
         interest_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `interest_amount`, in the company's currency (T76d)."}
-        total_amount: {$ref: "#/components/schemas/Money", description: "What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted."}
+        total_amount: {$ref: "#/components/schemas/Money", description: "What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. The charge and interest are posted when the run is confirmed, where the company names its dunning accounts (`charge_document`)."}
         items:
           type: array
           items: {$ref: "#/components/schemas/DunningNoticeItem"}
           description: "The customer's overdue items, by item number."
           readOnly: true
+        charge_document: {$ref: "#/components/schemas/DunningChargeDocument"}
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
           dunning_run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
@@ -59862,6 +60039,33 @@ components:
               previous_level: 0
               level: 1
               interest_amount: {amount: "0.00", currency: CAD}
+    DunningChargeDocument:
+      type: object
+      description: "The customer debit memo a confirmed dunning run posted a notice's charge and interest with (T76h): absent from a notice charged nothing, from one of a run not confirmed and from one of a company that names neither dunning account. Its gross amount is the notice's `charge_amount` and `interest_amount` together, in the company's currency."
+      required: [customer_invoice_id, customer_invoice_number, journal_entry_id, journal_entry_year, posting_date, status]
+      properties:
+        customer_invoice_id: {type: string, format: uuid, description: "The debit memo (`GET /v1/customer-invoices/{id}`, `kind` `debit_memo`), whose `source_document_id` is the notice.", readOnly: true}
+        customer_invoice_number: {type: string, description: "The debit memo's document number.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The memo's journal entry (`GET /v1/journal-entries/{id}`): it debits the customer's reconciliation account, the customer's open item (`GET /v1/open-items`), and credits the dunning charge and interest accounts.", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The date the memo posted on, also its date: the company's today when the run was confirmed.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [posted, reversed]
+          description: "`posted`: the memo stands. `reversed`: the run was cancelled (`cancelDunningRun`, T76i) and the memo reversed; the reversal is named beside. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        reversal_entry_id: {type: string, format: uuid, description: "The journal entry that reversed the memo's (`GET /v1/journal-entries/{id}`), clearing its open item. Absent unless `reversed`.", readOnly: true}
+        reversal_entry_year: {type: integer, format: int32, description: "The reversal entry's fiscal year. Absent unless `reversed`.", readOnly: true}
+        reversal_date: {type: string, format: date, description: "The date the reversal posted on: the memo's posting date. Absent unless `reversed`.", readOnly: true}
+    DunningRunCancel:
+      type: object
+      description: "Cancel a confirmed dunning run."
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 200, description: "Why the run is cancelled: a text, not white space alone (422 `request.validation_failed` naming `reason`). Kept with the run and given to the reversal of each debit memo it posted; not in the events or the audit records."}
+      examples:
+        - reason: Run at the wrong key date; the notices were not sent.
     DunningNoticePage:
       type: object
       description: One page of a dunning run's notices.

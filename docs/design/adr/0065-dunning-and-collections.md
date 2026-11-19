@@ -935,3 +935,149 @@ reference), each listed for the product owner's digest.
   date it is back with its last contact; a later message without a
   resubmission date brings it back at once; its contacts read the latest
   first.
+
+### T76h Dunning charges and interest posted (migration 000400)
+
+Decided by default under this ADR (`plan-depth-3.md` §T76h; product
+owner 2026-11-17: the variants start; SAP S/4HANA's interest on arrears
+posted to the customer, FINT, as the reference, from memory), each
+listed for the product owner's digest. It changes §1 and T76d's
+"Nothing is posted": a confirmed run posts.
+
+- **Where it posts.** Through receivables' published API, as sales posts
+  its billing documents (ADR-0067 §9): per notice charged a charge or
+  interest, one customer debit memo (T75j, document type `DD`) entered
+  and posted in the confirmation's transaction, after its status guard,
+  naming the notice as its source document (`source_document_id`, the
+  notice's id also as its number: a notice has none), so receivables
+  takes it once (`customer_invoice_source_once`). Its entry debits the
+  customer's reconciliation account, the customer's open item, which a
+  later run duns like any other once it is overdue, and credits the
+  charge and the interest on their accounts. One memo for the two rather
+  than one each: one document per notice for the customer, as the notice
+  asks for both together.
+- **Accounts.** `companies[].account_determination.dunning_charges` and
+  `.dunning_interest`, revenue accounts of the company's chart; tier 3,
+  posting-relevant, as the account determination is. A company naming
+  neither posts nothing (T76d's behaviour, every company today); one
+  naming either posts, and must name the account of each its levels
+  charge (a charge above zero, interest), or the configuration is
+  refused naming the missing one. The charges, rate and levels stay tier
+  2: they change what a notice asks for, as a price does, not where it
+  posts. Collections resolves the numbers through the ledger's account
+  reads (`ledger.AssetReads.Accounts`), not the ledger's account
+  determination rows, which keep a removed key's account.
+- **The memo.** The notice's customer, the company's currency, the
+  company's today in its time zone (`clock`, `CompanyDay`) as its date
+  and posting date: the day the charge is raised, in whose fiscal year it
+  is numbered and due by the customer's payment term in the company. Not
+  the run's key date, which may lie in a fiscal year without a
+  `customer_invoice` range yet (the walkthrough's future key dates found
+  it). An item "Dunning charge, level n" on the charge account and one
+  "Interest on overdue items to <key date>" on the interest account, each
+  only when above zero, without a tax code.
+- **Refusals.** What receivables or the ledger refuses refuses the whole
+  confirmation, nothing recorded or posted, with their code and the
+  customer's number leading the detail and without their field errors,
+  which name the memo's fields (`problem.Led`, moved to the platform for
+  any context that posts through another's): a customer that is not
+  usable (blocked for posting, without data in the company), an account
+  no longer postable, a missing `customer_invoice` or `journal_dd` range,
+  a period not open. A charge or interest whose account the
+  configuration no longer names since the run was proposed is 422
+  `collections.no_charge_account`. The controller blocks such a customer
+  from dunning (T76e) and starts a new run. Posting needs the credit
+  controller's `collections.dunning.run` alone, as billing's posting
+  needs no permission of receivables.
+- **Stored.** `collections.dunning_charge`: per notice the memo's id and
+  number, its entry and posting date; insert-only, one per notice and
+  per memo (03 §3.27, `db/dunning_charge_test.go`). `DunningRun`
+  `charge_document_count`, `DunningNotice` `charge_document`;
+  `DunningNoticeIssued` names the memo (`customer_invoice_id`, `_number`,
+  null for none) and `DunningRunChanged` the count. Receivables' API
+  refuses to reverse such a memo, naming the dunning notice
+  (`receivables.entered_from_source`).
+- **Layout.** Collections imports receivables' published types for the
+  port (`collections.Invoices`), as sales does; it stays a leaf, nothing
+  imports it.
+- **Size.** A run of 5,000 items has at most as many notices, each a
+  memo entered and posted in the one transaction; runs as a workflow stay
+  later.
+- **Specialist question.** Whether a pilot country taxes dunning charges
+  or interest on late payment (VAT/GST): posted without a tax code, as
+  outside the scope of tax, stated from memory and not checked.
+- **Walkthrough.** `step_dunning_postings` (step 138), first half: Ada
+  adds 4810 Dunning charges and 4820 Interest on overdue receivables and
+  names them through a governed change; Bayview Marine's CAD 400.00
+  invoice is dunned at level 1 without a memo, then at level 2: a debit
+  memo of CAD 15.00 and 2.96 interest, on the two accounts, Bayview's
+  open item.
+
+### T76i A confirmed dunning run cancelled (migrations 000401, 000402)
+
+Decided by default under this ADR (`plan-depth-3.md` §T76i; SAP's reset
+of a dunning run's dunning data, from memory, as the reference), each
+listed for the product owner's digest. It changes §8's "a confirmed run
+is not cancelled".
+
+- **What a cancellation does.** `POST /v1/dunning-runs/{id}:cancel`
+  (`If-Match`, a `reason`, permission `collections.dunning.run`,
+  human-only and on `collectionsagent.Never`) moves a confirmed run to
+  `cancelled` once, by an update guarded by its status under the
+  company's dunning lock, which confirmations take too (`lockDunning`).
+  The levels its confirmation recorded stay in `dunned_item`, insert-only,
+  and no longer count: `recorded` reads the records of confirmed runs
+  alone, so the next run, the worklist and a confirmation's stale check
+  see each item at the level the runs before it recorded. A proposal
+  started before the cancellation is stale (the times its items were
+  dunned changed). The run's notices and amounts stay, for the record.
+- **Latest first.** A run whose items a later confirmed run dunned from
+  the levels this one recorded (that run's `previous_dunnings` above this
+  one's), or whose debit memos a later run dunned, is refused, 409
+  `collections.run_superseded`, naming the latest such run: its levels
+  were reached through this one's, and cancelling it first keeps every
+  item's recorded levels a chain one level at a time (the
+  `dunning_notice_item_dunnings_check` invariant).
+- **Memos reversed.** Each debit memo its confirmation posted (T76h) is
+  reversed through receivables' new published `ReverseSourced`, for the
+  context that entered it, with the cancellation's reason, on the memo's
+  own posting date (T75k's reversal: the ledger reverses the entry and
+  clears the memo's item against it). A memo whose item is cleared (409
+  `receivables.document_cleared`, `ledger.entry_cleared`) or posted in a
+  period no longer open (409 `ledger.period_not_open`) refuses the whole
+  cancellation, its number and customer leading the detail; nothing is
+  done. A reversal on a date of its own (into the next open period) is
+  later. Receivables' API still refuses to reverse such a memo, naming
+  the dunning notice and this operation (`receivables.entered_from_source`);
+  `customer_invoice_reversed` admits a reversed debit memo with a source.
+- **Stored.** `dunning_run.cancellation_reason` (1-200 characters, not
+  white space alone, exactly when cancelled, `dunning_run_cancelled`) and
+  status `cancelled`; the trigger `dunning_run_confirmed_once` admits
+  confirmed → cancelled and no change after it. `dunning_charge` names the
+  memo's reversal (entry year and id, date not before the memo posted,
+  `dunning_charge_reversed`), set once (trigger
+  `dunning_charge_reversed_once`, for every role). Checks added NOT VALID,
+  validated by 000402 (03 §3.27, `db/dunning_cancel_test.go`,
+  `db/dunning_charge_test.go`). The reverts are refused while a run is
+  cancelled or a sourced memo reversed.
+- **API and events.** `DunningRun.cancellation_reason`, status
+  `cancelled`; `DunningChargeDocument.status` (`posted`, `reversed`) with
+  the reversal. `DunningRunChanged` (`cancelled` from `confirmed`) and one
+  `DunningNoticeCancelled` per notice, naming the customer by id and
+  number and the reversed memo, so a subscriber that wrote to the customer
+  withdraws the notice. Neither event nor the audit record carries the
+  reason (ADR-0079); the run and the memos keep it.
+- **Concurrency.** Cancellation and confirmation of a company's runs
+  serialize on the lock; a cancellation racing a later proposal's
+  confirmation either makes that proposal stale or is refused as
+  superseded, and two cancellations of a run cancel once
+  (`TestCancellationsSerialize`). Locks after the company's: the run's
+  row, then each memo's row (receivables) and its entry (ledger), the
+  order an incoming payment's application never reverses (it locks
+  entries alone).
+- **Walkthrough.** `step_dunning_postings` (step 138), second half: a
+  level 3 run posts Bayview a second memo; cancelling the level 2 run
+  first is refused as superseded; the level 3 run is cancelled, then the
+  level 2 run, each memo reversed on its posting date; a second
+  cancellation is refused; Bayview's open items are its invoice alone and
+  a new run dunns it from level 1 again.

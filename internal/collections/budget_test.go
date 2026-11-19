@@ -60,6 +60,9 @@ func TestCollectionWorklistBudget(t *testing.T) {
 	exec(`INSERT INTO ledger.open_item_terms (tenant_id, fiscal_year, journal_entry_id, line_no, payment_term_code, baseline_date, net_days)
 		SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, 'NT30', DATE '2026-01-01' + (abs(hashtext(l.journal_entry_id::text)) % 300), 30
 		FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2`, e.Tenant.ID, e.receivable)
+	// The confirmed run the levels were recorded by: only a confirmed run's count (T76i).
+	exec(`INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count, overdue_amount,
+			created_by, updated_by) VALUES ($1, md5('run')::uuid, $2, '2026-08-31', 'confirmed', 'EUR', 0, 0, 0, $3, $3)`, e.Tenant.ID, e.DE, e.Tenant.Human.ID)
 	exec(`INSERT INTO collections.dunned_item (tenant_id, fiscal_year, journal_entry_id, line_no, dunning_run_id, level, dunning_date)
 		SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, md5('run')::uuid, 1, '2026-08-31'
 		FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2`, e.Tenant.ID, e.receivable)
@@ -87,7 +90,7 @@ func TestCollectionWorklistBudget(t *testing.T) {
 			CASE WHEN n % 20 = 0 AND k = 3 THEN DATE '2026-10-01' ELSE DATE '2026-09-10' END, $3, $3
 		FROM generate_series(0, 1999) n, generate_series(1, 3) k`, e.Tenant.ID, e.DE, e.Tenant.Human.ID)
 	exec(`RESET session_replication_role`)
-	exec(`ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms, collections.dunned_item, collections.dispute_case,
+	exec(`ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms, collections.dunned_item, collections.dunning_run, collections.dispute_case,
 		collections.promise_to_pay, collections.promise_to_pay_item, collections.customer_contact, partner.business_partner`)
 	var times []time.Duration
 	for range 10 {

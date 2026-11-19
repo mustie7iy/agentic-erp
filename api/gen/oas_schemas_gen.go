@@ -18672,6 +18672,70 @@ type CancelDownPaymentRequestUnprocessableEntity Problem
 
 func (*CancelDownPaymentRequestUnprocessableEntity) cancelDownPaymentRequestRes() {}
 
+type CancelDunningRunBadRequest Problem
+
+func (*CancelDunningRunBadRequest) cancelDunningRunRes() {}
+
+type CancelDunningRunForbidden Problem
+
+func (*CancelDunningRunForbidden) cancelDunningRunRes() {}
+
+type CancelDunningRunNotFound Problem
+
+func (*CancelDunningRunNotFound) cancelDunningRunRes() {}
+
+// CancelDunningRunOKHeaders wraps DunningRun with response headers.
+type CancelDunningRunOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           DunningRun
+}
+
+// GetETag returns the value of ETag.
+func (s *CancelDunningRunOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CancelDunningRunOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CancelDunningRunOKHeaders) GetResponse() DunningRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CancelDunningRunOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CancelDunningRunOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CancelDunningRunOKHeaders) SetResponse(val DunningRun) {
+	s.Response = val
+}
+
+func (*CancelDunningRunOKHeaders) cancelDunningRunRes()  {}
+func (*CancelDunningRunOKHeaders) confirmDunningRunRes() {}
+
+type CancelDunningRunPreconditionFailed Problem
+
+func (*CancelDunningRunPreconditionFailed) cancelDunningRunRes() {}
+
+type CancelDunningRunPreconditionRequired Problem
+
+func (*CancelDunningRunPreconditionRequired) cancelDunningRunRes() {}
+
+type CancelDunningRunUnprocessableEntity Problem
+
+func (*CancelDunningRunUnprocessableEntity) cancelDunningRunRes() {}
+
 type CancelMemoRecordBadRequest Problem
 
 func (*CancelMemoRecordBadRequest) cancelMemoRecordRes() {}
@@ -27530,45 +27594,6 @@ type ConfirmDunningRunNotFound Problem
 
 func (*ConfirmDunningRunNotFound) confirmDunningRunRes() {}
 
-// ConfirmDunningRunOKHeaders wraps DunningRun with response headers.
-type ConfirmDunningRunOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           DunningRun
-}
-
-// GetETag returns the value of ETag.
-func (s *ConfirmDunningRunOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *ConfirmDunningRunOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *ConfirmDunningRunOKHeaders) GetResponse() DunningRun {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *ConfirmDunningRunOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *ConfirmDunningRunOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ConfirmDunningRunOKHeaders) SetResponse(val DunningRun) {
-	s.Response = val
-}
-
-func (*ConfirmDunningRunOKHeaders) confirmDunningRunRes() {}
-
 type ConfirmDunningRunPreconditionFailed Problem
 
 func (*ConfirmDunningRunPreconditionFailed) confirmDunningRunRes() {}
@@ -27757,6 +27782,7 @@ func (*ConflictHeaders) cancelAssetRes()                           {}
 func (*ConflictHeaders) cancelBillingDocumentRes()                 {}
 func (*ConflictHeaders) cancelContractRes()                        {}
 func (*ConflictHeaders) cancelDownPaymentRequestRes()              {}
+func (*ConflictHeaders) cancelDunningRunRes()                      {}
 func (*ConflictHeaders) cancelMemoRecordRes()                      {}
 func (*ConflictHeaders) cancelOperationRes()                       {}
 func (*ConflictHeaders) cancelParkedJournalEntryRes()              {}
@@ -38763,10 +38789,13 @@ type CustomerInvoice struct {
 	// The entry's document number. Absent until posted.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// The document the invoice was entered from: the billing document that posted it
-	// (`GET /v1/billing-documents/{id}`, `postBillingDocument`). Absent for an invoice a person entered
-	// (`createCustomerInvoice`).
+	// (`GET /v1/billing-documents/{id}`, `postBillingDocument`), or, for a debit memo of dunning charges
+	// and interest, the dunning notice whose run's confirmation posted it (`listDunningNotices`,
+	// `confirmDunningRun`; T76h), which the run's cancellation reverses (`cancelDunningRun`, T76i). Absent
+	// for an invoice a person entered (`createCustomerInvoice`).
 	SourceDocumentID OptUUID `json:"source_document_id"`
-	// That document's number; absent with `source_document_id`.
+	// That document's number, a dunning notice's id for a dunning notice, which has no number; absent with
+	// `source_document_id`.
 	SourceDocumentNumber OptString `json:"source_document_number"`
 	// The journal entry that reversed the document's entry (`GET /v1/journal-entries/{id}`,
 	// `reverseCustomerInvoice`). Absent unless `reversed`.
@@ -43126,6 +43155,128 @@ func (s *DunningBlockPage) SetNextPageToken(val OptString) {
 
 func (*DunningBlockPage) listDunningBlocksRes() {}
 
+// The customer debit memo a confirmed dunning run posted a notice's charge and interest with (T76h):
+// absent from a notice charged nothing, from one of a run not confirmed and from one of a company that
+// names neither dunning account. Its gross amount is the notice's `charge_amount` and
+// `interest_amount` together, in the company's currency.
+// Ref: #/components/schemas/DunningChargeDocument
+type DunningChargeDocument struct {
+	// The debit memo (`GET /v1/customer-invoices/{id}`, `kind` `debit_memo`), whose `source_document_id`
+	// is the notice.
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// The debit memo's document number.
+	CustomerInvoiceNumber string `json:"customer_invoice_number"`
+	// The memo's journal entry (`GET /v1/journal-entries/{id}`): it debits the customer's reconciliation
+	// account, the customer's open item (`GET /v1/open-items`), and credits the dunning charge and
+	// interest accounts.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The date the memo posted on, also its date: the company's today when the run was confirmed.
+	PostingDate time.Time `json:"posting_date"`
+	// `posted`: the memo stands. `reversed`: the run was cancelled (`cancelDunningRun`, T76i) and the memo
+	// reversed; the reversal is named beside. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The journal entry that reversed the memo's (`GET /v1/journal-entries/{id}`), clearing its open item.
+	// Absent unless `reversed`.
+	ReversalEntryID OptUUID `json:"reversal_entry_id"`
+	// The reversal entry's fiscal year. Absent unless `reversed`.
+	ReversalEntryYear OptInt32 `json:"reversal_entry_year"`
+	// The date the reversal posted on: the memo's posting date. Absent unless `reversed`.
+	ReversalDate OptDate `json:"reversal_date"`
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *DunningChargeDocument) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *DunningChargeDocument) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DunningChargeDocument) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *DunningChargeDocument) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DunningChargeDocument) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetStatus returns the value of Status.
+func (s *DunningChargeDocument) GetStatus() string {
+	return s.Status
+}
+
+// GetReversalEntryID returns the value of ReversalEntryID.
+func (s *DunningChargeDocument) GetReversalEntryID() OptUUID {
+	return s.ReversalEntryID
+}
+
+// GetReversalEntryYear returns the value of ReversalEntryYear.
+func (s *DunningChargeDocument) GetReversalEntryYear() OptInt32 {
+	return s.ReversalEntryYear
+}
+
+// GetReversalDate returns the value of ReversalDate.
+func (s *DunningChargeDocument) GetReversalDate() OptDate {
+	return s.ReversalDate
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *DunningChargeDocument) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *DunningChargeDocument) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DunningChargeDocument) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *DunningChargeDocument) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DunningChargeDocument) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DunningChargeDocument) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetReversalEntryID sets the value of ReversalEntryID.
+func (s *DunningChargeDocument) SetReversalEntryID(val OptUUID) {
+	s.ReversalEntryID = val
+}
+
+// SetReversalEntryYear sets the value of ReversalEntryYear.
+func (s *DunningChargeDocument) SetReversalEntryYear(val OptInt32) {
+	s.ReversalEntryYear = val
+}
+
+// SetReversalDate sets the value of ReversalDate.
+func (s *DunningChargeDocument) SetReversalDate(val OptDate) {
+	s.ReversalDate = val
+}
+
 // A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer.
 // Ref: #/components/schemas/DunningNotice
 type DunningNotice struct {
@@ -43153,10 +43304,12 @@ type DunningNotice struct {
 	// The sum of the items' `interest_amount`, in the company's currency (T76d).
 	InterestAmount Money `json:"interest_amount"`
 	// What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount`
-	// together. Nothing is posted.
+	// together. The charge and interest are posted when the run is confirmed, where the company names its
+	// dunning accounts (`charge_document`).
 	TotalAmount Money `json:"total_amount"`
 	// The customer's overdue items, by item number.
-	Items []DunningNoticeItem `json:"items"`
+	Items          []DunningNoticeItem      `json:"items"`
+	ChargeDocument OptDunningChargeDocument `json:"charge_document"`
 }
 
 // GetID returns the value of ID.
@@ -43219,6 +43372,11 @@ func (s *DunningNotice) GetItems() []DunningNoticeItem {
 	return s.Items
 }
 
+// GetChargeDocument returns the value of ChargeDocument.
+func (s *DunningNotice) GetChargeDocument() OptDunningChargeDocument {
+	return s.ChargeDocument
+}
+
 // SetID sets the value of ID.
 func (s *DunningNotice) SetID(val uuid.UUID) {
 	s.ID = val
@@ -43277,6 +43435,11 @@ func (s *DunningNotice) SetTotalAmount(val Money) {
 // SetItems sets the value of Items.
 func (s *DunningNotice) SetItems(val []DunningNoticeItem) {
 	s.Items = val
+}
+
+// SetChargeDocument sets the value of ChargeDocument.
+func (s *DunningNotice) SetChargeDocument(val OptDunningChargeDocument) {
+	s.ChargeDocument = val
 }
 
 // An item of a dunning notice: a customer's open item overdue on the run's key date, as the run read
@@ -43516,9 +43679,11 @@ type DunningRun struct {
 	KeyDate time.Time `json:"key_date"`
 	// `proposed`: the notices are a proposal; nothing changed on the items and nothing was sent.
 	// `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date,
-	// the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. `cancelled`: the
+	// confirmation was taken back (`cancelDunningRun`, T76i): its recorded levels no longer count, the
+	// debit memos it posted are reversed, `cancellation_reason` says why and `updated_at` and `updated_by`
+	// when and by whom. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
 	Status string `json:"status"`
 	// The company's currency (ISO 4217), the currency of `overdue_amount`.
 	Currency string `json:"currency"`
@@ -43536,7 +43701,8 @@ type DunningRun struct {
 	// charge none.
 	InterestAmount Money `json:"interest_amount"`
 	// What the notices ask for in all: `overdue_amount`, `charge_amount` and `interest_amount` together.
-	// Nothing is posted.
+	// The charges and interest are posted to the customers when the run is confirmed, where the company
+	// names its dunning accounts (`charge_document_count`, T76h).
 	TotalAmount Money `json:"total_amount"`
 	// The company's grace days when the run was started (`companies[].dunning.grace_days`, T76d): an item
 	// overdue by no more days was not proposed; 0 for none, and for runs started before grace days
@@ -43587,6 +43753,14 @@ type DunningRun struct {
 	// totals. An item blocked is listed in `blocked_items` alone, and an item promised is not listed in
 	// `disputed_items`. Empty when none was promised, and for runs started before promises to pay existed.
 	PromisedItems []DunningRunPromisedItem `json:"promised_items"`
+	// Why the run was cancelled (`cancelDunningRun`, T76i); absent unless `cancelled`.
+	CancellationReason OptString `json:"cancellation_reason"`
+	// The customer debit memos the run's confirmation posted (T76h): one per notice charged a charge or
+	// interest, where the company's account determination names its dunning accounts
+	// (`companies[].account_determination.dunning_charges`, `.dunning_interest`); each notice names its
+	// own (`charge_document`, `GET /v1/dunning-runs/{id}/notices`). 0 for a run not confirmed, one whose
+	// notices are charged nothing, and one of a company that names neither account, which posts nothing.
+	ChargeDocumentCount int32 `json:"charge_document_count"`
 }
 
 // GetID returns the value of ID.
@@ -43749,6 +43923,16 @@ func (s *DunningRun) GetPromisedItems() []DunningRunPromisedItem {
 	return s.PromisedItems
 }
 
+// GetCancellationReason returns the value of CancellationReason.
+func (s *DunningRun) GetCancellationReason() OptString {
+	return s.CancellationReason
+}
+
+// GetChargeDocumentCount returns the value of ChargeDocumentCount.
+func (s *DunningRun) GetChargeDocumentCount() int32 {
+	return s.ChargeDocumentCount
+}
+
 // SetID sets the value of ID.
 func (s *DunningRun) SetID(val uuid.UUID) {
 	s.ID = val
@@ -43909,6 +44093,16 @@ func (s *DunningRun) SetPromisedItems(val []DunningRunPromisedItem) {
 	s.PromisedItems = val
 }
 
+// SetCancellationReason sets the value of CancellationReason.
+func (s *DunningRun) SetCancellationReason(val OptString) {
+	s.CancellationReason = val
+}
+
+// SetChargeDocumentCount sets the value of ChargeDocumentCount.
+func (s *DunningRun) SetChargeDocumentCount(val int32) {
+	s.ChargeDocumentCount = val
+}
+
 // An item a dunning run left out for a dunning block (T76e): a customer's open item overdue on the
 // run's key date that would have reached a dunning level, as the run read it.
 // Ref: #/components/schemas/DunningRunBlockedItem
@@ -44060,6 +44254,25 @@ func (s *DunningRunBlockedItem) SetAmount(val Money) {
 // SetLocalAmount sets the value of LocalAmount.
 func (s *DunningRunBlockedItem) SetLocalAmount(val Money) {
 	s.LocalAmount = val
+}
+
+// Cancel a confirmed dunning run.
+// Ref: #/components/schemas/DunningRunCancel
+type DunningRunCancel struct {
+	// Why the run is cancelled: a text, not white space alone (422 `request.validation_failed` naming
+	// `reason`). Kept with the run and given to the reversal of each debit memo it posted; not in the
+	// events or the audit records.
+	Reason string `json:"reason"`
+}
+
+// GetReason returns the value of Reason.
+func (s *DunningRunCancel) GetReason() string {
+	return s.Reason
+}
+
+// SetReason sets the value of Reason.
+func (s *DunningRunCancel) SetReason(val string) {
+	s.Reason = val
 }
 
 // Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue
@@ -76864,6 +77077,52 @@ func (o OptDepreciationRunError) Get() (v DepreciationRunError, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptDepreciationRunError) Or(d DepreciationRunError) DepreciationRunError {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptDunningChargeDocument returns new OptDunningChargeDocument with value set to v.
+func NewOptDunningChargeDocument(v DunningChargeDocument) OptDunningChargeDocument {
+	return OptDunningChargeDocument{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptDunningChargeDocument is optional DunningChargeDocument.
+type OptDunningChargeDocument struct {
+	Value DunningChargeDocument
+	Set   bool
+}
+
+// IsSet returns true if OptDunningChargeDocument was set.
+func (o OptDunningChargeDocument) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptDunningChargeDocument) Reset() {
+	var v DunningChargeDocument
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptDunningChargeDocument) SetTo(v DunningChargeDocument) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptDunningChargeDocument) Get() (v DunningChargeDocument, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptDunningChargeDocument) Or(d DunningChargeDocument) DunningChargeDocument {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -114109,6 +114368,7 @@ func (*TooManyRequestsHeaders) cancelAssetRes()                           {}
 func (*TooManyRequestsHeaders) cancelBillingDocumentRes()                 {}
 func (*TooManyRequestsHeaders) cancelContractRes()                        {}
 func (*TooManyRequestsHeaders) cancelDownPaymentRequestRes()              {}
+func (*TooManyRequestsHeaders) cancelDunningRunRes()                      {}
 func (*TooManyRequestsHeaders) cancelMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) cancelOperationRes()                       {}
 func (*TooManyRequestsHeaders) cancelParkedJournalEntryRes()              {}
@@ -115049,6 +115309,7 @@ func (*UnauthorizedHeaders) cancelAssetRes()                           {}
 func (*UnauthorizedHeaders) cancelBillingDocumentRes()                 {}
 func (*UnauthorizedHeaders) cancelContractRes()                        {}
 func (*UnauthorizedHeaders) cancelDownPaymentRequestRes()              {}
+func (*UnauthorizedHeaders) cancelDunningRunRes()                      {}
 func (*UnauthorizedHeaders) cancelMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) cancelOperationRes()                       {}
 func (*UnauthorizedHeaders) cancelParkedJournalEntryRes()              {}

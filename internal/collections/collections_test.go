@@ -311,7 +311,8 @@ func (e env) recorded(t *testing.T, id string) {
 	}
 	want := map[string]any{"dunning_run_id": id, "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "key_date": keyDate,
 		"notice_count": float64(2), "item_count": float64(3), "overdue_amount": map[string]any{"amount": "310.00", "currency": "EUR"},
-		"charge_amount": zero, "interest_amount": zero, "status": "proposed", "status_before": nil, "version": float64(1)}
+		"charge_amount": zero, "interest_amount": zero, "charge_document_count": float64(0), "status": "proposed", "status_before": nil,
+		"version": float64(1)}
 	if a, b := mustJSON(t, events[0]), mustJSON(t, want); a != b {
 		t.Errorf("event payload: got %s, want %s", a, b)
 	}

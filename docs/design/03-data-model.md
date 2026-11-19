@@ -529,7 +529,11 @@ nine, each with an optional `charge` in the company's currency and
 procedure's `grace_days` 0-365, `minimum_amount` in the company's currency
 and annual `interest_rate_percent` above 0 and below 100 with three
 places, needed when a level charges interest, T76d; operational, tier 2;
-a company without levels has no dunning, §3.27). Its retention rules (`retention`, optional, ADR-0079 §2: per document kind, `journal_entry` or `personal_data`, once each, the whole `years` from 0 to 99 a document is kept after its fiscal year's last day; tier 3, two approvers, product owner 2026-11-13; none shipped, and a kind without a rule has nothing past retention, §3.32). The amounts are read with the digits of the
+a company without levels has no dunning, §3.27; the revenue accounts a
+confirmed run posts the charges and interest to,
+`account_determination.dunning_charges` and `.dunning_interest`, T76h,
+posting-relevant, tier 3: a company naming either posts and names the
+account of each its levels charge, one naming neither posts nothing). Its retention rules (`retention`, optional, ADR-0079 §2: per document kind, `journal_entry` or `personal_data`, once each, the whole `years` from 0 to 99 a document is kept after its fiscal year's last day; tier 3, two approvers, product owner 2026-11-13; none shipped, and a kind without a rule has nothing past retention, §3.32). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -4690,14 +4694,17 @@ erDiagram
   document being reversed. Nothing deletes an invoice. An invoice another
   context entered names the document it came from by id and number, both
   or neither (`customer_invoice_source`; T79b, migration 000296: a
-  billing document of sales), and a document is invoiced once
+  billing document of sales; T76h: a dunning notice of collections, whose
+  number is its id, on a debit memo), and a document is invoiced once
   (`customer_invoice_source_once`); the source is written with the
   invoice and not among the columns the application may update. A
   reversed credit or debit memo (T75k, migration 000381) names the
   reversal of its entry by year and id, the date it posted on and a
   reason of 1 to 200 characters, all together exactly when reversed; only
-  a credit or debit memo without a source document is reversed, on or
-  after its posting date (`customer_invoice_reversed`); a reversal entry
+  a credit or debit memo without a source document, or a debit memo with
+  one (a dunning notice's, reversed for collections, T76i, migration
+  000401), is reversed, on or after its posting date
+  (`customer_invoice_reversed`); a reversal entry
   is one document's (`customer_invoice_reversal_once`); the trigger
   `customer_invoice_posted_once` admits posted → reversed, keeping what
   the document posted with, and no change after it.
@@ -4807,7 +4814,8 @@ erDiagram
 ADR-0065, T76a-T76c, T86a-T86b. A leaf: it reads the ledger's customer open items
 (§3.7, `ledger.OpenItems.Receivable`), the partner context's names, the
 identity context's people (T86a), tenancy and the configuration through
-its ports, posts nothing and keeps
+its ports, posts only a confirmed run's charges and interest, as customer
+debit memos through receivables (T76h, §3.26), and keeps
 no foreign key out of its schema (02 §2.1). T76a (migration 000273)
 builds the schema with its outbox and inbox and the dunning run: a
 proposal of the customer items of a company overdue on a key date, one
@@ -4825,16 +4833,21 @@ and interest rate, and charges its notices their level's charge and
 their items interest; nothing is posted. T76e (migration 000354) adds the
 dunning block: a customer, or one of its open items, that the company
 does not dun up to an end date; a run lists the items it holds back.
+T76h (migration 000400) posts a confirmed run's charges and interest: a
+customer debit memo per notice charged anything, which `dunning_charge`
+names. T76i (migrations 000401, 000402) cancels a confirmed run: its
+recorded levels no longer count and its memos are reversed.
 
 ```mermaid
 erDiagram
   dunning_run ||--o{ dunning_notice : "proposes"
+  dunning_notice ||--o| dunning_charge : "charged by a debit memo when confirmed"
   dunning_notice ||--|{ dunning_notice_item : "has"
   dunning_notice_item ||--o| dunned_item : "recorded when confirmed"
   dunning_run { uuid id PK
     uuid legal_entity_id "tenancy"
     date key_date
-    text status "proposed, confirmed"
+    text status "proposed, confirmed, cancelled"
     char currency "the company's"
     int notice_count
     int item_count
@@ -4848,6 +4861,7 @@ erDiagram
     int below_minimum_count "notices left out"
     bigint below_minimum_amount "their amount"
     jsonb blocked_items "items left out for a block"
+    text cancellation_reason "when cancelled"
     int version }
   dunning_notice { uuid id PK
     uuid dunning_run_id FK
@@ -4881,6 +4895,16 @@ erDiagram
     uuid dunning_run_id PK "the confirmed run"
     smallint level "1-9"
     date dunning_date "the run's key date" }
+  dunning_charge { uuid dunning_notice_id PK
+    uuid dunning_run_id "its notice's"
+    uuid customer_invoice_id "receivables: the debit memo"
+    text customer_invoice_number
+    smallint journal_entry_year "ledger: the memo's entry"
+    uuid journal_entry_id
+    date posting_date
+    smallint reversal_entry_year "ledger: when its run was cancelled"
+    uuid reversal_entry_id
+    date reversal_date }
   dunning_block { uuid id PK
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner"
@@ -4943,7 +4967,13 @@ erDiagram
   `dunning_run_below_minimum_amount_check`), an amount only with notices
   (which may amount to 0, an item booked at 0.00) and notices only with
   a minimum (`dunning_run_below_minimum_check`). Each defaults to
-  none, and the application's update grant leaves them out.
+  none, and the application's update grant leaves them out. T76i
+  (migration 000401): a confirmed run moves to `cancelled` once, with
+  `cancellation_reason`, 1 to 200 characters not white space alone,
+  exactly when cancelled (`dunning_run_cancelled`); the trigger
+  `dunning_run_confirmed_once` admits proposed → confirmed and confirmed
+  → cancelled alone, and the application may set the reason too. A
+  cancelled run's `dunned_item` rows stay and are not read.
 - `collections.dunning_notice`: one per customer in a run
   (`dunning_notice_customer_once`), at a level from 1 to 9
   (`dunning_notice_level_check`), with at least one item
@@ -4980,6 +5010,21 @@ erDiagram
   (`dunned_item_level_check`); insert-only. An item's level is the
   highest among its rows and its last dunning date the latest; an item at
   the highest level gets a row per confirmed run that took it.
+- `collections.dunning_charge` (T76h, migration 000400): the customer
+  debit memo (receivables, §3.26) a confirmed run posted a notice's
+  charge and interest with, by its id and number (1 to 40 characters,
+  `dunning_charge_invoice_number_check`), its journal entry and posting
+  date; one per notice (the primary key), a notice of its run
+  (`dunning_charge_notice_fkey`), a memo charging one notice
+  (`dunning_charge_invoice_once`). The memo names the notice as its
+  source document. A run's charges are read by run
+  (`dunning_charge_by_run`). Its down migration is refused while a charge
+  exists. Fixed but for the reversal of its memo when its run is
+  cancelled (T76i, migration 000401): the reversal's entry by year and id
+  and its date, not before the memo posted, all together or none
+  (`dunning_charge_reversed`), set once and then fixed, and nothing
+  deletes a charge (the trigger `dunning_charge_reversed_once`, for every
+  role).
 - `collections.dunning_block` (T76e, migration 000354): a customer, by
   its number (`dunning_block_customer_number_check`), and either an open
   item by its whole journal line with its document number or none of

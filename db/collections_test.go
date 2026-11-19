@@ -65,7 +65,7 @@ func TestDunningRunRules(t *testing.T) {
 			return all(tx, step(run, s.tenant, s.run, "proposed", "EUR", 0, 0, 0))
 		}, ""},
 		{"a run in an unknown status", func(tx pgx.Tx, s scene) error {
-			return all(tx, step(run, s.tenant, s.run, "cancelled", "EUR", 0, 0, 0))
+			return all(tx, step(run, s.tenant, s.run, "withdrawn", "EUR", 0, 0, 0))
 		}, "dunning_run_status_check"},
 		{"a run in an unknown currency", func(tx pgx.Tx, s scene) error {
 			return all(tx, step(run, s.tenant, s.run, "proposed", "XXA", 0, 0, 0))

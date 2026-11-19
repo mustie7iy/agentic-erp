@@ -152,3 +152,65 @@ func TestDunningLevelsTier(t *testing.T) {
 		})
 	}
 }
+
+// TestDunningAccounts: a company naming neither dunning account posts
+// nothing and validates whatever it charges; one naming either posts,
+// and then names a revenue account of its chart for each its levels
+// charge (T76h); the accounts are posting-relevant, tier 3.
+func TestDunningAccounts(t *testing.T) {
+	charging := func(t *testing.T) *Config {
+		t.Helper()
+		c := withDunning(t)
+		co := c.Company("1000")
+		co.Dunning.InterestRatePercent = "9.000"
+		co.Dunning.Levels[1].Charge, co.Dunning.Levels[2].Interest = "15.00", true
+		return c
+	}
+	none := charging(t)
+	if fs := Validate(none, currency.Seeded()); HasErrors(fs) || none.Company("1000").AccountDetermination.PostsCharges() {
+		t.Fatalf("charges without accounts: got %v, posts %v, want no errors and no posting", fs, none.Company("1000").AccountDetermination.PostsCharges())
+	}
+	both := charging(t)
+	both.Company("1000").AccountDetermination.DunningCharges, both.Company("1000").AccountDetermination.DunningInterest = "400000", "400000"
+	if fs := Validate(both, currency.Seeded()); HasErrors(fs) || !both.Company("1000").AccountDetermination.PostsCharges() {
+		t.Fatalf("both accounts: got %v, posts %v, want no errors and posting", fs, both.Company("1000").AccountDetermination.PostsCharges())
+	}
+	const p = "companies[1000].account_determination."
+	cases := []struct {
+		name              string
+		charges, interest string
+		noCharge          bool
+		path, message     string
+	}{
+		{"interest charged without its account", "400000", "", false, p + "dunning_interest", "is required"},
+		{"a charge without its account", "", "400000", false, p + "dunning_charges", "is required"},
+		{"a charge account not in the chart", "499999", "400000", false, p + "dunning_charges", "not in the chart"},
+		{"an interest account that is an expense", "400000", "510000", false, p + "dunning_interest", "expected revenue"},
+		{"an account named though nothing is charged", "100000", "", true, p + "dunning_charges", "expected revenue"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := charging(t)
+			co := c.Company("1000")
+			co.AccountDetermination.DunningCharges, co.AccountDetermination.DunningInterest = tc.charges, tc.interest
+			if tc.noCharge {
+				co.Dunning.Levels[1].Charge, co.Dunning.Levels[2].Interest = "", false
+			}
+			fs := Validate(c, currency.Seeded())
+			if !slices.ContainsFunc(fs, func(f Finding) bool {
+				return f.Severity == SevError && f.Path == tc.path && strings.Contains(f.Message, tc.message)
+			}) {
+				t.Errorf("findings: got %v, want an error at %s saying %q", fs, tc.path, tc.message)
+			}
+		})
+	}
+	diffs, _ := Diff(none, both) // Diff never fails
+	for _, d := range diffs {
+		if d.Tier != TierPostingRelated {
+			t.Errorf("tier of %s: got %v, want %v", d.Path, d.Tier, TierPostingRelated)
+		}
+	}
+	if len(diffs) != 2 {
+		t.Errorf("changes: got %d, want the two accounts", len(diffs))
+	}
+}

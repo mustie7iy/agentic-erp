@@ -3121,9 +3121,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A credit controller's confirmed dunning run posts each notice's dunning charge and interest to its customer as a customer debit memo against the company's dunning charge and interest revenue accounts (account determination dunning_charges, dunning_interest), one memo per notice, in the confirmation's transaction; a company without the accounts posts nothing",
+        "r": "T76h · docs/design/plan-depth-3.md §T76h · db/migrations/000400 · collections.dunning_charge · companies[].account_determination.dunning_charges, .dunning_interest (tier 3) · DunningRun.charge_document_count · DunningNotice.charge_document · DunningNoticeIssued customer_invoice_id · 422 collections.no_charge_account · receivables.CreateInvoice/PostInvoice (debit memo, source the notice) · problem.Led · TestChargesPosted, TestChargesNotPosted, TestChargeRefusals, TestDunningAccounts, TestDunningChargeRules · walkthrough step_dunning_postings · ADR-0065 As built T76h, ADR-0063 As built",
+        "src": "split:T76e · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A credit controller cancels a confirmed dunning run: its items' dunning levels set back, the debit memos it posted reversed; refused once a memo is cleared, into a closed period, or when a later confirmed run dunned its items (POST /v1/dunning-runs/{id}:cancel)",
+        "r": "T76i · docs/design/plan-depth-3.md §T76i · db/migrations/000401, 000402 · POST /v1/dunning-runs/{id}:cancel · dunning_run status cancelled, cancellation_reason · dunning_charge reversal · DunningChargeDocument.status · DunningNoticeCancelled · 409 collections.run_superseded · receivables.ReverseSourced · customer_invoice_reversed widened · collectionsagent.Never · TestCancelRun, TestCancelStaleProposal, TestCancelRefusals, TestCancellationsSerialize, TestReverseSourced, TestDunningRunCancellation · walkthrough step_dunning_postings · ADR-0065 As built T76i, ADR-0063 As built",
+        "src": "split:T76e · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: dunning variants: letters and e-mails, procedures per customer, charges and minimum amounts per currency, posting dunning charges and interest, blocks in the collection worklist, scheduled and large runs as a workflow, cancelling a confirmed run (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T76b, Later · docs/design/plan-depth-1.md §T76e, Later",
+        "t": "later: dunning variants: letters and e-mails, procedures per customer, charges and minimum amounts per currency, blocks in the collection worklist, scheduled and large runs as a workflow, a cancellation's reversal on a date of its own, tax on dunning charges (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T76b, Later · docs/design/plan-depth-1.md §T76e, Later · docs/design/plan-depth-3.md §dun, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }

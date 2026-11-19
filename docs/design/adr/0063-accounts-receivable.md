@@ -1502,3 +1502,28 @@ longer holds.
   to agree with; (6) a tier 3 change.
 - **For the specialist:** as for T75f, whether the output tax must be
   corrected on what is written off (the first version posts none).
+
+### T76h Debit memos a dunning run enters (no migration of its own)
+
+Recorded for ADR-0065 As built T76h, which decides it. Collections enters
+and posts a customer debit memo per dunning notice charged a charge or
+interest through `CreateInvoice` and `PostInvoice`, as sales enters its
+billing documents: the notice is its source document, by id and with its
+id as its number (a notice has none). Nothing in receivables changes but
+the reversal's refusal (`reversible`): a debit memo entered from a
+source is a dunning notice's (sales enters credit memos alone), and
+`receivables.entered_from_source` names it so.
+
+### T76i Reversing a debit memo for the context that entered it (migrations 000401, 000402)
+
+Recorded for ADR-0065 As built T76i. `ReverseSourced` is T75k's reversal
+for the context that entered a debit memo from its document (collections,
+cancelling a dunning run): the caller names the source, which must be the
+memo's (otherwise an error, not a refusal); there is no `If-Match`, the
+caller checking the version of its own document; the reversal posts on
+the memo's posting date with the caller's reason; everything else is
+refused as T75k refuses it (not posted, cleared, a period not open).
+`customer_invoice_reversed` now admits a reversed debit memo with a
+source document; a credit memo with one (sales') still is not reversed.
+The API's `reverseCustomerInvoice` refuses both, naming the dunning
+notice and `cancelDunningRun` for a debit memo.
