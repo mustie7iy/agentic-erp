@@ -221,23 +221,23 @@ type Handler interface {
 	// application left; one that is no longer open, all applied or cleared otherwise, is refused (409
 	// `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared` when another request
 	// cleared it meanwhile, as two applications racing for it end). The items are the customer's open
-	// items in the company, invoices and credits, in the payment's currency, refused as
-	// `createIncomingPayment` refuses them, each naming its place in the request as the field `items[i]`,
-	// and each may name a `residual` as there. Together, net of their residuals, they may be less than the
-	// credit: what is left stays on account as a new credit of the customer's, a line of the application's
-	// clearing entry, at the credit's rate. More than the credit is refused (422
-	// `ledger.clearing_not_balanced`) but for an underpayment within the company's payment tolerance,
-	// written off to its `payment_difference_expense` account. One clearing entry, document type `DZ`,
-	// `source_context` `receivables`, its source document the payment, offsets the credit and the items at
-	// the amounts they were booked at and clears them all; an exchange difference is realized as
-	// `createIncomingPayment` realizes one. The posting date is the request's, else today, the company's
-	// date in its time zone, in an open period and on or after the latest posting date of the credit and
-	// the items. The application is numbered in the payment from 1; its items join the payment's items
-	// with its number. The payment's `version` moves with each application (`ETag`), and the answer is the
-	// payment with the application, which its `applications` list last. Audited, and published as
-	// IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry
-	// with the same `Idempotency-Key` answers the payment as the first answered it. Human-only
-	// (`x-agent: false`).
+	// items in the company, invoices and credits, in the payment's currency or another, translated into
+	// the payment's on the posting date and refused as `createIncomingPayment` translates and refuses them
+	// (T75n), each naming its place in the request as the field `items[i]`, and each may name a `residual`
+	// as there. Together, net of their residuals, they may be less than the credit: what is left stays on
+	// account as a new credit of the customer's, a line of the application's clearing entry, at the
+	// credit's rate. More than the credit is refused (422 `ledger.clearing_not_balanced`) but for an
+	// underpayment within the company's payment tolerance, written off to its `payment_difference_expense`
+	// account. One clearing entry, document type `DZ`, `source_context` `receivables`, its source document
+	// the payment, offsets the credit and the items at the amounts they were booked at and clears them
+	// all; an exchange difference is realized as `createIncomingPayment` realizes one. The posting date is
+	// the request's, else today, the company's date in its time zone, in an open period and on or after
+	// the latest posting date of the credit and the items. The application is numbered in the payment from
+	// 1; its items join the payment's items with its number. The payment's `version` moves with each
+	// application (`ETag`), and the answer is the payment with the application, which its `applications`
+	// list last. Audited, and published as IncomingPaymentOnAccountApplied. One of a company the caller
+	// may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as the
+	// first answered it. Human-only (`x-agent: false`).
 	//
 	// POST /v1/incoming-payments/{id}/applications
 	ApplyIncomingPaymentOnAccount(ctx context.Context, req *IncomingPaymentApplicationCreate, params ApplyIncomingPaymentOnAccountParams) (ApplyIncomingPaymentOnAccountRes, error)
@@ -1819,22 +1819,31 @@ type Handler interface {
 	// line matched as incoming posted, whose credit line waits as an open item on the house bank's
 	// incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are
 	// open items of the customer on customer reconciliation accounts of the company
-	// (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency. An item paid in part
-	// names its `residual`: what stays open of it, more than zero and less than the item, which is an
-	// amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more
-	// than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422
-	// `receivables.currency_mismatch`), with a reason (422 `receivables.unknown_residual_reason`) and, if
-	// wanted, a free text that is not white space alone (422 `request.validation_failed`). Together the
-	// items, net of their residuals, equal the receipt, but for a payment difference within the company's
-	// payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in
-	// the company's currency and a percent of the items applied, the lower binding; none configured, none
-	// allowed); anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the
-	// difference. No cash discount is granted. One clearing entry, document type `DZ`, `source_context`
-	// `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them
-	// all; each residual is a new open item of the customer, a debit line of that entry on the item's
-	// account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due
-	// when the item did; a difference is a line on the company's `payment_difference_expense` account (an
-	// underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
+	// (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency or another (T75n): an
+	// item in another currency is translated into the receipt's at the average exchange rate valid on the
+	// posting date between the two (`GET /v1/exchange-rates`, either direction, the reciprocal when only
+	// the reverse pair is recorded; no rate through a third currency), rounded once half away from zero,
+	// and is cleared at its own rate: the clearing entry, in the receipt's currency, offsets it at that
+	// amount and at the local and group amounts it was booked at, so what the translation leaves is part
+	// of the realized exchange difference below. An item without such a rate that day is refused (422
+	// `ledger.no_exchange_rate`), as is one that translates to nothing in the receipt's currency (422
+	// `ledger.item_rounds_to_zero`), each naming `items[i]`; residuals, the tolerance and what is left on
+	// account are in the receipt's currency for every item. An item paid in part names its `residual`:
+	// what stays open of it, more than zero and less than the item, which is an amount the customer owes
+	// (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more than zero (422
+	// `receivables.amount_not_positive`) in the receipt's currency (422 `receivables.currency_mismatch`),
+	// with a reason (422 `receivables.unknown_residual_reason`) and, if wanted, a free text that is not
+	// white space alone (422 `request.validation_failed`). Together the items, net of their residuals,
+	// equal the receipt, but for a payment difference within the company's payment tolerance
+	// (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's
+	// currency and a percent of the items applied, the lower binding; none configured, none allowed);
+	// anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No
+	// cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`,
+	// offsets the receipt and every item at the amounts they were booked at and clears them all; each
+	// residual is a new open item of the customer, a debit line of that entry on the item's account at the
+	// item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item
+	// did; a difference is a line on the company's `payment_difference_expense` account (an underpayment)
+	// or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
 	// `ledger.no_payment_difference_account` without it); what that leaves in local or group currency,
 	// receipt and items having been booked at different rates, is a realized exchange difference on the
 	// company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date
@@ -1855,12 +1864,11 @@ type Handler interface {
 	// open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as
 	// are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a
 	// cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409
-	// `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds
-	// (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its
-	// place in the request as the field `items[i]`. Nothing is posted when the application is refused. A
-	// retry with the same `Idempotency-Key` answers the payment applied; another request for the same
-	// receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only
-	// (`x-agent: false`).
+	// `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`) and one a payment run
+	// holds (409 `ledger.item_reserved`), each naming its place in the request as the field `items[i]`.
+	// Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers
+	// the payment applied; another request for the same receipt is refused while the payment is applied.
+	// `resetIncomingPayment` undoes it (T75i). Human-only (`x-agent: false`).
 	//
 	// POST /v1/incoming-payments
 	CreateIncomingPayment(ctx context.Context, req *IncomingPaymentCreate, params CreateIncomingPaymentParams) (CreateIncomingPaymentRes, error)

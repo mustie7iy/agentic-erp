@@ -1205,9 +1205,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant applies a receipt in one currency to a customer's items in another: each item translated into the receipt's currency at the average rate valid on the posting date and cleared at its own rate, the realized exchange difference posted to fx_gain or fx_loss; refused when no rate is valid on the day",
-        "r": "T75n · docs/design/plan-depth-3.md §T75n · ADR-0063 §6 and As built",
+        "r": "T75n · docs/design/plan-depth-3.md §T75n · item_amount and exchange_rate on IncomingPaymentItem, items in another currency on POST /v1/incoming-payments and POST /v1/incoming-payments/{id}/applications (422 ledger.no_exchange_rate, ledger.item_rounds_to_zero) · db/migrations/000395 · ledger.Translation, AppliedReceipt.Translations (internal/ledger/receiptfx.go) · TestApplyReceiptInAnotherCurrency, TestApplyReceiptInAnotherCurrencyRefusals, TestReceiptInAnotherCurrency, db TestIncomingPaymentTranslationRules · walkthrough step_receipt_other_currency · ADR-0063 §6 and As built T75n",
         "src": "split:T75c · adr:ADR-0063",
         "c": []
        },

@@ -46644,6 +46644,35 @@ func (s *IncomingPaymentItem) Validate() error {
 		})
 	}
 	if err := func() error {
+		if err := s.ItemAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "item_amount",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.ExchangeRate.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "exchange_rate",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if value, ok := s.Residual.Get(); ok {
 			if err := func() error {
 				if err := value.Validate(); err != nil {

@@ -64,6 +64,14 @@ type PaymentItem struct {
 	// ApplicationNo is the application of the payment's credit on account
 	// that applied the item (T75g); 0 for the payment itself.
 	ApplicationNo int32 `json:"application_no"`
+	// An item in another currency than the payment's (T75n): its own
+	// currency, with that currency's minor-unit digits, its own amount,
+	// signed as Amount, and the rate it was translated at; nil for an item
+	// in the payment's currency.
+	ItemCurrency *string      `json:"item_currency"`
+	ItemExponent *int         `json:"item_exponent"`
+	ItemAmount   *money.Minor `json:"item_amount"`
+	ExchangeRate *string      `json:"exchange_rate"`
 }
 
 // IncomingPayment is a row of receivables.incoming_payment with its
@@ -125,7 +133,9 @@ const paymentSelect = `SELECT p.id, p.document_number, p.legal_entity_id, p.cust
 		p.posting_date, p.currency, c.exponent, p.amount, p.difference, p.clearing_entry_year, p.clearing_entry_id,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'customer_id', coalesce(t.customer_id, p.customer_id), 'fiscal_year', t.fiscal_year, 'journal_entry_id', t.journal_entry_id,
 			'line_no', t.line_no, 'amount', t.amount, 'residual_amount', t.residual_amount, 'residual_line_no', t.residual_line_no,
-			'residual_reason', t.residual_reason, 'residual_reason_text', t.residual_reason_text, 'application_no', t.application_no) ORDER BY t.item_no)
+			'residual_reason', t.residual_reason, 'residual_reason_text', t.residual_reason_text, 'application_no', t.application_no,
+			'item_currency', t.item_currency, 'item_exponent', (SELECT x.exponent FROM ref.currency x WHERE x.code = t.item_currency), 'item_amount', t.item_amount,
+			'exchange_rate', t.exchange_rate::text) ORDER BY t.item_no)
 		 FROM receivables.incoming_payment_item t WHERE t.tenant_id = p.tenant_id AND t.incoming_payment_id = p.id), '[]'),
 		p.on_account_amount, p.on_account_line_no, p.on_account_account_id,
 		coalesce((SELECT json_agg(json_build_object('application_no', a.application_no, 'posting_date', a.posting_date, 'credit_entry_year', a.credit_entry_year,
@@ -508,24 +518,30 @@ type applying struct {
 
 // insertPaymentItems writes the items of an application, numbered from after
 // the first, in the request's order, each with the amount the ledger
-// cleared it at and its residual item, if it left one.
+// cleared it at, its residual item, if it left one, and for an item in
+// another currency its own amount and rate (T75n).
 func insertPaymentItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, first, application int32, a applying, applied ledger.AppliedReceipt) error {
 	n := len(a.items)
 	nos, years, entries, lines := make([]int32, n), make([]int16, n), make([]uuid.UUID, n), make([]int32, n)
 	amounts, residualLines, reasons, texts := make([]*money.Minor, n), make([]*int32, n), make([]*string, n), make([]*string, n)
+	currencies, owns, rates := make([]*string, n), make([]*money.Minor, n), make([]*string, n)
 	for i, it := range a.items {
 		nos[i], years[i], entries[i], lines[i] = first+int32(i+1), it.FiscalYear, it.EntryID, it.LineNo
 		if line := applied.ResidualLines[i]; line != 0 { // a residual the request gave (residualsOf)
 			amount := a.residuals[i].Amount
 			amounts[i], residualLines[i], reasons[i], texts[i] = &amount, &line, &a.inputs[i].Reason, a.inputs[i].Text
 		}
+		if tr := applied.Translations[i]; tr.Currency != "" { // translated into the payment's currency (T75n)
+			currencies[i], owns[i], rates[i] = &tr.Currency, &tr.Amount, &tr.Rate
+		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount,
-			residual_amount, residual_line_no, residual_reason, residual_reason_text, application_no, customer_id)
-		SELECT $1, $2, n, y, je, l, a, ra, rl, rr, rt, $12, c
-		FROM unnest($3::int[], $4::smallint[], $5::uuid[], $6::int[], $7::bigint[], $8::bigint[], $9::int[], $10::text[], $11::text[], $13::uuid[])
-			AS x(n, y, je, l, a, ra, rl, rr, rt, c)`,
-		tenant, id, nos, years, entries, lines, applied.Items, amounts, residualLines, reasons, texts, application, applied.Customers); err != nil {
+			residual_amount, residual_line_no, residual_reason, residual_reason_text, application_no, customer_id, item_currency, item_amount, exchange_rate)
+		SELECT $1, $2, n, y, je, l, a, ra, rl, rr, rt, $12, c, ic, ia, xr
+		FROM unnest($3::int[], $4::smallint[], $5::uuid[], $6::int[], $7::bigint[], $8::bigint[], $9::int[], $10::text[], $11::text[], $13::uuid[],
+			$14::text[], $15::bigint[], $16::numeric[]) AS x(n, y, je, l, a, ra, rl, rr, rt, c, ic, ia, xr)`,
+		tenant, id, nos, years, entries, lines, applied.Items, amounts, residualLines, reasons, texts, application, applied.Customers,
+		currencies, owns, rates); err != nil {
 		return fmt.Errorf("receivables: write items of incoming payment %s: %w", id, err)
 	}
 	return nil

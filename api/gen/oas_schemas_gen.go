@@ -55493,7 +55493,8 @@ type IncomingPayment struct {
 	Customers []IncomingPaymentCustomer `json:"customers"`
 	// The posting date of the clearing entry.
 	PostingDate time.Time `json:"posting_date"`
-	// The payment's currency (ISO 4217), the receipt's and every item's.
+	// The payment's currency (ISO 4217), the receipt's: every amount of the payment is in it, an item in
+	// another currency translated (`items[].item_amount`, T75n).
 	Currency string `json:"currency"`
 	// What was received: the receipt's amount. It is the items' amounts less their residuals and less
 	// `difference`.
@@ -56296,8 +56297,16 @@ type IncomingPaymentItem struct {
 	// none.
 	Reference string `json:"reference"`
 	// The amount the item stood at, in the payment's currency: positive for what the customer owed (an
-	// invoice), negative for a credit of the customer's.
+	// invoice), negative for a credit of the customer's. For an item in another currency, its
+	// `item_amount` translated at `exchange_rate`, as the clearing entry offset it.
 	Amount Money `json:"amount"`
+	// The amount the item stood at in its own currency, signed as `amount`: `amount` itself for an item in
+	// the payment's currency (T75n).
+	ItemAmount Money `json:"item_amount"`
+	// The rate the item was translated into the payment's currency at, units of the payment's currency per
+	// unit of the item's, the average rate valid on the posting date (T75n); absent for an item in the
+	// payment's currency.
+	ExchangeRate OptDecimal `json:"exchange_rate"`
 	// The residual item the payment left of the item, paid in part; absent when the payment cleared it in
 	// full.
 	Residual OptIncomingPaymentResidual `json:"residual"`
@@ -56358,6 +56367,16 @@ func (s *IncomingPaymentItem) GetAmount() Money {
 	return s.Amount
 }
 
+// GetItemAmount returns the value of ItemAmount.
+func (s *IncomingPaymentItem) GetItemAmount() Money {
+	return s.ItemAmount
+}
+
+// GetExchangeRate returns the value of ExchangeRate.
+func (s *IncomingPaymentItem) GetExchangeRate() OptDecimal {
+	return s.ExchangeRate
+}
+
 // GetResidual returns the value of Residual.
 func (s *IncomingPaymentItem) GetResidual() OptIncomingPaymentResidual {
 	return s.Residual
@@ -56416,6 +56435,16 @@ func (s *IncomingPaymentItem) SetReference(val string) {
 // SetAmount sets the value of Amount.
 func (s *IncomingPaymentItem) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetItemAmount sets the value of ItemAmount.
+func (s *IncomingPaymentItem) SetItemAmount(val Money) {
+	s.ItemAmount = val
+}
+
+// SetExchangeRate sets the value of ExchangeRate.
+func (s *IncomingPaymentItem) SetExchangeRate(val OptDecimal) {
+	s.ExchangeRate = val
 }
 
 // SetResidual sets the value of Residual.

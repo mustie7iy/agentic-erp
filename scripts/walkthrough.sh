@@ -6878,23 +6878,27 @@ step_ar_aging() {
   passed
 }
 
-# rbc_incoming AMOUNT [SEQUENCE OPENING] writes a camt.053 statement of RBC
-# of today: a customer's payment of the amount. By default it is the
-# day's third, from the second statement's closing balance (rbc_receipt's:
-# step 8's closing and Northwind's CAD 25,000.00); a later one names its
-# sequence number and its opening balance, the closing of the one before.
+# rbc_incoming AMOUNT [SEQUENCE OPENING [ACCOUNT CURRENCY]] writes a
+# camt.053 statement of RBC of today: a customer's payment of the amount.
+# By default it is the day's third, from the second statement's closing
+# balance (rbc_receipt's: step 8's closing and Northwind's CAD 25,000.00);
+# a later one names its sequence number and its opening balance, the
+# closing of the one before. ACCOUNT and CURRENCY are RBC's account and its
+# currency, 1000001 in CAD by default; RBCUS's is 4000001 in USD.
 rbc_incoming() {
-  local opening closing seq=${2:-3}
+  local opening closing seq=${2:-3} acct=${4:-1000001} ccy=${5:-CAD} msg
   opening=${3:-$(amount $(($(cents "$CLOSING") + 2500000)))}
   closing=$(amount $(($(cents "$opening") + $(cents "$1"))))
+  msg=RBC-$TODAY-$seq
+  [ "$acct" = 1000001 ] || msg=RBC-$acct-$TODAY-$seq
   {
     printf '<?xml version="1.0" encoding="UTF-8"?>\n'
     printf '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt>\n'
-    printf '<GrpHdr><MsgId>RBC-%s-%s</MsgId><CreDtTm>%sT23:45:00</CreDtTm></GrpHdr>\n' "$TODAY" "$seq" "$TODAY"
-    printf '<Stmt><Id>RBC-1000001-%s-%s</Id><ElctrncSeqNb>%s</ElctrncSeqNb><Acct><Id><Othr><Id>1000001</Id></Othr></Id><Ccy>CAD</Ccy></Acct>\n' "$TODAY" "$seq" "$seq"
-    printf '<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$opening" "$TODAY"
-    printf '<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$closing" "$TODAY"
-    printf '<Ntry><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><BookgDt><Dt>%s</Dt></BookgDt><ValDt><Dt>%s</Dt></ValDt><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd><NtryDtls><TxDtls><RltdPties><Dbtr><Nm>Northwind Traders</Nm></Dbtr></RltdPties><RmtInf><Ustrd>Customer invoice</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>\n' "$1" "$TODAY" "$TODAY"
+    printf '<GrpHdr><MsgId>%s</MsgId><CreDtTm>%sT23:45:00</CreDtTm></GrpHdr>\n' "$msg" "$TODAY"
+    printf '<Stmt><Id>RBC-%s-%s-%s</Id><ElctrncSeqNb>%s</ElctrncSeqNb><Acct><Id><Othr><Id>%s</Id></Othr></Id><Ccy>%s</Ccy></Acct>\n' "$acct" "$TODAY" "$seq" "$seq" "$acct" "$ccy"
+    printf '<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="%s">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$ccy" "$opening" "$TODAY"
+    printf '<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="%s">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$ccy" "$closing" "$TODAY"
+    printf '<Ntry><Amt Ccy="%s">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><BookgDt><Dt>%s</Dt></BookgDt><ValDt><Dt>%s</Dt></ValDt><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd><NtryDtls><TxDtls><RltdPties><Dbtr><Nm>Northwind Traders</Nm></Dbtr></RltdPties><RmtInf><Ustrd>Customer invoice</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>\n' "$ccy" "$1" "$TODAY" "$TODAY"
     printf '</Stmt></BkToCstmrStmt></Document>\n'
   } >"$WORK/camt053-incoming.xml"
 }
@@ -14131,6 +14135,100 @@ step_aging_by_center() {
   passed
 }
 
+# northwind_usd_receipt AMOUNT is Northwind's payment of AMOUNT USD on
+# RBCUS's next statement, imported, matched as incoming and posted by Tom
+# as northwind_receipt posts RBC's: RECEIPT is the entry that waits on
+# 1040, RBCUS's incoming payments clearing account, booked at the day's
+# USD/CAD rate. The first statement of RBCUS opens at the 5,000.00 step 9
+# paid in.
+northwind_usd_receipt() {
+  local last st
+  as tom
+  QUIET=1 api 200 '' listBankStatements -p "house_bank_id=$RBCUS" -p page_size=100
+  last=$(field '[.items[]] | max_by(.sequence | tonumber) // {sequence: "0", closing_balance: {amount: "5000.00"}} | "\(.sequence) \(.closing_balance.amount)"')
+  rbc_incoming "$1" $((${last%% *} + 1)) "${last##* }" 4000001 USD
+  QUIET=1 api 201 '' importBankStatements -body "{\"house_bank_id\": \"$RBCUS\", \"format\": \"camt.053\"}" -file file=@camt053-incoming.xml
+  st=$(field '.statements[0].id')
+  if [ -z "$st" ] || [ "$st" = null ]; then fail "the statement was not imported"; fi
+  QUIET=1 api 200 '' getBankStatement -p "id=$st"
+  QUIET=1 api 201 '' matchBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG" -body '{"incoming": true, "reason": "Northwind Traders pays in USD."}'
+  api 200 '"  RBCUS statement line posted in journal entry \(.journal_entry_id[0:8])…, waiting on 1040"' \
+    postBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG"
+  RECEIPT=$(field .journal_entry_id)
+  if [ -z "$RECEIPT" ] || [ "$RECEIPT" = null ]; then fail "the incoming line was not posted"; fi
+}
+
+# step_receipt_other_currency is T75n (ADR-0063 §6 As built): Maple
+# invoices Northwind CAD 1,000.00 and GBP 100.00; Northwind pays both in
+# USD into RBCUS, the amounts at the day's rates. Applied to the two
+# invoices, the GBP one is refused: no GBP/USD rate is valid today, and no
+# rate goes through a third currency. Once Tom records GBP/USD, the receipt
+# is applied to both: each invoice translated into USD at its rate and
+# cleared at its own local amount, the DZ entry in USD, what the rates
+# leave in CAD the realized exchange difference.
+step_receipt_other_currency() {
+  heading "Step 135 — A receipt in another currency than the items: a USD transfer applied to a CAD and a GBP invoice, each translated at the day's rate and cleared at its own, refused while a pair has no rate"
+  local usd gbp cad_usd gbp_usd total cad_entry gbp_entry body payment entry
+  [ -n "$CUSTOMER" ] || fail "step 47's customer is not there"
+  as tom
+  QUIET=1 api 200 '' listExchangeRates -p rate_type=average -p from_currency=USD -p to_currency=CAD -p page_size=100
+  usd=$(field "[.items[] | select(.valid_from <= \"$TODAY\")] | max_by(.valid_from) | .rate")
+  gbp=$(awk -v u="$usd" 'BEGIN { printf "%.4f", 1.80 / u }')
+  say "Northwind is to be invoiced in sterling for its UK site's training. Tom records an average GBP/CAD rate of 1.80"
+  say "from today (USD/CAD being $usd):"
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"GBP\", \"to_currency\": \"CAD\", \"valid_from\": \"$TODAY\", \"rate\": \"1.80\", \"source\": \"manual\"}"
+  say "Maple invoices Northwind CAD 1,000.00 and GBP 100.00:"
+  northwind_invoice 1000.00
+  cad_entry=$INVOICE_ENTRY
+  api 201 '"customer invoice \(.document_number) to \(.customer_name): \(.gross_amount.amount) \(.currency)"' createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"invoice_date\": \"$TODAY\", \"currency\": \"GBP\", \"items\": [{\"description\": \"Training at the UK site\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"100.00\", \"currency\": \"GBP\"}}]}"
+  api 200 '"  posted as journal entry \(.journal_entry_number), due \(.net_due_date)"' postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" \
+    -body "{\"posting_date\": \"$TODAY\"}"
+  gbp_entry=$(field .journal_entry_id)
+  cad_usd=$(awk -v u="$usd" 'BEGIN { printf "%d", int(100000 / u + 0.5) }')
+  gbp_usd=$(awk -v g="$gbp" 'BEGIN { printf "%d", int(10000 * g + 0.5) }')
+  total=$(amount $((cad_usd + gbp_usd)))
+  say "Northwind pays both from its US account: USD $(amount "$cad_usd") for the CAD invoice and USD $(amount "$gbp_usd") for the"
+  say "GBP one at GBP/USD $gbp, USD $total in all, into RBCUS:"
+  northwind_usd_receipt "$total"
+  as ruth
+  body="{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"receipt_journal_entry_id\": \"$RECEIPT\", \"posting_date\": \"$TODAY\", \"items\": [{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$cad_entry\", \"line_no\": 1}, {\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$gbp_entry\", \"line_no\": 1}]}"
+  say "Ruth applies the USD receipt to the two invoices (T75n, SAP's clearing in another currency). The CAD invoice has its"
+  say "rate into USD, but no GBP/USD rate is recorded, and none is derived through CAD: the GBP invoice is refused, naming it:"
+  refused 422 ledger.no_exchange_rate createIncomingPayment -body "$body"
+  expect "the refused item" "$(field '.errors[0].field')" "items[1]"
+  as tom
+  say "Tom records the day's GBP/USD rate, $gbp:"
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"GBP\", \"to_currency\": \"USD\", \"valid_from\": \"$TODAY\", \"rate\": \"$gbp\", \"source\": \"manual\"}"
+  as ruth
+  say "Ruth applies the receipt again: each invoice is translated into USD at the day's rate of its currency and cleared,"
+  say "and the payment shows each one's own amount and rate beside its amount in USD:"
+  api 201 '"incoming payment \(.document_number): \(.amount.amount) \(.amount.currency) from \(.customer_name), difference \(.difference.amount)", (.items[] | "  item \(.item_no): \(.reference), \(.item_amount.amount) \(.item_amount.currency) at \(.exchange_rate) = \(.amount.amount) \(.amount.currency)")' \
+    createIncomingPayment -body "$body"
+  payment=$(field .id)
+  entry=$(field .journal_entry_id)
+  expect "the items' own amounts" "$(field '[.items[] | "\(.item_amount.amount) \(.item_amount.currency)"] | join(", ")')" "1000.00 CAD, 100.00 GBP"
+  expect "the items in USD" "$(field '[.items[] | .amount.amount] | join(", ")')" "$(amount "$cad_usd"), $(amount "$gbp_usd")"
+  expect "the rates shown" "$(field '[.items[] | .exchange_rate != null] | all')" true
+  expect "the payment" "$(field '"\(.currency) \(.amount.amount) \(.difference.amount)"')" "USD $total 0.00"
+  say "The DZ entry is in USD: it offsets the receipt on 1040 and each invoice on 1200 at its USD amount and at the CAD"
+  say "amount it was booked at; what the rates leave in CAD is the realized exchange difference (4900 or 6900):"
+  api 200 '"journal entry \(.document_number) in \(.currency)", (.lines[] | "  \(.account_id[0:8])… \(.amount.amount) \(.amount.currency) = \(.amount_lc.amount) \(.amount_lc.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry's currency" "$(field .currency)" USD
+  expect "the invoices' local amounts" "$(field "[.lines[] | select(.account_id == \"$(account 1200)\") | .amount_lc.amount] | join(\", \")")" "-1000.00, -180.00"
+  expect "the local amounts balance" "$(field '[.lines[] | .amount_lc.amount | tonumber * 100 | round] | add')" 0
+  say "Neither invoice is open, and the payment reads back the same:"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$CUSTOMER" -p page_size=100
+  expect "the invoices open" "$(field "[.items[] | select(.journal_entry_id == \"$cad_entry\" or .journal_entry_id == \"$gbp_entry\")] | length")" 0
+  QUIET=1 api 200 '' getIncomingPayment -p "id=$payment"
+  expect "the payment read back" "$(field '[.items[] | "\(.item_amount.amount) \(.item_amount.currency) \(.amount.amount)"] | join(", ")')" \
+    "1000.00 CAD $(amount "$cad_usd"), 100.00 GBP $(amount "$gbp_usd")"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -16161,7 +16259,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_receipt_other_currency step_close'
 
 main() {
   stop_unseen

@@ -1387,3 +1387,57 @@ memo (§5, plan default 3).
   reader must strip from a text cell beginning as a formula; (4) the
   totals' row only on the last page; (5) no new permission or problem
   code.
+
+### T75n A receipt in another currency than the items (migration 000395)
+A variant of §6 (`plan-depth-3.md` §T75n): a receipt in one currency is
+applied to a customer's items in another, as SAP's F-28 clears open items
+in another currency than the payment (from memory, not checked against a
+source in the lane). §6's and T75c's "in the receipt's currency" no longer
+holds for the items; it still holds for residuals, the tolerance and what
+is left on account.
+
+- **Translation** (`ledger.Postings.ApplyReceipt`,
+  `internal/ledger/receiptfx.go`): each item in another currency than the
+  receipt is translated into the receipt's at the **average rate valid on
+  the application's posting date** between the two currencies (the
+  ledger's rate source, `ledger.exchange_rate`: the latest valid that day,
+  either direction, the exact reciprocal when only the reverse pair is
+  recorded), rounded once half away from zero, each item on its own and
+  each currency read once. No rate is derived through a third currency:
+  an item without a rate for its pair that day is refused, 422
+  `ledger.no_exchange_rate` naming `items[i]`, and one that translates to
+  nothing (a minor unit of a currency worth less than half a minor unit
+  of the receipt's) 422 `ledger.item_rounds_to_zero`. The item is checked
+  as the customer's item first, so a wrong item is refused as such before
+  its rate is looked for.
+- **Posting:** the clearing entry is in the receipt's currency, at its
+  rates. It offsets each translated item at the translated amount in
+  transaction currency and at the **local and group amounts it was booked
+  at**, so the item is cleared at its own rate; what the receipt's and
+  the items' local and group amounts leave is the realized exchange
+  difference T75c already books on `fx_gain` / `fx_loss`. A residual of a
+  translated item is in the receipt's currency (T75f's rule), at the
+  item's local rate (its share of the item's booked local amount); it is
+  an open item in the receipt's currency from then on. The tolerance,
+  what is left on account and the later application of a credit on
+  account (T75g, which takes items in another currency the same way)
+  are in the receipt's currency.
+- **The payment** keeps each item's `amount` in its currency, as the
+  entry offset it, and adds `item_amount`, the item's own amount in its
+  currency (the same as `amount` for an item in the payment's currency),
+  and `exchange_rate`, the rate shown, absent for an item not translated
+  (`incoming_payment_item`'s `item_currency`, `item_amount`,
+  `exchange_rate`, all three or none, migration 000395; the down migration
+  is refused while an item was translated). IncomingPaymentApplied is
+  unchanged: it carries the payment's amounts, all in its currency.
+- **Decided by default:** (1) the average rate type, as postings and the
+  company's configured comparisons use (`Rates`), not a separate clearing
+  rate type; (2) the rate of the posting date, not of the receipt's or the
+  item's; (3) no cross rate through the company's currency, so a missing
+  pair is refused rather than derived; (4) a residual in the receipt's
+  currency, the entry having one transaction currency; (5) no opt-in: an
+  item in another currency is translated whenever the request names it,
+  the receipt's balance and the tolerance still holding the application
+  to what was paid; (6) the ledger's `items_cleared` event gives a
+  translated item's amount in the clearing entry's currency, as it gives
+  every amount.

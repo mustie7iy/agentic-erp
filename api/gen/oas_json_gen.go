@@ -145439,6 +145439,16 @@ func (s *IncomingPaymentItem) encodeFields(e *jx.Encoder) {
 		s.Amount.Encode(e)
 	}
 	{
+		e.FieldStart("item_amount")
+		s.ItemAmount.Encode(e)
+	}
+	{
+		if s.ExchangeRate.Set {
+			e.FieldStart("exchange_rate")
+			s.ExchangeRate.Encode(e)
+		}
+	}
+	{
 		if s.Residual.Set {
 			e.FieldStart("residual")
 			s.Residual.Encode(e)
@@ -145446,7 +145456,7 @@ func (s *IncomingPaymentItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfIncomingPaymentItem = [12]string{
+var jsonFieldsNameOfIncomingPaymentItem = [14]string{
 	0:  "item_no",
 	1:  "customer_id",
 	2:  "customer_number",
@@ -145458,7 +145468,9 @@ var jsonFieldsNameOfIncomingPaymentItem = [12]string{
 	8:  "journal_entry_number",
 	9:  "reference",
 	10: "amount",
-	11: "residual",
+	11: "item_amount",
+	12: "exchange_rate",
+	13: "residual",
 }
 
 // Decode decodes IncomingPaymentItem from json.
@@ -145600,6 +145612,26 @@ func (s *IncomingPaymentItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
+		case "item_amount":
+			requiredBitSet[1] |= 1 << 3
+			if err := func() error {
+				if err := s.ItemAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"item_amount\"")
+			}
+		case "exchange_rate":
+			if err := func() error {
+				s.ExchangeRate.Reset()
+				if err := s.ExchangeRate.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"exchange_rate\"")
+			}
 		case "residual":
 			if err := func() error {
 				s.Residual.Reset()
@@ -145621,7 +145653,7 @@ func (s *IncomingPaymentItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

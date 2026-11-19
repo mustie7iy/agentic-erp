@@ -266,7 +266,7 @@ func TestApplyReceiptRefusals(t *testing.T) {
 		{"a cleared item", app(receipt, north, invoice, paid), "ledger.item_already_cleared", "Item 2"},
 		{"a reversed item", app(receipt, north, reversed), "ledger.entry_reversed", "Item 1"},
 		{"a reserved item", app(receipt, north, held), "ledger.item_reserved", "PR1"},
-		{"an item in another currency", app(receipt, north, invoice, sterling), "ledger.mixed_items", "Item 2 is in GBP, the receipt in EUR"},
+		{"an item translated beyond the receipt", app(receipt, north, invoice, sterling), "ledger.clearing_not_balanced", "by 120.00: an underpayment"},
 		{"a receipt in another currency than the request says", r.application(receipt, north, "GBP", "2026-03-21", sterling), "ledger.mixed_items", "settlement"},
 		{"a payment out", app(out, north, invoice), "ledger.not_a_receipt", "debits the account"},
 		{"two lines on the account", app(ledger.ItemRef{FiscalYear: 2026, EntryID: twice.ID}, north, invoice), "ledger.not_a_receipt", "has 2 lines"},
@@ -294,7 +294,7 @@ func TestApplyReceiptRefusals(t *testing.T) {
 	}{
 		"another customer's": {app(receipt, north, souths), "items[0]"}, "another company's": {app(receipt, north, elsewhere), "items[0]"},
 		"cleared": {app(receipt, north, invoice, paid), "items[1]"}, "reversed": {app(receipt, north, reversed), "items[0]"},
-		"reserved": {app(receipt, north, small, held), "items[1]"}, "in another currency": {app(receipt, north, invoice, sterling), "items[1]"},
+		"reserved": {app(receipt, north, small, held), "items[1]"},
 	} {
 		t.Run("the field of an item "+name, func(t *testing.T) {
 			p := r.refusal(t, c.in)

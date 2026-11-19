@@ -123,7 +123,11 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 		out.Items[i] = gen.IncomingPaymentItem{ItemNo: it.ItemNo, ApplicationNo: it.ApplicationNo, CustomerID: it.CustomerID, CustomerNumber: named.Number,
 			CustomerName: named.Name, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID,
 			LineNo: it.LineNo, JournalEntryNumber: refs.numbers[it.EntryID], Reference: refs.references[it.EntryID],
-			Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
+			Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent), ItemAmount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
+		if it.ItemAmount != nil { // stored with its currency and rate (incoming_payment_item_translation)
+			out.Items[i].ItemAmount = apitypes.Money(*it.ItemAmount, *it.ItemCurrency, *it.ItemExponent)
+			out.Items[i].ExchangeRate.SetTo(gen.Decimal(*it.ExchangeRate))
+		}
 		if it.ResidualAmount != nil { // stored with its line and reason (incoming_payment_item_residual)
 			year, entry := v.clearing(it.ApplicationNo)
 			out.Items[i].Residual.SetTo(gen.IncomingPaymentResidual{Amount: apitypes.Money(*it.ResidualAmount, v.Currency, v.Exponent), Reason: *it.ResidualReason,

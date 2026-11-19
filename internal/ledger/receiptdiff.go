@@ -24,7 +24,8 @@ import (
 // application is an application's entry as receiptLines plans it: its
 // lines, the kind of each line after the items' offsets (namingLine), the
 // line of each item's residual (0: none), the payment difference written
-// off and what was left on account, with its line.
+// off, what was left on account, with its line, and how each item was
+// translated into the receipt's currency (T75n).
 type application struct {
 	lines         []Line
 	kinds         []string
@@ -32,6 +33,7 @@ type application struct {
 	difference    money.Minor
 	onAccount     money.Minor
 	onAccountLine int32
+	translations  []Translation
 }
 
 // add appends a line of the kind, returning its line number.
