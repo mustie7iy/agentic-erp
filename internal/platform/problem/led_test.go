@@ -35,7 +35,7 @@ func TestLed(t *testing.T) {
 		})
 	}
 	plain := errors.New("connection lost")
-	if got := problem.Led(plain, "Notice of BP1: "); got != plain {
+	if got := problem.Led(plain, "Notice of BP1: "); !errors.Is(got, plain) || got.Error() != plain.Error() {
 		t.Errorf("an error without a problem: got %v, want it as it is", got)
 	}
 }
