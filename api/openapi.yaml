@@ -36255,6 +36255,16 @@ paths:
         - ledger.unknown_unit
         - ledger.zero_amount
         - ledger.zero_tax_base
+        - materials.base_unit_conversion
+        - materials.change_pending
+        - materials.duplicate_plant
+        - materials.duplicate_storage_location
+        - materials.duplicate_unit
+        - materials.number_taken
+        - materials.plant_invalid
+        - materials.storage_location_invalid
+        - materials.unknown_material_type
+        - materials.unknown_unit
         - partner.address_overlap
         - partner.backdated_address
         - partner.backdated_bank_account
@@ -36369,6 +36379,10 @@ paths:
         - request.rule_unevaluable
         - request.validation_failed
         - request.version_mismatch
+        - tenancy.invalid_parent
+        - tenancy.invalid_status
+        - tenancy.org_unit_code_taken
+        - tenancy.unknown_org_unit_kind
         - workflow.no_policy
         - workflow.request_pending
         - workflow.unknown_role
