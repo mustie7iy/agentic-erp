@@ -3,6 +3,7 @@ package einvoicing
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -36,14 +37,27 @@ func buyer() Buyer {
 	return Buyer{Number: "BP1", Name: "Desert Rose", TRN: "100987654300003", Address: &Address{Line1: "Al Wasl Road", City: "Dubai", Subentity: "dxb", Country: "AE"}}
 }
 
+// valid is sale's document, which passes every rule; its only finding is
+// the terms not rendered yet of a document not in AED.
 func valid(t *testing.T) Document {
 	t.Helper()
 	d, found := buildDocument(sale(), seller(), buyer(), nil)
-	if len(found) > 0 || len(Check(d)) > 0 {
-		t.Fatalf("the valid document: got %v %v, want no finding", found, Check(d))
+	if f := Check(d); len(f) > 0 {
+		t.Fatalf("Check of the valid document: got %v, want none", f)
+	}
+	if got := fmt.Sprint(found); !strings.Contains(got, "BTAE-08") || len(found) != 1 {
+		t.Fatalf("its findings: got %s, want BTAE-08 alone", got)
+	}
+	if d.AccountingTax == nil {
+		t.Fatal("its VAT in AED: got none, want 36725")
+	}
+	if got := words(d.TaxCurrency, int64(*d.AccountingTax)); got != "AED 36725" {
+		t.Fatalf("its VAT in AED: got %s, want AED 36725", got)
 	}
 	return d
 }
+
+func words(v ...any) string { return strings.TrimSpace(fmt.Sprintln(v...)) }
 
 // TestRoundTrip: what RenderPINTAE writes, ParsePINTAE reads back as the
 // same document, and the rules accept it (ADR-0061 As built E2), an
@@ -144,11 +158,18 @@ func TestBuildFindings(t *testing.T) {
 	for _, f := range found {
 		got = append(got, f.Term)
 	}
-	if strings.Join(got, " ") != "IBT-034 IBG-07" {
-		t.Errorf("findings: got %v, want IBT-034 IBG-07", got)
+	if strings.Join(got, " ") != "IBT-034 IBG-07 BTAE-08" {
+		t.Errorf("findings: got %v, want IBT-034 IBG-07 BTAE-08", got)
 	}
-	if d.Seller.Endpoint != "" || d.Buyer.Endpoint != "" || d.Buyer.Address.Country != "" {
-		t.Errorf("parties: got %+v %+v, want no endpoints and no buyer address", d.Seller, d.Buyer)
+	exempt := sale()
+	exempt.Currency = "AED"
+	exempt.Lines = append(exempt.Lines, SaleLine{No: 3, Description: "Bare land", Net: 1, TaxCode: "E0", Category: "E", Percent: "0"})
+	_, found = buildDocument(exempt, seller(), buyer(), nil)
+	if got := words(len(found), found[0].Term, strings.HasPrefix(found[0].Message, "line 3:")); got != "1 IBT-120 true" {
+		t.Errorf("an exempt line: got %s, want 1 IBT-120 true", got)
+	}
+	if got := words(d.Seller.Endpoint == "", d.Buyer.Endpoint == "", d.Buyer.Address.Country == ""); got != "true true true" {
+		t.Errorf("no seller endpoint, no buyer endpoint, no buyer address: got %s, want true true true", got)
 	}
 	if got := plainPercent("12"); got != "12" {
 		t.Errorf("plainPercent(12): got %q, want 12", got)
@@ -210,8 +231,12 @@ func TestKeepRefusesADefect(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			e := &Endpoints{Objects: blobstore.Dir{Root: t.TempDir()}}
 			o := OutgoingEInvoice{CustomerInvoiceNumber: "CI1"}
-			if err := e.keep(context.Background(), uuid.New(), d, &o); err == nil || o.Status == StatusValid {
-				t.Errorf("got %v, %s, want an error and no valid e-invoice", err, o.Status)
+			err := e.keep(context.Background(), uuid.New(), d, &o)
+			if err == nil {
+				t.Error("got nil error, want the defect named")
+			}
+			if o.Status == StatusValid {
+				t.Errorf("status: got %s, want not valid", o.Status)
 			}
 		})
 	}
@@ -249,7 +274,10 @@ func TestWriteFindsItValid(t *testing.T) {
 	again.ID, again.Status, again.Problems, again.SHA256, again.Size, again.ContentRef = uuid.Must(uuid.NewV7()), StatusInvalid,
 		[]Finding{{Rule: "r"}}, nil, nil, nil
 	got, created, err := (&Endpoints{}).write(ctx, tx, p, again, Company{}, "")
-	if err != nil || created || got.ID != o.ID || got.Status != StatusValid {
-		t.Errorf("got %v %v %s, %v, want the valid row %v, not new", got.ID, created, got.Status, err, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := words(got.ID, created, got.Status); w != words(o.ID, false, StatusValid) {
+		t.Errorf("got %s, want the valid row %v, not new", w, o.ID)
 	}
 }

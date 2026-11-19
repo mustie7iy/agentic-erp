@@ -1,6 +1,7 @@
 package einvoicing
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -69,7 +70,29 @@ func buildDocument(s Sale, seller Seller, buyer Buyer, reason *Reason) (Document
 		found = append(found, Finding{Rule: "einvoicing.pint_ae.buyer", Term: "IBG-07", Message: "the customer's personal data is blocked"})
 	}
 	d.Lines, d.Subtotals = linesOf(s)
-	return d, found
+	return d, append(found, unrendered(d)...)
+}
+
+// unrendered names the mandatory terms a document needs that the format
+// does not render yet (ADR-0061 As built E2, questions for the tax
+// specialist), so such a document stays invalid rather than be kept as a
+// valid, final tax invoice the provider would reject: a document not in
+// AED needs each line's VAT and amount in AED (BTAE-08, BTAE-10; the
+// Ministry's field list #48 and #49, C5), and an exempt, out-of-scope or
+// reverse-charge line its exemption reason (IBT-120, IBT-121).
+func unrendered(d Document) []Finding {
+	var out []Finding
+	if d.Currency != accountingCurrency {
+		out = append(out, Finding{Rule: "einvoicing.pint_ae.not_rendered", Term: "BTAE-08",
+			Message: "a document not in AED needs each line's VAT and amount in AED (BTAE-08, BTAE-10), which the ERP does not render yet"})
+	}
+	for i, l := range d.Lines {
+		if l.Category == "E" || l.Category == "O" || l.Category == "AE" {
+			out = append(out, Finding{Rule: "einvoicing.pint_ae.not_rendered", Term: "IBT-120",
+				Message: fmt.Sprintf("line %d: a line of category %s needs its exemption reason (IBT-120, IBT-121), which the ERP does not render yet", i+1, l.Category)})
+		}
+	}
+	return out
 }
 
 // tin is the first ten digits of a TRN, the TIN of the electronic address

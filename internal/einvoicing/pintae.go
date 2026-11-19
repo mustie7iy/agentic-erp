@@ -23,7 +23,7 @@ const (
 // The UBL 2.1 namespaces of the documents (ADR-0061 §5 C2: UBL 2.1 XML).
 const (
 	nsInvoice    = "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
-	nsCreditNote = "urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2"
+	nsCreditNote = "urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2" // #nosec G101 -- a UBL namespace, not a credential
 	nsCAC        = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
 	nsCBC        = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
 )

@@ -1037,7 +1037,9 @@ received documents (T65c, not built) uses. Decided by default:
 - **Where each field comes from** (ADR-0049's boundary, no second mapping):
   the seller is the company (tenancy's name, the configuration's
   `postal_address` with its region as the emirate, and the number of its
-  active FTA registration, opened by tax filing's `InvoiceNumbers`); the
+  FTA registration in force on the invoice date, from its first period's
+  start to its last period's end, opened by tax filing's
+  `InvoiceNumbers`); the
   buyer the customer (partner's `InvoiceParties`: its legal name or name,
   its legal address on the invoice date with its region, its `AE_TRN` tax
   identifier, opened); the endpoints (IBT-034, IBT-049) scheme `0235` and
@@ -1056,10 +1058,18 @@ received documents (T65c, not built) uses. Decided by default:
   BTAE-02 is `00000000` (none of its special cases is rendered); a credit
   note's reason (BTAE-03) is the code and text the caller gives, rendered
   as `cac:DiscrepancyResponse/cbc:ResponseCode` and `cbc:Description`, not
-  checked against a code list yet. Not rendered: BTAE-04, the per-line
-  BTAE-08 and BTAE-10 (listed as mandatory by the Ministry, C5, their UBL
-  paths unknown here), BTAE-20, BTAE-13, BTAE-15/16, exemption reasons
-  (IBT-120/121) and IBT-026.
+  checked against a code list yet. BTAE-07 (the unique identifier number)
+  is read as carried by IBT-001, as C3 lists them together (to confirm).
+  Not rendered: BTAE-04, the per-line BTAE-08 and BTAE-10 (listed as
+  mandatory by the Ministry, C5, their UBL paths unknown here), BTAE-20,
+  BTAE-13, BTAE-15/16, IBT-030, exemption reasons (IBT-120/121) and
+  IBT-026. A mandatory term not rendered keeps the document invalid
+  (review round 1): a document not in AED is invalid naming BTAE-08 and
+  BTAE-10, and an E, O or AE line naming IBT-120 and IBT-121
+  (`einvoicing.pint_ae.not_rendered`), so no e-invoice the provider would
+  reject is kept as valid and final; they become valid once the
+  specialist confirms the terms and a slice renders them. E2 therefore
+  e-invoices AED documents of standard-rated and zero-rated items.
 - **Validation before keeping.** `Check` runs the mandatory-field rules
   (§5 C3-C6): the specification and profile, the type code, number, BTAE-02,
   the tax accounting currency, a credit note's invoice and reason, each

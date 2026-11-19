@@ -1,5 +1,7 @@
 -- Outgoing e-invoices the previous version cannot hold are refused rather
--- than dropped (06 §6.4: a down migration loses no data).
+-- than dropped (06 §6.4: a down migration loses no data). The guard reads
+-- every tenant's rows, under a role that row-level security binds too.
+SET LOCAL row_security = off;
 DO $$
 BEGIN
   IF EXISTS (SELECT FROM einvoicing.outgoing_einvoice) THEN

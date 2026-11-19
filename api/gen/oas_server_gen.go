@@ -2249,9 +2249,12 @@ type Handler interface {
 	// `0235:` and the TRN's first ten digits) and the buyer (the customer: its legal address on the
 	// invoice date with its emirate, its UAE TRN, scheme `AE_TRN`, and the endpoint from it), each item as
 	// a line of quantity 1 at its net amount with its tax code's category (S, Z, E, O or AE) and rate on
-	// the tax date, the VAT per category and the totals, the VAT total in AED as the posting converted it
-	// when the document is not in AED, and the transaction type flags BTAE-02 all unset (none of the
-	// special cases is rendered). Before anything is kept the document is checked against the mandatory
+	// the invoice date (its tax date), the VAT per category and the totals, the VAT total in AED as the
+	// posting converted it when the document is not in AED, and the transaction type flags BTAE-02 all
+	// unset (none of the special cases is rendered). Mandatory terms the ERP does not render yet keep a
+	// document invalid, named in its problems (`einvoicing.pint_ae.not_rendered`): each line's VAT and
+	// amount in AED on a document not in AED (BTAE-08, BTAE-10), and the exemption reason of an E, O or AE
+	// line (IBT-120, IBT-121). Before anything is kept the document is checked against the mandatory
 	// fields (`problems`): one that fails any is recorded `invalid`, its problems listed and no XML kept,
 	// and may be rendered again once the master data is corrected; one that passes is `valid`, its XML
 	// kept write-once in object storage under its SHA-256 (ADR-0016) with the customer document as the

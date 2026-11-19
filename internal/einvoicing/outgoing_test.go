@@ -289,7 +289,7 @@ func TestRenderTaxCreditNote(t *testing.T) {
 func TestRenderInvalidThenValid(t *testing.T) {
 	s := uaeSetup(t, dubai)
 	bare := s.newCustomer(t, "BP80000002", "Oasis Trading", "", "")
-	invoice := s.posted(t, bare, "", "AED", s.item("500.00", "AED", "E0"))
+	invoice := s.posted(t, bare, "", "AED", s.item("500.00", "AED", "Z0"))
 	got := s.render(t, 201, fmt.Sprintf(`{"customer_invoice_id": %q}`, invoice))
 	check(t, "status and XML", words(got["status"], got["sha256"], got["size"]), "invalid <nil> <nil>")
 	var rules []string
@@ -310,9 +310,9 @@ func TestRenderInvalidThenValid(t *testing.T) {
 	check(t, "the second event's status before", before, "invalid")
 }
 
-// TestRenderForeignCurrency: an invoice in USD states its tax accounting
-// currency AED and its VAT in AED as the posting converted it (IBT-006,
-// IBT-111); one posted from a billing document names it.
+// TestRenderForeignCurrency: an invoice in USD stays invalid, naming the
+// AED line amounts the format does not render yet (BTAE-08, BTAE-10); its
+// e-invoice names the billing document it posted from.
 func TestRenderForeignCurrency(t *testing.T) {
 	s := uaeSetup(t, dubai)
 	invoice, billing := s.posted(t, s.customer, "", "USD", s.item("1000.00", "USD", "S5@AE-DU")), uuid.New()
@@ -330,9 +330,12 @@ func TestRenderForeignCurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := s.render(t, 201, fmt.Sprintf(`{"customer_invoice_id": %q}`, invoice))
-	check(t, "status and source", words(got["status"], got["source_document_id"], got["source_document_number"]), words("valid", billing, "BD100001"))
-	d := s.content(t, got["id"].(string))
-	check(t, "tax accounting currency and VAT in AED", words(d.TaxCurrency, d.AccountingCurrency, int64(*d.AccountingTax)), "AED AED 18363")
+	check(t, "status and source", words(got["status"], got["source_document_id"], got["source_document_number"]), words("invalid", billing, "BD100001"))
+	var terms []string
+	for _, p := range got["problems"].([]any) {
+		terms = append(terms, p.(map[string]any)["term"].(string))
+	}
+	check(t, "problems", terms, "[BTAE-08]")
 }
 
 // TestRenderRefusals: what the format does not render is refused before
@@ -463,9 +466,9 @@ func TestOutgoingDatabaseFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := app.EInvoicing(app.Config{Objects: s.store, FieldKeys: apitest.FieldKeys(), Pages: pages})
-	invoice := uuid.MustParse(s.posted(t, s.customer, "", "USD", s.item("10.00", "USD", "S5@AE-DU")))
-	memo := uuid.MustParse(s.posted(t, s.customer, fmt.Sprintf(`"kind": "credit_memo", "reference_invoice_id": %q, `, invoice), "USD",
-		s.item("1.00", "USD", "S5@AE-DU")))
+	invoice := uuid.MustParse(s.posted(t, s.customer, "", "AED", s.item("10.00", "AED", "S5@AE-DU")))
+	memo := uuid.MustParse(s.posted(t, s.customer, fmt.Sprintf(`"kind": "credit_memo", "reference_invoice_id": %q, `, invoice), "AED",
+		s.item("1.00", "AED", "S5@AE-DU")))
 	valid := s.render(t, 201, fmt.Sprintf(`{"customer_invoice_id": %q}`, invoice))
 	id := uuid.MustParse(valid["id"].(string))
 	reason := gen.NewOptCreditNoteReason(gen.CreditNoteReason{Code: "CR-01", Text: "Returned"})

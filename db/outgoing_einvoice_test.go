@@ -38,8 +38,11 @@ func TestOutgoingEInvoicePermissions(t *testing.T) {
 	need(t)
 	var n int
 	if err := testDB.QueryRow(context.Background(), `SELECT count(*) FROM ref.permission
-		WHERE code IN ('einvoicing.outgoing.read', 'einvoicing.outgoing.render') AND NOT is_approval`).Scan(&n); err != nil || n != 2 {
-		t.Errorf("got %d (%v), want 2", n, err)
+		WHERE code IN ('einvoicing.outgoing.read', 'einvoicing.outgoing.render') AND NOT is_approval`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("got %d, want 2", n)
 	}
 }
 
@@ -106,6 +109,31 @@ func TestOutgoingEInvoiceRules(t *testing.T) {
 		{"a source document's id without its number", func(tx pgx.Tx, s outgoingScene) error {
 			return all(tx, s.invalid(), update(`source_document_id = gen_random_uuid()`))
 		}, "outgoing_einvoice_source"},
+		{"a customer invoice number empty", func(tx pgx.Tx, s outgoingScene) error {
+			return exec(tx, strings.Replace(outgoingRow, "'CI100001'", "''", 1), s.tenant, s.doc, s.invoice, "invoice", "380", "valid", "[]", sum, nil, nil, s.actor)
+		}, "outgoing_einvoice_customer_invoice_number_check"},
+		{"a source document number over 40 characters", func(tx pgx.Tx, s outgoingScene) error {
+			return all(tx, s.invalid(), update(`source_document_id = gen_random_uuid(), source_document_number = repeat('x', 41)`))
+		}, "outgoing_einvoice_source_document_number_check"},
+		{"a credited invoice's number empty", func(tx pgx.Tx, s outgoingScene) error {
+			return all(tx, s.invalid(), update(`reference_invoice_number = ''`))
+		}, "outgoing_einvoice_reference_invoice_number_check"},
+		{"a specification empty", func(tx pgx.Tx, s outgoingScene) error {
+			return all(tx, s.invalid(), update(`specification = ''`))
+		}, "outgoing_einvoice_specification_check"},
+		{"an object key over 300 characters", func(tx pgx.Tx, s outgoingScene) error {
+			return exec(tx, strings.Replace(outgoingRow, "'tenants/t/documents/ab'", "repeat('k', 301)", 1), s.tenant, s.doc, s.invoice, "invoice", "380",
+				"valid", "[]", sum, nil, nil, s.actor)
+		}, "outgoing_einvoice_content_ref_check"},
+		{"a hash of 31 bytes", func(tx pgx.Tx, s outgoingScene) error {
+			return exec(tx, outgoingRow, s.tenant, s.doc, s.invoice, "invoice", "380", "valid", "[]", sum[:31], nil, nil, s.actor)
+		}, "outgoing_einvoice_sha256_check"},
+		{"a size of zero", func(tx pgx.Tx, s outgoingScene) error {
+			return all(tx, s.invalid(), update(`status = 'valid', problems = '[]', sha256 = sha256('x'::bytea), size = 0, content_ref = 'k'`))
+		}, "outgoing_einvoice_size_check"},
+		{"an unknown currency", func(tx pgx.Tx, s outgoingScene) error {
+			return all(tx, s.invalid(), update(`currency = 'XXQ'`))
+		}, "outgoing_einvoice_currency_fkey"},
 		{"a valid one changed", func(tx pgx.Tx, s outgoingScene) error {
 			return all(tx, s.valid(), update(`problems = '[{"rule": "r"}]', status = 'invalid', sha256 = NULL, size = NULL, content_ref = NULL`))
 		}, "is valid and final"},
@@ -166,8 +194,11 @@ func TestOutgoingEInvoiceIsTheTenants(t *testing.T) {
 	mustApp(t, a.tenant, func(tx pgx.Tx) error { return all(tx, a.invalid()) })
 	mustApp(t, id(), func(tx pgx.Tx) error {
 		var n int
-		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM einvoicing.outgoing_einvoice`).Scan(&n); err != nil || n != 0 {
-			t.Errorf("another tenant's outgoing e-invoices: got %d (%v), want none", n, err)
+		if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM einvoicing.outgoing_einvoice`).Scan(&n); err != nil {
+			return err
+		}
+		if n != 0 {
+			t.Errorf("another tenant's outgoing e-invoices: got %d, want none", n)
 		}
 		tag, err := tx.Exec(context.Background(), `UPDATE einvoicing.outgoing_einvoice SET version = version + 1`)
 		if err == nil && tag.RowsAffected() != 0 {
@@ -188,8 +219,17 @@ func TestOutgoingEInvoicesDownRefused(t *testing.T) {
 	}
 	defer tx.Rollback(ctx)
 	s := outgoingScene{tenant: id(), actor: id(), doc: id(), invoice: id()}
-	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String()), s.invalid()); err != nil {
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String()), s.invalid(),
+		step(`SELECT set_config('app.tenant_id', '', true)`), step(`SAVEPOINT owner`), step(`SET LOCAL ROLE erp_owner`)); err != nil {
 		t.Fatal(err)
 	}
-	failsWith(t, exec(tx, migrationNamed(t, "000412_outgoing_einvoices").Down), "outgoing e-invoices exist")
+	down := migrationNamed(t, "000412_outgoing_einvoices").Down
+	// As the owner, whom the forced row-level security binds, the guard
+	// fails rather than read no rows (06 §6.4); as the migrator, with no
+	// tenant set, it reads every tenant's rows and refuses.
+	failsWith(t, exec(tx, down), "row-level security")
+	if err := all(tx, step(`ROLLBACK TO SAVEPOINT owner`), step(`RESET ROLE`)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "outgoing e-invoices exist")
 }
