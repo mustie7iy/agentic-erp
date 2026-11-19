@@ -101,7 +101,7 @@ var allowed = map[string][]string{
 	"changedraft":             {"apitools", "config", "recommend"},        // a configuration change request drafted by a recommending agent (ADR-0072 As built, T107b, T108c), shared by the agents that draft
 	"closeagent":              {"apitools", "llm", "recommend"},           // recommend: its default bound on model requests (Iterations; ADR-0072 As built, hardening 3)
 	"closing":                 {"config"},                                 // a leaf (ADR-0058 §2): configuration, tenancy, the ledger and controlling through ports the composition root wires
-	"collections":             {"config", "ledger", "partner", "tenancy"}, // a leaf (ADR-0065 §1): the ledger's customer open items, partners' names, tenancy and configuration through its ports, by the types their published APIs give
+	"collections":             {"config", "ledger", "partner", "receivables", "tenancy"}, // a leaf (ADR-0065 §1): the ledger's customer open items, partners' names, tenancy and configuration through its ports, by the types their published APIs give; receivables' published API for a dispute case's credit memos (ADR-0065 As built T86d), as sales posts its credit memos
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
 	"consolidation":           {"config"},                                              // a leaf (ADR-0059 §2): configuration and tenancy (the ledger and identity in later slices) through ports the composition root wires

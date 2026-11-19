@@ -3,6 +3,7 @@ package collections
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -36,15 +37,24 @@ func errDisputeExists() *problem.Problem {
 // case's customer by its journal line, with what the case read of it (its
 // entry's document number and reference) and the amount disputed of it,
 // in the case's currency and, as its share of the item as booked, in the
-// company's. ID is the item's own, which a document made from it names.
+// company's. ID is the item's own, which a document made from it names;
+// AccountID the item's account, which a write-off credits.
 type CaseItem struct {
 	ItemNo int16
 	ID     uuid.UUID
 	ledger.ItemRef
+	AccountID      uuid.UUID
 	DocumentNumber string
 	Reference      *string
 	Amount         money.Minor
 	AmountLC       money.Minor
+	// Accepted and AcceptedLC are what a resolution accepted of the item
+	// (T86d), from zero to Amount, and CreditMemoID and CreditMemoNumber
+	// the credit memo that credited it; nil for an item of a case not
+	// resolved, and the memo for one not credited.
+	Accepted, AcceptedLC *money.Minor
+	CreditMemoID         *uuid.UUID
+	CreditMemoNumber     *string
 }
 
 // caseItems reads the items of the cases, each case's by number, and gives
@@ -55,13 +65,13 @@ func caseItems(ctx context.Context, tx pgx.Tx, cases []Case) error {
 	for i, c := range cases {
 		at[c.ID], ids[i] = i, c.ID
 	}
-	rows, _ := tx.Query(ctx, `SELECT dispute_case_id, item_no, id, fiscal_year, journal_entry_id, line_no, document_number, reference,
-			disputed_amount, disputed_amount_lc
+	rows, _ := tx.Query(ctx, `SELECT dispute_case_id, item_no, id, fiscal_year, journal_entry_id, line_no, account_id, document_number, reference,
+			disputed_amount, disputed_amount_lc, accepted_amount, accepted_amount_lc, credit_memo_id, credit_memo_number
 		FROM collections.dispute_case_item WHERE dispute_case_id = ANY($1) ORDER BY dispute_case_id, item_no`, ids)
 	var id uuid.UUID
 	var it CaseItem
-	_, err := pgx.ForEachRow(rows, []any{&id, &it.ItemNo, &it.ID, &it.FiscalYear, &it.EntryID, &it.LineNo, &it.DocumentNumber, &it.Reference,
-		&it.Amount, &it.AmountLC}, func() error {
+	_, err := pgx.ForEachRow(rows, []any{&id, &it.ItemNo, &it.ID, &it.FiscalYear, &it.EntryID, &it.LineNo, &it.AccountID, &it.DocumentNumber, &it.Reference,
+		&it.Amount, &it.AmountLC, &it.Accepted, &it.AcceptedLC, &it.CreditMemoID, &it.CreditMemoNumber}, func() error {
 		c := &cases[at[id]]
 		c.Items = append(c.Items, it)
 		return nil
@@ -185,20 +195,21 @@ func insertCase(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID
 		amount, first.LocalCurrency, lc, in.Reason, in.Assignee, in.Note, p.ID); err != nil {
 		return fmt.Errorf("collections: open a dispute case on %d items of customer %s: %w", len(items), number, err)
 	}
-	nos, ids := make([]int16, len(items)), make([]uuid.UUID, len(items))
+	nos, ids, accounts := make([]int16, len(items)), make([]uuid.UUID, len(items)), make([]uuid.UUID, len(items))
 	refs, docs, refTexts := make([]ledger.ItemRef, len(items)), make([]string, len(items)), make([]*string, len(items))
 	amounts, locals := make([]money.Minor, len(items)), make([]money.Minor, len(items))
 	for i, it := range items {
-		nos[i], ids[i], refs[i], docs[i], refTexts[i] = int16(i+1), uuid.Must(uuid.NewV7()), it.ItemRef, it.Number, it.Reference // at most MaxCaseItems
+		nos[i], ids[i], accounts[i], refs[i] = int16(i+1), uuid.Must(uuid.NewV7()), it.AccountID, it.ItemRef // at most MaxCaseItems
+		docs[i], refTexts[i] = it.Number, it.Reference
 		amounts[i], locals[i] = it.disputed, share(it.ReceivableItem, it.disputed)
 	}
 	years, entries, lines := ledger.ItemColumns(refs)
 	if _, err := tx.Exec(ctx, `INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id,
-			line_no, document_number, reference, disputed_amount, disputed_amount_lc)
-		SELECT $1, $2, n, i, y, je, ln, dn, r, a, lc
-		FROM unnest($3::smallint[], $4::uuid[], $5::smallint[], $6::uuid[], $7::int[], $8::text[], $9::text[], $10::bigint[], $11::bigint[])
-			AS x(n, i, y, je, ln, dn, r, a, lc)`,
-		p.TenantID, id, nos, ids, years, entries, lines, docs, refTexts, amounts, locals); err != nil {
+			line_no, account_id, document_number, reference, disputed_amount, disputed_amount_lc)
+		SELECT $1, $2, n, i, y, je, ln, acc, dn, r, a, lc
+		FROM unnest($3::smallint[], $4::uuid[], $5::smallint[], $6::uuid[], $7::int[], $8::uuid[], $9::text[], $10::text[], $11::bigint[], $12::bigint[])
+			AS x(n, i, y, je, ln, acc, dn, r, a, lc)`,
+		p.TenantID, id, nos, ids, years, entries, lines, accounts, docs, refTexts, amounts, locals); err != nil {
 		return fmt.Errorf("collections: the items of dispute case %s: %w", id, err)
 	}
 	return nil
@@ -206,12 +217,33 @@ func insertCase(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID
 
 // itemsDetail is the case's items as its audit records and events name
 // them: by number and journal line, with the document number and the
-// disputed amount.
+// disputed amount and, once the case is resolved (T86d), what was accepted
+// of each and its credit memo.
 func itemsDetail(c Case) []map[string]any {
 	out := make([]map[string]any, len(c.Items))
 	for i, it := range c.Items {
 		out[i] = map[string]any{"item_no": it.ItemNo, "fiscal_year": it.FiscalYear, "journal_entry_id": it.EntryID, "line_no": it.LineNo,
 			"document_number": it.DocumentNumber, "disputed_amount": money.EventAmount(it.Amount, c.Currency, c.Exponent)}
+		if it.Accepted != nil {
+			out[i]["accepted_amount"] = money.EventAmount(*it.Accepted, c.Currency, c.Exponent)
+			out[i]["credit_memo_id"], out[i]["credit_memo_number"] = it.CreditMemoID, it.CreditMemoNumber
+		}
+	}
+	return out
+}
+
+// resolutionDetail is a resolved case's resolution as its audit record and
+// event name it, nil for a case not resolved.
+func resolutionDetail(c Case) map[string]any {
+	r := c.Resolution
+	if r == nil {
+		return nil
+	}
+	out := map[string]any{"kind": r.Kind, "accepted_amount": money.EventAmount(r.Accepted, c.Currency, c.Exponent),
+		"posting_date": r.PostingDate.Format(time.DateOnly), "write_off_journal_entry_id": nil, "write_off_journal_entry_year": nil,
+		"write_off_journal_entry_number": nil}
+	if w := r.WriteOff; w != nil {
+		out["write_off_journal_entry_id"], out["write_off_journal_entry_year"], out["write_off_journal_entry_number"] = w.ID, w.Year, w.Number
 	}
 	return out
 }

@@ -117,7 +117,7 @@ func (e env) caseRecorded(t *testing.T, id string, entry ledger.Entry) {
 		"line_no": float64(1), "document_number": entry.DocumentNumber, "disputed_amount": map[string]any{"amount": "40.00", "currency": "EUR"},
 		"assignee_id": e.Tenant.Human.ID.String(), "status": "open", "status_before": nil, "version": float64(1),
 		"items": []any{map[string]any{"item_no": float64(1), "fiscal_year": float64(2026), "journal_entry_id": entry.ID.String(), "line_no": float64(1),
-			"document_number": entry.DocumentNumber, "disputed_amount": map[string]any{"amount": "40.00", "currency": "EUR"}}}}
+			"document_number": entry.DocumentNumber, "disputed_amount": map[string]any{"amount": "40.00", "currency": "EUR"}}}, "resolution": nil}
 	if a, b := mustJSON(t, events[0]), mustJSON(t, want); a != b {
 		t.Errorf("the opened event: got %s, want %s", a, b)
 	}

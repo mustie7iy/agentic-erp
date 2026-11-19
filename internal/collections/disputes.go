@@ -69,20 +69,26 @@ type Case struct {
 	CreatedBy      uuid.UUID
 	UpdatedAt      time.Time
 	UpdatedBy      uuid.UUID
-	// Items are the case's items by number, from 1.
-	Items []CaseItem
+	// Resolution is how an accepted case was resolved (T86d), nil for
+	// any other case; Items are the case's items by number, from 1.
+	Resolution *Resolution
+	Items      []CaseItem
 }
 
 const caseSelect = `SELECT d.id, d.legal_entity_id, d.customer_id, d.customer_number, d.fiscal_year, d.journal_entry_id, d.line_no, d.document_number,
 		d.reference, d.currency, c.exponent, d.disputed_amount, d.currency_lc, l.exponent, d.disputed_amount_lc, d.reason, d.assignee_id, d.note, d.status,
-		d.close_reason, d.closed_at, d.closed_by, d.version, d.created_at, d.created_by, d.updated_at, d.updated_by
+		d.close_reason, d.closed_at, d.closed_by, d.version, d.created_at, d.created_by, d.updated_at, d.updated_by,
+		d.resolution, d.accepted_amount, d.accepted_amount_lc, d.posting_date, d.write_off_entry_year, d.write_off_entry_id, d.write_off_entry_number
 	FROM collections.dispute_case d JOIN ref.currency c ON c.code = d.currency JOIN ref.currency l ON l.code = d.currency_lc`
 
 func scanCase(row pgx.Row) (Case, error) {
 	var c Case
+	var r resolutionRow
 	err := row.Scan(&c.ID, &c.LegalEntityID, &c.CustomerID, &c.CustomerNumber, &c.FiscalYear, &c.EntryID, &c.LineNo, &c.DocumentNumber,
 		&c.Reference, &c.Currency, &c.Exponent, &c.Amount, &c.CurrencyLC, &c.ExponentLC, &c.AmountLC, &c.Reason, &c.Assignee, &c.Note, &c.Status,
-		&c.CloseReason, &c.ClosedAt, &c.ClosedBy, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy)
+		&c.CloseReason, &c.ClosedAt, &c.ClosedBy, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy,
+		&r.kind, &r.accepted, &r.acceptedLC, &r.postingDate, &r.entryYear, &r.entryID, &r.entryNumber)
+	c.Resolution = r.resolution()
 	return c, errs.Wrapf(err, "scan dispute case")
 }
 
@@ -174,8 +180,7 @@ func (e *Endpoints) OpenCase(ctx context.Context, in CaseInput) (Case, error) {
 	if err != nil {
 		return Case{}, err
 	}
-	return c, recordCase(ctx, "collections.dispute_case.open", "opened", c, le, nil, map[string]any{"reason_given": true, "note_given": c.Note != nil,
-		"items": itemsDetail(c)})
+	return c, recordCase(ctx, "collections.dispute_case.open", "opened", c, le, nil, map[string]any{"reason_given": true, "note_given": c.Note != nil})
 }
 
 // openItem is the company's open customer item at the journal line, one
@@ -199,9 +204,15 @@ func (e *Endpoints) openItem(ctx context.Context, le tenancy.Entity, ref ledger.
 // disputed amount ÷ its amount, rounded half away from zero. All of the
 // item disputed is all of its local amount.
 func share(it ledger.ReceivableItem, amount money.Minor) money.Minor {
-	r := new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(it.AmountLC)), big.NewInt(int64(amount))), big.NewInt(int64(it.Amount)))
-	lc, _ := money.Round(r, 0) // never out of range: at most the item's local amount, as amount is at most its amount
-	return lc
+	return shareOf(it.AmountLC, amount, it.Amount)
+}
+
+// shareOf is part of whole's share of lc: lc × part ÷ whole, rounded half
+// away from zero; part is from zero to whole, which is above zero.
+func shareOf(lc, part, whole money.Minor) money.Minor {
+	r := new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(lc)), big.NewInt(int64(part))), big.NewInt(int64(whole)))
+	out, _ := money.Round(r, 0) // never out of range: at most lc, as part is at most whole
+	return out
 }
 
 // customerNumber is the business partner number of the item's customer.
@@ -378,11 +389,12 @@ func recordCase(ctx context.Context, action, change string, c Case, le tenancy.E
 	if before != nil {
 		was = *before
 	}
+	items, resolution := itemsDetail(c), resolutionDetail(c)
 	payload := map[string]any{"dispute_case_id": c.ID, "change": change, "legal_entity_id": c.LegalEntityID, "legal_entity_code": le.Code,
 		"customer_id": c.CustomerID, "customer_number": c.CustomerNumber, "fiscal_year": c.FiscalYear, "journal_entry_id": c.EntryID,
 		"line_no": c.LineNo, "document_number": c.DocumentNumber, "disputed_amount": money.EventAmount(c.Amount, c.Currency, c.Exponent),
-		"assignee_id": c.Assignee, "status": c.Status, "status_before": was, "version": c.Version, "items": itemsDetail(c)}
-	detail["status"], detail["status_before"] = c.Status, was
+		"assignee_id": c.Assignee, "status": c.Status, "status_before": was, "version": c.Version, "items": items, "resolution": resolution}
+	detail["status"], detail["status_before"], detail["items"], detail["resolution"] = c.Status, was, items, resolution
 	if err := audit.Record(ctx, action, "collections.dispute_case", c.ID, detail, outbox.Event{Context: "collections", Name: "dispute_case_changed",
 		AggregateType: "collections.dispute_case", AggregateID: c.ID, Payload: payload}); err != nil {
 		return fmt.Errorf("collections: record %s of dispute case %s: %w", action, c.ID, err)

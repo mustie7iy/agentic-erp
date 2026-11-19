@@ -18535,7 +18535,7 @@ paths:
       tags:
         - collections
       summary: Close a dispute case as accepted or rejected
-      description: "Closes an `open` dispute case once (ADR-0065 As built, T86a), at the version the caller read (`If-Match`): `outcome` `accepted` (the customer is right) or `rejected` (it owes the amount; another value is 422 `collections.unknown_outcome` naming `outcome`), with the reason, a text of more than white space (422 `request.validation_failed`). The case is read under a row lock and moves to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is credited by a person, with a credit memo request or a customer credit memo. Once the case is closed the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`)."
+      description: "Closes an `open` dispute case once (ADR-0065 As built, T86a), at the version the caller read (`If-Match`): `outcome` `accepted` (the customer is right) or `rejected` (it owes the amount; another value is 422 `collections.unknown_outcome` naming `outcome`), with the reason, a text of more than white space (422 `request.validation_failed`). The case is read under a row lock and moves to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is resolved by a credit memo or a write-off with `resolveDisputeCase` (T86d) instead, or credited by a person, with a credit memo request or a customer credit memo. Once the case is closed the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`)."
       x-permission: collections.dispute.write
       x-agent: false
       x-problem-codes:
@@ -18566,6 +18566,155 @@ paths:
       responses:
         "200":
           description: "The dispute case, closed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisputeCase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dispute-cases/{id}:resolve":
+    post:
+      operationId: resolveDisputeCase
+      tags:
+        - collections
+      summary: Resolve an accepted dispute case by credit memo or write-off
+      description: "Resolves an `open` dispute case the company accepts, in full or in part, once (ADR-0065 As built, T86d), at the version the caller read (`If-Match`; 412 when another change came first): the case is read under a row lock; one that is not open is refused (409 `collections.dispute_closed`). `resolution` is `credit_memo` or `write_off` (another value is 422 `collections.unknown_resolution` naming `resolution`), with the reason, a text of more than white space (422 `request.validation_failed`). Without `items` every item of the case is accepted in full; with them, each names an item of the case by `item_no`, once (422 `collections.unknown_item` naming its `item_no`), and what is accepted of it, in the case's currency (422 `collections.currency_mismatch`), from zero to what the item disputes (422 `collections.invalid_accepted_amount` naming its `accepted_amount.amount`); an item not named is not accepted, and more than zero must be accepted in all (422 `collections.invalid_accepted_amount` naming `items`: a case the company does not accept is closed as rejected, `closeDisputeCase`). The documents post on `posting_date`, else on the company's today in its time zone, in an open period (409 `ledger.period_not_open`). `credit_memo`: for each item accepted above zero a customer credit memo is entered and posted through receivables (`postCustomerInvoice`), naming the posted customer invoice the item's entry was posted for (an item of any other entry, a manual entry's or a residual item's, is 422 `collections.no_invoice` naming `resolution`: write it off instead), with the invoice's items credited in proportion to the accepted part of its gross amount, net and tax alike, so its gross amount is the accepted amount; its source is the case's item (`source_document_id`, the item's id, and `source_document_number`, the case's id and the item's number). Receivables' rules hold: the credits naming one invoice never exceed its gross amount (422 `receivables.credit_exceeds_invoice`), and a customer no longer usable is refused (422 `receivables.customer_not_usable`). `write_off`: one journal entry, document type `SA`, `source_context` `collections`, the case its source document, with per item accepted above zero a debit of the accepted amount on the company's `payment_difference_expense` account (422 `collections.no_write_off_account` without it) and a credit to the item's account naming the customer, both at the item's booked rate. Either leaves a credit item of the customer open beside the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as any credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names `resolution` (or `posting_date`), its detail led by the document that could not be posted, and leaves the case open with nothing posted. The case becomes `accepted` with `resolution`, `accepted_amount`, `local_accepted_amount` (each item's accepted part of its local disputed amount, rounded half away from zero), `posting_date`, its write-off's entry (`write_off_journal_entry_id`, `write_off_journal_entry_year`, `write_off_journal_entry_number`) and each item's `accepted_amount` and credit memo (`credit_memo_id`, `credit_memo_number`); `close_reason` is the reason. Once closed, its items are dunned again (T86b) for what is still open of them. Audited (without the reason), and published as DisputeCaseChanged (`resolved`). A retry with the same `Idempotency-Key` answers the resolved case. Human-only (`x-agent: false`)."
+      x-permission: collections.dispute.resolve
+      x-agent: false
+      x-problem-codes:
+        - collections.currency_mismatch
+        - collections.dispute_closed
+        # The database's answer to a second open case of an item (dispute_case_one_open), which TestProblemCodes lists for every
+        # operation that writes cases; this one cannot reach it, as it closes a case without opening one.
+        - collections.dispute_exists
+        - collections.invalid_accepted_amount
+        - collections.no_invoice
+        - collections.no_write_off_account
+        - collections.unknown_item
+        - collections.unknown_resolution
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.credit_exceeds_invoice
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
+        - receivables.invalid_status
+        - receivables.items_required
+        - receivables.no_tax_account
+        - receivables.reference_not_allowed
+        - receivables.tax_changed
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
+        - receivables.unknown_currency
+        - receivables.unknown_kind
+        - receivables.unknown_payment_term
+        - receivables.unknown_tax_code
+        - request.invalid_amount
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The resolution, what is accepted of which items, and the reason.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeCaseResolve"
+            examples:
+              partly:
+                summary: One invoice credited in full, the other in part
+                value:
+                  resolution: credit_memo
+                  reason: Both deliveries were late; the valve kit's discount in full, half of the gauge's
+                  items:
+                    - {item_no: 1, accepted_amount: {amount: "21.00", currency: CAD}}
+                    - {item_no: 2, accepted_amount: {amount: "42.00", currency: CAD}}
+              written_off:
+                summary: The whole case written off
+                value:
+                  resolution: write_off
+                  reason: Not worth pursuing
+      responses:
+        "200":
+          description: "The dispute case, resolved."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -59211,6 +59360,33 @@ components:
         reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
         disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount disputed of the item, in its currency."}
         local_disputed_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, its share of the item's amount as the item was booked."}
+        accepted_amount: {$ref: "#/components/schemas/Money", description: "What the case's resolution accepted of the item, in its currency, from zero to its disputed amount (T86d); absent unless the case is resolved."}
+        local_accepted_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency: that part of `local_disputed_amount`, rounded half away from zero; absent unless the case is resolved."}
+        credit_memo_id: {type: string, format: uuid, description: "The customer credit memo that credited the item (`GET /v1/customer-invoices/{id}`); absent unless a credit memo resolution accepted some of it.", readOnly: true}
+        credit_memo_number: {type: string, description: "That credit memo's document number; absent with `credit_memo_id`.", readOnly: true}
+    DisputeCaseResolve:
+      type: object
+      description: "Resolve an open dispute case the company accepts (T86d): by a customer credit memo per accepted item or a write-off, with what is accepted of which items."
+      required: [resolution, reason]
+      additionalProperties: false
+      properties:
+        resolution: {type: string, x-extensible-enum: [credit_memo, write_off], description: "`credit_memo`: a customer credit memo per item accepted above zero, naming its invoice; `write_off`: one journal entry writing the accepted amounts off to the company's `payment_difference_expense` account. Another value is refused (422 `collections.unknown_resolution`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the case is accepted and resolved so; its close reason."}
+        posting_date: {type: string, format: date, description: "The date the documents are dated and posted on, in an open period; absent: the company's today in its time zone."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: {$ref: "#/components/schemas/DisputeCaseItemAccepted"}
+          description: "What is accepted of which items, each once; an item not named is not accepted. Absent: every item in full."
+    DisputeCaseItemAccepted:
+      type: object
+      description: "What a resolution accepts of an item of the case."
+      required: [item_no, accepted_amount]
+      additionalProperties: false
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, maximum: 50, description: "The item's number in the case (`items[].item_no`)."}
+        accepted_amount: {$ref: "#/components/schemas/Money", description: "What is accepted of the item, in the case's currency: from zero to what it disputes."}
     DisputeCaseUpdate:
       type: object
       description: "Merge patch of an open dispute case: its assignee and its note."
@@ -59261,12 +59437,19 @@ components:
             status:
               type: string
               x-extensible-enum: [open, accepted, rejected]
-              description: "`open`: the case is being worked, and a dunning run leaves its item out (T86b). `accepted`: closed, the customer was right; a person credits it. `rejected`: closed, the customer owes the amount. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`open`: the case is being worked, and a dunning run leaves its items out (T86b). `accepted`: closed, the customer was right, in full or in part; resolved by a credit memo or a write-off (`resolution`, T86d), or credited by a person when closed without one. `rejected`: closed, the customer owes the amount. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             close_reason: {type: string, description: "Why the case was closed with its outcome; absent while it is open.", readOnly: true}
             closed_at: {type: string, format: date-time, description: "When the case was closed; absent while it is open.", readOnly: true}
             closed_by: {type: string, format: uuid, description: "Who closed the case; absent while it is open.", readOnly: true}
             closed_by_name: {type: string, description: "The name of who closed the case; absent while it is open.", readOnly: true}
+            resolution: {type: string, x-extensible-enum: [credit_memo, write_off], description: "How an accepted case was resolved (`resolveDisputeCase`, T86d): `credit_memo`, its items' credit memos (`items[].credit_memo_id`), or `write_off`, its write-off entry; absent for a case not resolved, an accepted case closed without one among them. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1.", readOnly: true}
+            accepted_amount: {$ref: "#/components/schemas/Money", description: "What the resolution accepted, the items' accepted amounts together, in the case's currency; absent unless resolved."}
+            local_accepted_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, the items' accepted parts as they were booked; absent unless resolved."}
+            posting_date: {type: string, format: date, description: "The date the resolution's documents posted on; absent unless resolved.", readOnly: true}
+            write_off_journal_entry_id: {type: string, format: uuid, description: "The write-off's journal entry (`GET /v1/journal-entries/{id}`); absent unless the resolution is `write_off`.", readOnly: true}
+            write_off_journal_entry_year: {type: integer, format: int32, description: "The write-off entry's fiscal year; absent with it.", readOnly: true}
+            write_off_journal_entry_number: {type: string, description: "The write-off entry's document number; absent with it.", readOnly: true}
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
           version: 2

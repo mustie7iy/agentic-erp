@@ -121,6 +121,8 @@ type Endpoints struct {
 	Now func() time.Time
 	// MaxItems is the most overdue items one run proposes; 0: MaxRunItems.
 	MaxItems int
+	// Resolving is what resolving a dispute case posts through (T86d).
+	Resolving Resolving
 }
 
 // Run is a row of collections.dunning_run. OverdueAmount is minor units

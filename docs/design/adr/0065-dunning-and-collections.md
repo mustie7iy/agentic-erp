@@ -994,3 +994,90 @@ each listed for the product owner's digest.
   nothing locks an item before its case.
 - **Walkthrough.** `step_dispute_items`: see `scripts/walkthrough.sh`.
 
+
+### T86d Resolving an accepted dispute case by credit memo or write-off (migrations 000396, 000397)
+
+Decided by default under this ADR (`plan-depth-3.md` §T86d; SAP S/4HANA
+FSCM Dispute Management as the reference, from memory: a case is
+resolved by a credit memo or a write-off, each reducing what is
+disputed, the rest not accepted), each listed for the product owner's
+digest.
+
+- **Operation.** `POST /v1/dispute-cases/{id}:resolve` with `resolution`
+  (`credit_memo` or `write_off`, an open enumeration), the reason, an
+  optional `posting_date` (absent: the company's today, `config.DocumentDay`)
+  and optional `items` (`item_no`, `accepted_amount` from zero to what
+  the item disputes; absent: every item in full; something must be
+  accepted, else the case is closed as rejected). New permission
+  `collections.dispute.resolve`, separate from `.write` because it
+  posts; human-only, `If-Match`, `Idempotency-Key`. The collections agent
+  never calls it (`collectionsagent.Never`).
+- **Credit memo.** Per item accepted above zero, a customer credit memo
+  is entered and posted through receivables' published API in the
+  request's transaction, as sales' credit memo requests do (ADR-0067 As
+  built T85d): it names the posted customer invoice the item's entry was
+  posted for (the ledger's source documents of the receivables context;
+  any other item, a manual entry's or an incoming payment's residual, is
+  422 `collections.no_invoice`), credits the invoice's items in
+  proportion to the accepted part of its gross amount (shared out over
+  the items by gross, then each over net and tax, `money.Allocate`), and
+  gives the tax as that share of what the item bore, so the memo's gross
+  is the accepted amount. Its source is the case's item: the item's own
+  id and `<case id>/<item number>` (at most 39 characters), which keeps
+  receivables' one memo per source document. Receivables' limit on the
+  credits of an invoice holds. collections now imports receivables
+  (`internal/layout`): no cycle, receivables imports no context of
+  collections'.
+- **Write-off.** One `SA` entry, `source_context` `collections` (the
+  journal's check widened by 000396, validated by 000397), the case its
+  source document: per item accepted above zero, a debit on the
+  company's `payment_difference_expense` account (SAP posts a dispute's
+  write-off by payment difference reason, ZDI; reason codes with their
+  own accounts are later) and a credit to the item's account with the
+  customer, both with the accepted part of the item's local amount, so
+  each pair balances in every currency and the credit clears against the
+  item without an exchange difference. The item's account was recorded
+  when the case was opened (`dispute_case_item.account_id`, T86c's
+  migration). No output tax is corrected by a write-off: whether a
+  pilot country allows it is a question for the tax specialist. A
+  company without the account is refused (422
+  `collections.no_write_off_account`). `requireOwnEntry` refuses the
+  entry's reversal through the ledger, as for any context without one.
+- **What stays open.** Neither document clears the invoice: each leaves
+  a credit item of the customer beside it, cleared against it
+  (`createClearing`) or netted when a payment is applied, as receivables'
+  credit memos are (T75d). The item need not be open when the case is
+  resolved: a partly paid invoice's residual is credited the same way.
+  Clearing within the resolution is later.
+- **Refusals.** A refusal by receivables or the ledger names
+  `resolution` (or `posting_date`), its detail led by the document that
+  could not be posted (`asResolution`), and leaves the case open with
+  nothing posted: the request's transaction rolls back.
+- **Schema.** `dispute_case` gains `resolution`, `accepted_amount`,
+  `accepted_amount_lc`, `posting_date` and the write-off entry (year, id,
+  number); `dispute_case_item` gains `accepted_amount`,
+  `accepted_amount_lc`, `credit_memo_id`, `credit_memo_number`. Checks:
+  only an accepted case has a resolution, accepting 1 to its disputed
+  amount, with its local amount and date; a write-off names its entry, a
+  credit memo resolution none; an item's accepted amount from zero to
+  what it disputes, a memo only on an item accepted above zero. The
+  deferred `dispute_case_items` check also holds a resolved case's items
+  to its totals and its memos to its kind; an item's part is written
+  once, while its case is open (`dispute_case_item_fixed`). Tests in
+  `db/dispute_items_test.go`.
+- **Lock order.** The case row `FOR UPDATE`, then receivables' invoice
+  row (`creditedInvoice`) and the ledger's locks of its posting, then
+  the case's items and the case's own update; nothing locks those in the
+  other order, so no cycle. Two resolutions of one case wait on the row
+  lock: the second meets another version (412) or a closed case (409).
+- **Event and audit.** `DisputeCaseChanged` (`resolved`) with
+  `resolution` (kind, accepted amount, posting date, write-off entry) and
+  each item's accepted amount and credit memo; audit action
+  `collections.dispute_case.resolve`, without the reason (ADR-0079).
+  Receivables and the ledger record and publish their documents as
+  always.
+- **Walkthrough.** `step_dispute_resolution`: see `scripts/walkthrough.sh`.
+- **Specialist question.** Whether a write-off of a disputed amount in
+  Canada or the UAE must correct the output tax (a bad-debt or price
+  reduction rule); the first version corrects none, and a credit memo is
+  the resolution that does.

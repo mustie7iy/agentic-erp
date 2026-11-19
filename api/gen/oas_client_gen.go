@@ -773,9 +773,10 @@ type Invoker interface {
 	// more than white space (422 `request.validation_failed`). The case is read under a row lock and moves
 	// to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose
 	// item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is
-	// credited by a person, with a credit memo request or a customer credit memo. Once the case is closed
-	// the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry
-	// with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
+	// resolved by a credit memo or a write-off with `resolveDisputeCase` (T86d) instead, or credited by a
+	// person, with a credit memo request or a customer credit memo. Once the case is closed the item is
+	// dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry with the same
+	// `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
 	//
 	// POST /v1/dispute-cases/{id}:close
 	CloseDisputeCase(ctx context.Context, request *DisputeCaseClose, params CloseDisputeCaseParams) (CloseDisputeCaseRes, error)
@@ -7794,6 +7795,49 @@ type Invoker interface {
 	//
 	// POST /v1/incoming-payments/{id}/applications/{application_no}:reset
 	ResetIncomingPaymentApplication(ctx context.Context, request *IncomingPaymentReset, params ResetIncomingPaymentApplicationParams) (ResetIncomingPaymentApplicationRes, error)
+	// ResolveDisputeCase invokes resolveDisputeCase operation.
+	//
+	// Resolves an `open` dispute case the company accepts, in full or in part, once (ADR-0065 As built,
+	// T86d), at the version the caller read (`If-Match`; 412 when another change came first): the case is
+	// read under a row lock; one that is not open is refused (409 `collections.dispute_closed`).
+	// `resolution` is `credit_memo` or `write_off` (another value is 422 `collections.unknown_resolution`
+	// naming `resolution`), with the reason, a text of more than white space (422
+	// `request.validation_failed`). Without `items` every item of the case is accepted in full; with them,
+	// each names an item of the case by `item_no`, once (422 `collections.unknown_item` naming its
+	// `item_no`), and what is accepted of it, in the case's currency (422
+	// `collections.currency_mismatch`), from zero to what the item disputes (422
+	// `collections.invalid_accepted_amount` naming its `accepted_amount.amount`); an item not named is not
+	// accepted, and more than zero must be accepted in all (422 `collections.invalid_accepted_amount`
+	// naming `items`: a case the company does not accept is closed as rejected, `closeDisputeCase`). The
+	// documents post on `posting_date`, else on the company's today in its time zone, in an open period
+	// (409 `ledger.period_not_open`). `credit_memo`: for each item accepted above zero a customer credit
+	// memo is entered and posted through receivables (`postCustomerInvoice`), naming the posted customer
+	// invoice the item's entry was posted for (an item of any other entry, a manual entry's or a residual
+	// item's, is 422 `collections.no_invoice` naming `resolution`: write it off instead), with the
+	// invoice's items credited in proportion to the accepted part of its gross amount, net and tax alike,
+	// so its gross amount is the accepted amount; its source is the case's item (`source_document_id`, the
+	// item's id, and `source_document_number`, the case's id and the item's number). Receivables' rules
+	// hold: the credits naming one invoice never exceed its gross amount (422
+	// `receivables.credit_exceeds_invoice`), and a customer no longer usable is refused (422
+	// `receivables.customer_not_usable`). `write_off`: one journal entry, document type `SA`,
+	// `source_context` `collections`, the case its source document, with per item accepted above zero a
+	// debit of the accepted amount on the company's `payment_difference_expense` account (422
+	// `collections.no_write_off_account` without it) and a credit to the item's account naming the
+	// customer, both at the item's booked rate. Either leaves a credit item of the customer open beside
+	// the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as any
+	// credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names
+	// `resolution` (or `posting_date`), its detail led by the document that could not be posted, and
+	// leaves the case open with nothing posted. The case becomes `accepted` with `resolution`,
+	// `accepted_amount`, `local_accepted_amount` (each item's accepted part of its local disputed amount,
+	// rounded half away from zero), `posting_date`, its write-off's entry (`write_off_journal_entry_id`,
+	// `write_off_journal_entry_year`, `write_off_journal_entry_number`) and each item's `accepted_amount`
+	// and credit memo (`credit_memo_id`, `credit_memo_number`); `close_reason` is the reason. Once closed,
+	// its items are dunned again (T86b) for what is still open of them. Audited (without the reason), and
+	// published as DisputeCaseChanged (`resolved`). A retry with the same `Idempotency-Key` answers the
+	// resolved case. Human-only (`x-agent: false`).
+	//
+	// POST /v1/dispute-cases/{id}:resolve
+	ResolveDisputeCase(ctx context.Context, request *DisputeCaseResolve, params ResolveDisputeCaseParams) (ResolveDisputeCaseRes, error)
 	// ResumeWebhookSubscription invokes resumeWebhookSubscription operation.
 	//
 	// Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event
@@ -17132,9 +17176,10 @@ func (c *Client) sendClearSupplierInvoiceDownPayments(ctx context.Context, reque
 // more than white space (422 `request.validation_failed`). The case is read under a row lock and moves
 // to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose
 // item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is
-// credited by a person, with a credit memo request or a customer credit memo. Once the case is closed
-// the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry
-// with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
+// resolved by a credit memo or a write-off with `resolveDisputeCase` (T86d) instead, or credited by a
+// person, with a credit memo request or a customer credit memo. Once the case is closed the item is
+// dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry with the same
+// `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
 //
 // POST /v1/dispute-cases/{id}:close
 func (c *Client) CloseDisputeCase(ctx context.Context, request *DisputeCaseClose, params CloseDisputeCaseParams) (CloseDisputeCaseRes, error) {
@@ -108838,6 +108883,203 @@ func (c *Client) sendResetIncomingPaymentApplication(ctx context.Context, reques
 
 	stage = "DecodeResponse"
 	result, err := decodeResetIncomingPaymentApplicationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ResolveDisputeCase invokes resolveDisputeCase operation.
+//
+// Resolves an `open` dispute case the company accepts, in full or in part, once (ADR-0065 As built,
+// T86d), at the version the caller read (`If-Match`; 412 when another change came first): the case is
+// read under a row lock; one that is not open is refused (409 `collections.dispute_closed`).
+// `resolution` is `credit_memo` or `write_off` (another value is 422 `collections.unknown_resolution`
+// naming `resolution`), with the reason, a text of more than white space (422
+// `request.validation_failed`). Without `items` every item of the case is accepted in full; with them,
+// each names an item of the case by `item_no`, once (422 `collections.unknown_item` naming its
+// `item_no`), and what is accepted of it, in the case's currency (422
+// `collections.currency_mismatch`), from zero to what the item disputes (422
+// `collections.invalid_accepted_amount` naming its `accepted_amount.amount`); an item not named is not
+// accepted, and more than zero must be accepted in all (422 `collections.invalid_accepted_amount`
+// naming `items`: a case the company does not accept is closed as rejected, `closeDisputeCase`). The
+// documents post on `posting_date`, else on the company's today in its time zone, in an open period
+// (409 `ledger.period_not_open`). `credit_memo`: for each item accepted above zero a customer credit
+// memo is entered and posted through receivables (`postCustomerInvoice`), naming the posted customer
+// invoice the item's entry was posted for (an item of any other entry, a manual entry's or a residual
+// item's, is 422 `collections.no_invoice` naming `resolution`: write it off instead), with the
+// invoice's items credited in proportion to the accepted part of its gross amount, net and tax alike,
+// so its gross amount is the accepted amount; its source is the case's item (`source_document_id`, the
+// item's id, and `source_document_number`, the case's id and the item's number). Receivables' rules
+// hold: the credits naming one invoice never exceed its gross amount (422
+// `receivables.credit_exceeds_invoice`), and a customer no longer usable is refused (422
+// `receivables.customer_not_usable`). `write_off`: one journal entry, document type `SA`,
+// `source_context` `collections`, the case its source document, with per item accepted above zero a
+// debit of the accepted amount on the company's `payment_difference_expense` account (422
+// `collections.no_write_off_account` without it) and a credit to the item's account naming the
+// customer, both at the item's booked rate. Either leaves a credit item of the customer open beside
+// the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as any
+// credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names
+// `resolution` (or `posting_date`), its detail led by the document that could not be posted, and
+// leaves the case open with nothing posted. The case becomes `accepted` with `resolution`,
+// `accepted_amount`, `local_accepted_amount` (each item's accepted part of its local disputed amount,
+// rounded half away from zero), `posting_date`, its write-off's entry (`write_off_journal_entry_id`,
+// `write_off_journal_entry_year`, `write_off_journal_entry_number`) and each item's `accepted_amount`
+// and credit memo (`credit_memo_id`, `credit_memo_number`); `close_reason` is the reason. Once closed,
+// its items are dunned again (T86b) for what is still open of them. Audited (without the reason), and
+// published as DisputeCaseChanged (`resolved`). A retry with the same `Idempotency-Key` answers the
+// resolved case. Human-only (`x-agent: false`).
+//
+// POST /v1/dispute-cases/{id}:resolve
+func (c *Client) ResolveDisputeCase(ctx context.Context, request *DisputeCaseResolve, params ResolveDisputeCaseParams) (ResolveDisputeCaseRes, error) {
+	res, err := c.sendResolveDisputeCase(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendResolveDisputeCase(ctx context.Context, request *DisputeCaseResolve, params ResolveDisputeCaseParams) (res ResolveDisputeCaseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("resolveDisputeCase"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/dispute-cases/{id}:resolve"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ResolveDisputeCaseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/dispute-cases/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":resolve"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeResolveDisputeCaseRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ResolveDisputeCaseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeResolveDisputeCaseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

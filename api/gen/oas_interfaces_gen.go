@@ -2229,6 +2229,10 @@ type ResetIncomingPaymentRes interface {
 	resetIncomingPaymentRes()
 }
 
+type ResolveDisputeCaseRes interface {
+	resolveDisputeCaseRes()
+}
+
 type ResumeWebhookSubscriptionRes interface {
 	resumeWebhookSubscriptionRes()
 }

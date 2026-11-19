@@ -20,7 +20,8 @@
 -- document number and reference), the disputed amount in the case's
 -- currency, more than zero, and its share of the item's amount in the
 -- company's as booked. id is the item's own, which a document made from it
--- names (T86d). open is whether its case is open.
+-- names, and account_id the item's account, which a write-off credits
+-- (T86d). open is whether its case is open.
 CREATE TABLE collections.dispute_case_item (
   tenant_id           uuid NOT NULL,
   dispute_case_id     uuid NOT NULL,
@@ -29,6 +30,7 @@ CREATE TABLE collections.dispute_case_item (
   fiscal_year         smallint NOT NULL, -- ledger context: the journal line
   journal_entry_id    uuid NOT NULL,
   line_no             integer NOT NULL CONSTRAINT dispute_case_item_line_no_check CHECK (line_no > 0),
+  account_id          uuid NOT NULL,     -- ledger context: the line's account
   document_number     text NOT NULL CONSTRAINT dispute_case_item_document_number_check CHECK (length(document_number) BETWEEN 1 AND 40),
   reference           text,
   disputed_amount     bigint NOT NULL CONSTRAINT dispute_case_item_amount_check CHECK (disputed_amount > 0),
@@ -111,9 +113,13 @@ CREATE CONSTRAINT TRIGGER dispute_case_items AFTER INSERT OR UPDATE ON collectio
 CREATE CONSTRAINT TRIGGER dispute_case_items AFTER INSERT OR UPDATE ON collections.dispute_case_item
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION collections.check_dispute_case_items();
 
--- The existing cases' items: each case's own line, its only item.
-INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id, line_no, document_number,
-    reference, disputed_amount, disputed_amount_lc, open)
-  SELECT tenant_id, id, 1, gen_random_uuid(), fiscal_year, journal_entry_id, line_no, document_number, reference, disputed_amount,
-    disputed_amount_lc, status = 'open'
-  FROM collections.dispute_case ORDER BY tenant_id, id;
+-- The existing cases' items: each case's own line, its only item, on the
+-- line's account.
+INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id, line_no, account_id,
+    document_number, reference, disputed_amount, disputed_amount_lc, open)
+  SELECT d.tenant_id, d.id, 1, gen_random_uuid(), d.fiscal_year, d.journal_entry_id, d.line_no, l.account_id, d.document_number, d.reference,
+    d.disputed_amount, d.disputed_amount_lc, d.status = 'open'
+  FROM collections.dispute_case d
+  JOIN ledger.journal_line l ON l.tenant_id = d.tenant_id AND l.fiscal_year = d.fiscal_year AND l.journal_entry_id = d.journal_entry_id
+    AND l.line_no = d.line_no
+  ORDER BY d.tenant_id, d.id;

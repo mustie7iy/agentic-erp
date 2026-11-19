@@ -4876,6 +4876,11 @@ erDiagram
     text close_reason
     timestamptz closed_at
     uuid closed_by
+    text resolution "credit_memo, write_off"
+    bigint accepted_amount
+    bigint accepted_amount_lc
+    date posting_date
+    uuid write_off_entry_id "ledger"
     int version }
   dispute_case_item { uuid dispute_case_id PK
     smallint item_no PK "1 to 50"
@@ -4883,11 +4888,14 @@ erDiagram
     smallint fiscal_year "ledger: the journal line"
     uuid journal_entry_id
     int line_no
+    uuid account_id "ledger: the line's account"
     text document_number
     text reference
     bigint disputed_amount "above 0, the case's currency"
     bigint disputed_amount_lc "its share, as booked"
-    bool open "while its case is" }
+    bool open "while its case is"
+    bigint accepted_amount
+    uuid credit_memo_id "receivables" }
 ```
 
 - `collections.dunning_run`: the status is `proposed` or `confirmed`
@@ -5055,12 +5063,35 @@ erDiagram
   triggers `dispute_case_items` on both tables). The application inserts
   items and changes or deletes none; no role changes what an item names,
   reopens or deletes it (the trigger `dispute_case_item_fixed`). The
-  cases opened before have their own line as their one item.
+  cases opened before have their own line as their one item, on the
+  line's account (`account_id`, which a write-off credits).
+- A dispute case's resolution (T86d, migration 000396): on the case
+  `resolution` (`dispute_case_resolution_check`), `accepted_amount`,
+  `accepted_amount_lc`, `posting_date` and a write-off's entry
+  (`write_off_entry_year`, `_id`, `_number`,
+  `dispute_case_write_off_entry_number_check`). Only an accepted case
+  has a resolution, which accepts 1 to its disputed amount with its local
+  amount and date (`dispute_case_resolved_check`,
+  `dispute_case_accepted_amount_lc_check`); a write-off names its entry
+  and a credit memo resolution none (`dispute_case_write_off_check`). On
+  an item `accepted_amount` from 0 to its disputed amount with
+  `accepted_amount_lc`, and `credit_memo_id` with `credit_memo_number`
+  only on an item accepted above zero (`dispute_case_item_accepted_check`,
+  `dispute_case_item_accepted_amount_lc_check`,
+  `dispute_case_item_credit_memo_number_check`). At commit a resolved
+  case's items each have their part, together its accepted amounts, a
+  credit memo exactly on each item a credit memo resolution accepted
+  above zero, and an unresolved case's items have none
+  (`dispute_case_items`, constraint `dispute_case_items_resolved`); an
+  item's part is written once, while its case is open
+  (`dispute_case_item_fixed`). The application's update grants add these
+  columns.
 - `collections.outbox`, `collections.inbox`: the context's events
   (`DunningRunChanged`, `DunningNoticeIssued`, `DisputeCaseChanged`).
 - Permissions `collections.dunning.read` and `.run`,
   `collections.worklist.read` (T76c, migration 000278), and
-  `collections.dispute.read` and `.write` (T86a, migration 000324). The collection
+  `collections.dispute.read` and `.write` (T86a, migration 000324), and
+  `collections.dispute.resolve` (T86d, migration 000396). The collection
   worklist has no table: it is computed on read from the ledger's open
   customer items and `dunned_item` (ADR-0065 §9).
 

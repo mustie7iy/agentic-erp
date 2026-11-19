@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -87,13 +88,38 @@ func caseToAPI(c Case, r caseRefs) gen.DisputeCase {
 	if c.ClosedBy != nil {
 		out.ClosedByName.SetTo(r.people[*c.ClosedBy])
 	}
+	resolutionToAPI(c, &out)
 	out.Items = make([]gen.DisputeCaseItem, len(c.Items))
 	for i, it := range c.Items {
 		out.Items[i] = gen.DisputeCaseItem{ItemNo: int32(it.ItemNo), FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
 			DocumentNumber: it.DocumentNumber, Reference: apitypes.OptString(it.Reference), DisputedAmount: apitypes.Money(it.Amount, c.Currency, c.Exponent),
-			LocalDisputedAmount: apitypes.Money(it.AmountLC, c.CurrencyLC, c.ExponentLC)}
+			LocalDisputedAmount: apitypes.Money(it.AmountLC, c.CurrencyLC, c.ExponentLC), CreditMemoID: apitypes.OptUUID(it.CreditMemoID),
+			CreditMemoNumber: apitypes.OptString(it.CreditMemoNumber)}
+		if it.Accepted != nil { // with its local part (dispute_case_item_accepted_check)
+			out.Items[i].AcceptedAmount.SetTo(apitypes.Money(*it.Accepted, c.Currency, c.Exponent))
+			out.Items[i].LocalAcceptedAmount.SetTo(apitypes.Money(*it.AcceptedLC, c.CurrencyLC, c.ExponentLC))
+		}
 	}
 	return out
+}
+
+// resolutionToAPI gives a resolved case's representation its resolution:
+// what it accepted, in both currencies, when its documents posted and a
+// write-off's entry.
+func resolutionToAPI(c Case, out *gen.DisputeCase) {
+	r := c.Resolution
+	if r == nil {
+		return
+	}
+	out.Resolution.SetTo(r.Kind)
+	out.AcceptedAmount.SetTo(apitypes.Money(r.Accepted, c.Currency, c.Exponent))
+	out.LocalAcceptedAmount.SetTo(apitypes.Money(r.AcceptedLC, c.CurrencyLC, c.ExponentLC))
+	out.PostingDate.SetTo(r.PostingDate)
+	if w := r.WriteOff; w != nil {
+		out.WriteOffJournalEntryID.SetTo(w.ID)
+		out.WriteOffJournalEntryYear.SetTo(int32(w.Year))
+		out.WriteOffJournalEntryNumber.SetTo(w.Number)
+	}
 }
 
 // shownCase is a case as the API gives it, with what it names.
@@ -182,6 +208,24 @@ func (e *Endpoints) UpdateDisputeCase(ctx context.Context, req *gen.DisputeCaseU
 // CloseDisputeCase implements POST /v1/dispute-cases/{id}:close.
 func (e *Endpoints) CloseDisputeCase(ctx context.Context, req *gen.DisputeCaseClose, params gen.CloseDisputeCaseParams) (gen.CloseDisputeCaseRes, error) {
 	c, err := e.CloseCase(ctx, params.ID, etag.IfMatch(params.IfMatch), req.Outcome, req.Reason)
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.shownCase(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateDisputeCaseOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: out}, nil
+}
+
+// ResolveDisputeCase implements POST /v1/dispute-cases/{id}:resolve.
+func (e *Endpoints) ResolveDisputeCase(ctx context.Context, req *gen.DisputeCaseResolve, params gen.ResolveDisputeCaseParams) (gen.ResolveDisputeCaseRes, error) {
+	in := ResolutionInput{Kind: req.Resolution, Reason: req.Reason, PostingDate: apitypes.Ptr[time.Time](req.PostingDate),
+		Items: make([]AcceptedInput, len(req.Items))}
+	for i, it := range req.Items {
+		in.Items[i] = AcceptedInput{ItemNo: it.ItemNo, Amount: it.AcceptedAmount.Amount, Currency: it.AcceptedAmount.Currency}
+	}
+	c, err := e.ResolveCase(ctx, params.ID, etag.IfMatch(params.IfMatch), in)
 	if err != nil {
 		return nil, err
 	}

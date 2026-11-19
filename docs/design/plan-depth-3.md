@@ -659,8 +659,8 @@ and the worklist counts the case once.
   named), promises' list of items (T76f: 1 to 100 items, each once),
   T86b's hold in the proposal and the worklist.
 - **Adds:** table `collections.dispute_case_item` (the case's items by
-  number, each journal line with its document number, reference and
-  disputed amount in the item's currency and the company's as booked);
+  number, each journal line with its account, document number, reference
+  and disputed amount in the item's currency and the company's as booked);
   an item is in one open case at a time (the unique index moves to the
   items). `POST /v1/dispute-cases` takes `items` (1 to 50, each line once,
   of one customer and one currency) in place of the single item, which
@@ -671,11 +671,12 @@ and the worklist counts the case once.
   case's audit records keep its items. Migration: the table, the
   existing cases' items written from their own line, a deferred check
   that a case's items are its total and its first item its line.
-- **Walkthrough:** `step_dispute_items`: Ruth opens one case on two of
-  Lakeshore's overdue invoices with an amount each; an item of another
-  customer, an item named twice and an item of an open case are
-  refused; a dunning run names both as disputed with the case; the
-  worklist counts one case and the two amounts.
+- **Walkthrough:** `step_dispute_items`: Ruth opens one case on two
+  invoices of a new customer, Bayview Marine, with an amount each; an
+  invoice named twice, another customer's and a request naming its item
+  both ways are refused, as is a second case on one of them; a dunning
+  run names both as disputed with the case; the worklist counts one case
+  and the two amounts.
 - **Acceptance:** every item is an open item the case's customer owes in
   the company, in the case's currency, disputed above zero and at most
   its open amount; an item in another open case is refused whether it
@@ -719,14 +720,15 @@ as accepted, naming the documents.
   (`resolved`) and the audit record `collections.dispute_case.resolve`
   (without the reason). Migration: the columns, the source context and
   the permission.
-- **Walkthrough:** `step_dispute_resolution`: Lakeshore's case is
-  accepted in part: one invoice credited by a credit memo for less than
-  its disputed amount and the other not; a credit memo naming a case
-  that is closed is refused; a second case on Northwind is written off
-  in full; the documents are named on the cases and their credit items
-  are open.
+- **Walkthrough:** `step_dispute_resolution`: Bayview's case is accepted
+  in part by credit memo: one invoice credited in full, the other for
+  half of its disputed amount, each memo naming its invoice with its tax
+  in proportion; a second resolution is refused; the credits stand open;
+  a second case on the gauge is written off in full (accepting more than
+  it disputes refused) to 6850; a run duns both invoices again.
 - **Acceptance:** only an open case is resolved, once (409
-  `collections.dispute_closed`); the accepted amounts are within the
+  `collections.dispute_closed`); each item named once (422
+  `collections.unknown_item`); the accepted amounts are within the
   items' disputed amounts and one is above zero (422
   `collections.invalid_accepted_amount`); the credit memo's gross is
   the accepted amount, its tax the invoice's share, and receivables'

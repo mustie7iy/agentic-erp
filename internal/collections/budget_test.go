@@ -70,9 +70,9 @@ func TestCollectionWorklistBudget(t *testing.T) {
 			SELECT l.tenant_id, gen_random_uuid(), l.legal_entity_id, l.partner_id, 'BP', l.fiscal_year, l.journal_entry_id, l.line_no, 'B', 'EUR', 50, 'EUR',
 				50, 'Price', 'open', $3, $3
 			FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2 AND abs(hashtext(l.journal_entry_id::text)) % 10 = 0 RETURNING *
-		) INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id, line_no, document_number,
-			disputed_amount, disputed_amount_lc)
-		SELECT tenant_id, id, 1, gen_random_uuid(), fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, disputed_amount_lc FROM c`,
+		) INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id, line_no, account_id,
+			document_number, disputed_amount, disputed_amount_lc)
+		SELECT tenant_id, id, 1, gen_random_uuid(), fiscal_year, journal_entry_id, line_no, $2, document_number, disputed_amount, disputed_amount_lc FROM c`,
 		e.Tenant.ID, e.receivable, e.Tenant.Human.ID)
 	exec(`WITH p AS (
 			INSERT INTO collections.promise_to_pay (tenant_id, id, legal_entity_id, customer_id, customer_number, currency, promised_amount, promised_date,

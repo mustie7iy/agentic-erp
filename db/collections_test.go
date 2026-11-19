@@ -11,10 +11,10 @@ import (
 )
 
 // TestCollectionsPermissions (T76a, migration 000273; T76c, 000278; T86a,
-// 000324; T76e, 000354; T76f, 000365; ADR-0065 §7): the dunning
-// permissions, the worklist's (reading it and recording its work), the
-// dispute cases' and the dunning blocks' are seeded and are no approval
-// permissions.
+// 000324; T76e, 000354; T76f, 000365; T86d, 000396; ADR-0065 §7): the
+// dunning permissions, the worklist's (reading it and recording its work),
+// the dispute cases' (resolving them among them) and the dunning blocks'
+// are seeded and are no approval permissions.
 func TestCollectionsPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'collections.%' AND NOT is_approval ORDER BY code`)
@@ -25,7 +25,7 @@ func TestCollectionsPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.write collections.dunning.block collections.dunning.read collections.dunning.run collections.worklist.read collections.worklist.write"; got != want {
+	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.resolve collections.dispute.write collections.dunning.block collections.dunning.read collections.dunning.run collections.worklist.read collections.worklist.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -369,9 +369,9 @@ const disputeCase = `INSERT INTO collections.dispute_case (tenant_id, id, legal_
 // disputeCaseItems gives each case of the tenant that has none its one
 // item, its own line, open while the case is.
 const disputeCaseItems = `INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id, line_no,
-		document_number, disputed_amount, disputed_amount_lc, open)
-	SELECT tenant_id, id, 1, gen_random_uuid(), fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, disputed_amount_lc,
-		status = 'open'
+		account_id, document_number, disputed_amount, disputed_amount_lc, open)
+	SELECT tenant_id, id, 1, gen_random_uuid(), fiscal_year, journal_entry_id, line_no, gen_random_uuid(), document_number, disputed_amount,
+		disputed_amount_lc, status = 'open'
 	FROM collections.dispute_case d WHERE NOT EXISTS (SELECT FROM collections.dispute_case_item i WHERE i.tenant_id = d.tenant_id AND i.dispute_case_id = d.id)`
 
 // TestDisputeCaseRules (T86a, migration 000324; ADR-0065 As built): a case

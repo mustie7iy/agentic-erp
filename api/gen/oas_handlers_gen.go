@@ -10321,9 +10321,10 @@ func (s *Server) handleClearSupplierInvoiceDownPaymentsRequest(args [1]string, a
 // more than white space (422 `request.validation_failed`). The case is read under a row lock and moves
 // to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose
 // item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is
-// credited by a person, with a credit memo request or a customer credit memo. Once the case is closed
-// the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry
-// with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
+// resolved by a credit memo or a write-off with `resolveDisputeCase` (T86d) instead, or credited by a
+// person, with a credit memo request or a customer credit memo. Once the case is closed the item is
+// dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry with the same
+// `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
 //
 // POST /v1/dispute-cases/{id}:close
 func (s *Server) handleCloseDisputeCaseRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -116790,6 +116791,253 @@ func (s *Server) handleResetIncomingPaymentApplicationRequest(args [2]string, ar
 	}
 
 	if err := encodeResetIncomingPaymentApplicationResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleResolveDisputeCaseRequest handles resolveDisputeCase operation.
+//
+// Resolves an `open` dispute case the company accepts, in full or in part, once (ADR-0065 As built,
+// T86d), at the version the caller read (`If-Match`; 412 when another change came first): the case is
+// read under a row lock; one that is not open is refused (409 `collections.dispute_closed`).
+// `resolution` is `credit_memo` or `write_off` (another value is 422 `collections.unknown_resolution`
+// naming `resolution`), with the reason, a text of more than white space (422
+// `request.validation_failed`). Without `items` every item of the case is accepted in full; with them,
+// each names an item of the case by `item_no`, once (422 `collections.unknown_item` naming its
+// `item_no`), and what is accepted of it, in the case's currency (422
+// `collections.currency_mismatch`), from zero to what the item disputes (422
+// `collections.invalid_accepted_amount` naming its `accepted_amount.amount`); an item not named is not
+// accepted, and more than zero must be accepted in all (422 `collections.invalid_accepted_amount`
+// naming `items`: a case the company does not accept is closed as rejected, `closeDisputeCase`). The
+// documents post on `posting_date`, else on the company's today in its time zone, in an open period
+// (409 `ledger.period_not_open`). `credit_memo`: for each item accepted above zero a customer credit
+// memo is entered and posted through receivables (`postCustomerInvoice`), naming the posted customer
+// invoice the item's entry was posted for (an item of any other entry, a manual entry's or a residual
+// item's, is 422 `collections.no_invoice` naming `resolution`: write it off instead), with the
+// invoice's items credited in proportion to the accepted part of its gross amount, net and tax alike,
+// so its gross amount is the accepted amount; its source is the case's item (`source_document_id`, the
+// item's id, and `source_document_number`, the case's id and the item's number). Receivables' rules
+// hold: the credits naming one invoice never exceed its gross amount (422
+// `receivables.credit_exceeds_invoice`), and a customer no longer usable is refused (422
+// `receivables.customer_not_usable`). `write_off`: one journal entry, document type `SA`,
+// `source_context` `collections`, the case its source document, with per item accepted above zero a
+// debit of the accepted amount on the company's `payment_difference_expense` account (422
+// `collections.no_write_off_account` without it) and a credit to the item's account naming the
+// customer, both at the item's booked rate. Either leaves a credit item of the customer open beside
+// the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as any
+// credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names
+// `resolution` (or `posting_date`), its detail led by the document that could not be posted, and
+// leaves the case open with nothing posted. The case becomes `accepted` with `resolution`,
+// `accepted_amount`, `local_accepted_amount` (each item's accepted part of its local disputed amount,
+// rounded half away from zero), `posting_date`, its write-off's entry (`write_off_journal_entry_id`,
+// `write_off_journal_entry_year`, `write_off_journal_entry_number`) and each item's `accepted_amount`
+// and credit memo (`credit_memo_id`, `credit_memo_number`); `close_reason` is the reason. Once closed,
+// its items are dunned again (T86b) for what is still open of them. Audited (without the reason), and
+// published as DisputeCaseChanged (`resolved`). A retry with the same `Idempotency-Key` answers the
+// resolved case. Human-only (`x-agent: false`).
+//
+// POST /v1/dispute-cases/{id}:resolve
+func (s *Server) handleResolveDisputeCaseRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("resolveDisputeCase"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/dispute-cases/{id}:resolve"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ResolveDisputeCaseOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ResolveDisputeCaseOperation,
+			ID:   "resolveDisputeCase",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ResolveDisputeCaseOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeResolveDisputeCaseParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeResolveDisputeCaseRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response ResolveDisputeCaseRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ResolveDisputeCaseOperation,
+			OperationSummary: "Resolve an accepted dispute case by credit memo or write-off",
+			OperationID:      "resolveDisputeCase",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *DisputeCaseResolve
+			Params   = ResolveDisputeCaseParams
+			Response = ResolveDisputeCaseRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackResolveDisputeCaseParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ResolveDisputeCase(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ResolveDisputeCase(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeResolveDisputeCaseResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

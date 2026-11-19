@@ -209,6 +209,7 @@ const (
 	seedCase = `WITH c AS (INSERT INTO collections.dispute_case (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year,
 		journal_entry_id, line_no, document_number, currency, disputed_amount, currency_lc, disputed_amount_lc, reason, status, created_by, updated_by)`
 	seededItem = ` RETURNING *) INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id,
-		line_no, document_number, disputed_amount, disputed_amount_lc)
-		SELECT tenant_id, id, 1, gen_random_uuid(), fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, disputed_amount_lc FROM c`
+		line_no, account_id, document_number, disputed_amount, disputed_amount_lc)
+		SELECT tenant_id, id, 1, gen_random_uuid(), fiscal_year, journal_entry_id, line_no, gen_random_uuid(), document_number, disputed_amount,
+			disputed_amount_lc FROM c`
 )

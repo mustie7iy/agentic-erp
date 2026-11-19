@@ -27722,6 +27722,7 @@ func (*ConflictHeaders) requestBankAccountChangeRes()              {}
 func (*ConflictHeaders) requestBankAccountEndRes()                 {}
 func (*ConflictHeaders) resetIncomingPaymentApplicationRes()       {}
 func (*ConflictHeaders) resetIncomingPaymentRes()                  {}
+func (*ConflictHeaders) resolveDisputeCaseRes()                    {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) retireCatalogItemRes()                     {}
 func (*ConflictHeaders) retireControlRes()                         {}
@@ -41283,10 +41284,11 @@ type DisputeCase struct {
 	AssigneeName OptString `json:"assignee_name"`
 	// The note on the case; absent when it has none.
 	Note OptString `json:"note"`
-	// `open`: the case is being worked, and a dunning run leaves its item out (T86b). `accepted`: closed,
-	// the customer was right; a person credits it. `rejected`: closed, the customer owes the amount. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// `open`: the case is being worked, and a dunning run leaves its items out (T86b). `accepted`: closed,
+	// the customer was right, in full or in part; resolved by a credit memo or a write-off (`resolution`,
+	// T86d), or credited by a person when closed without one. `rejected`: closed, the customer owes the
+	// amount. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
 	Status string `json:"status"`
 	// Why the case was closed with its outcome; absent while it is open.
 	CloseReason OptString `json:"close_reason"`
@@ -41296,6 +41298,26 @@ type DisputeCase struct {
 	ClosedBy OptUUID `json:"closed_by"`
 	// The name of who closed the case; absent while it is open.
 	ClosedByName OptString `json:"closed_by_name"`
+	// How an accepted case was resolved (`resolveDisputeCase`, T86d): `credit_memo`, its items' credit
+	// memos (`items[].credit_memo_id`), or `write_off`, its write-off entry; absent for a case not
+	// resolved, an accepted case closed without one among them. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Resolution OptString `json:"resolution"`
+	// What the resolution accepted, the items' accepted amounts together, in the case's currency; absent
+	// unless resolved.
+	AcceptedAmount OptMoney `json:"accepted_amount"`
+	// The same in the company's currency, the items' accepted parts as they were booked; absent unless
+	// resolved.
+	LocalAcceptedAmount OptMoney `json:"local_accepted_amount"`
+	// The date the resolution's documents posted on; absent unless resolved.
+	PostingDate OptDate `json:"posting_date"`
+	// The write-off's journal entry (`GET /v1/journal-entries/{id}`); absent unless the resolution is
+	// `write_off`.
+	WriteOffJournalEntryID OptUUID `json:"write_off_journal_entry_id"`
+	// The write-off entry's fiscal year; absent with it.
+	WriteOffJournalEntryYear OptInt32 `json:"write_off_journal_entry_year"`
+	// The write-off entry's document number; absent with it.
+	WriteOffJournalEntryNumber OptString `json:"write_off_journal_entry_number"`
 }
 
 // GetID returns the value of ID.
@@ -41443,6 +41465,41 @@ func (s *DisputeCase) GetClosedByName() OptString {
 	return s.ClosedByName
 }
 
+// GetResolution returns the value of Resolution.
+func (s *DisputeCase) GetResolution() OptString {
+	return s.Resolution
+}
+
+// GetAcceptedAmount returns the value of AcceptedAmount.
+func (s *DisputeCase) GetAcceptedAmount() OptMoney {
+	return s.AcceptedAmount
+}
+
+// GetLocalAcceptedAmount returns the value of LocalAcceptedAmount.
+func (s *DisputeCase) GetLocalAcceptedAmount() OptMoney {
+	return s.LocalAcceptedAmount
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DisputeCase) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetWriteOffJournalEntryID returns the value of WriteOffJournalEntryID.
+func (s *DisputeCase) GetWriteOffJournalEntryID() OptUUID {
+	return s.WriteOffJournalEntryID
+}
+
+// GetWriteOffJournalEntryYear returns the value of WriteOffJournalEntryYear.
+func (s *DisputeCase) GetWriteOffJournalEntryYear() OptInt32 {
+	return s.WriteOffJournalEntryYear
+}
+
+// GetWriteOffJournalEntryNumber returns the value of WriteOffJournalEntryNumber.
+func (s *DisputeCase) GetWriteOffJournalEntryNumber() OptString {
+	return s.WriteOffJournalEntryNumber
+}
+
 // SetID sets the value of ID.
 func (s *DisputeCase) SetID(val uuid.UUID) {
 	s.ID = val
@@ -41586,6 +41643,41 @@ func (s *DisputeCase) SetClosedBy(val OptUUID) {
 // SetClosedByName sets the value of ClosedByName.
 func (s *DisputeCase) SetClosedByName(val OptString) {
 	s.ClosedByName = val
+}
+
+// SetResolution sets the value of Resolution.
+func (s *DisputeCase) SetResolution(val OptString) {
+	s.Resolution = val
+}
+
+// SetAcceptedAmount sets the value of AcceptedAmount.
+func (s *DisputeCase) SetAcceptedAmount(val OptMoney) {
+	s.AcceptedAmount = val
+}
+
+// SetLocalAcceptedAmount sets the value of LocalAcceptedAmount.
+func (s *DisputeCase) SetLocalAcceptedAmount(val OptMoney) {
+	s.LocalAcceptedAmount = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DisputeCase) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetWriteOffJournalEntryID sets the value of WriteOffJournalEntryID.
+func (s *DisputeCase) SetWriteOffJournalEntryID(val OptUUID) {
+	s.WriteOffJournalEntryID = val
+}
+
+// SetWriteOffJournalEntryYear sets the value of WriteOffJournalEntryYear.
+func (s *DisputeCase) SetWriteOffJournalEntryYear(val OptInt32) {
+	s.WriteOffJournalEntryYear = val
+}
+
+// SetWriteOffJournalEntryNumber sets the value of WriteOffJournalEntryNumber.
+func (s *DisputeCase) SetWriteOffJournalEntryNumber(val OptString) {
+	s.WriteOffJournalEntryNumber = val
 }
 
 // The outcome of a dispute case and its reason.
@@ -41810,6 +41902,17 @@ type DisputeCaseItem struct {
 	DisputedAmount Money `json:"disputed_amount"`
 	// The same in the company's currency, its share of the item's amount as the item was booked.
 	LocalDisputedAmount Money `json:"local_disputed_amount"`
+	// What the case's resolution accepted of the item, in its currency, from zero to its disputed amount
+	// (T86d); absent unless the case is resolved.
+	AcceptedAmount OptMoney `json:"accepted_amount"`
+	// The same in the company's currency: that part of `local_disputed_amount`, rounded half away from
+	// zero; absent unless the case is resolved.
+	LocalAcceptedAmount OptMoney `json:"local_accepted_amount"`
+	// The customer credit memo that credited the item (`GET /v1/customer-invoices/{id}`); absent unless a
+	// credit memo resolution accepted some of it.
+	CreditMemoID OptUUID `json:"credit_memo_id"`
+	// That credit memo's document number; absent with `credit_memo_id`.
+	CreditMemoNumber OptString `json:"credit_memo_number"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -41852,6 +41955,26 @@ func (s *DisputeCaseItem) GetLocalDisputedAmount() Money {
 	return s.LocalDisputedAmount
 }
 
+// GetAcceptedAmount returns the value of AcceptedAmount.
+func (s *DisputeCaseItem) GetAcceptedAmount() OptMoney {
+	return s.AcceptedAmount
+}
+
+// GetLocalAcceptedAmount returns the value of LocalAcceptedAmount.
+func (s *DisputeCaseItem) GetLocalAcceptedAmount() OptMoney {
+	return s.LocalAcceptedAmount
+}
+
+// GetCreditMemoID returns the value of CreditMemoID.
+func (s *DisputeCaseItem) GetCreditMemoID() OptUUID {
+	return s.CreditMemoID
+}
+
+// GetCreditMemoNumber returns the value of CreditMemoNumber.
+func (s *DisputeCaseItem) GetCreditMemoNumber() OptString {
+	return s.CreditMemoNumber
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *DisputeCaseItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -41890,6 +42013,55 @@ func (s *DisputeCaseItem) SetDisputedAmount(val Money) {
 // SetLocalDisputedAmount sets the value of LocalDisputedAmount.
 func (s *DisputeCaseItem) SetLocalDisputedAmount(val Money) {
 	s.LocalDisputedAmount = val
+}
+
+// SetAcceptedAmount sets the value of AcceptedAmount.
+func (s *DisputeCaseItem) SetAcceptedAmount(val OptMoney) {
+	s.AcceptedAmount = val
+}
+
+// SetLocalAcceptedAmount sets the value of LocalAcceptedAmount.
+func (s *DisputeCaseItem) SetLocalAcceptedAmount(val OptMoney) {
+	s.LocalAcceptedAmount = val
+}
+
+// SetCreditMemoID sets the value of CreditMemoID.
+func (s *DisputeCaseItem) SetCreditMemoID(val OptUUID) {
+	s.CreditMemoID = val
+}
+
+// SetCreditMemoNumber sets the value of CreditMemoNumber.
+func (s *DisputeCaseItem) SetCreditMemoNumber(val OptString) {
+	s.CreditMemoNumber = val
+}
+
+// What a resolution accepts of an item of the case.
+// Ref: #/components/schemas/DisputeCaseItemAccepted
+type DisputeCaseItemAccepted struct {
+	// The item's number in the case (`items[].item_no`).
+	ItemNo int32 `json:"item_no"`
+	// What is accepted of the item, in the case's currency: from zero to what it disputes.
+	AcceptedAmount Money `json:"accepted_amount"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *DisputeCaseItemAccepted) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetAcceptedAmount returns the value of AcceptedAmount.
+func (s *DisputeCaseItemAccepted) GetAcceptedAmount() Money {
+	return s.AcceptedAmount
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *DisputeCaseItemAccepted) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetAcceptedAmount sets the value of AcceptedAmount.
+func (s *DisputeCaseItemAccepted) SetAcceptedAmount(val Money) {
+	s.AcceptedAmount = val
 }
 
 // An item of a dispute case to open: an open item of the case's customer by its journal line, and the
@@ -41978,6 +42150,65 @@ func (s *DisputeCasePage) SetNextPageToken(val OptString) {
 }
 
 func (*DisputeCasePage) listDisputeCasesRes() {}
+
+// Resolve an open dispute case the company accepts (T86d): by a customer credit memo per accepted item
+// or a write-off, with what is accepted of which items.
+// Ref: #/components/schemas/DisputeCaseResolve
+type DisputeCaseResolve struct {
+	// `credit_memo`: a customer credit memo per item accepted above zero, naming its invoice; `write_off`:
+	// one journal entry writing the accepted amounts off to the company's `payment_difference_expense`
+	// account. Another value is refused (422 `collections.unknown_resolution`). Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Resolution string `json:"resolution"`
+	// Why the case is accepted and resolved so; its close reason.
+	Reason string `json:"reason"`
+	// The date the documents are dated and posted on, in an open period; absent: the company's today in
+	// its time zone.
+	PostingDate OptDate `json:"posting_date"`
+	// What is accepted of which items, each once; an item not named is not accepted. Absent: every item in
+	// full.
+	Items []DisputeCaseItemAccepted `json:"items"`
+}
+
+// GetResolution returns the value of Resolution.
+func (s *DisputeCaseResolve) GetResolution() string {
+	return s.Resolution
+}
+
+// GetReason returns the value of Reason.
+func (s *DisputeCaseResolve) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DisputeCaseResolve) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetItems returns the value of Items.
+func (s *DisputeCaseResolve) GetItems() []DisputeCaseItemAccepted {
+	return s.Items
+}
+
+// SetResolution sets the value of Resolution.
+func (s *DisputeCaseResolve) SetResolution(val string) {
+	s.Resolution = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DisputeCaseResolve) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DisputeCaseResolve) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *DisputeCaseResolve) SetItems(val []DisputeCaseItemAccepted) {
+	s.Items = val
+}
 
 // Merge patch of an open dispute case: its assignee and its note.
 // Ref: #/components/schemas/DisputeCaseUpdate
@@ -96962,6 +97193,30 @@ type ResetIncomingPaymentUnprocessableEntity Problem
 
 func (*ResetIncomingPaymentUnprocessableEntity) resetIncomingPaymentRes() {}
 
+type ResolveDisputeCaseBadRequest Problem
+
+func (*ResolveDisputeCaseBadRequest) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCaseForbidden Problem
+
+func (*ResolveDisputeCaseForbidden) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCaseNotFound Problem
+
+func (*ResolveDisputeCaseNotFound) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCasePreconditionFailed Problem
+
+func (*ResolveDisputeCasePreconditionFailed) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCasePreconditionRequired Problem
+
+func (*ResolveDisputeCasePreconditionRequired) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCaseUnprocessableEntity Problem
+
+func (*ResolveDisputeCaseUnprocessableEntity) resolveDisputeCaseRes() {}
+
 type ResumeWebhookSubscriptionBadRequest Problem
 
 func (*ResumeWebhookSubscriptionBadRequest) resumeWebhookSubscriptionRes() {}
@@ -114211,6 +114466,7 @@ func (*TooManyRequestsHeaders) requestBankAccountChangeRes()              {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()                 {}
 func (*TooManyRequestsHeaders) resetIncomingPaymentApplicationRes()       {}
 func (*TooManyRequestsHeaders) resetIncomingPaymentRes()                  {}
+func (*TooManyRequestsHeaders) resolveDisputeCaseRes()                    {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
 func (*TooManyRequestsHeaders) retireControlRes()                         {}
@@ -115150,6 +115406,7 @@ func (*UnauthorizedHeaders) requestBankAccountChangeRes()              {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()                 {}
 func (*UnauthorizedHeaders) resetIncomingPaymentApplicationRes()       {}
 func (*UnauthorizedHeaders) resetIncomingPaymentRes()                  {}
+func (*UnauthorizedHeaders) resolveDisputeCaseRes()                    {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
 func (*UnauthorizedHeaders) retireControlRes()                         {}
@@ -116035,8 +116292,9 @@ func (s *UpdateDisputeCaseOKHeaders) SetResponse(val DisputeCase) {
 	s.Response = val
 }
 
-func (*UpdateDisputeCaseOKHeaders) closeDisputeCaseRes()  {}
-func (*UpdateDisputeCaseOKHeaders) updateDisputeCaseRes() {}
+func (*UpdateDisputeCaseOKHeaders) closeDisputeCaseRes()   {}
+func (*UpdateDisputeCaseOKHeaders) resolveDisputeCaseRes() {}
+func (*UpdateDisputeCaseOKHeaders) updateDisputeCaseRes()  {}
 
 type UpdateDisputeCasePreconditionFailed Problem
 

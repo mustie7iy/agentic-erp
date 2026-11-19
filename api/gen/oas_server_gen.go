@@ -752,9 +752,10 @@ type Handler interface {
 	// more than white space (422 `request.validation_failed`). The case is read under a row lock and moves
 	// to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose
 	// item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is
-	// credited by a person, with a credit memo request or a customer credit memo. Once the case is closed
-	// the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry
-	// with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
+	// resolved by a credit memo or a write-off with `resolveDisputeCase` (T86d) instead, or credited by a
+	// person, with a credit memo request or a customer credit memo. Once the case is closed the item is
+	// dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry with the same
+	// `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
 	//
 	// POST /v1/dispute-cases/{id}:close
 	CloseDisputeCase(ctx context.Context, req *DisputeCaseClose, params CloseDisputeCaseParams) (CloseDisputeCaseRes, error)
@@ -7773,6 +7774,49 @@ type Handler interface {
 	//
 	// POST /v1/incoming-payments/{id}/applications/{application_no}:reset
 	ResetIncomingPaymentApplication(ctx context.Context, req *IncomingPaymentReset, params ResetIncomingPaymentApplicationParams) (ResetIncomingPaymentApplicationRes, error)
+	// ResolveDisputeCase implements resolveDisputeCase operation.
+	//
+	// Resolves an `open` dispute case the company accepts, in full or in part, once (ADR-0065 As built,
+	// T86d), at the version the caller read (`If-Match`; 412 when another change came first): the case is
+	// read under a row lock; one that is not open is refused (409 `collections.dispute_closed`).
+	// `resolution` is `credit_memo` or `write_off` (another value is 422 `collections.unknown_resolution`
+	// naming `resolution`), with the reason, a text of more than white space (422
+	// `request.validation_failed`). Without `items` every item of the case is accepted in full; with them,
+	// each names an item of the case by `item_no`, once (422 `collections.unknown_item` naming its
+	// `item_no`), and what is accepted of it, in the case's currency (422
+	// `collections.currency_mismatch`), from zero to what the item disputes (422
+	// `collections.invalid_accepted_amount` naming its `accepted_amount.amount`); an item not named is not
+	// accepted, and more than zero must be accepted in all (422 `collections.invalid_accepted_amount`
+	// naming `items`: a case the company does not accept is closed as rejected, `closeDisputeCase`). The
+	// documents post on `posting_date`, else on the company's today in its time zone, in an open period
+	// (409 `ledger.period_not_open`). `credit_memo`: for each item accepted above zero a customer credit
+	// memo is entered and posted through receivables (`postCustomerInvoice`), naming the posted customer
+	// invoice the item's entry was posted for (an item of any other entry, a manual entry's or a residual
+	// item's, is 422 `collections.no_invoice` naming `resolution`: write it off instead), with the
+	// invoice's items credited in proportion to the accepted part of its gross amount, net and tax alike,
+	// so its gross amount is the accepted amount; its source is the case's item (`source_document_id`, the
+	// item's id, and `source_document_number`, the case's id and the item's number). Receivables' rules
+	// hold: the credits naming one invoice never exceed its gross amount (422
+	// `receivables.credit_exceeds_invoice`), and a customer no longer usable is refused (422
+	// `receivables.customer_not_usable`). `write_off`: one journal entry, document type `SA`,
+	// `source_context` `collections`, the case its source document, with per item accepted above zero a
+	// debit of the accepted amount on the company's `payment_difference_expense` account (422
+	// `collections.no_write_off_account` without it) and a credit to the item's account naming the
+	// customer, both at the item's booked rate. Either leaves a credit item of the customer open beside
+	// the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as any
+	// credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names
+	// `resolution` (or `posting_date`), its detail led by the document that could not be posted, and
+	// leaves the case open with nothing posted. The case becomes `accepted` with `resolution`,
+	// `accepted_amount`, `local_accepted_amount` (each item's accepted part of its local disputed amount,
+	// rounded half away from zero), `posting_date`, its write-off's entry (`write_off_journal_entry_id`,
+	// `write_off_journal_entry_year`, `write_off_journal_entry_number`) and each item's `accepted_amount`
+	// and credit memo (`credit_memo_id`, `credit_memo_number`); `close_reason` is the reason. Once closed,
+	// its items are dunned again (T86b) for what is still open of them. Audited (without the reason), and
+	// published as DisputeCaseChanged (`resolved`). A retry with the same `Idempotency-Key` answers the
+	// resolved case. Human-only (`x-agent: false`).
+	//
+	// POST /v1/dispute-cases/{id}:resolve
+	ResolveDisputeCase(ctx context.Context, req *DisputeCaseResolve, params ResolveDisputeCaseParams) (ResolveDisputeCaseRes, error)
 	// ResumeWebhookSubscription implements resumeWebhookSubscription operation.
 	//
 	// Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event
