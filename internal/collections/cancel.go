@@ -92,7 +92,7 @@ func markCancelled(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run Run, 
 		return fmt.Errorf("collections: mark dunning run %s cancelled: %w", run.ID, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return problem.Conflict("collections.invalid_status", "The dunning run is "+run.Status+"; only a confirmed run is cancelled.")
+		return problem.Conflict("collections.invalid_status", "The dunning run is not confirmed, or not any more; only a confirmed run is cancelled.")
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -280,5 +281,72 @@ func TestCancelFailures(t *testing.T) {
 	})
 	if got := e.charges(t, run); got != "BP70000001 posted" {
 		t.Errorf("the memo after the failures: got %q, want it posted still", got)
+	}
+}
+
+// TestCancelWithoutCharges: a run that posted no debit memo (a company
+// naming no dunning account) is cancelled: its levels no longer count,
+// nothing is reversed, and each DunningNoticeCancelled names no memo.
+func TestCancelWithoutCharges(t *testing.T) {
+	e := setup(t)
+	e.story(t)
+	run, tag := e.start(t, keyDate)
+	e.confirm(t, run, tag)
+	if got := fields(t, e.cancel(t, run, `"2"`), "status", "charge_document_count"); got != "status cancelled, charge_document_count 0" {
+		t.Errorf("the cancelled run: got %s", got)
+	}
+	if got, want := e.proposed(t, e.startID(t, keyDate)), "CI-USD 0->1, CI-A 0->1, CI-B 0->1"; got != want {
+		t.Errorf("the next run: got %q, want %q: the items from level 0", got, want)
+	}
+	withdrawn := apitest.CompanyNamed(t, apitest.Published(t, e.Tenant, outbox.Event{Context: "collections", Name: "dunning_notice_cancelled"}))
+	if len(withdrawn) != 2 {
+		t.Fatalf("DunningNoticeCancelled events: got %d, want 2", len(withdrawn))
+	}
+	for _, w := range withdrawn {
+		if w["dunning_run_id"] != run || w["customer_invoice_id"] != nil || w["customer_invoice_number"] != nil || w["reversal_entry_id"] != nil ||
+			w["reversal_date"] != nil {
+			t.Errorf("DunningNoticeCancelled: got %v, want the run's notice naming no memo", w)
+		}
+	}
+}
+
+// TestCancelSupersededByAMemoDunned: a run whose debit memo a later
+// confirmed run dunned, sharing no item with it, is refused as
+// superseded, naming that run; once that run is cancelled, it is
+// cancelled.
+func TestCancelSupersededByAMemoDunned(t *testing.T) {
+	// Without a minimum amount, so the memo of 5.00 is dunned on its own.
+	e := setupWith(t, func(doc *config.Config) {
+		posting(doc)
+		doc.Company("2000").Dunning.MinimumAmount = ""
+	})
+	for _, c := range []uuid.UUID{e.north, e.south, e.east} {
+		e.companyData(t, c)
+	}
+	entries := e.story(t)
+	first, tag := e.start(t, keyDate) // Southwind's CI-USD, charged 5.00: a memo dated 30 June, due 30 July
+	e.confirm(t, first, tag)
+	// Southwind pays CI-USD, so the later run shares no item with the first.
+	paid := e.post(t, item{customer: e.south, amount: -20000, currency: "USD", day: "2026-07-01", noTerms: true, ref: "PAID-USD"})[0]
+	e.Must(201, "POST", "/v1/clearings", fmt.Sprintf(`{"legal_entity_id": %q, "clearing_date": "2026-07-01", "items": [
+		{"fiscal_year": 2026, "journal_entry_id": %q, "line_no": 1}, {"fiscal_year": 2026, "journal_entry_id": %q, "line_no": 1}]}`,
+		e.DE, entries[7].ID, paid.ID), "")
+	// And Northwind, whose CI-A the first run dunned too, is blocked from dunning.
+	e.Must(201, "POST", "/v1/dunning-blocks", blockOf(e.DE, e.north, nil, lastHeld), "")
+	later, laterTag := e.start(t, "2026-08-10")
+	firstPage, _ := e.Must(200, "GET", "/v1/dunning-runs/"+first+"/notices", "", "")
+	memo := apitest.String(t, apitest.Object(t, objects(t, firstPage, "items")[0], "charge_document"), "customer_invoice_number")
+	// Its items: the memo, and Eastwind's CI-E, which the first run did not dun.
+	if got, want := e.proposed(t, later), memo+" 0->1, CI-E 0->1"; got != want {
+		t.Fatalf("the later run: got %q, want %q", got, want)
+	}
+	e.confirm(t, later, laterTag)
+	p := e.Problem(409, "collections.run_superseded", "POST", "/v1/dunning-runs/"+first+":cancel", cancelBody, `"2"`)
+	if d, _ := p["detail"].(string); !strings.Contains(d, later+" at key date 2026-08-10") {
+		t.Errorf("detail: got %q, want it to name the run that dunned the memo", d)
+	}
+	e.cancel(t, later, `"2"`)
+	if got := e.cancel(t, first, `"2"`)["status"]; got != "cancelled" {
+		t.Errorf("the first run after the later one's cancellation: got %v, want it cancelled", got)
 	}
 }

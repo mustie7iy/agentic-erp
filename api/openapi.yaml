@@ -19074,6 +19074,7 @@ paths:
             x-extensible-enum:
               - proposed
               - confirmed
+              - cancelled
         - name: key_date_from
           in: query
           required: false
