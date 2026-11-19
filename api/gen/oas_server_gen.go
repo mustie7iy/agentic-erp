@@ -974,14 +974,16 @@ type Handler interface {
 	// `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a
 	// quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422
 	// `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier
-	// deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the
-	// item and its open quantity in the message): of two confirmations racing for an item's last quantity,
-	// one is recorded. The delivery is numbered within its order and written once; it is not changed or
-	// reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered
-	// and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open.
-	// Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
-	// delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only
-	// (`x-agent: false`).
+	// deliveries confirmed and what outbound deliveries hold (422 `sales.exceeds_open_quantity` naming
+	// `items[i].quantity.value`, with the item and its open quantity in the message). An item of a
+	// material kept in stock is delivered by an outbound delivery's goods issue, not confirmed here (422
+	// `sales.delivery_by_goods_issue` naming `items[i].item_no`; ADR-0083 §5, S2b1): of two confirmations
+	// racing for an item's last quantity, one is recorded. The delivery is numbered within its order and
+	// written once; it is not changed or reversed in the first version. Each order item's
+	// `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder`
+	// shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry
+	// with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by
+	// `listSalesDeliveries`. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}/deliveries
 	ConfirmSalesDelivery(ctx context.Context, req *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (ConfirmSalesDeliveryRes, error)
@@ -2098,28 +2100,30 @@ type Handler interface {
 	// `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422
 	// `inventory.transfer_target_required`, `inventory.same_location`); another movement type names
 	// neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
-	// `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`).
-	// The document is posted on the company's date today in its time zone and numbered from its
-	// `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is
-	// in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue
-	// of more than a storage location holds is refused naming the material, the location and both
-	// quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post
-	// one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`).
-	// Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's
-	// item is two, the issue and the receipt. The lines are applied in order, and each leaves its
-	// location's stock at zero or more, so items that move stock round a circle out of an empty location
-	// are refused though they change nothing in all. Every line is valued (S1d): its material is valued in
-	// its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the
-	// stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the
-	// value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is
-	// worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's
-	// currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422
-	// `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the
-	// receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted
-	// through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or
-	// initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock
-	// account against the account its movement type posts to (receipt, initial entry, consumption with the
-	// item's cost center, scrapping), and price differences on its price difference account (422
+	// `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`)
+	// by `createGoodsReceipt` and an outbound delivery's goods issue (`601`) by
+	// `postOutboundDeliveryGoodsIssue` (422 `inventory.unknown_movement_type`). The document is posted on
+	// the company's date today in its time zone and numbered from its `material_document` range of that
+	// date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range`
+	// when the range is missing). Stock never goes below zero: an issue of more than a storage location
+	// holds is refused naming the material, the location and both quantities (409
+	// `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that
+	// would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one
+	// line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the
+	// issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero
+	// or more, so items that move stock round a circle out of an empty location are refused though they
+	// change nothing in all. Every line is valued (S1d): its material is valued in its plant (422
+	// `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at
+	// a standard price the rest is worth its quantity at the price; at a moving price the value in
+	// proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth
+	// (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency,
+	// 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price`
+	// while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a
+	// price difference), a transfer's receipt what its issue took. The value is posted through the ledger
+	// in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA`
+	// otherwise; none when the document moves no value): the valuation class's stock account against the
+	// account its movement type posts to (receipt, initial entry, consumption with the item's cost center,
+	// scrapping), and price differences on its price difference account (422
 	// `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as
 	// 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as
 	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted.
@@ -4587,14 +4591,17 @@ type Handler interface {
 	// rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item
 	// without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal
 	// entity's local currency: documents in another currency are not converted and are left out, and
-	// `foreign_currency_documents` counts them. No cost is shown (`includes_cost` is false): no cost of
-	// goods sold is posted per item, and the margin report (`getMarginReport`) has the ledger's cost of
-	// sales. Rows are by the customer's number, then the item key, the row without one first; `totals` are
-	// the whole selection's, on every page, and the rows of every page add up to them over the pages. A
-	// legal entity that does not exist or that the caller cannot act in is answered as missing (422
-	// `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so
-	// besides `controlling.profitability.read` the caller needs `sales.billing.read`
-	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	// `foreign_currency_documents` counts them. Each segment shows its cost of sales, the cost of goods
+	// sold of the goods issues of its order items posted in the selection (ADR-0083 §6, S2b2: an outbound
+	// delivery's goods issue counts on its posting date, for an order in the local currency; one of an
+	// order in another currency is left out and counted in `foreign_currency_documents`), and its margin,
+	// net revenue less cost of sales (`includes_cost` is true); cost a person posts by journal entry is
+	// the margin report's (`getMarginReport`). Rows are by the customer's number, then the item key, the
+	// row without one first; `totals` are the whole selection's, on every page, and the rows of every page
+	// add up to them over the pages. A legal entity that does not exist or that the caller cannot act in
+	// is answered as missing (422 `request.reference_not_found` on `legal_entity_id`). The figures are
+	// billing documents' amounts, so besides `controlling.profitability.read` the caller needs
+	// `sales.billing.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
 	//
 	// GET /v1/profitability-report
 	GetProfitabilityReport(ctx context.Context, params GetProfitabilityReportParams) (GetProfitabilityReportRes, error)
@@ -7198,6 +7205,32 @@ type Handler interface {
 	//
 	// POST /v1/journal-entries
 	PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error)
+	// PostOutboundDeliveryGoodsIssue implements postOutboundDeliveryGoodsIssue operation.
+	//
+	// Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once,
+	// at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is
+	// refused (409 `shipping.goods_issued`), as is one with nothing picked (409
+	// `shipping.nothing_picked`). Each item's picked quantity leaves the delivery's storage location as
+	// one material document of movement type `601` (`material_document_id`), posted on the company's date
+	// today in its time zone and numbered from its `material_document` range, its `reference` the
+	// delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued
+	// (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`:
+	// picking reserves none). Each line takes the stock's value as an issue does (at a standard price the
+	// stock left at the price, at a moving price the value in proportion): the item's `cost`, its cost of
+	// goods sold, posted in one WA journal entry from the valuation class's stock account to its cost of
+	// goods sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's
+	// refusals, such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back
+	// to the order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names
+	// the outbound delivery and the material document, each item with its cost, the order item's
+	// `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was
+	// not picked is open again on the order. An order blocked for credit since the delivery was made is
+	// refused until its block is released (409 `sales.order_credit_blocked`). The delivery is
+	// `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged,
+	// MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
+	// delivery as it left it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/outbound-deliveries/{id}:postGoodsIssue
+	PostOutboundDeliveryGoodsIssue(ctx context.Context, params PostOutboundDeliveryGoodsIssueParams) (PostOutboundDeliveryGoodsIssueRes, error)
 	// PostParkedJournalEntry implements postParkedJournalEntry operation.
 	//
 	// Posts a parked journal entry, or asks for its approval. Its debits, converted exactly into the legal
@@ -8192,8 +8225,9 @@ type Handler interface {
 	// (each keeping its original item's `item_no`), posted on the company's date today and numbered from
 	// its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
 	// it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
-	// nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The
-	// reversal moves the stock back, so it is refused when the stock the original received has gone (409
+	// nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet
+	// (409 `inventory.reverse_goods_issue`); two reversals at once post one. The reversal moves the stock
+	// back, so it is refused when the stock the original received has gone (409
 	// `inventory.insufficient_stock`, naming the material, the location and both quantities). The material
 	// may have been blocked since; the reversal is still posted. Each line is valued at what its original
 	// line was, given back: what the stock does not take of it at its price now is a price difference, and

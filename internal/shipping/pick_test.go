@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/inventory"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -162,7 +164,14 @@ func TestDatabaseFailures(t *testing.T) {
 	o := uuid.MustParse(order)
 	d, tag := e.Must(201, "POST", deliveries, e.create(order, "1 1 BOX"), "")
 	id := uuid.MustParse(d["id"].(string))
+	p, ptag := e.Must(201, "POST", deliveries, e.create(order, "1 2 BOX"), "")
+	_, ptag = e.Must(200, "POST", deliveries+"/"+p["id"].(string)+":pick", pick("1 2 BOX"), ptag)
+	picked := uuid.MustParse(p["id"].(string))
 	calls := map[string]func(ctx context.Context) error{
+		"post the goods issue": func(ctx context.Context) error {
+			_, err := h.PostOutboundDeliveryGoodsIssue(ctx, gen.PostOutboundDeliveryGoodsIssueParams{ID: picked, IfMatch: ptag})
+			return err
+		},
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateOutboundDelivery(ctx, &gen.OutboundDeliveryCreate{SalesOrderID: o, PlantID: e.p1, StorageLocationID: e.s1},
 				gen.CreateOutboundDeliveryParams{})
@@ -184,6 +193,16 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"list": func(ctx context.Context) error {
 			_, err := h.ListOutboundDeliveries(ctx, gen.ListOutboundDeliveriesParams{})
+			return err
+		},
+		"sales' issue": func(ctx context.Context) error {
+			_, err := h.Shipments.Issue(ctx, sales.GoodsIssue{OrderID: o, DeliveryID: picked, DeliveryNumber: "OD9", MaterialDocumentID: picked,
+				MaterialDocumentNumber: "MD9", Date: time.Now(), Currency: "EUR", Items: []sales.IssuedItem{{ItemNo: 1, Held: "2", Issued: "2", Cost: 1}}})
+			return err
+		},
+		"inventory's issue": func(ctx context.Context) error {
+			_, err := h.Stock.IssueForDelivery(ctx, "OD9", []inventory.DeliveryItem{{MaterialID: uuid.MustParse(e.bracket), PlantID: e.p1,
+				StorageLocationID: e.s1, Quantity: "1", Unit: "EA"}})
 			return err
 		},
 		"ship": func(ctx context.Context) error {

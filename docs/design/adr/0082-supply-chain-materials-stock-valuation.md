@@ -715,3 +715,11 @@ catalog's keys mapped), plan-supply-chain.md §S1f.
   part (S1f1), then a requisition item by material and the catalog mapped
   (S1f2).
 
+
+**S2b1** (ADR-0083, lane ship, 2026-11-19): movement types `601` (goods
+issue for a delivery, posted by shipping through
+`Endpoints.IssueForDelivery`, its reference the outbound delivery's
+number) and `602` (its reversal, in the database's rules, posted by no one
+yet); a valuation class's `cost_of_goods_sold` account (SAP GBB VAX, from
+memory), an expense, which a 601's value posts against. `Endpoints.Held`
+reads a location's stock without a lock for shipping's picking.

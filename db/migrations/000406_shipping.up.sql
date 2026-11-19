@@ -50,6 +50,7 @@ CREATE TABLE shipping.outbound_delivery (
   goods_issue_date          date,
   material_document_id      uuid,             -- inventory context: the goods issue's 601
   material_document_number  text CONSTRAINT outbound_delivery_material_document_number_check CHECK (length(material_document_number) BETWEEN 1 AND 40),
+  currency                  text CONSTRAINT outbound_delivery_currency_fkey REFERENCES ref.currency,  -- its items' cost's, the company's
   version                   integer NOT NULL DEFAULT 1 CONSTRAINT outbound_delivery_version_check CHECK (version >= 1),
   created_at                timestamptz NOT NULL DEFAULT now(),
   created_by                uuid NOT NULL,
@@ -57,9 +58,10 @@ CREATE TABLE shipping.outbound_delivery (
   updated_by                uuid NOT NULL,
   PRIMARY KEY (tenant_id, id),
   CONSTRAINT outbound_delivery_number_once UNIQUE (tenant_id, legal_entity_id, fiscal_year, number),
-  -- A delivery whose goods issue posted names its day and material document; one created, none.
+  -- A delivery whose goods issue posted names its day, material document and cost's currency; one created, none.
   CONSTRAINT outbound_delivery_goods_issue CHECK ((status = 'goods_issued') = (goods_issue_date IS NOT NULL)
-    AND (status = 'goods_issued') = (material_document_id IS NOT NULL) AND (status = 'goods_issued') = (material_document_number IS NOT NULL))
+    AND (status = 'goods_issued') = (material_document_id IS NOT NULL) AND (status = 'goods_issued') = (material_document_number IS NOT NULL)
+    AND (status = 'goods_issued') = (currency IS NOT NULL))
 );
 CREATE TRIGGER outbound_delivery_touch BEFORE UPDATE ON shipping.outbound_delivery FOR EACH ROW EXECUTE FUNCTION platform.touch();
 -- A delivery changes only while created, and then only by its goods issue
@@ -83,7 +85,8 @@ CREATE INDEX outbound_delivery_by_created_at ON shipping.outbound_delivery (tena
 -- An order's deliveries, for the list's order filter.
 CREATE INDEX outbound_delivery_by_order ON shipping.outbound_delivery (tenant_id, sales_order_id, created_at, id);
 SELECT platform.secure_table('shipping.outbound_delivery'::regclass);
-GRANT UPDATE (status, goods_issue_date, material_document_id, material_document_number, version, updated_by) ON shipping.outbound_delivery TO erp_app;
+GRANT UPDATE (status, goods_issue_date, material_document_id, material_document_number, currency, version, updated_by)
+  ON shipping.outbound_delivery TO erp_app;
 
 -- An item: a quantity of an order item, in its unit, of a material kept
 -- in stock, the order item once per delivery; picked up to its quantity.

@@ -456,6 +456,7 @@ records the picked quantities.
   A, B, C, from memory). Reads `GET /v1/outbound-deliveries` (company,
   order, status) and `/{id}`; permissions `shipping.delivery.read`,
   `.write`; event `OutboundDeliveryChanged`; human-only writes.
+- **As built** (2026-11-19): ADR-0083 As built S2a, walkthrough step 141.
 
 ### S2b Goods issue, cost of goods sold and billing from the delivery (pilot)
 
@@ -507,6 +508,8 @@ the sales order's items are delivered by it, and billing bills them.
   confirmation of the bracket by T78c are refused.
 - **Acceptance:** the goods issue posts once; its cost equals the stock
   value taken; a delivery without goods issue is not billed.
+- **As built** (2026-11-19): ADR-0083 As built S2b1, walkthrough steps 142
+  and 135 (its stock item shipped).
 
 #### S2b2 Cost of sales in net revenue by profitability segment (pilot)
 
@@ -528,6 +531,7 @@ period.
 - **Walkthrough:** `step_goods_issue` (the report's part).
 - **Acceptance:** the segment's cost of sales equals the goods issue's
   cost; rows and totals add up.
+- **As built** (2026-11-19): ADR-0083 As built S2b2, walkthrough step 142.
 
 **Later for Shipping and delivery:** packing and handling units, shipping
 points and routes, delivery split and grouping, proof of delivery,
@@ -690,9 +694,12 @@ S2a–S2d, S2o and S2p (twelve).
 - SAP's material tables and fields named here (MARA, MAKT, MARM with
   UMREZ/UMREN, MARC, MARD, MBEW with VPRSV, VERPR, STPRS, PEINH and BKLAS,
   T001W, T001L, T134, T023) and the movement types (101, 102, 201, 202,
-  261, 301, 302, 311, 312, 351, 501, 502, 551, 552, 561, 562, 601, 701,
-  702) are stated from memory, without a primary source in the
-  repository.
+  261, 301, 302, 311, 312, 351, 501, 502, 551, 552, 561, 562, 601, 602,
+  701, 702) are stated from memory, without a primary source in the
+  repository; so are the delivery tables LIKP and LIPS, the picking
+  status KOSTK (A, B, C), the account modifier VAX of GBB for a goods
+  issue's cost of goods sold, and the delivery quantity adopting the
+  picked one before goods issue (ADR-0083).
 - SAP's account determination for inventory (transaction keys BSX, WRX,
   PRD, GBB with its account modifiers, UMB) is from memory; ADR-0082 §8
   maps it onto this ERP's account determination keys and is confirmed by

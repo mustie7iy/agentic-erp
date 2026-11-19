@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -172,4 +173,104 @@ func shippedDetail(o Order, items []ItemQuantity) []map[string]any {
 		out[i] = map[string]any{"item_no": it.ItemNo, "quantity": it.Quantity, "unit": o.Items[it.ItemNo-1].Unit} // items are numbered from 1 in order (insertItems)
 	}
 	return out
+}
+
+// IssuedItem is an order item an outbound delivery's goods issue
+// delivered: Held, what the delivery held of it, which goes back to the
+// order, and Issued, what its goods issue issued of it, in the item's
+// unit, with Cost, what that took from the stock in the company's
+// currency; nothing issued: no cost.
+type IssuedItem struct {
+	ItemNo       int32
+	Held, Issued string
+	Cost         money.Minor
+}
+
+// GoodsIssue is an outbound delivery's goods issue as sales records it:
+// the delivery and its material document by id and number, the day it
+// posted on, the cost's currency and the items.
+type GoodsIssue struct {
+	OrderID                uuid.UUID
+	DeliveryID             uuid.UUID
+	DeliveryNumber         string
+	MaterialDocumentID     uuid.UUID
+	MaterialDocumentNumber string
+	Date                   time.Time
+	Currency               string
+	Items                  []IssuedItem
+}
+
+// Issue records an outbound delivery's goods issue on its sales order
+// (ADR-0083 §5) in the request's transaction, the order read under its
+// row lock (ADR-0008): one blocked for credit since the delivery was made
+// is refused (409 sales.order_credit_blocked). What the delivery held of
+// each item goes back to the order, and what it issued is delivered: a
+// delivery of the order (T78c's record) naming the outbound delivery and
+// the material document, each item with its cost, which billing then
+// bills. Its audit record and SalesOrderDelivered are written as a
+// confirmation's are. Shipping issues something of at least one item.
+func (e *Endpoints) Issue(ctx context.Context, in GoodsIssue) (Delivery, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Delivery{}, err
+	}
+	o, err := order(ctx, tx, in.OrderID, true)
+	if err != nil {
+		return Delivery{}, fmt.Errorf("sales: sales order %s of outbound delivery %s: %w", in.OrderID, in.DeliveryNumber, err)
+	}
+	if o.CreditBlock == Blocked {
+		return Delivery{}, problem.Conflict("sales.order_credit_blocked",
+			"Sales order "+o.DocumentNumber+" is blocked for credit; its goods issue is posted once its credit block is released.")
+	}
+	back := make([]ItemQuantity, len(in.Items))
+	for i, it := range in.Items {
+		back[i] = ItemQuantity{ItemNo: it.ItemNo, Quantity: it.Held}
+	}
+	if err := assign(ctx, tx, p, o.ID, in.DeliveryID, in.DeliveryNumber, back, true); err != nil {
+		return Delivery{}, err
+	}
+	le, _, err := e.LegalEntities.Entity(ctx, o.LegalEntityID) // a stored order's legal entity exists
+	if err != nil {
+		return Delivery{}, fmt.Errorf("sales: company of sales order %s: %w", o.ID, err)
+	}
+	names, err := e.Partners.Names(ctx, []uuid.UUID{o.CustomerID})
+	if err != nil {
+		return Delivery{}, fmt.Errorf("sales: customer of sales order %s: %w", o.ID, err)
+	}
+	d, err := insertIssue(ctx, tx, p, in)
+	if err != nil {
+		return Delivery{}, err
+	}
+	after, err := loadOrder(ctx, tx, o.ID, false)
+	if err != nil {
+		return Delivery{}, err
+	}
+	return d, recordDelivery(ctx, d, after, le, names[o.CustomerID].Number)
+}
+
+// insertIssue writes the goods issue's delivery of the order, numbered
+// next within it, with an item per order item it issued something of,
+// and reads it back.
+func insertIssue(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in GoodsIssue) (Delivery, error) {
+	id := uuid.Must(uuid.NewV7())
+	if _, err := tx.Exec(ctx, `INSERT INTO sales.delivery (tenant_id, id, sales_order_id, delivery_no, delivery_date, outbound_delivery_id,
+			outbound_delivery_number, material_document_id, material_document_number, created_by)
+		SELECT $1, $2, $3, coalesce(max(delivery_no), 0) + 1, $4, $5, $6, $7, $8, $9 FROM sales.delivery WHERE sales_order_id = $3`,
+		p.TenantID, id, in.OrderID, in.Date, in.DeliveryID, in.DeliveryNumber, in.MaterialDocumentID, in.MaterialDocumentNumber, p.ID); err != nil {
+		return Delivery{}, fmt.Errorf("sales: delivery of outbound delivery %s: %w", in.DeliveryNumber, err)
+	}
+	for _, it := range in.Items {
+		if money.ParseRat(it.Issued).Sign() == 0 {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO sales.delivery_item (tenant_id, delivery_id, sales_order_id, order_item_no, quantity, cost_amount,
+				cost_currency) VALUES ($1, $2, $3, $4, $5::numeric, $6, $7)`, p.TenantID, id, in.OrderID, it.ItemNo, it.Issued, it.Cost, in.Currency); err != nil {
+			return Delivery{}, fmt.Errorf("sales: item %d of the delivery of outbound delivery %s: %w", it.ItemNo, in.DeliveryNumber, err)
+		}
+	}
+	d, err := scanDelivery(tx.QueryRow(ctx, deliverySelect+` WHERE d.id = $1`, id))
+	if err != nil {
+		return Delivery{}, fmt.Errorf("sales: read delivery %s: %w", id, err)
+	}
+	return d, nil
 }

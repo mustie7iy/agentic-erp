@@ -205,7 +205,7 @@ func TestProfitabilityReport(t *testing.T) {
 		t.Errorf("the posted documents' net: got %d, want %d, the totals' net revenue", got, want)
 	}
 	selection := map[string]any{"legal_entity_id": p.DE.String(), "fiscal_year": float64(2026), "fiscal_period_from": float64(1), "fiscal_period_to": float64(12),
-		"date_from": "2026-01-01", "date_to": "2026-12-31", "currency": "EUR", "includes_cost": false, "foreign_currency_documents": float64(1)}
+		"date_from": "2026-01-01", "date_to": "2026-12-31", "currency": "EUR", "includes_cost": true, "foreign_currency_documents": float64(1)}
 	for k, v := range selection {
 		if r[k] != v {
 			t.Errorf("%s: got %v, want %v", k, r[k], v)
@@ -220,6 +220,62 @@ func TestProfitabilityReport(t *testing.T) {
 	first, _ := r["items"].([]any)[0].(map[string]any)
 	if first["customer_name"] != "Northwind Traders" || first["customer_id"] != p.northwind.String() {
 		t.Errorf("the first row's customer: got %v %v, want Northwind Traders %s", first["customer_name"], first["customer_id"], p.northwind)
+	}
+}
+
+// goodsIssue writes a goods issue's delivery of the order's first item,
+// as the shipping context's goods issue leaves it (ADR-0083 §5): quantity
+// EA issued on the day at a cost of minor units of the currency.
+func (p profitable) goodsIssue(t *testing.T, order, day, quantity string, cost int64, currency string) {
+	t.Helper()
+	id := uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO sales.delivery (tenant_id, id, sales_order_id, delivery_no, delivery_date, outbound_delivery_id, outbound_delivery_number,
+			material_document_id, material_document_number, created_by)
+		SELECT $1, $2, $3, 1, $4, gen_random_uuid(), 'OD1', gen_random_uuid(), 'MD1', $5 FROM (SELECT set_config('app.tenant_id', $1::uuid::text, true)) scoped`,
+		p.Tenant.ID, id, order, day, p.Tenant.Human.ID)
+	pgtest.Exec(t, `INSERT INTO sales.delivery_item (tenant_id, delivery_id, sales_order_id, order_item_no, quantity, cost_amount, cost_currency)
+		SELECT $1, $2, $3, 1, $4::numeric, $5, $6 FROM (SELECT set_config('app.tenant_id', $1::uuid::text, true)) scoped`,
+		p.Tenant.ID, id, order, quantity, cost, currency)
+}
+
+// TestProfitabilityCostOfSales: a segment's cost of sales is the cost of
+// its order items' goods issues posted in the selection, its margin net
+// revenue less it, and the totals add both up; a goods issue counts in
+// the period of its own date, even before its billing, and one of an
+// order in another currency is left out and counted (ADR-0083 §6, S2b2).
+func TestProfitabilityCostOfSales(t *testing.T) {
+	p := setupProfitable(t)
+	shipped := p.order(t, p.northwind, "EUR", p.bracket("4"))
+	p.goodsIssue(t, shipped, "2026-03-09", "4", 3000, "EUR")
+	doc, tag := p.Must(201, "POST", "/v1/billing-documents", fmt.Sprintf(`{"sales_order_id": %q, "billing_date": "2026-03-10"}`, shipped), "")
+	p.Must(200, "POST", "/v1/billing-documents/"+doc["id"].(string)+":post", `{"posting_date": "2026-03-10"}`, tag)
+	other := p.order(t, p.contoso, "EUR", p.bracket("2"))
+	p.goodsIssue(t, other, "2026-04-01", "2", 1500, "EUR")
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.8, 'ECB', $2)`, p.Tenant.ID, p.Tenant.Human.ID)
+	usd := p.order(t, p.northwind, "USD", p.installed("100.00", "USD"))
+	p.goodsIssue(t, usd, "2026-03-09", "1", 900, "EUR")
+	r, _ := p.Must(200, "GET", report+"?legal_entity_id="+p.DE.String()+"&fiscal_year=2026", "", "")
+	costs := func(r map[string]any) string {
+		var out []string
+		for _, it := range r["items"].([]any) {
+			m := it.(map[string]any)
+			out = append(out, fmt.Sprintf("%v: net %v, cost %v, margin %v", m["customer_number"], m["net_revenue"].(map[string]any)["amount"],
+				m["cost_of_sales"].(map[string]any)["amount"], m["margin"].(map[string]any)["amount"]))
+		}
+		tot := r["totals"].(map[string]any)
+		return strings.Join(out, "; ") + fmt.Sprintf(" | totals: cost %v, margin %v", tot["cost_of_sales"].(map[string]any)["amount"],
+			tot["margin"].(map[string]any)["amount"])
+	}
+	if got, want := costs(r), "BP70000001: net 47.50, cost 30.00, margin 17.50; BP70000002: net 0.00, cost 15.00, margin -15.00 | totals: cost 45.00, margin 2.50"; got != want {
+		t.Errorf("the report: got %s, want %s", got, want)
+	}
+	if r["foreign_currency_documents"] != float64(1) {
+		t.Errorf("foreign currency documents: got %v, want 1, the USD order's goods issue", r["foreign_currency_documents"])
+	}
+	march, _ := p.Must(200, "GET", report+"?legal_entity_id="+p.DE.String()+"&fiscal_year=2026&fiscal_period_from=3&fiscal_period_to=3", "", "")
+	if got, want := costs(march), "BP70000001: net 47.50, cost 30.00, margin 17.50 | totals: cost 30.00, margin 17.50"; got != want {
+		t.Errorf("March: got %s, want %s", got, want)
 	}
 }
 

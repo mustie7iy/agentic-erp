@@ -9,7 +9,8 @@
 // sales' published read (sales.Orders) and has sales hold the quantities
 // a delivery takes on the order (sales' Ship), so an order change is
 // judged on them; it reads materials through materials' published API,
-// the stock a pick checks through inventory's (inventory.Endpoints.Held),
+// the stock a pick checks and the goods issue through inventory's
+// (inventory.Endpoints.Held, IssueForDelivery),
 // tenancy's companies and org units, the ledger's fiscal calendar and the
 // configuration's number ranges and company dates, through the ports
 // below, which the composition root wires.
@@ -22,7 +23,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/inventory"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -52,16 +55,20 @@ type Orders interface {
 	Order(ctx context.Context, id uuid.UUID) (sales.Order, bool, error)
 }
 
-// Shipments has sales hold what a delivery takes of an order (sales'
-// Endpoints.Ship, ADR-0083 §4).
+// Shipments has sales hold what a delivery takes of an order and record
+// its goods issue on the order (sales' Endpoints.Ship and Issue,
+// ADR-0083 §4-§5).
 type Shipments interface {
 	Ship(ctx context.Context, in sales.ShipInput) (sales.Shipped, error)
+	Issue(ctx context.Context, in sales.GoodsIssue) (sales.Delivery, error)
 }
 
-// Stock reads what a storage location holds of a material (inventory's
-// Endpoints.Held).
+// Stock reads what a storage location holds of a material and posts a
+// delivery's goods issue (inventory's Endpoints.Held and
+// IssueForDelivery).
 type Stock interface {
 	Held(ctx context.Context, material, plant, storageLocation uuid.UUID) (string, error)
+	IssueForDelivery(ctx context.Context, reference string, in []inventory.DeliveryItem) (inventory.Document, error)
 }
 
 // Materials reads materials by id (the materials context's published API).
@@ -116,6 +123,9 @@ type Item struct {
 	Quantity    string    `json:"quantity"`
 	Unit        string    `json:"unit"`
 	Picked      string    `json:"picked_quantity"`
+	// Cost is what its goods issue took from the stock, minor units of
+	// the delivery's Currency; nil before.
+	Cost *money.Minor `json:"cost_amount"`
 }
 
 // Delivery is a row of shipping.outbound_delivery with its items by item
@@ -136,10 +146,14 @@ type Delivery struct {
 	GoodsIssueDate         *time.Time
 	MaterialDocumentID     *uuid.UUID
 	MaterialDocumentNumber *string
-	Items                  []Item
-	Version                int32
-	CreatedAt              time.Time
-	CreatedBy              uuid.UUID
-	UpdatedAt              time.Time
-	UpdatedBy              uuid.UUID
+	// Currency and Exponent are its items' costs', the company's; ""
+	// before its goods issue.
+	Currency  string
+	Exponent  int
+	Items     []Item
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
 }

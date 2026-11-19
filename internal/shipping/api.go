@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -25,10 +26,20 @@ func deliveryAPI(d Delivery, r refs) gen.OutboundDelivery {
 		StorageLocationCode: loc.Code, StorageLocationName: loc.Name, Status: d.Status, PickingStatus: d.PickingStatus(),
 		Items: make([]gen.OutboundDeliveryItem, len(d.Items)), Version: d.Version, CreatedAt: d.CreatedAt, CreatedBy: d.CreatedBy,
 		UpdatedAt: d.UpdatedAt, UpdatedBy: d.UpdatedBy}
+	var total money.Minor
 	for i, it := range d.Items {
 		out.Items[i] = gen.OutboundDeliveryItem{ItemNo: it.ItemNo, OrderItemNo: it.OrderItemNo, MaterialID: it.MaterialID,
 			MaterialNumber: r.materials[it.MaterialID].Number, Description: it.Description, Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit},
 			PickedQuantity: gen.Quantity{Value: it.Picked, Unit: it.Unit}}
+		if it.Cost != nil {
+			out.Items[i].Cost = gen.NewOptMoney(apitypes.Money(*it.Cost, d.Currency, d.Exponent))
+			total += *it.Cost // each a part of one stock's value, at most 2^63 minor units together (inventory.valuation.value is a bigint)
+		}
+	}
+	if d.Status == GoodsIssued {
+		out.GoodsIssueDate = apitypes.OptDate(d.GoodsIssueDate)
+		out.MaterialDocumentID, out.MaterialDocumentNumber = apitypes.OptUUID(d.MaterialDocumentID), apitypes.OptString(d.MaterialDocumentNumber)
+		out.CostOfGoodsSold = gen.NewOptMoney(apitypes.Money(total, d.Currency, d.Exponent))
 	}
 	return out
 }
@@ -86,6 +97,18 @@ func (e *Endpoints) PickOutboundDelivery(ctx context.Context, req *gen.OutboundD
 		in[i] = PickInput{ItemNo: it.ItemNo, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit}
 	}
 	d, err := e.Pick(ctx, params.ID, etag.IfMatch(params.IfMatch), in)
+	out, tag, err := e.one(ctx, d, err)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.PickOutboundDeliveryOKHeaders{ETag: tag, Response: out}, nil
+}
+
+// PostOutboundDeliveryGoodsIssue implements POST
+// /v1/outbound-deliveries/{id}:postGoodsIssue.
+func (e *Endpoints) PostOutboundDeliveryGoodsIssue(ctx context.Context, params gen.PostOutboundDeliveryGoodsIssueParams) (
+	gen.PostOutboundDeliveryGoodsIssueRes, error) {
+	d, err := e.PostGoodsIssue(ctx, params.ID, etag.IfMatch(params.IfMatch))
 	out, tag, err := e.one(ctx, d, err)
 	if err != nil {
 		return nil, err

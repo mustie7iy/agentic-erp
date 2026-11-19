@@ -783,8 +783,8 @@ var valuationClassRe = regexp.MustCompile(`^[0-9A-Z]{1,4}$`)
 
 // inventoryAccounts checks the company's accounts by valuation class
 // (ADR-0082 §8): each class once and well formed, its stock account an
-// asset, its consumption, scrapping, price difference and revaluation
-// accounts expenses, its receipt and initial entry accounts of any type;
+// asset, its consumption, scrapping, price difference, revaluation and
+// cost of goods sold accounts expenses, its receipt and initial entry accounts of any type;
 // none a reconciliation account.
 func (v *validator) inventoryAccounts(p string, co *Company) {
 	seen := map[string]bool{}
@@ -796,7 +796,7 @@ func (v *validator) inventoryAccounts(p string, co *Company) {
 		seen[inv.ValuationClass] = true
 		v.account(ip+".stock", co, inv.Stock, Asset, false)
 		for _, a := range []struct{ field, number string }{{"consumption", inv.Consumption}, {"scrapping", inv.Scrapping},
-			{"price_difference", inv.PriceDifference}, {"revaluation", inv.Revaluation}} {
+			{"price_difference", inv.PriceDifference}, {"revaluation", inv.Revaluation}, {"cost_of_goods_sold", inv.CostOfGoodsSold}} {
 			if a.number != "" {
 				v.account(ip+"."+a.field, co, a.number, Expense, false)
 			}

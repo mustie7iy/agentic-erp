@@ -559,6 +559,9 @@ type InventoryAccounts struct {
 	// expenses, holding gains and losses alike.
 	PriceDifference string `yaml:"price_difference,omitempty" json:"price_difference,omitempty"`
 	Revaluation     string `yaml:"revaluation,omitempty" json:"revaluation,omitempty"`
+	// CostOfGoodsSold takes an outbound delivery's goods issue (601, GBB
+	// VAX, from memory; ADR-0083 §5): an expense.
+	CostOfGoodsSold string `yaml:"cost_of_goods_sold,omitempty" json:"cost_of_goods_sold,omitempty"`
 }
 
 // The kinds of a valuation class's accounts (InventoryAccounts.Accounts).
@@ -570,6 +573,7 @@ const (
 	InventoryScrapping       = "scrapping"
 	InventoryPriceDifference = "price_difference"
 	InventoryRevaluation     = "revaluation"
+	InventoryCostOfGoodsSold = "cost_of_goods_sold"
 )
 
 // InventoryKey is the account determination key of a valuation class's
@@ -579,12 +583,12 @@ func InventoryKey(kind, valuationClass string) string {
 }
 
 // Accounts are the class's accounts by kind (stock, receipt,
-// initial_entry, consumption, scrapping, price_difference, revaluation),
-// in that order, the empty ones too.
+// initial_entry, consumption, scrapping, price_difference, revaluation,
+// cost_of_goods_sold), in that order, the empty ones too.
 func (a InventoryAccounts) Accounts() [][2]string {
 	return [][2]string{{InventoryStock, a.Stock}, {InventoryReceipt, a.Receipt}, {InventoryInitialEntry, a.InitialEntry},
 		{InventoryConsumption, a.Consumption}, {InventoryScrapping, a.Scrapping}, {InventoryPriceDifference, a.PriceDifference},
-		{InventoryRevaluation, a.Revaluation}}
+		{InventoryRevaluation, a.Revaluation}, {InventoryCostOfGoodsSold, a.CostOfGoodsSold}}
 }
 
 // InventoryClass is the company's valuation class with the code, ok =

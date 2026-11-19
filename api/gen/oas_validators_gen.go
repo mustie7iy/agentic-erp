@@ -64435,6 +64435,24 @@ func (s *OutboundDelivery) Validate() error {
 
 	var failures []validate.FieldError
 	if err := func() error {
+		if value, ok := s.CostOfGoodsSold.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "cost_of_goods_sold",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if s.Items == nil {
 			return errors.New("nil is invalid value")
 		}
@@ -64564,6 +64582,24 @@ func (s *OutboundDeliveryItem) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "picked_quantity",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.Cost.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "cost",
 			Error: err,
 		})
 	}
@@ -69091,6 +69127,54 @@ func (s *PostJournalEntryUnprocessableEntity) Validate() error {
 	return nil
 }
 
+func (s *PostOutboundDeliveryGoodsIssueBadRequest) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PostOutboundDeliveryGoodsIssueForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PostOutboundDeliveryGoodsIssueNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PostOutboundDeliveryGoodsIssuePreconditionFailed) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PostOutboundDeliveryGoodsIssuePreconditionRequired) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *PostOutboundDeliveryGoodsIssueUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *PostParkedJournalEntryBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -71655,6 +71739,28 @@ func (s *ProfitabilityRow) Validate() error {
 			Error: err,
 		})
 	}
+	if err := func() error {
+		if err := s.CostOfSales.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "cost_of_sales",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Margin.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "margin",
+			Error: err,
+		})
+	}
 	if len(failures) > 0 {
 		return &validate.Error{Fields: failures}
 	}
@@ -71708,6 +71814,28 @@ func (s *ProfitabilityTotals) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "net_revenue",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.CostOfSales.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "cost_of_sales",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Margin.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "margin",
 			Error: err,
 		})
 	}
@@ -84896,6 +85024,24 @@ func (s *SalesDeliveryItem) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "quantity",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.Cost.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "cost",
 			Error: err,
 		})
 	}

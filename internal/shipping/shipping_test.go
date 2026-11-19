@@ -24,7 +24,7 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"materials.material.read", "materials.material.write", "tenancy.org.manage", "inventory.movement.post", "inventory.stock.read",
 	"inventory.valuation.read", "inventory.valuation.write", "ledger.entry.read", "sales.order.read", "sales.order.write", "sales.order.confirm",
-	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write", "shipping.delivery.read", "shipping.delivery.write"}
+	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write", "shipping.delivery.read", "shipping.delivery.write", "shipping.goods_issue.post"}
 
 const deliveries = "/v1/outbound-deliveries"
 
@@ -51,8 +51,7 @@ func setup(t *testing.T) env {
 	e.s9 = e.orgUnit(t, e.US, "storage_location", "S9", &e.p9)
 	e.bracket = e.material(t, "Machined bracket M10", "trading_good")
 	e.service = e.material(t, "Installation service", "service")
-	e.Must(201, "POST", "/v1/material-valuations", mustJSON(t, map[string]any{"material_id": e.bracket, "plant_id": e.p1, "valuation_class": "3000",
-		"price_control": "moving_average", "price": map[string]any{"amount": "2.00", "currency": "EUR"}}), "")
+	e.value(t, e.bracket, "3000", "moving_average", "2.00")
 	e.receive(t, "200")
 	e.revenue = e.Account(t, "2000", "400000")
 	e.customer = e.Customer(t, "BP70000001", "Northwind Traders")
@@ -61,14 +60,16 @@ func setup(t *testing.T) env {
 	return e
 }
 
-// valued gives company 2000 a customer reconciliation account and the
-// inventory accounts of valuation class 3000.
+// valued gives company 2000 a customer reconciliation account, the
+// inventory accounts of valuation class 3000 and of class 3100, which
+// names no cost of goods sold account.
 func valued(c *config.Config) {
 	de := c.Company("2000")
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "120000", Name: "Trade receivables", Type: config.Asset, CustomerReconciliation: true},
 		config.Account{Number: "150000", Name: "Inventory", Type: config.Asset}, config.Account{Number: "391000", Name: "Initial entries", Type: config.Equity},
-		config.Account{Number: "515000", Name: "Consumption", Type: config.Expense})
-	de.AccountDetermination.Inventory = []config.InventoryAccounts{{ValuationClass: "3000", Stock: "150000", InitialEntry: "391000", Consumption: "515000"}}
+		config.Account{Number: "515000", Name: "Consumption", Type: config.Expense}, config.Account{Number: "519000", Name: "Cost of goods sold", Type: config.Expense})
+	de.AccountDetermination.Inventory = []config.InventoryAccounts{{ValuationClass: "3000", Stock: "150000", InitialEntry: "391000", Consumption: "515000",
+		CostOfGoodsSold: "519000"}, {ValuationClass: "3100", Stock: "150000", InitialEntry: "391000"}}
 }
 
 // orgUnit creates an active org unit of the company through the API.
@@ -99,8 +100,22 @@ func (e env) material(t *testing.T, description, kind string) string {
 // receive enters an initial stock of the bracket in EA at S1.
 func (e env) receive(t *testing.T, qty string) {
 	t.Helper()
-	e.Must(201, "POST", "/v1/material-documents", mustJSON(t, map[string]any{"movement_type": "561", "items": []any{map[string]any{"material_id": e.bracket,
+	e.receiveOf(t, e.bracket, qty)
+}
+
+// receiveOf enters an initial stock of the material in EA at S1.
+func (e env) receiveOf(t *testing.T, material, qty string) {
+	t.Helper()
+	e.Must(201, "POST", "/v1/material-documents", mustJSON(t, map[string]any{"movement_type": "561", "items": []any{map[string]any{"material_id": material,
 		"plant_id": e.p1, "storage_location_id": e.s1, "quantity": map[string]any{"value": qty, "unit": "EA"}}}}), "")
+}
+
+// value values the material at P1 under the class at the price control
+// and price in EUR per EA.
+func (e env) value(t *testing.T, material, class, control, price string) {
+	t.Helper()
+	e.Must(201, "POST", "/v1/material-valuations", mustJSON(t, map[string]any{"material_id": material, "plant_id": e.p1, "valuation_class": class,
+		"price_control": control, "price": map[string]any{"amount": price, "currency": "EUR"}}), "")
 }
 
 // ofMaterial is an order item of the material: "quantity unit" at 1.00 EUR.

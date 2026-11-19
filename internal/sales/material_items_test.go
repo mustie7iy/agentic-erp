@@ -15,14 +15,15 @@ import (
 )
 
 // material inserts a material of the tenant in the status with its
-// number, the description "Machined bracket M10", the base unit EA and
+// number, of type non_stock (so its delivery is confirmed by hand, not
+// shipped, ADR-0083), the description "Machined bracket M10", the base unit EA and
 // the alternative units BOX (20 EA) and KG (a third of an EA), and
 // returns its id.
 func (e env) material(t *testing.T, number, status string) uuid.UUID {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
 	pgtest.Exec(t, `INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type, material_group,
-		status, created_by, updated_by) VALUES ($1, $2, $3, $4, 'Machined bracket M10', 'EA', 'finished_good', 'BRACKETS', $5, $6, $6)`,
+		status, created_by, updated_by) VALUES ($1, $2, $3, $4, 'Machined bracket M10', 'EA', 'non_stock', 'BRACKETS', $5, $6, $6)`,
 		e.Tenant.ID, id, number, e.DE, status, e.Tenant.Human.ID)
 	pgtest.Exec(t, `INSERT INTO materials.unit_conversion (tenant_id, material_id, uom_code, numerator, denominator, created_by)
 		VALUES ($1, $2, 'BOX', 20, 1, $3), ($1, $2, 'KG', 1, 3, $3)`, e.Tenant.ID, id, e.Tenant.Human.ID)

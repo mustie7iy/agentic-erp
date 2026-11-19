@@ -27982,6 +27982,7 @@ func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
 func (*ConflictHeaders) postExpenseReportRes()                     {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
+func (*ConflictHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*ConflictHeaders) postParkedJournalEntryRes()                {}
 func (*ConflictHeaders) postRevaluationRunRes()                    {}
 func (*ConflictHeaders) postSupplierInvoiceRes()                   {}
@@ -68885,8 +68886,10 @@ type MaterialDocument struct {
 	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number`
 	// (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock
-	// against GR/IR (S1e); absent on every other document. Such a document is reversed by reversing its
-	// goods receipt (409 `inventory.reverse_goods_receipt` here).
+	// against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409
+	// `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1):
+	// the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods
+	// sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). Absent on every other document.
 	Reference OptString `json:"reference"`
 	// Its lines, in line order.
 	Lines []MaterialDocumentLine `json:"lines"`
@@ -81635,6 +81638,15 @@ type OutboundDelivery struct {
 	StorageLocationCode string `json:"storage_location_code"`
 	// The storage location's name, as it is now.
 	StorageLocationName string `json:"storage_location_name"`
+	// The company's date its goods issue was posted on (S2b1); absent before.
+	GoodsIssueDate OptDate `json:"goods_issue_date"`
+	// Its goods issue's material document (601, `GET /v1/material-documents/{id}`), whose
+	// `journal_entry_id` posted the cost of goods sold; absent before.
+	MaterialDocumentID OptUUID `json:"material_document_id"`
+	// That document's number; absent with it.
+	MaterialDocumentNumber OptString `json:"material_document_number"`
+	// Its items' costs added up, in the company's local currency; absent before its goods issue.
+	CostOfGoodsSold OptMoney `json:"cost_of_goods_sold"`
 	// `created` until its goods issue is posted, then `goods_issued`. Open enumeration: clients must
 	// accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
@@ -81729,6 +81741,26 @@ func (s *OutboundDelivery) GetStorageLocationCode() string {
 // GetStorageLocationName returns the value of StorageLocationName.
 func (s *OutboundDelivery) GetStorageLocationName() string {
 	return s.StorageLocationName
+}
+
+// GetGoodsIssueDate returns the value of GoodsIssueDate.
+func (s *OutboundDelivery) GetGoodsIssueDate() OptDate {
+	return s.GoodsIssueDate
+}
+
+// GetMaterialDocumentID returns the value of MaterialDocumentID.
+func (s *OutboundDelivery) GetMaterialDocumentID() OptUUID {
+	return s.MaterialDocumentID
+}
+
+// GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
+func (s *OutboundDelivery) GetMaterialDocumentNumber() OptString {
+	return s.MaterialDocumentNumber
+}
+
+// GetCostOfGoodsSold returns the value of CostOfGoodsSold.
+func (s *OutboundDelivery) GetCostOfGoodsSold() OptMoney {
+	return s.CostOfGoodsSold
 }
 
 // GetStatus returns the value of Status.
@@ -81844,6 +81876,26 @@ func (s *OutboundDelivery) SetStorageLocationCode(val string) {
 // SetStorageLocationName sets the value of StorageLocationName.
 func (s *OutboundDelivery) SetStorageLocationName(val string) {
 	s.StorageLocationName = val
+}
+
+// SetGoodsIssueDate sets the value of GoodsIssueDate.
+func (s *OutboundDelivery) SetGoodsIssueDate(val OptDate) {
+	s.GoodsIssueDate = val
+}
+
+// SetMaterialDocumentID sets the value of MaterialDocumentID.
+func (s *OutboundDelivery) SetMaterialDocumentID(val OptUUID) {
+	s.MaterialDocumentID = val
+}
+
+// SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
+func (s *OutboundDelivery) SetMaterialDocumentNumber(val OptString) {
+	s.MaterialDocumentNumber = val
+}
+
+// SetCostOfGoodsSold sets the value of CostOfGoodsSold.
+func (s *OutboundDelivery) SetCostOfGoodsSold(val OptMoney) {
+	s.CostOfGoodsSold = val
 }
 
 // SetStatus sets the value of Status.
@@ -82006,8 +82058,11 @@ type OutboundDeliveryItem struct {
 	Description string `json:"description"`
 	// The delivery quantity, in the order item's unit.
 	Quantity Quantity `json:"quantity"`
-	// What is picked of it, in its unit.
+	// What is picked of it, in its unit; once the goods issue is posted, what it issued.
 	PickedQuantity Quantity `json:"picked_quantity"`
+	// Once the goods issue is posted (S2b1): what the quantity issued took from the stock, its cost of
+	// goods sold, in the company's local currency; absent before and on an item picked at nothing.
+	Cost OptMoney `json:"cost"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -82045,6 +82100,11 @@ func (s *OutboundDeliveryItem) GetPickedQuantity() Quantity {
 	return s.PickedQuantity
 }
 
+// GetCost returns the value of Cost.
+func (s *OutboundDeliveryItem) GetCost() OptMoney {
+	return s.Cost
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *OutboundDeliveryItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -82078,6 +82138,11 @@ func (s *OutboundDeliveryItem) SetQuantity(val Quantity) {
 // SetPickedQuantity sets the value of PickedQuantity.
 func (s *OutboundDeliveryItem) SetPickedQuantity(val Quantity) {
 	s.PickedQuantity = val
+}
+
+// SetCost sets the value of Cost.
+func (s *OutboundDeliveryItem) SetCost(val OptMoney) {
+	s.Cost = val
 }
 
 // An item of an outbound delivery to create: a quantity of a sales order item.
@@ -87308,7 +87373,8 @@ func (s *PickOutboundDeliveryOKHeaders) SetResponse(val OutboundDelivery) {
 	s.Response = val
 }
 
-func (*PickOutboundDeliveryOKHeaders) pickOutboundDeliveryRes() {}
+func (*PickOutboundDeliveryOKHeaders) pickOutboundDeliveryRes()           {}
+func (*PickOutboundDeliveryOKHeaders) postOutboundDeliveryGoodsIssueRes() {}
 
 type PickOutboundDeliveryPreconditionFailed Problem
 
@@ -88575,6 +88641,30 @@ func (*PostJournalEntryPreconditionRequired) postJournalEntryRes() {}
 type PostJournalEntryUnprocessableEntity Problem
 
 func (*PostJournalEntryUnprocessableEntity) postJournalEntryRes() {}
+
+type PostOutboundDeliveryGoodsIssueBadRequest Problem
+
+func (*PostOutboundDeliveryGoodsIssueBadRequest) postOutboundDeliveryGoodsIssueRes() {}
+
+type PostOutboundDeliveryGoodsIssueForbidden Problem
+
+func (*PostOutboundDeliveryGoodsIssueForbidden) postOutboundDeliveryGoodsIssueRes() {}
+
+type PostOutboundDeliveryGoodsIssueNotFound Problem
+
+func (*PostOutboundDeliveryGoodsIssueNotFound) postOutboundDeliveryGoodsIssueRes() {}
+
+type PostOutboundDeliveryGoodsIssuePreconditionFailed Problem
+
+func (*PostOutboundDeliveryGoodsIssuePreconditionFailed) postOutboundDeliveryGoodsIssueRes() {}
+
+type PostOutboundDeliveryGoodsIssuePreconditionRequired Problem
+
+func (*PostOutboundDeliveryGoodsIssuePreconditionRequired) postOutboundDeliveryGoodsIssueRes() {}
+
+type PostOutboundDeliveryGoodsIssueUnprocessableEntity Problem
+
+func (*PostOutboundDeliveryGoodsIssueUnprocessableEntity) postOutboundDeliveryGoodsIssueRes() {}
 
 type PostParkedJournalEntryBadRequest Problem
 
@@ -90975,11 +91065,12 @@ type ProfitabilityReport struct {
 	DateTo time.Time `json:"date_to"`
 	// The legal entity's local currency, which every amount is in.
 	Currency string `json:"currency"`
-	// Always false: the report shows no cost, since no cost of goods sold is posted per item; the margin
-	// report (`getMarginReport`) has the ledger's cost of sales.
+	// True: from S2b2 (ADR-0083 §6) the report shows each segment's cost of sales, the cost of goods sold
+	// its goods issues posted, and its margin. Cost a person posts by journal entry is the margin report's
+	// (`getMarginReport`).
 	IncludesCost bool `json:"includes_cost"`
-	// The posted billing documents and credit memos of the selection in a currency other than `currency`,
-	// which are not converted and are left out of every figure.
+	// The posted billing documents, credit memos and goods issues of orders of the selection in a currency
+	// other than `currency`, which are not converted and are left out of every figure.
 	ForeignCurrencyDocuments int32 `json:"foreign_currency_documents"`
 	// The whole selection's totals, the same on every page.
 	Totals ProfitabilityTotals `json:"totals"`
@@ -91137,6 +91228,11 @@ type ProfitabilityRow struct {
 	CreditMemos Money `json:"credit_memos"`
 	// Gross value less discounts less credit memos.
 	NetRevenue Money `json:"net_revenue"`
+	// The cost of goods sold the goods issues of the segment's order items posted in the selection
+	// (ADR-0083 §6): each counts on its posting date, for an order in the local currency.
+	CostOfSales Money `json:"cost_of_sales"`
+	// Net revenue less cost of sales.
+	Margin Money `json:"margin"`
 }
 
 // GetCustomerID returns the value of CustomerID.
@@ -91179,6 +91275,16 @@ func (s *ProfitabilityRow) GetNetRevenue() Money {
 	return s.NetRevenue
 }
 
+// GetCostOfSales returns the value of CostOfSales.
+func (s *ProfitabilityRow) GetCostOfSales() Money {
+	return s.CostOfSales
+}
+
+// GetMargin returns the value of Margin.
+func (s *ProfitabilityRow) GetMargin() Money {
+	return s.Margin
+}
+
 // SetCustomerID sets the value of CustomerID.
 func (s *ProfitabilityRow) SetCustomerID(val uuid.UUID) {
 	s.CustomerID = val
@@ -91219,8 +91325,18 @@ func (s *ProfitabilityRow) SetNetRevenue(val Money) {
 	s.NetRevenue = val
 }
 
-// The whole selection's gross value, discounts, credit memos and net revenue, which the rows of every
-// page add up to over the pages; in the legal entity's local currency.
+// SetCostOfSales sets the value of CostOfSales.
+func (s *ProfitabilityRow) SetCostOfSales(val Money) {
+	s.CostOfSales = val
+}
+
+// SetMargin sets the value of Margin.
+func (s *ProfitabilityRow) SetMargin(val Money) {
+	s.Margin = val
+}
+
+// The whole selection's gross value, discounts, credit memos, net revenue, cost of sales and margin,
+// which the rows of every page add up to over the pages; in the legal entity's local currency.
 // Ref: #/components/schemas/ProfitabilityTotals
 type ProfitabilityTotals struct {
 	// Gross value billed.
@@ -91231,6 +91347,10 @@ type ProfitabilityTotals struct {
 	CreditMemos Money `json:"credit_memos"`
 	// Net revenue: the net value of the posted billing documents less the posted credit memos.
 	NetRevenue Money `json:"net_revenue"`
+	// Cost of sales: the cost of goods sold the goods issues of the selection posted (ADR-0083 §6).
+	CostOfSales Money `json:"cost_of_sales"`
+	// Margin: net revenue less cost of sales.
+	Margin Money `json:"margin"`
 }
 
 // GetGrossValue returns the value of GrossValue.
@@ -91253,6 +91373,16 @@ func (s *ProfitabilityTotals) GetNetRevenue() Money {
 	return s.NetRevenue
 }
 
+// GetCostOfSales returns the value of CostOfSales.
+func (s *ProfitabilityTotals) GetCostOfSales() Money {
+	return s.CostOfSales
+}
+
+// GetMargin returns the value of Margin.
+func (s *ProfitabilityTotals) GetMargin() Money {
+	return s.Margin
+}
+
 // SetGrossValue sets the value of GrossValue.
 func (s *ProfitabilityTotals) SetGrossValue(val Money) {
 	s.GrossValue = val
@@ -91271,6 +91401,16 @@ func (s *ProfitabilityTotals) SetCreditMemos(val Money) {
 // SetNetRevenue sets the value of NetRevenue.
 func (s *ProfitabilityTotals) SetNetRevenue(val Money) {
 	s.NetRevenue = val
+}
+
+// SetCostOfSales sets the value of CostOfSales.
+func (s *ProfitabilityTotals) SetCostOfSales(val Money) {
+	s.CostOfSales = val
+}
+
+// SetMargin sets the value of Margin.
+func (s *ProfitabilityTotals) SetMargin(val Money) {
+	s.Margin = val
 }
 
 // Merged schema.
@@ -105966,9 +106106,10 @@ func (s *SalesConditionScale) SetFromAmount(val OptMoney) {
 	s.FromAmount = val
 }
 
-// A delivery confirmation (sales, ADR-0067 §8): quantities of a sales order's items a person
-// confirmed as delivered on a date. It moves no stock and posts nothing. It is written once and never
-// changed.
+// A delivery of a sales order (sales, ADR-0067 §8): quantities of its items a person confirmed as
+// delivered on a date, which moves no stock and posts nothing, or, for materials kept in stock, an
+// outbound delivery's goods issue (ADR-0083 §5, S2b1), which names the outbound delivery and its
+// material document. It is written once and never changed.
 // Ref: #/components/schemas/SalesDelivery
 type SalesDelivery struct {
 	// Identifier (UUIDv7).
@@ -105981,6 +106122,16 @@ type SalesDelivery struct {
 	SalesOrderNumber string `json:"sales_order_number"`
 	// The day the quantities were delivered.
 	DeliveryDate time.Time `json:"delivery_date"`
+	// The outbound delivery whose goods issue this is (`GET /v1/outbound-deliveries/{id}`); absent on a
+	// confirmation by hand.
+	OutboundDeliveryID OptUUID `json:"outbound_delivery_id"`
+	// That delivery's number; absent with it.
+	OutboundDeliveryNumber OptString `json:"outbound_delivery_number"`
+	// Its goods issue's material document (601, `GET /v1/material-documents/{id}`), whose journal entry
+	// posted the cost of goods sold; absent with the delivery.
+	MaterialDocumentID OptUUID `json:"material_document_id"`
+	// That document's number; absent with it.
+	MaterialDocumentNumber OptString `json:"material_document_number"`
 	// The items delivered, by the order's item number.
 	Items []SalesDeliveryItem `json:"items"`
 	// When the delivery was confirmed.
@@ -106012,6 +106163,26 @@ func (s *SalesDelivery) GetSalesOrderNumber() string {
 // GetDeliveryDate returns the value of DeliveryDate.
 func (s *SalesDelivery) GetDeliveryDate() time.Time {
 	return s.DeliveryDate
+}
+
+// GetOutboundDeliveryID returns the value of OutboundDeliveryID.
+func (s *SalesDelivery) GetOutboundDeliveryID() OptUUID {
+	return s.OutboundDeliveryID
+}
+
+// GetOutboundDeliveryNumber returns the value of OutboundDeliveryNumber.
+func (s *SalesDelivery) GetOutboundDeliveryNumber() OptString {
+	return s.OutboundDeliveryNumber
+}
+
+// GetMaterialDocumentID returns the value of MaterialDocumentID.
+func (s *SalesDelivery) GetMaterialDocumentID() OptUUID {
+	return s.MaterialDocumentID
+}
+
+// GetMaterialDocumentNumber returns the value of MaterialDocumentNumber.
+func (s *SalesDelivery) GetMaterialDocumentNumber() OptString {
+	return s.MaterialDocumentNumber
 }
 
 // GetItems returns the value of Items.
@@ -106052,6 +106223,26 @@ func (s *SalesDelivery) SetSalesOrderNumber(val string) {
 // SetDeliveryDate sets the value of DeliveryDate.
 func (s *SalesDelivery) SetDeliveryDate(val time.Time) {
 	s.DeliveryDate = val
+}
+
+// SetOutboundDeliveryID sets the value of OutboundDeliveryID.
+func (s *SalesDelivery) SetOutboundDeliveryID(val OptUUID) {
+	s.OutboundDeliveryID = val
+}
+
+// SetOutboundDeliveryNumber sets the value of OutboundDeliveryNumber.
+func (s *SalesDelivery) SetOutboundDeliveryNumber(val OptString) {
+	s.OutboundDeliveryNumber = val
+}
+
+// SetMaterialDocumentID sets the value of MaterialDocumentID.
+func (s *SalesDelivery) SetMaterialDocumentID(val OptUUID) {
+	s.MaterialDocumentID = val
+}
+
+// SetMaterialDocumentNumber sets the value of MaterialDocumentNumber.
+func (s *SalesDelivery) SetMaterialDocumentNumber(val OptString) {
+	s.MaterialDocumentNumber = val
 }
 
 // SetItems sets the value of Items.
@@ -106139,6 +106330,9 @@ type SalesDeliveryItem struct {
 	Description string `json:"description"`
 	// The quantity delivered, in the order item's unit.
 	Quantity Quantity `json:"quantity"`
+	// On a goods issue's delivery (S2b1): what the quantity issued took from the stock, its cost of goods
+	// sold, in the company's local currency. Absent on a confirmation by hand.
+	Cost OptMoney `json:"cost"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -106161,6 +106355,11 @@ func (s *SalesDeliveryItem) GetQuantity() Quantity {
 	return s.Quantity
 }
 
+// GetCost returns the value of Cost.
+func (s *SalesDeliveryItem) GetCost() OptMoney {
+	return s.Cost
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *SalesDeliveryItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -106179,6 +106378,11 @@ func (s *SalesDeliveryItem) SetDescription(val string) {
 // SetQuantity sets the value of Quantity.
 func (s *SalesDeliveryItem) SetQuantity(val Quantity) {
 	s.Quantity = val
+}
+
+// SetCost sets the value of Cost.
+func (s *SalesDeliveryItem) SetCost(val OptMoney) {
+	s.Cost = val
 }
 
 // A quantity delivered of one item of the order.
@@ -116022,6 +116226,7 @@ func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) postExpenseReportRes()                     {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
+func (*TooManyRequestsHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()                {}
 func (*TooManyRequestsHeaders) postRevaluationRunRes()                    {}
 func (*TooManyRequestsHeaders) postSupplierInvoiceRes()                   {}
@@ -116968,6 +117173,7 @@ func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
 func (*UnauthorizedHeaders) postExpenseReportRes()                     {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
+func (*UnauthorizedHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()                {}
 func (*UnauthorizedHeaders) postRevaluationRunRes()                    {}
 func (*UnauthorizedHeaders) postSupplierInvoiceRes()                   {}

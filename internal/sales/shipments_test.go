@@ -1,10 +1,16 @@
 package sales_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -22,4 +28,37 @@ func TestShipmentConstraints(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDeliveryByGoodsIssue: an item of a material kept in stock is not
+// confirmed as delivered by hand: it is delivered by an outbound
+// delivery's goods issue (ADR-0083 §5), and nothing is delivered; the
+// materials are read in the request's transaction.
+func TestDeliveryByGoodsIssue(t *testing.T) {
+	e := setup(t)
+	stocked := uuid.Must(uuid.NewV7())
+	pgtest.Exec(t, `INSERT INTO materials.material (tenant_id, id, number, legal_entity_id, description, base_uom_code, material_type, material_group,
+		status, created_by, updated_by) VALUES ($1, $2, '100000009', $3, 'Machined bracket M10', 'EA', 'trading_good', 'BRACKETS', 'active', $4, $4)`,
+		e.Tenant.ID, stocked, e.DE, e.Tenant.Human.ID)
+	id, today := e.confirmed(t, e.ofMaterial(stocked, "2 EA", `, "unit_price": {"amount": "1.00", "currency": "EUR"}`))
+	m := e.Problem(422, "sales.delivery_by_goods_issue", "POST", deliveries(id), delivered(today, "1 2 EA"), "")
+	if f := field(m); f != "items[0].item_no" {
+		t.Errorf("the field: got %v, want items[0].item_no", f)
+	}
+	h := endpoints(t, time.Now())
+	order := uuid.MustParse(id)
+	call := func(ctx context.Context) error {
+		_, err := h.ConfirmSalesDelivery(ctx, &gen.SalesDeliveryCreate{DeliveryDate: instant(t, today+"T00:00:00Z"),
+			Items: []gen.SalesDeliveryItemCreate{{ItemNo: 1, Quantity: gen.Quantity{Value: "2", Unit: "EA"}}}}, gen.ConfirmSalesDeliveryParams{ID: order})
+		return err
+	}
+	if p := problem.From(e.inRequest(t, call)); p.Code != "sales.delivery_by_goods_issue" {
+		t.Errorf("in a request: got %v, want sales.delivery_by_goods_issue", p)
+	}
+	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "confirm a stock item", func(ctx context.Context) error {
+		if err := call(ctx); problem.From(err).Code != "sales.delivery_by_goods_issue" {
+			return err
+		}
+		return nil
+	})
 }

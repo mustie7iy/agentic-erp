@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestShippingPermissions (S2a, migration 000406; ADR-0083): the
+// TestShippingPermissions (S2a, migration 000406, and S2b1, 000407; ADR-0083): the
 // permissions of shipping are seeded and are no approval permissions.
 func TestShippingPermissions(t *testing.T) {
 	need(t)
@@ -22,7 +22,7 @@ func TestShippingPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "shipping.delivery.read shipping.delivery.write"; got != want {
+	if got, want := strings.Join(codes, " "), "shipping.delivery.read shipping.delivery.write shipping.goods_issue.post"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -37,7 +37,7 @@ const (
 	shippingItem = `INSERT INTO shipping.outbound_delivery_item (tenant_id, outbound_delivery_id, item_no, order_item_no, material_id, description,
 		quantity, uom_code, picked_quantity, cost_amount) VALUES ($1, $2, $3, $4, gen_random_uuid(), $5, $6::numeric, $7, $8::numeric, $9)`
 	shippingIssue = `UPDATE shipping.outbound_delivery SET status = 'goods_issued', goods_issue_date = '2026-11-20', material_document_id = $2,
-		material_document_number = 'MD1', version = version + 1 WHERE id = $1`
+		material_document_number = 'MD1', currency = 'EUR', version = version + 1 WHERE id = $1`
 )
 
 func (s shippingScene) header(number, status string) stmt {
@@ -82,6 +82,14 @@ func TestShippingRules(t *testing.T) {
 		{"an unknown status", func(s shippingScene) []stmt { return []stmt{s.header("OD1", "shipped")} }, "outbound_delivery_status_check"},
 		{"goods issued without its day and document", func(s shippingScene) []stmt { return []stmt{s.header("OD1", "goods_issued")} },
 			"outbound_delivery_goods_issue"},
+		{"goods issued without its currency", func(s shippingScene) []stmt {
+			return append(s.made(), step(`UPDATE shipping.outbound_delivery SET status = 'goods_issued', goods_issue_date = '2026-11-20',
+				material_document_id = $2, material_document_number = 'MD1', version = version + 1 WHERE id = $1`, s.delivery, s.document))
+		}, "outbound_delivery_goods_issue"},
+		{"an unknown currency", func(s shippingScene) []stmt {
+			return append(s.made(), step(`UPDATE shipping.outbound_delivery SET status = 'goods_issued', goods_issue_date = '2026-11-20',
+				material_document_id = $2, material_document_number = 'MD1', currency = 'XXX', version = version + 1 WHERE id = $1`, s.delivery, s.document))
+		}, "outbound_delivery_currency_fkey"},
 		{"created with a goods issue's document", func(s shippingScene) []stmt {
 			return append(s.made(), step(`UPDATE shipping.outbound_delivery SET material_document_id = $2, material_document_number = 'MD1',
 				version = version + 1 WHERE id = $1`, s.delivery, s.document))
@@ -369,6 +377,95 @@ func TestDeliveryAssignmentRulesAsOwner(t *testing.T) {
 				return
 			}
 			failsOn(t, err, c.want)
+		})
+	}
+}
+
+// TestGoodsIssueRules (S2b1, migrations 000407 and 000408; ADR-0083 §5):
+// a material document of movement type 601 names its outbound delivery's
+// number as its reference and reverses nothing, a 602 reverses a 601;
+// another type names no reference (a valuation class's cost of goods
+// sold key: TestInventoryKeys). A sales delivery names
+// its outbound delivery and material document all together or not at
+// all, an outbound delivery once; a delivery item's cost is not below
+// zero and has its currency, a known one.
+func TestGoodsIssueRules(t *testing.T) {
+	need(t)
+	const doc = `INSERT INTO inventory.material_document (tenant_id, id, legal_entity_id, fiscal_year, number, movement_type, posting_date, reversal_of_id,
+		reference, created_by) VALUES ($1, $2, $3, 2026, $4, $5, '2026-11-20', $6, $7, $1)`
+	const header = `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, order_date,
+		currency, payment_term_code, net_amount, status, created_by, updated_by)
+		VALUES ($1, $2, 'SO1', gen_random_uuid(), gen_random_uuid(), '2026-03-12', 'EUR', 'NT30', 100, 'draft', $1, $1)`
+	const item = `INSERT INTO sales.sales_order_item (tenant_id, sales_order_id, item_no, description, quantity, uom_code, unit_price, price_unit,
+		net_amount, account_id) VALUES ($1, $2, 1, 'Bracket', 5, 'EA', 100, 1, 100, gen_random_uuid())`
+	const confirm = `UPDATE sales.sales_order SET status = 'confirmed', version = version + 1, updated_by = tenant_id WHERE id = $1`
+	const delivery = `INSERT INTO sales.delivery (tenant_id, id, sales_order_id, delivery_no, delivery_date, outbound_delivery_id, outbound_delivery_number,
+		material_document_id, material_document_number, created_by) VALUES ($1, $2, $3, $4, '2026-03-14', $5, $6, $7, $8, $1)`
+	const line = `INSERT INTO sales.delivery_item (tenant_id, delivery_id, sales_order_id, order_item_no, quantity, cost_amount, cost_currency)
+		VALUES ($1, $2, $3, 1, 1, $4, $5)`
+	type scene struct{ tenant, company, doc, order, delivery, outbound uuid.UUID }
+	ordered := func(s scene, more ...stmt) []stmt {
+		return append([]stmt{step(header, s.tenant, s.order), step(item, s.tenant, s.order), step(confirm, s.order)}, more...)
+	}
+	issued := func(s scene) stmt {
+		return step(delivery, s.tenant, s.delivery, s.order, 1, s.outbound, "OD1", s.doc, "MD1")
+	}
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"a goods issue", func(s scene) []stmt { return []stmt{step(doc, s.tenant, s.doc, s.company, "MD1", "601", nil, "OD1")} }, ""},
+		{"a goods issue without its delivery", func(s scene) []stmt { return []stmt{step(doc, s.tenant, s.doc, s.company, "MD1", "601", nil, nil)} },
+			"material_document_reference"},
+		{"a goods issue reversing a document", func(s scene) []stmt {
+			return []stmt{step(doc, s.tenant, s.doc, s.company, "MD1", "601", nil, "OD1"), step(doc, s.tenant, id(), s.company, "MD2", "601", s.doc, "OD1")}
+		}, "a reversal is of its original"},
+		{"a goods issue's reversal", func(s scene) []stmt {
+			return []stmt{step(doc, s.tenant, s.doc, s.company, "MD1", "601", nil, "OD1"), step(doc, s.tenant, id(), s.company, "MD2", "602", s.doc, "OD1")}
+		}, ""},
+		{"a goods issue's reversal reversing nothing", func(s scene) []stmt {
+			return []stmt{step(doc, s.tenant, s.doc, s.company, "MD1", "602", nil, "OD1")}
+		}, "material_document_reversal_check"},
+		{"an initial entry naming a delivery", func(s scene) []stmt { return []stmt{step(doc, s.tenant, s.doc, s.company, "MD1", "561", nil, "OD1")} },
+			"material_document_reference"},
+		{"a goods issue's delivery with its cost", func(s scene) []stmt {
+			return ordered(s, issued(s), step(line, s.tenant, s.delivery, s.order, 120, "EUR"))
+		}, ""},
+		{"a goods issue's delivery without its document", func(s scene) []stmt {
+			return ordered(s, step(delivery, s.tenant, s.delivery, s.order, 1, s.outbound, "OD1", nil, nil))
+		}, "delivery_goods_issue"},
+		{"a goods issue delivering twice", func(s scene) []stmt {
+			return ordered(s, issued(s), step(delivery, s.tenant, id(), s.order, 2, s.outbound, "OD1", s.doc, "MD1"))
+		}, "delivery_outbound_delivery_once"},
+		{"a delivery number of 41 characters", func(s scene) []stmt {
+			return ordered(s, step(delivery, s.tenant, s.delivery, s.order, 1, s.outbound, strings.Repeat("O", 41), s.doc, "MD1"))
+		}, "delivery_outbound_delivery_number_check"},
+		{"a document number of 41 characters", func(s scene) []stmt {
+			return ordered(s, step(delivery, s.tenant, s.delivery, s.order, 1, s.outbound, "OD1", s.doc, strings.Repeat("M", 41)))
+		}, "delivery_material_document_number_check"},
+		{"a cost below zero", func(s scene) []stmt {
+			return ordered(s, issued(s), step(line, s.tenant, s.delivery, s.order, -1, "EUR"))
+		},
+			"delivery_item_cost_check"},
+		{"a cost without its currency", func(s scene) []stmt { return ordered(s, issued(s), step(line, s.tenant, s.delivery, s.order, 1, nil)) },
+			"delivery_item_cost"},
+		{"a cost in an unknown currency", func(s scene) []stmt {
+			return ordered(s, issued(s), step(line, s.tenant, s.delivery, s.order, 1, "XXX"))
+		},
+			"delivery_item_cost_currency_fkey"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), company: id(), doc: id(), order: id(), delivery: id(), outbound: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
 		})
 	}
 }

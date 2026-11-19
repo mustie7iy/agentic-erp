@@ -2117,3 +2117,12 @@ materials, an order change keeps a kept item's (the column is not among
 the application's grants), and a billing document's item answers its
 order item's. Delivery confirmations, returns and credit memo requests
 name the item by its key, as before.
+
+**S2a, S2b1** (ADR-0083, lane ship, 2026-11-19): an order item of a material
+kept in stock is delivered by an outbound delivery's goods issue, not
+confirmed by hand (422 `sales.delivery_by_goods_issue`); the goods issue
+writes the order's delivery, naming the outbound delivery and its material
+document, each item with its cost. What outbound deliveries hold of an
+item (`in_delivery_quantity`) is open to no other delivery, and an order
+change, an item's removal and the order's cancellation are refused below
+or while it holds it.

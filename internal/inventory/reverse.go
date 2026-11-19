@@ -49,6 +49,11 @@ func (e *Endpoints) Reverse(ctx context.Context, id uuid.UUID, ifMatch func(Docu
 		// Its GR/IR and the order item's received quantity move with it.
 		return Document{}, problem.Conflict("inventory.reverse_goods_receipt", "Material document "+orig.Number+" is goods receipt "+*orig.Reference+
 			" of a purchase order; reverse the goods receipt (reverseGoodsReceipt), which reverses its stock too.")
+	case mt.delivery:
+		// Its cost of goods sold, the order's delivered quantity and its
+		// billing move with it: Later (ADR-0083 §5).
+		return Document{}, problem.Conflict("inventory.reverse_goods_issue", "Material document "+orig.Number+" is the goods issue of outbound delivery "+
+			*orig.Reference+"; a goods issue is not reversed yet.")
 	}
 	r, err := e.documentRefs(ctx, []Document{orig})
 	if err != nil {

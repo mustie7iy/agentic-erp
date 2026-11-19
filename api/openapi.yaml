@@ -9781,7 +9781,7 @@ paths:
       tags:
         - controlling
       summary: Read a company's net revenue by profitability segment
-      description: "Net revenue by profitability segment of one legal entity over a range of regular periods of a fiscal year (ADR-0075 §1, §6), from the sales context's posted documents, exact at the moment of the read: per segment, a customer and an item key, the gross value billed (each billed item's value before discounts, its price condition), the discounts taken off it, the credit memos posted against its billing and the net revenue, gross value less discounts less credit memos. A billing document counts in the period its posting date falls in, a credit memo in the period of its own posting date. An item billed in parts carries its discount in proportion to the net value each part billed, rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal entity's local currency: documents in another currency are not converted and are left out, and `foreign_currency_documents` counts them. No cost is shown (`includes_cost` is false): no cost of goods sold is posted per item, and the margin report (`getMarginReport`) has the ledger's cost of sales. Rows are by the customer's number, then the item key, the row without one first; `totals` are the whole selection's, on every page, and the rows of every page add up to them over the pages. A legal entity that does not exist or that the caller cannot act in is answered as missing (422 `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so besides `controlling.profitability.read` the caller needs `sales.billing.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      description: "Net revenue by profitability segment of one legal entity over a range of regular periods of a fiscal year (ADR-0075 §1, §6), from the sales context's posted documents, exact at the moment of the read: per segment, a customer and an item key, the gross value billed (each billed item's value before discounts, its price condition), the discounts taken off it, the credit memos posted against its billing and the net revenue, gross value less discounts less credit memos. A billing document counts in the period its posting date falls in, a credit memo in the period of its own posting date. An item billed in parts carries its discount in proportion to the net value each part billed, rounded half away from zero, so the parts add up to the item's discount to the minor unit. An item without an item key is grouped under its customer alone (no `item_key`). Amounts are in the legal entity's local currency: documents in another currency are not converted and are left out, and `foreign_currency_documents` counts them. Each segment shows its cost of sales, the cost of goods sold of the goods issues of its order items posted in the selection (ADR-0083 §6, S2b2: an outbound delivery's goods issue counts on its posting date, for an order in the local currency; one of an order in another currency is left out and counted in `foreign_currency_documents`), and its margin, net revenue less cost of sales (`includes_cost` is true); cost a person posts by journal entry is the margin report's (`getMarginReport`). Rows are by the customer's number, then the item key, the row without one first; `totals` are the whole selection's, on every page, and the rows of every page add up to them over the pages. A legal entity that does not exist or that the caller cannot act in is answered as missing (422 `request.reference_not_found` on `legal_entity_id`). The figures are billing documents' amounts, so besides `controlling.profitability.read` the caller needs `sales.billing.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
       x-permission: controlling.profitability.read
       x-also-permissions:
         - sales.billing.read
@@ -23355,11 +23355,12 @@ paths:
       tags:
         - sales
       summary: Confirm a delivery against a sales order
-      description: "Records that quantities of a `confirmed` sales order's items were delivered, or a service made available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is read under a row lock, so two confirmations of one order wait for one another. An order that is not confirmed takes none (409 `sales.order_not_confirmed`), nor does one blocked for credit until its block is released (409 `sales.order_credit_blocked`, `releaseSalesOrderCreditBlock`). `delivery_date` is not after the company's date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations racing for an item's last quantity, one is recorded. The delivery is numbered within its order and written once; it is not changed or reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only (`x-agent: false`)."
+      description: "Records that quantities of a `confirmed` sales order's items were delivered, or a service made available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is read under a row lock, so two confirmations of one order wait for one another. An order that is not confirmed takes none (409 `sales.order_not_confirmed`), nor does one blocked for credit until its block is released (409 `sales.order_credit_blocked`, `releaseSalesOrderCreditBlock`). `delivery_date` is not after the company's date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier deliveries confirmed and what outbound deliveries hold (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the item and its open quantity in the message). An item of a material kept in stock is delivered by an outbound delivery's goods issue, not confirmed here (422 `sales.delivery_by_goods_issue` naming `items[i].item_no`; ADR-0083 §5, S2b1): of two confirmations racing for an item's last quantity, one is recorded. The delivery is numbered within its order and written once; it is not changed or reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only (`x-agent: false`)."
       x-permission: sales.delivery.confirm
       x-agent: false
       x-problem-codes:
         - config.not_bootstrapped
+        - sales.delivery_by_goods_issue
         - sales.delivery_date_in_future
         - sales.exceeds_open_quantity
         - sales.invalid_quantity
@@ -24676,7 +24677,7 @@ paths:
             type: string
             maxLength: 3
             description: "Movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302"]
+            x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602"]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -24700,7 +24701,7 @@ paths:
       tags:
         - inventory
       summary: Post a goods movement
-      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero or more, so items that move stock round a circle out of an empty location are refused though they change nothing in all. Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock account against the account its movement type posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price differences on its price difference account (422 `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
+      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`) by `createGoodsReceipt` and an outbound delivery's goods issue (`601`) by `postOutboundDeliveryGoodsIssue` (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero or more, so items that move stock round a circle out of an empty location are refused though they change nothing in all. Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock account against the account its movement type posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price differences on its price difference account (422 `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
       x-permission: inventory.movement.post
       x-agent: false
       x-problem-codes:
@@ -24868,7 +24869,7 @@ paths:
       tags:
         - inventory
       summary: Reverse a material document
-      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first (each keeping its original item's `item_no`), posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). The material may have been blocked since; the reversal is still posted. Each line is valued at what its original line was, given back: what the stock does not take of it at its price now is a price difference, and the value is posted through the ledger as the original's was, reversed. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
+      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first (each keeping its original item's `item_no`), posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet (409 `inventory.reverse_goods_issue`); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). The material may have been blocked since; the reversal is still posted. Each line is valued at what its original line was, given back: what the stock does not take of it at its price now is a price difference, and the value is posted through the ledger as the original's was, reversed. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
       x-permission: inventory.movement.post
       x-agent: false
       x-problem-codes:
@@ -24886,6 +24887,7 @@ paths:
         - inventory.no_price
         - inventory.no_valuation
         - inventory.quantity_too_large
+        - inventory.reverse_goods_issue
         - inventory.reverse_goods_receipt
         - ledger.account_not_postable
         - ledger.amount_too_large
@@ -25514,6 +25516,133 @@ paths:
       responses:
         "200":
           description: The outbound delivery with its picked quantities.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/outbound-deliveries/{id}:postGoodsIssue":
+    post:
+      operationId: postOutboundDeliveryGoodsIssue
+      tags:
+        - shipping
+      summary: Post the goods issue of an outbound delivery
+      description: "Posts an outbound delivery's goods issue (ADR-0083 §5, S2b1; SAP VL02N's post goods issue), once, at the version read (`If-Match`; 412 `request.version_mismatch`): one whose goods issue is posted is refused (409 `shipping.goods_issued`), as is one with nothing picked (409 `shipping.nothing_picked`). Each item's picked quantity leaves the delivery's storage location as one material document of movement type `601` (`material_document_id`), posted on the company's date today in its time zone and numbered from its `material_document` range, its `reference` the delivery's number: the material active and kept there (422 `inventory.material_not_usable`), valued (422 `inventory.no_valuation`), and the stock there now enough (409 `inventory.insufficient_stock`: picking reserves none). Each line takes the stock's value as an issue does (at a standard price the stock left at the price, at a moving price the value in proportion): the item's `cost`, its cost of goods sold, posted in one WA journal entry from the valuation class's stock account to its cost of goods sold account (422 `inventory.no_inventory_account` when the class names none; the ledger's refusals, such as 422 `ledger.period_not_open`). What the delivery held of each order item goes back to the order, and what it issued is delivered: the order's delivery (`listSalesDeliveries`) names the outbound delivery and the material document, each item with its cost, the order item's `delivered_quantity` rises by the quantity issued, and `createBillingDocument` bills it; what was not picked is open again on the order. An order blocked for credit since the delivery was made is refused until its block is released (409 `sales.order_credit_blocked`). The delivery is `goods_issued` and changes no more. Audited, and published as OutboundDeliveryChanged, MaterialDocumentPosted and SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`)."
+      x-permission: shipping.goods_issue.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.currency_mismatch
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+        - sales.order_credit_blocked
+        - shipping.goods_issued
+        - shipping.nothing_picked
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The outbound delivery with its goods issue.
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -49335,6 +49464,8 @@ components:
         - discounts
         - credit_memos
         - net_revenue
+        - cost_of_sales
+        - margin
       properties:
         customer_id:
           type: string
@@ -49369,6 +49500,14 @@ components:
           $ref: "#/components/schemas/Money"
           description: Gross value less discounts less credit memos.
           readOnly: true
+        cost_of_sales:
+          $ref: "#/components/schemas/Money"
+          description: "The cost of goods sold the goods issues of the segment's order items posted in the selection (ADR-0083 §6): each counts on its posting date, for an order in the local currency."
+          readOnly: true
+        margin:
+          $ref: "#/components/schemas/Money"
+          description: Net revenue less cost of sales.
+          readOnly: true
       examples:
         - customer_id: "0192a000-0000-7000-8000-000000000701"
           customer_number: BP70000001
@@ -49386,14 +49525,22 @@ components:
           net_revenue:
             amount: "2540.61"
             currency: CAD
+          cost_of_sales:
+            amount: "0.00"
+            currency: CAD
+          margin:
+            amount: "2540.61"
+            currency: CAD
     ProfitabilityTotals:
       type: object
-      description: "The whole selection's gross value, discounts, credit memos and net revenue, which the rows of every page add up to over the pages; in the legal entity's local currency."
+      description: "The whole selection's gross value, discounts, credit memos, net revenue, cost of sales and margin, which the rows of every page add up to over the pages; in the legal entity's local currency."
       required:
         - gross_value
         - discounts
         - credit_memos
         - net_revenue
+        - cost_of_sales
+        - margin
       properties:
         gross_value:
           $ref: "#/components/schemas/Money"
@@ -49410,6 +49557,14 @@ components:
         net_revenue:
           $ref: "#/components/schemas/Money"
           description: "Net revenue: the net value of the posted billing documents less the posted credit memos."
+          readOnly: true
+        cost_of_sales:
+          $ref: "#/components/schemas/Money"
+          description: "Cost of sales: the cost of goods sold the goods issues of the selection posted (ADR-0083 §6)."
+          readOnly: true
+        margin:
+          $ref: "#/components/schemas/Money"
+          description: "Margin: net revenue less cost of sales."
           readOnly: true
     ProfitabilityReport:
       type: object
@@ -49478,12 +49633,12 @@ components:
           readOnly: true
         includes_cost:
           type: boolean
-          description: "Always false: the report shows no cost, since no cost of goods sold is posted per item; the margin report (`getMarginReport`) has the ledger's cost of sales."
+          description: "True: from S2b2 (ADR-0083 §6) the report shows each segment's cost of sales, the cost of goods sold its goods issues posted, and its margin. Cost a person posts by journal entry is the margin report's (`getMarginReport`)."
           readOnly: true
         foreign_currency_documents:
           type: integer
           format: int32
-          description: "The posted billing documents and credit memos of the selection in a currency other than `currency`, which are not converted and are left out of every figure."
+          description: "The posted billing documents, credit memos and goods issues of orders of the selection in a currency other than `currency`, which are not converted and are left out of every figure."
           readOnly: true
         totals:
           $ref: "#/components/schemas/ProfitabilityTotals"
@@ -49506,6 +49661,12 @@ components:
               net_revenue:
                 amount: "237.53"
                 currency: CAD
+              cost_of_sales:
+                amount: "0.00"
+                currency: CAD
+              margin:
+                amount: "237.53"
+                currency: CAD
             - customer_id: "0192a000-0000-7000-8000-000000000701"
               customer_number: BP70000001
               customer_name: Northwind Traders
@@ -49522,6 +49683,12 @@ components:
               net_revenue:
                 amount: "2540.61"
                 currency: CAD
+              cost_of_sales:
+                amount: "0.00"
+                currency: CAD
+              margin:
+                amount: "2540.61"
+                currency: CAD
           legal_entity_id: "0192a000-0000-7000-8000-000000000011"
           fiscal_year: 2026
           fiscal_period_from: 1
@@ -49529,7 +49696,7 @@ components:
           date_from: "2026-01-01"
           date_to: "2026-12-31"
           currency: CAD
-          includes_cost: false
+          includes_cost: true
           foreign_currency_documents: 0
           totals:
             gross_value:
@@ -49542,6 +49709,12 @@ components:
               amount: "250.00"
               currency: CAD
             net_revenue:
+              amount: "2778.14"
+              currency: CAD
+            cost_of_sales:
+              amount: "0.00"
+              currency: CAD
+            margin:
               amount: "2778.14"
               currency: CAD
     PlanCategory:
@@ -61707,9 +61880,10 @@ components:
         item_key: {type: string, description: "The order item's item key; absent when it has none.", readOnly: true}
         description: {type: string, description: "The order item's description.", readOnly: true}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity delivered, in the order item's unit."}
+        cost: {$ref: "#/components/schemas/Money", description: "On a goods issue's delivery (S2b1): what the quantity issued took from the stock, its cost of goods sold, in the company's local currency. Absent on a confirmation by hand.", readOnly: true}
     SalesDelivery:
       type: object
-      description: "A delivery confirmation (sales, ADR-0067 §8): quantities of a sales order's items a person confirmed as delivered on a date. It moves no stock and posts nothing. It is written once and never changed."
+      description: "A delivery of a sales order (sales, ADR-0067 §8): quantities of its items a person confirmed as delivered on a date, which moves no stock and posts nothing, or, for materials kept in stock, an outbound delivery's goods issue (ADR-0083 §5, S2b1), which names the outbound delivery and its material document. It is written once and never changed."
       required: [id, delivery_no, sales_order_id, sales_order_number, delivery_date, items, created_at, created_by]
       properties:
         id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
@@ -61717,6 +61891,10 @@ components:
         sales_order_id: {type: string, format: uuid, description: "The sales order (`GET /v1/sales-orders/{id}`).", readOnly: true}
         sales_order_number: {type: string, description: "The sales order's document number.", readOnly: true}
         delivery_date: {type: string, format: date, description: "The day the quantities were delivered.", readOnly: true}
+        outbound_delivery_id: {type: string, format: uuid, description: "The outbound delivery whose goods issue this is (`GET /v1/outbound-deliveries/{id}`); absent on a confirmation by hand.", readOnly: true}
+        outbound_delivery_number: {type: string, description: "That delivery's number; absent with it.", readOnly: true}
+        material_document_id: {type: string, format: uuid, description: "Its goods issue's material document (601, `GET /v1/material-documents/{id}`), whose journal entry posted the cost of goods sold; absent with the delivery.", readOnly: true}
+        material_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
         items:
           type: array
           items: {$ref: "#/components/schemas/SalesDeliveryItem"}
@@ -63220,7 +63398,7 @@ components:
         fiscal_year: {type: integer, format: int32, description: "The fiscal year of its posting date, which its number is of.", readOnly: true}
         movement_type:
           type: string
-          x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302"]
+          x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602"]
           description: "Its movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         movement_type_name: {type: string, description: "What the movement type is, in English.", readOnly: true}
@@ -63233,7 +63411,7 @@ components:
         journal_entry_id: {type: string, format: uuid, description: "The journal entry that posted its value (`GET /v1/journal-entries/{id}`); absent when it moved none.", readOnly: true}
         journal_entry_year: {type: integer, format: int32, description: "That entry's fiscal year; absent with it.", readOnly: true}
         journal_entry_number: {type: string, description: "That entry's document number; absent with it.", readOnly: true}
-        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); absent on every other document. Such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here).", readOnly: true}
+        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). Absent on every other document.", readOnly: true}
         lines:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocumentLine"}
@@ -63332,7 +63510,8 @@ components:
         material_number: {type: string, description: "The material's number.", readOnly: true}
         description: {type: string, description: "The order item's description.", readOnly: true}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The delivery quantity, in the order item's unit.", readOnly: true}
-        picked_quantity: {$ref: "#/components/schemas/Quantity", description: "What is picked of it, in its unit.", readOnly: true}
+        picked_quantity: {$ref: "#/components/schemas/Quantity", description: "What is picked of it, in its unit; once the goods issue is posted, what it issued.", readOnly: true}
+        cost: {$ref: "#/components/schemas/Money", description: "Once the goods issue is posted (S2b1): what the quantity issued took from the stock, its cost of goods sold, in the company's local currency; absent before and on an item picked at nothing.", readOnly: true}
     OutboundDelivery:
       type: object
       description: "An outbound delivery (SAP LIKP with its LIPS items): what of a sales order ships from a plant's storage location, its picking and its goods issue. Never deleted; it changes only until its goods issue is posted."
@@ -63353,6 +63532,10 @@ components:
         storage_location_id: {type: string, format: uuid, description: "The storage location it ships from.", readOnly: true}
         storage_location_code: {type: string, description: "The storage location's code.", readOnly: true}
         storage_location_name: {type: string, description: "The storage location's name, as it is now.", readOnly: true}
+        goods_issue_date: {type: string, format: date, description: "The company's date its goods issue was posted on (S2b1); absent before.", readOnly: true}
+        material_document_id: {type: string, format: uuid, description: "Its goods issue's material document (601, `GET /v1/material-documents/{id}`), whose `journal_entry_id` posted the cost of goods sold; absent before.", readOnly: true}
+        material_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
+        cost_of_goods_sold: {$ref: "#/components/schemas/Money", description: "Its items' costs added up, in the company's local currency; absent before its goods issue.", readOnly: true}
         status:
           type: string
           x-extensible-enum: [created, goods_issued]

@@ -68,12 +68,17 @@ type movementType struct {
 	// order: a purchase order's goods receipt or its reversal, which
 	// procurement's goods movement posts (S1e), never a person here.
 	order bool
+	// delivery: an outbound delivery's goods issue, which shipping posts
+	// (IssueForDelivery, ADR-0083 §5), never a person here.
+	delivery bool
 }
 
 // movementTypes are the forward movement types a person posts and their
-// reversals, which only reverseMaterialDocument posts, and a purchase
+// reversals, which only reverseMaterialDocument posts, a purchase
 // order's goods receipt and its reversal, which procurement posts
-// (ReceiveForOrder, ReverseForOrder).
+// (ReceiveForOrder, ReverseForOrder), and an outbound delivery's goods
+// issue, which shipping posts (IssueForDelivery; its reversal, 602, is
+// named for the database's rule and posted by no one yet, ADR-0083).
 var movementTypes = map[string]movementType{
 	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true},
 	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true},
@@ -89,6 +94,8 @@ var movementTypes = map[string]movementType{
 	"312": {name: "Reversal of a transfer between storage locations", sign: 1, transfer: betweenStorageLocations, reverses: "311"},
 	"301": {name: "Transfer between plants", sign: -1, transfer: betweenPlants, reversal: "302"},
 	"302": {name: "Reversal of a transfer between plants", sign: 1, transfer: betweenPlants, reverses: "301"},
+	"601": {name: "Goods issue for a delivery", sign: -1, reversal: "602", delivery: true},
+	"602": {name: "Reversal of a goods issue for a delivery", sign: 1, reverses: "601", delivery: true},
 }
 
 func init() {

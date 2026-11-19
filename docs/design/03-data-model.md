@@ -6707,6 +6707,7 @@ erDiagram
     text status "created, goods_issued"
     date goods_issue_date "once issued"
     uuid material_document_id "inventory: the 601, once issued"
+    text currency "the costs', once issued"
     integer version }
   outbound_delivery_item { uuid outbound_delivery_id PK
     integer item_no PK
@@ -6764,4 +6765,20 @@ erDiagram
   cancelled (`sales_order_cancelled_unshipped`, a trigger).
 - `shipping.outbox`, `shipping.inbox`: the context's events
   (`OutboundDeliveryChanged`).
-- Permissions `shipping.delivery.read` and `.write`.
+- S2b1 (migrations 000407, 000408): a delivery whose goods issue posted
+  names its cost's currency too (`outbound_delivery_goods_issue`,
+  `outbound_delivery_currency_fkey`). `inventory.material_document` takes
+  the movement types `601`, an outbound delivery's goods issue, which
+  shipping posts with the delivery's number as its `reference`, and its
+  reversal `602`, posted by no one yet (`material_document_movement_type_check`,
+  `material_document_reversal_check`, `material_document_reference`);
+  `ledger.account_determination` the key
+  `inventory_cost_of_goods_sold:<class>` (`account_determination_key_check`).
+  `sales.delivery` names the outbound delivery and the material document
+  of a goods issue's delivery, all four or none (`delivery_goods_issue`,
+  numbers of 1 to 40 characters), an outbound delivery once
+  (`delivery_outbound_delivery_once`); `sales.delivery_item` its cost, not
+  below zero (`delivery_item_cost_check`), with its currency
+  (`delivery_item_cost`, `delivery_item_cost_currency_fkey`).
+- Permissions `shipping.delivery.read`, `.write` and
+  `shipping.goods_issue.post`.

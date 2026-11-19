@@ -2061,6 +2061,10 @@ type PostJournalEntryRes interface {
 	postJournalEntryRes()
 }
 
+type PostOutboundDeliveryGoodsIssueRes interface {
+	postOutboundDeliveryGoodsIssueRes()
+}
+
 type PostParkedJournalEntryRes interface {
 	postParkedJournalEntryRes()
 }

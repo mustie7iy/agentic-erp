@@ -22,9 +22,10 @@ import (
 // deliverySelect reads a delivery with its items by item number.
 const deliverySelect = `SELECT d.id, d.legal_entity_id, d.fiscal_year, d.number, d.sales_order_id, d.sales_order_number, d.customer_id,
 		d.customer_number, d.plant_id, d.storage_location_id, d.status, d.goods_issue_date, d.material_document_id, d.material_document_number,
+		coalesce(d.currency, ''), coalesce((SELECT c.exponent FROM ref.currency c WHERE c.code = d.currency), 0),
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'order_item_no', i.order_item_no, 'material_id', i.material_id,
 			'description', i.description, 'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code,
-			'picked_quantity', trim_scale(i.picked_quantity)::text) ORDER BY i.item_no)
+			'picked_quantity', trim_scale(i.picked_quantity)::text, 'cost_amount', i.cost_amount) ORDER BY i.item_no)
 		 FROM shipping.outbound_delivery_item i WHERE i.tenant_id = d.tenant_id AND i.outbound_delivery_id = d.id),
 		d.version, d.created_at, d.created_by, d.updated_at, d.updated_by
 	FROM shipping.outbound_delivery d`
@@ -32,7 +33,8 @@ const deliverySelect = `SELECT d.id, d.legal_entity_id, d.fiscal_year, d.number,
 func scanDelivery(row pgx.Row) (Delivery, error) {
 	var d Delivery
 	err := row.Scan(&d.ID, &d.LegalEntityID, &d.FiscalYear, &d.Number, &d.OrderID, &d.OrderNumber, &d.CustomerID, &d.CustomerNumber, &d.PlantID,
-		&d.StorageLocationID, &d.Status, &d.GoodsIssueDate, &d.MaterialDocumentID, &d.MaterialDocumentNumber, &d.Items, &d.Version, &d.CreatedAt,
+		&d.StorageLocationID, &d.Status, &d.GoodsIssueDate, &d.MaterialDocumentID, &d.MaterialDocumentNumber, &d.Currency, &d.Exponent, &d.Items,
+		&d.Version, &d.CreatedAt,
 		&d.CreatedBy, &d.UpdatedAt, &d.UpdatedBy)
 	return d, errs.Wrapf(err, "scan outbound delivery")
 }
@@ -142,7 +144,10 @@ func (e *Endpoints) record(ctx context.Context, action string, d Delivery, detai
 	for i, it := range d.Items {
 		items[i] = map[string]any{"item_no": it.ItemNo, "order_item_no": it.OrderItemNo, "material_id": it.MaterialID,
 			"material_number": r.materials[it.MaterialID].Number, "quantity": map[string]string{"value": it.Quantity, "unit": it.Unit},
-			"picked_quantity": map[string]string{"value": it.Picked, "unit": it.Unit}}
+			"picked_quantity": map[string]string{"value": it.Picked, "unit": it.Unit}, "cost": nil}
+		if it.Cost != nil {
+			items[i]["cost"] = money.EventAmount(*it.Cost, d.Currency, d.Exponent)
+		}
 	}
 	var issued *string
 	if d.GoodsIssueDate != nil {

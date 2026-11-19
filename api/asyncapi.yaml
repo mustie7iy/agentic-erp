@@ -5177,7 +5177,7 @@ components:
       examples:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001501, source: /erp/eu-1/shipping, type: com.example.erp.shipping.outbound_delivery_changed.v1, subject: 0192a000-0000-7000-8000-000000001511, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {outbound_delivery_id: 0192a000-0000-7000-8000-000000001511, number: OD1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO12, customer_id: 0192a000-0000-7000-8000-000000000301, customer_number: '100001', plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, storage_location_id: 0192a000-0000-7000-8000-000000001322, storage_location_code: SL01, status: created, picking_status: not_picked, goods_issue_date: null, material_document_id: null, material_document_number: null, items: [{item_no: 1, order_item_no: 1, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, quantity: {value: '5', unit: BOX}, picked_quantity: {value: '0', unit: BOX}}], version: 1}
+          payload: {outbound_delivery_id: 0192a000-0000-7000-8000-000000001511, number: OD1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO12, customer_id: 0192a000-0000-7000-8000-000000000301, customer_number: '100001', plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, storage_location_id: 0192a000-0000-7000-8000-000000001322, storage_location_code: SL01, status: created, picking_status: not_picked, goods_issue_date: null, material_document_id: null, material_document_number: null, items: [{item_no: 1, order_item_no: 1, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, quantity: {value: '5', unit: BOX}, picked_quantity: {value: '0', unit: BOX}, cost: null}], version: 1}
     MaterialPriceChanged:
       name: MaterialPriceChanged
       title: Material price changed
@@ -6501,7 +6501,20 @@ components:
               item_no: {type: integer, description: "The order item's number."}
               quantity: {$ref: '#/components/schemas/Quantity', description: "The quantity of this delivery, in the order item's unit."}
               delivered_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is delivered of the order item after this delivery.'}
+              cost: {$ref: '#/components/schemas/Money', description: "On a goods issue's delivery (ADR-0083, S2b1): what the quantity issued took from the stock, in the company's currency. Not required (ADR-0041)."}
         version: {type: integer, description: "The order's version after the delivery."}
+        outbound_delivery_id:
+          description: "The outbound delivery whose goods issue this is, `shipping.outbound_delivery.id`; null on a confirmation by hand (S2b1). Not required (ADR-0041)."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        outbound_delivery_number: {type: [string, 'null'], description: "That delivery's number; null with it. Not required (ADR-0041)."}
+        material_document_id:
+          description: "Its goods issue's material document (601), `inventory.material_document.id`; null with the delivery. Not required (ADR-0041)."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        material_document_number: {type: [string, 'null'], description: "That document's number; null with it. Not required (ADR-0041)."}
     BillingDocumentChangedV1:
       type: object
       required: [billing_document_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, sales_order_id, sales_order_number, billing_date, net_amount, status, status_before, version]
@@ -6744,7 +6757,7 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company of its plants.}
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         fiscal_year: {type: integer, description: The fiscal year of its posting date.}
-        movement_type: {type: string, description: 'Open enum: 101, 102, 501, 502, 561, 562, 201, 202, 551, 552, 311, 312, 301, 302.'}
+        movement_type: {type: string, description: 'Open enum: 101, 102, 501, 502, 561, 562, 201, 202, 551, 552, 311, 312, 301, 302, 601, 602.'}
         posting_date: {$ref: '#/components/schemas/Date', description: "The company's date it was posted on."}
         reversal_of_id:
           description: "The document it reverses, `inventory.material_document.id`; null when it reverses none."
@@ -6759,7 +6772,7 @@ components:
             - type: 'null'
         journal_entry_year: {type: [integer, 'null'], description: "That entry's fiscal year; null with it."}
         journal_entry_number: {type: [string, 'null'], description: "That entry's document number; null with it."}
-        reference: {type: [string, 'null'], description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's document number, `procurement.goods_movement.document_number`, whose WE entry is `journal_entry_id` (S1e); null on any other document. Not among the required fields (ADR-0041)."}
+        reference: {type: [string, 'null'], description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's document number, `procurement.goods_movement.document_number`, whose WE entry is `journal_entry_id` (S1e); an outbound delivery's goods issue (601): the delivery's number, `shipping.outbound_delivery.number` (ADR-0083); null on any other document. Not among the required fields (ADR-0041)."}
         lines:
           type: array
           description: Its lines, in line order.
@@ -6819,14 +6832,19 @@ components:
           description: Its items, by item number.
           items:
             type: object
-            required: [item_no, order_item_no, material_id, material_number, quantity, picked_quantity]
+            required: [item_no, order_item_no, material_id, material_number, quantity, picked_quantity, cost]
             properties:
               item_no: {type: integer, description: "The item's number in the delivery, from 1."}
               order_item_no: {type: integer, description: "The sales order's item it delivers."}
               material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
               material_number: {type: string, description: "The material's number."}
               quantity: {$ref: '#/components/schemas/Quantity', description: "The delivery quantity, in the order item's unit."}
-              picked_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is picked of it, in its unit.'}
+              picked_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is picked of it, in its unit; once the goods issue is posted, what it issued.'}
+              cost:
+                description: "Once the goods issue is posted: what the quantity issued took from the stock, its cost of goods sold, in the company's currency; null before and on an item picked at nothing."
+                oneOf:
+                  - $ref: '#/components/schemas/Money'
+                  - type: 'null'
         version: {type: integer, description: "The delivery's version after the change."}
     MaterialPriceChangedV1:
       type: object

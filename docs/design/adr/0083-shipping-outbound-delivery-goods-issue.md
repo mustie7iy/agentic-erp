@@ -59,10 +59,11 @@ nothing of shipping.
   number from the company's `outbound_delivery` range of the fiscal year
   of its creation day, the sales order by id and number, the customer by
   id and number, the plant and storage location it ships from, its
-  picking status (`not_picked`, `partly_picked`, `picked`; KOSTK A, B, C)
-  and status (`created`, `goods_issued`), once issued the goods issue
-  date and the material document by id and number, a version, who
-  created and changed it.
+  status (`created`, `goods_issued`), once issued the goods issue date,
+  the material document by id and number and the costs' currency, a
+  version, who created and changed it.
+- Its picking status (`not_picked`, `partly_picked`, `picked`; KOSTK A,
+  B, C) is computed from its items.
 - `shipping.outbound_delivery_item` (LIPS): the order item it delivers,
   its material, description, quantity and unit (the order item's), the
   picked quantity (0 up to the quantity) and, once issued, the cost of
@@ -176,3 +177,75 @@ deliveries and partial goods issue: all Later in the plan.
 - **Shipping posts the cost of goods sold through the ledger's port.**
   Rejected: the material document's value is inventory's (ADR-0082 §8);
   two entries would split one movement.
+
+## As built
+
+**S2a** (lane ship, 2026-11-19; migration 000406, walkthrough step 141,
+`step_outbound_delivery`). Decided by default while building:
+
+- **Ports.** `shipping` imports `config`, `inventory` (from S2b1, for its
+  goods issue's types), `materials`, `sales` and `tenancy`
+  (`internal/layout`, a leaf); the ledger's fiscal calendar and the
+  configuration's ranges and company dates are ports in its own types.
+  Sales' published API is `sales.Orders` (the order, read without a lock
+  to find its company and items' materials) and `Endpoints.Ship`, which
+  takes the quantities under the order's row lock and answers the order
+  as read with its customer's number.
+- **Customer and order by number.** The delivery stores the order's and
+  customer's numbers, which never change; plants, storage locations and
+  materials are named at the read.
+- **Picking status is computed** from the items, not stored, so it cannot
+  disagree with them.
+- **Items without a request's items** are every standing order item of an
+  active material kept in stock at the location with something open; a
+  named item is refused when it names no material, a material kept in no
+  stock (`shipping.item_not_stocked`), a material not active
+  (`shipping.material_not_usable`) or not kept at the location
+  (`shipping.material_not_at_location`); an item the order lacks or has
+  removed is sales' refusal.
+- **Picking replaces** an item's picked quantity (zero allowed: the pick is
+  put back, `money.QuantityOrZero`); the check against the stock adds the
+  delivery's items of one material in the base unit and reads
+  `inventory.stock` without a lock (`inventory.Endpoints.Held`).
+- **What deliveries hold** is checked by the database only while above
+  zero (`sales_order_item_in_delivery`), so with nothing in delivery the
+  order's own rule (`sales_order_item_quantities`) answers as before.
+- **Refusals reuse sales' codes** for the order (`sales.order_not_confirmed`,
+  `sales.order_credit_blocked`, `sales.exceeds_open_quantity`,
+  `sales.unknown_order_item`, `sales.item_repeated`, `sales.unit_mismatch`,
+  `sales.order_item_removed`), adding `sales.nothing_to_deliver`; an order
+  change's refusals (`sales.quantity_below_delivered`,
+  `sales.order_item_delivered`, `sales.order_delivered`) name what is in
+  outbound deliveries beside what is delivered.
+
+**S2b1** (migrations 000407, 000408; walkthrough step 142,
+`step_goods_issue`, and step 135, which now ships its stock item):
+
+- **Movement types 601 and 602** in inventory (`movementType.delivery`):
+  601 posted by `inventory.Endpoints.IssueForDelivery` alone, valued and
+  posted as any issue in one WA entry against the class's
+  `cost_of_goods_sold` account (`config.InventoryCostOfGoodsSold`, an
+  expense; `inventory_cost_of_goods_sold:<class>`); 602 is in the
+  database's rules for the Later reversal and posted by no one;
+  `reverseMaterialDocument` refuses a 601 (409
+  `inventory.reverse_goods_issue`).
+- **The goods issue** locks the delivery, then inventory's valuations and
+  stock, then the order (sales' `Endpoints.Issue`); nothing takes them in
+  another order. An item picked at nothing issues nothing and costs
+  nothing; a delivery with nothing picked is 409 `shipping.nothing_picked`.
+  An order blocked for credit since the delivery was made is refused
+  (409 `sales.order_credit_blocked`).
+- **The sales delivery** a goods issue writes is T78c's record with the
+  outbound delivery, the material document and each item's cost (in the
+  company's currency); `SalesOrderDelivered` carries them (not required,
+  ADR-0041). T78c refuses an item of a material kept in stock (422
+  `sales.delivery_by_goods_issue`).
+- **The delivery's cost** is each item's and their sum
+  (`cost_of_goods_sold`), in the currency the delivery keeps with its goods
+  issue.
+
+**S2b2**: `sales.Orders.Segments` adds each segment's goods issues' cost
+(`Segment.Cost`, `Margin`); the report's rows and totals carry
+`cost_of_sales` and `margin`, `includes_cost` is true (ADR-0075 As
+built), and a goods issue of an order in another currency counts in
+`foreign_currency_documents`.

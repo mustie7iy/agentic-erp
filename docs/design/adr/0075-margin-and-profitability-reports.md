@@ -365,3 +365,12 @@ configuration, not shipped).
   margins per segment, segments on journal lines, further
   characteristics, overhead allocation, plan against actual per segment,
   segments from SAP CO-PA; documents in a foreign currency converted.
+
+**S2b2** (ADR-0083 §6, lane ship, 2026-11-19): net revenue by profitability
+segment shows each segment's `cost_of_sales`, the cost of goods sold of the
+goods issues of its order items posted in the selection (on the goods
+issue's date, for an order in the local currency; one in another currency
+counted in `foreign_currency_documents`), and its `margin`, net revenue
+less it, in the rows and the totals; `includes_cost` is true. "Cost of
+sales per segment" leaves the list of what is not built; contribution
+margins beyond it stay there.
