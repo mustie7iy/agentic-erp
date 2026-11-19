@@ -131,6 +131,8 @@ type Endpoints struct {
 	Now func() time.Time
 	// MaxItems is the most overdue items one run proposes; 0: MaxRunItems.
 	MaxItems int
+	// Resolving is what resolving a dispute case posts through (T86d).
+	Resolving Resolving
 }
 
 // Run is a row of collections.dunning_run. OverdueAmount is minor units
@@ -426,22 +428,25 @@ func recorded(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledger
 }
 
 // openCase is an item's open dispute case as dunning and the worklist
-// read it: its id, its customer's number and its disputed amount in the
-// company's currency.
+// read it: its id, its customer's number and what it disputes of the item
+// in the company's currency.
 type openCase struct {
 	ID             uuid.UUID
 	CustomerNumber string
 	AmountLC       money.Minor
 }
 
-// openCases reads the open dispute cases of a company's items, by item;
-// an item without one is absent. An item has one open case at most
-// (dispute_case_one_open); the read uses the index of a company's open
-// cases (dispute_case_open_by_company). A case whose item was cleared
-// is read too: the caller matches the cases with the open items it holds.
+// openCases reads the open dispute cases of a company's items, by item,
+// each item with what its case disputes of it (T86c); an item without one
+// is absent. An item is in one open case at most
+// (dispute_case_item_one_open); the read uses the index of a company's
+// open cases (dispute_case_open_by_company) and their items by key. A
+// case whose item was cleared is read too: the caller matches the cases
+// with the open items it holds.
 func openCases(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID) (map[ledger.ItemRef]openCase, error) {
-	rows, _ := tx.Query(ctx, `SELECT fiscal_year, journal_entry_id, line_no, id, customer_number, disputed_amount_lc
-		FROM collections.dispute_case WHERE legal_entity_id = $1 AND status = 'open'`, legalEntity)
+	rows, _ := tx.Query(ctx, `SELECT i.fiscal_year, i.journal_entry_id, i.line_no, d.id, d.customer_number, i.disputed_amount_lc
+		FROM collections.dispute_case d JOIN collections.dispute_case_item i ON i.tenant_id = d.tenant_id AND i.dispute_case_id = d.id
+		WHERE d.legal_entity_id = $1 AND d.status = 'open'`, legalEntity)
 	out := map[ledger.ItemRef]openCase{}
 	var ref ledger.ItemRef
 	var c openCase

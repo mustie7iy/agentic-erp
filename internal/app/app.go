@@ -589,10 +589,12 @@ func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef
 // Collections is the collections context as the API wires it (ADR-0065
 // §1): a leaf that reads the ledger's customer open items, the partner
 // context's names, people's names, tenancy and the configuration through
-// its ports.
+// its ports; a dispute case's resolution posts through receivables'
+// published API and the ledger's posting port (ADR-0065 As built T86d).
 func Collections(cfg Config) *collections.Endpoints {
 	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
-		Settings: configuration.Settings{}, People: LedgerPeople{}, Invoices: Receivables(cfg), Accounts: ledger.AssetReads{}, Now: cfg.Now}
+		Settings: configuration.Settings{}, People: LedgerPeople{}, Invoices: Receivables(cfg), Accounts: ledger.AssetReads{}, Now: cfg.Now,
+		Resolving: collections.Resolving{Postings: postings(), Accounts: ledger.Accounts{}, Sources: ledger.OpenItems{}}}
 }
 
 // Audit is the audit context as the API wires it (ADR-0011): its

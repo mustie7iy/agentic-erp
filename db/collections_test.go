@@ -11,10 +11,10 @@ import (
 )
 
 // TestCollectionsPermissions (T76a, migration 000273; T76c, 000278; T86a,
-// 000324; T76e, 000354; T76f, 000365; ADR-0065 §7): the dunning
-// permissions, the worklist's (reading it and recording its work), the
-// dispute cases' and the dunning blocks' are seeded and are no approval
-// permissions.
+// 000324; T76e, 000354; T76f, 000365; T86d, 000404; ADR-0065 §7): the
+// dunning permissions, the worklist's (reading it and recording its work),
+// the dispute cases' (resolving them among them) and the dunning blocks'
+// are seeded and are no approval permissions.
 func TestCollectionsPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'collections.%' AND NOT is_approval ORDER BY code`)
@@ -25,7 +25,7 @@ func TestCollectionsPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.write collections.dunning.block collections.dunning.read collections.dunning.run collections.worklist.read collections.worklist.write"; got != want {
+	if got, want := strings.Join(codes, " "), "collections.dispute.read collections.dispute.resolve collections.dispute.write collections.dunning.block collections.dunning.read collections.dunning.run collections.worklist.read collections.worklist.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -366,6 +366,14 @@ const disputeCase = `INSERT INTO collections.dispute_case (tenant_id, id, legal_
 	line_no, document_number, currency, disputed_amount, currency_lc, disputed_amount_lc, reason, status, created_by, updated_by)
 	VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), 'BP1', 2026, $3, 1, 'DR1', 'EUR', 100, 'EUR', 100, 'Price', 'open', $1, $1)`
 
+// disputeCaseItems gives each case of the tenant that has none its one
+// item, its own line, open while the case is.
+const disputeCaseItems = `INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id, line_no,
+		account_id, document_number, disputed_amount, disputed_amount_lc, open)
+	SELECT tenant_id, id, 1, gen_random_uuid(), fiscal_year, journal_entry_id, line_no, gen_random_uuid(), document_number, disputed_amount,
+		disputed_amount_lc, status = 'open'
+	FROM collections.dispute_case d WHERE NOT EXISTS (SELECT FROM collections.dispute_case_item i WHERE i.tenant_id = d.tenant_id AND i.dispute_case_id = d.id)`
+
 // TestDisputeCaseRules (T86a, migration 000324; ADR-0065 As built): a case
 // names its customer, item and reason, disputes an amount above zero in a
 // known currency, and is open, accepted or rejected, a closed one with its
@@ -459,7 +467,8 @@ func TestDisputeCaseRules(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := scene{tenant: id(), id: id(), entry: id()}
-			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			// Each case gets its one item, its own line (T86c, migration 000403), which the deferred check wants at commit.
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, append(c.run(s), step(disputeCaseItems))...) })
 			if c.want != "" {
 				failsWith(t, err, c.want)
 				return
@@ -681,7 +690,8 @@ func TestDunningBlockRules(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := scene{tenant: id(), id: id(), entry: id()}
-			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			// Each case gets its one item, its own line (T86c, migration 000403), which the deferred check wants at commit.
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, append(c.run(s), step(disputeCaseItems))...) })
 			if c.want != "" {
 				failsWith(t, err, c.want)
 				return
@@ -794,7 +804,8 @@ func TestPromiseToPayRules(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := scene{tenant: id(), id: id(), entry: id()}
-			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			// Each case gets its one item, its own line (T86c, migration 000403), which the deferred check wants at commit.
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, append(c.run(s), step(disputeCaseItems))...) })
 			if c.want != "" {
 				failsWith(t, err, c.want)
 				return

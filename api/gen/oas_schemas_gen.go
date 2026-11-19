@@ -28028,6 +28028,7 @@ func (*ConflictHeaders) requestBankAccountChangeRes()              {}
 func (*ConflictHeaders) requestBankAccountEndRes()                 {}
 func (*ConflictHeaders) resetIncomingPaymentApplicationRes()       {}
 func (*ConflictHeaders) resetIncomingPaymentRes()                  {}
+func (*ConflictHeaders) resolveDisputeCaseRes()                    {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) retireCatalogItemRes()                     {}
 func (*ConflictHeaders) retireControlRes()                         {}
@@ -41565,21 +41566,25 @@ type DisputeCase struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
-	// The fiscal year of the item's journal entry.
+	// The fiscal year of the journal entry of the case's first item (`items`).
 	FiscalYear int32 `json:"fiscal_year"`
-	// The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).
+	// The journal entry whose line is the case's first item (`GET /v1/journal-entries/{id}`).
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
-	// The line of the journal entry that is the disputed item.
+	// The line of the journal entry that is the case's first item.
 	LineNo int32 `json:"line_no"`
-	// The journal entry's document number.
+	// The document number of the first item's journal entry.
 	DocumentNumber string `json:"document_number"`
-	// The journal entry's reference, a customer invoice's document number for one; absent when it has
-	// none.
+	// The reference of the first item's journal entry, a customer invoice's document number for one;
+	// absent when it has none.
 	Reference OptString `json:"reference"`
-	// The amount disputed, in the item's currency.
+	// The amount disputed, in the items' currency: what the items dispute together.
 	DisputedAmount Money `json:"disputed_amount"`
-	// The same in the company's currency, its share of the item's amount as the item was booked.
+	// The same in the company's currency: the items' shares of their amounts as they were booked,
+	// together.
 	LocalDisputedAmount Money `json:"local_disputed_amount"`
+	// The case's items by number (T86c): one for a case on one invoice, the first being the item the
+	// case's own journal line names.
+	Items []DisputeCaseItem `json:"items"`
 	// Why the customer disputes the amount.
 	Reason string `json:"reason"`
 	// The person who works the case; absent when nobody is assigned.
@@ -41588,10 +41593,11 @@ type DisputeCase struct {
 	AssigneeName OptString `json:"assignee_name"`
 	// The note on the case; absent when it has none.
 	Note OptString `json:"note"`
-	// `open`: the case is being worked, and a dunning run leaves its item out (T86b). `accepted`: closed,
-	// the customer was right; a person credits it. `rejected`: closed, the customer owes the amount. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// `open`: the case is being worked, and a dunning run leaves its items out (T86b). `accepted`: closed,
+	// the customer was right, in full or in part; resolved by a credit memo or a write-off (`resolution`,
+	// T86d), or credited by a person when closed without one. `rejected`: closed, the customer owes the
+	// amount. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
 	Status string `json:"status"`
 	// Why the case was closed with its outcome; absent while it is open.
 	CloseReason OptString `json:"close_reason"`
@@ -41601,6 +41607,26 @@ type DisputeCase struct {
 	ClosedBy OptUUID `json:"closed_by"`
 	// The name of who closed the case; absent while it is open.
 	ClosedByName OptString `json:"closed_by_name"`
+	// How an accepted case was resolved (`resolveDisputeCase`, T86d): `credit_memo`, its items' credit
+	// memos (`items[].credit_memo_id`), or `write_off`, its write-off entry; absent for a case not
+	// resolved, an accepted case closed without one among them. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Resolution OptString `json:"resolution"`
+	// What the resolution accepted, the items' accepted amounts together, in the case's currency; absent
+	// unless resolved.
+	AcceptedAmount OptMoney `json:"accepted_amount"`
+	// The same in the company's currency, the items' accepted parts as they were booked; absent unless
+	// resolved.
+	LocalAcceptedAmount OptMoney `json:"local_accepted_amount"`
+	// The date the resolution's documents posted on; absent unless resolved.
+	PostingDate OptDate `json:"posting_date"`
+	// The write-off's journal entry (`GET /v1/journal-entries/{id}`); absent unless the resolution is
+	// `write_off`.
+	WriteOffJournalEntryID OptUUID `json:"write_off_journal_entry_id"`
+	// The write-off entry's fiscal year; absent with it.
+	WriteOffJournalEntryYear OptInt32 `json:"write_off_journal_entry_year"`
+	// The write-off entry's document number; absent with it.
+	WriteOffJournalEntryNumber OptString `json:"write_off_journal_entry_number"`
 }
 
 // GetID returns the value of ID.
@@ -41698,6 +41724,11 @@ func (s *DisputeCase) GetLocalDisputedAmount() Money {
 	return s.LocalDisputedAmount
 }
 
+// GetItems returns the value of Items.
+func (s *DisputeCase) GetItems() []DisputeCaseItem {
+	return s.Items
+}
+
 // GetReason returns the value of Reason.
 func (s *DisputeCase) GetReason() string {
 	return s.Reason
@@ -41741,6 +41772,41 @@ func (s *DisputeCase) GetClosedBy() OptUUID {
 // GetClosedByName returns the value of ClosedByName.
 func (s *DisputeCase) GetClosedByName() OptString {
 	return s.ClosedByName
+}
+
+// GetResolution returns the value of Resolution.
+func (s *DisputeCase) GetResolution() OptString {
+	return s.Resolution
+}
+
+// GetAcceptedAmount returns the value of AcceptedAmount.
+func (s *DisputeCase) GetAcceptedAmount() OptMoney {
+	return s.AcceptedAmount
+}
+
+// GetLocalAcceptedAmount returns the value of LocalAcceptedAmount.
+func (s *DisputeCase) GetLocalAcceptedAmount() OptMoney {
+	return s.LocalAcceptedAmount
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DisputeCase) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetWriteOffJournalEntryID returns the value of WriteOffJournalEntryID.
+func (s *DisputeCase) GetWriteOffJournalEntryID() OptUUID {
+	return s.WriteOffJournalEntryID
+}
+
+// GetWriteOffJournalEntryYear returns the value of WriteOffJournalEntryYear.
+func (s *DisputeCase) GetWriteOffJournalEntryYear() OptInt32 {
+	return s.WriteOffJournalEntryYear
+}
+
+// GetWriteOffJournalEntryNumber returns the value of WriteOffJournalEntryNumber.
+func (s *DisputeCase) GetWriteOffJournalEntryNumber() OptString {
+	return s.WriteOffJournalEntryNumber
 }
 
 // SetID sets the value of ID.
@@ -41838,6 +41904,11 @@ func (s *DisputeCase) SetLocalDisputedAmount(val Money) {
 	s.LocalDisputedAmount = val
 }
 
+// SetItems sets the value of Items.
+func (s *DisputeCase) SetItems(val []DisputeCaseItem) {
+	s.Items = val
+}
+
 // SetReason sets the value of Reason.
 func (s *DisputeCase) SetReason(val string) {
 	s.Reason = val
@@ -41883,6 +41954,41 @@ func (s *DisputeCase) SetClosedByName(val OptString) {
 	s.ClosedByName = val
 }
 
+// SetResolution sets the value of Resolution.
+func (s *DisputeCase) SetResolution(val OptString) {
+	s.Resolution = val
+}
+
+// SetAcceptedAmount sets the value of AcceptedAmount.
+func (s *DisputeCase) SetAcceptedAmount(val OptMoney) {
+	s.AcceptedAmount = val
+}
+
+// SetLocalAcceptedAmount sets the value of LocalAcceptedAmount.
+func (s *DisputeCase) SetLocalAcceptedAmount(val OptMoney) {
+	s.LocalAcceptedAmount = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DisputeCase) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetWriteOffJournalEntryID sets the value of WriteOffJournalEntryID.
+func (s *DisputeCase) SetWriteOffJournalEntryID(val OptUUID) {
+	s.WriteOffJournalEntryID = val
+}
+
+// SetWriteOffJournalEntryYear sets the value of WriteOffJournalEntryYear.
+func (s *DisputeCase) SetWriteOffJournalEntryYear(val OptInt32) {
+	s.WriteOffJournalEntryYear = val
+}
+
+// SetWriteOffJournalEntryNumber sets the value of WriteOffJournalEntryNumber.
+func (s *DisputeCase) SetWriteOffJournalEntryNumber(val OptString) {
+	s.WriteOffJournalEntryNumber = val
+}
+
 // The outcome of a dispute case and its reason.
 // Ref: #/components/schemas/DisputeCaseClose
 type DisputeCaseClose struct {
@@ -41914,21 +42020,27 @@ func (s *DisputeCaseClose) SetReason(val string) {
 	s.Reason = val
 }
 
-// Open a dispute case on a customer's open item. It is created `open`.
+// Open a dispute case on a customer's open items: one by `fiscal_year`, `journal_entry_id`, `line_no`
+// and `disputed_amount`, or several in `items` (T86c), not both. It is created `open`.
 // Ref: #/components/schemas/DisputeCaseCreate
 type DisputeCaseCreate struct {
-	// The company whose customer item is disputed: a legal entity the caller may act in.
+	// The company whose customer items are disputed: a legal entity the caller may act in.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// The fiscal year of the item's journal entry.
-	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal year of the item's journal entry, for a case of one item named by the request's own
+	// fields.
+	FiscalYear OptInt32 `json:"fiscal_year"`
 	// The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name
-	// it).
-	JournalEntryID uuid.UUID `json:"journal_entry_id"`
-	// The line of the journal entry that is the open item.
-	LineNo int32 `json:"line_no"`
+	// it), for a case of one item named by the request's own fields.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item, for a case of one item named by the request's
+	// own fields.
+	LineNo OptInt32 `json:"line_no"`
 	// The amount the customer disputes, in the item's currency: more than zero and at most what it owes on
-	// the item.
-	DisputedAmount Money `json:"disputed_amount"`
+	// the item; for a case of one item named by the request's own fields.
+	DisputedAmount OptMoney `json:"disputed_amount"`
+	// The items of the case, each once, the first naming the case's customer and currency (T86c); absent
+	// for a case of one item named by the request's own fields.
+	Items []DisputeCaseItemCreate `json:"items"`
 	// Why the customer disputes the amount.
 	Reason string `json:"reason"`
 	// The person who works the case: an active person of the tenant who may act in the company. Absent:
@@ -41944,23 +42056,28 @@ func (s *DisputeCaseCreate) GetLegalEntityID() uuid.UUID {
 }
 
 // GetFiscalYear returns the value of FiscalYear.
-func (s *DisputeCaseCreate) GetFiscalYear() int32 {
+func (s *DisputeCaseCreate) GetFiscalYear() OptInt32 {
 	return s.FiscalYear
 }
 
 // GetJournalEntryID returns the value of JournalEntryID.
-func (s *DisputeCaseCreate) GetJournalEntryID() uuid.UUID {
+func (s *DisputeCaseCreate) GetJournalEntryID() OptUUID {
 	return s.JournalEntryID
 }
 
 // GetLineNo returns the value of LineNo.
-func (s *DisputeCaseCreate) GetLineNo() int32 {
+func (s *DisputeCaseCreate) GetLineNo() OptInt32 {
 	return s.LineNo
 }
 
 // GetDisputedAmount returns the value of DisputedAmount.
-func (s *DisputeCaseCreate) GetDisputedAmount() Money {
+func (s *DisputeCaseCreate) GetDisputedAmount() OptMoney {
 	return s.DisputedAmount
+}
+
+// GetItems returns the value of Items.
+func (s *DisputeCaseCreate) GetItems() []DisputeCaseItemCreate {
+	return s.Items
 }
 
 // GetReason returns the value of Reason.
@@ -41984,23 +42101,28 @@ func (s *DisputeCaseCreate) SetLegalEntityID(val uuid.UUID) {
 }
 
 // SetFiscalYear sets the value of FiscalYear.
-func (s *DisputeCaseCreate) SetFiscalYear(val int32) {
+func (s *DisputeCaseCreate) SetFiscalYear(val OptInt32) {
 	s.FiscalYear = val
 }
 
 // SetJournalEntryID sets the value of JournalEntryID.
-func (s *DisputeCaseCreate) SetJournalEntryID(val uuid.UUID) {
+func (s *DisputeCaseCreate) SetJournalEntryID(val OptUUID) {
 	s.JournalEntryID = val
 }
 
 // SetLineNo sets the value of LineNo.
-func (s *DisputeCaseCreate) SetLineNo(val int32) {
+func (s *DisputeCaseCreate) SetLineNo(val OptInt32) {
 	s.LineNo = val
 }
 
 // SetDisputedAmount sets the value of DisputedAmount.
-func (s *DisputeCaseCreate) SetDisputedAmount(val Money) {
+func (s *DisputeCaseCreate) SetDisputedAmount(val OptMoney) {
 	s.DisputedAmount = val
+}
+
+// SetItems sets the value of Items.
+func (s *DisputeCaseCreate) SetItems(val []DisputeCaseItemCreate) {
+	s.Items = val
 }
 
 // SetReason sets the value of Reason.
@@ -42068,6 +42190,245 @@ func (s *DisputeCaseHeaders) SetResponse(val DisputeCase) {
 
 func (*DisputeCaseHeaders) createDisputeCaseRes() {}
 
+// An item of a dispute case (T86c): an open item of the case's customer when the case was opened, and
+// the amount disputed of it.
+// Ref: #/components/schemas/DisputeCaseItem
+type DisputeCaseItem struct {
+	// The item's number in the case, from 1 in the order the request named them.
+	ItemNo int32 `json:"item_no"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the disputed item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The amount disputed of the item, in its currency.
+	DisputedAmount Money `json:"disputed_amount"`
+	// The same in the company's currency, its share of the item's amount as the item was booked.
+	LocalDisputedAmount Money `json:"local_disputed_amount"`
+	// What the case's resolution accepted of the item, in its currency, from zero to its disputed amount
+	// (T86d); absent unless the case is resolved.
+	AcceptedAmount OptMoney `json:"accepted_amount"`
+	// The same in the company's currency: that part of `local_disputed_amount`, rounded half away from
+	// zero; absent unless the case is resolved.
+	LocalAcceptedAmount OptMoney `json:"local_accepted_amount"`
+	// The customer credit memo that credited the item (`GET /v1/customer-invoices/{id}`); absent unless a
+	// credit memo resolution accepted some of it.
+	CreditMemoID OptUUID `json:"credit_memo_id"`
+	// That credit memo's document number; absent with `credit_memo_id`.
+	CreditMemoNumber OptString `json:"credit_memo_number"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *DisputeCaseItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DisputeCaseItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DisputeCaseItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DisputeCaseItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DisputeCaseItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *DisputeCaseItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *DisputeCaseItem) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetLocalDisputedAmount returns the value of LocalDisputedAmount.
+func (s *DisputeCaseItem) GetLocalDisputedAmount() Money {
+	return s.LocalDisputedAmount
+}
+
+// GetAcceptedAmount returns the value of AcceptedAmount.
+func (s *DisputeCaseItem) GetAcceptedAmount() OptMoney {
+	return s.AcceptedAmount
+}
+
+// GetLocalAcceptedAmount returns the value of LocalAcceptedAmount.
+func (s *DisputeCaseItem) GetLocalAcceptedAmount() OptMoney {
+	return s.LocalAcceptedAmount
+}
+
+// GetCreditMemoID returns the value of CreditMemoID.
+func (s *DisputeCaseItem) GetCreditMemoID() OptUUID {
+	return s.CreditMemoID
+}
+
+// GetCreditMemoNumber returns the value of CreditMemoNumber.
+func (s *DisputeCaseItem) GetCreditMemoNumber() OptString {
+	return s.CreditMemoNumber
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *DisputeCaseItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DisputeCaseItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DisputeCaseItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DisputeCaseItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DisputeCaseItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DisputeCaseItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *DisputeCaseItem) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetLocalDisputedAmount sets the value of LocalDisputedAmount.
+func (s *DisputeCaseItem) SetLocalDisputedAmount(val Money) {
+	s.LocalDisputedAmount = val
+}
+
+// SetAcceptedAmount sets the value of AcceptedAmount.
+func (s *DisputeCaseItem) SetAcceptedAmount(val OptMoney) {
+	s.AcceptedAmount = val
+}
+
+// SetLocalAcceptedAmount sets the value of LocalAcceptedAmount.
+func (s *DisputeCaseItem) SetLocalAcceptedAmount(val OptMoney) {
+	s.LocalAcceptedAmount = val
+}
+
+// SetCreditMemoID sets the value of CreditMemoID.
+func (s *DisputeCaseItem) SetCreditMemoID(val OptUUID) {
+	s.CreditMemoID = val
+}
+
+// SetCreditMemoNumber sets the value of CreditMemoNumber.
+func (s *DisputeCaseItem) SetCreditMemoNumber(val OptString) {
+	s.CreditMemoNumber = val
+}
+
+// What a resolution accepts of an item of the case.
+// Ref: #/components/schemas/DisputeCaseItemAccepted
+type DisputeCaseItemAccepted struct {
+	// The item's number in the case (`items[].item_no`).
+	ItemNo int32 `json:"item_no"`
+	// What is accepted of the item, in the case's currency: from zero to what it disputes.
+	AcceptedAmount Money `json:"accepted_amount"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *DisputeCaseItemAccepted) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetAcceptedAmount returns the value of AcceptedAmount.
+func (s *DisputeCaseItemAccepted) GetAcceptedAmount() Money {
+	return s.AcceptedAmount
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *DisputeCaseItemAccepted) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetAcceptedAmount sets the value of AcceptedAmount.
+func (s *DisputeCaseItemAccepted) SetAcceptedAmount(val Money) {
+	s.AcceptedAmount = val
+}
+
+// An item of a dispute case to open: an open item of the case's customer by its journal line, and the
+// amount disputed of it.
+// Ref: #/components/schemas/DisputeCaseItemCreate
+type DisputeCaseItemCreate struct {
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name
+	// it).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+	// The amount the customer disputes of the item, in its currency (the case's): more than zero and at
+	// most what it owes on the item.
+	DisputedAmount Money `json:"disputed_amount"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DisputeCaseItemCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DisputeCaseItemCreate) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DisputeCaseItemCreate) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *DisputeCaseItemCreate) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DisputeCaseItemCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DisputeCaseItemCreate) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DisputeCaseItemCreate) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *DisputeCaseItemCreate) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
 // One page of dispute cases.
 // Ref: #/components/schemas/DisputeCasePage
 type DisputeCasePage struct {
@@ -42098,6 +42459,65 @@ func (s *DisputeCasePage) SetNextPageToken(val OptString) {
 }
 
 func (*DisputeCasePage) listDisputeCasesRes() {}
+
+// Resolve an open dispute case the company accepts (T86d): by a customer credit memo per accepted item
+// or a write-off, with what is accepted of which items.
+// Ref: #/components/schemas/DisputeCaseResolve
+type DisputeCaseResolve struct {
+	// `credit_memo`: a customer credit memo per item accepted above zero, naming its invoice; `write_off`:
+	// one journal entry writing the accepted amounts off to the company's `payment_difference_expense`
+	// account. Another value is refused (422 `collections.unknown_resolution`). Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Resolution string `json:"resolution"`
+	// Why the case is accepted and resolved so; its close reason.
+	Reason string `json:"reason"`
+	// The date the documents are dated and posted on, in an open period; absent: the company's today in
+	// its time zone.
+	PostingDate OptDate `json:"posting_date"`
+	// What is accepted of which items, each once; an item not named is not accepted. Absent: every item in
+	// full.
+	Items []DisputeCaseItemAccepted `json:"items"`
+}
+
+// GetResolution returns the value of Resolution.
+func (s *DisputeCaseResolve) GetResolution() string {
+	return s.Resolution
+}
+
+// GetReason returns the value of Reason.
+func (s *DisputeCaseResolve) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DisputeCaseResolve) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetItems returns the value of Items.
+func (s *DisputeCaseResolve) GetItems() []DisputeCaseItemAccepted {
+	return s.Items
+}
+
+// SetResolution sets the value of Resolution.
+func (s *DisputeCaseResolve) SetResolution(val string) {
+	s.Resolution = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DisputeCaseResolve) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DisputeCaseResolve) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *DisputeCaseResolve) SetItems(val []DisputeCaseItemAccepted) {
+	s.Items = val
+}
 
 // Merge patch of an open dispute case: its assignee and its note.
 // Ref: #/components/schemas/DisputeCaseUpdate
@@ -97559,6 +97979,30 @@ type ResetIncomingPaymentUnprocessableEntity Problem
 
 func (*ResetIncomingPaymentUnprocessableEntity) resetIncomingPaymentRes() {}
 
+type ResolveDisputeCaseBadRequest Problem
+
+func (*ResolveDisputeCaseBadRequest) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCaseForbidden Problem
+
+func (*ResolveDisputeCaseForbidden) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCaseNotFound Problem
+
+func (*ResolveDisputeCaseNotFound) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCasePreconditionFailed Problem
+
+func (*ResolveDisputeCasePreconditionFailed) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCasePreconditionRequired Problem
+
+func (*ResolveDisputeCasePreconditionRequired) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCaseUnprocessableEntity Problem
+
+func (*ResolveDisputeCaseUnprocessableEntity) resolveDisputeCaseRes() {}
+
 type ResumeWebhookSubscriptionBadRequest Problem
 
 func (*ResumeWebhookSubscriptionBadRequest) resumeWebhookSubscriptionRes() {}
@@ -114896,6 +115340,7 @@ func (*TooManyRequestsHeaders) requestBankAccountChangeRes()              {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()                 {}
 func (*TooManyRequestsHeaders) resetIncomingPaymentApplicationRes()       {}
 func (*TooManyRequestsHeaders) resetIncomingPaymentRes()                  {}
+func (*TooManyRequestsHeaders) resolveDisputeCaseRes()                    {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
 func (*TooManyRequestsHeaders) retireControlRes()                         {}
@@ -115837,6 +116282,7 @@ func (*UnauthorizedHeaders) requestBankAccountChangeRes()              {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()                 {}
 func (*UnauthorizedHeaders) resetIncomingPaymentApplicationRes()       {}
 func (*UnauthorizedHeaders) resetIncomingPaymentRes()                  {}
+func (*UnauthorizedHeaders) resolveDisputeCaseRes()                    {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
 func (*UnauthorizedHeaders) retireControlRes()                         {}
@@ -116722,8 +117168,9 @@ func (s *UpdateDisputeCaseOKHeaders) SetResponse(val DisputeCase) {
 	s.Response = val
 }
 
-func (*UpdateDisputeCaseOKHeaders) closeDisputeCaseRes()  {}
-func (*UpdateDisputeCaseOKHeaders) updateDisputeCaseRes() {}
+func (*UpdateDisputeCaseOKHeaders) closeDisputeCaseRes()   {}
+func (*UpdateDisputeCaseOKHeaders) resolveDisputeCaseRes() {}
+func (*UpdateDisputeCaseOKHeaders) updateDisputeCaseRes()  {}
 
 type UpdateDisputeCasePreconditionFailed Problem
 

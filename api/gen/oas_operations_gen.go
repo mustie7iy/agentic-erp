@@ -565,6 +565,7 @@ const (
 	RequestBankAccountEndOperation                 OperationName = "RequestBankAccountEnd"
 	ResetIncomingPaymentOperation                  OperationName = "ResetIncomingPayment"
 	ResetIncomingPaymentApplicationOperation       OperationName = "ResetIncomingPaymentApplication"
+	ResolveDisputeCaseOperation                    OperationName = "ResolveDisputeCase"
 	ResumeWebhookSubscriptionOperation             OperationName = "ResumeWebhookSubscription"
 	RetireCatalogItemOperation                     OperationName = "RetireCatalogItem"
 	RetireControlOperation                         OperationName = "RetireControl"

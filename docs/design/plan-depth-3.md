@@ -845,3 +845,120 @@ customer; charges and minimum amounts per currency; blocks in the
 collection worklist; scheduled and large runs as a workflow; a
 cancellation's reversal on a date of its own; tax on charges, should a
 pilot country levy it.
+
+## disp
+
+Placeholder: "later: dispute case variants" (`plan-breadth-week3.md`
+§T86b, Later; ADR-0065 As built T86a, T86b). Two variants are split
+here: a case over several invoices, and resolving an accepted case by a
+credit memo or a write-off. A case on a short payment at the incoming
+payment, correspondence and attachments, escalation and deadlines,
+dunning the undisputed part of an invoice, disputed amounts in the credit
+exposure and the cash forecast, and cases opened by the customer stay in
+the placeholder. SAP S/4HANA's FSCM Dispute Management is the reference,
+stated from memory and not checked against a source in the lane: a
+dispute case names one or more disputed objects (open items of one
+customer) with a disputed amount each; it is resolved by a credit memo,
+a write-off or a payment, each reducing the disputed amount, the rest
+not accepted; the write-off posts to the payment differences account by
+reason (transaction key ZDI). Nothing below depends on a fact of SAP's
+beyond that shape.
+
+### T86c A dispute case over several invoices
+
+**Capability.** A collections specialist opens one dispute case over
+several of a customer's open invoices, each with its own disputed
+amount; a dunning run leaves each of them out while the case is open,
+and the worklist counts the case once.
+
+- **Reuses:** T86a's case, its open-item reader (`openItem`, the field
+  named), promises' list of items (T76f: 1 to 100 items, each once),
+  T86b's hold in the proposal and the worklist.
+- **Adds:** table `collections.dispute_case_item` (the case's items by
+  number, each journal line with its account, document number, reference
+  and disputed amount in the item's currency and the company's as booked);
+  an item is in one open case at a time (the unique index moves to the
+  items). `POST /v1/dispute-cases` takes `items` (1 to 50, each line once,
+  of one customer and one currency) in place of the single item, which
+  stays accepted (expand: the request's item fields become optional, one
+  form or the other, 422 `collections.items_or_item`). The case's
+  `disputed_amount` is its items' total; its journal line fields name its
+  first item. `DisputeCase.items` and `DisputeCaseChanged.items`; the
+  case's audit records keep its items. Migration: the table, the
+  existing cases' items written from their own line, a deferred check
+  that a case's items are its total and its first item its line.
+- **Walkthrough:** `step_dispute_items`: Ruth opens one case on two
+  invoices of a new customer, Bayview Marine, with an amount each; an
+  invoice named twice, another customer's and a request naming its item
+  both ways are refused, as is a second case on one of them; a dunning
+  run names both as disputed with the case; the worklist counts one case
+  and the two amounts.
+- **Acceptance:** every item is an open item the case's customer owes in
+  the company, in the case's currency, disputed above zero and at most
+  its open amount; an item in another open case is refused whether it
+  comes after or races it (409 `collections.dispute_exists`); the run
+  and the worklist read the items, not the case's line; single-item cases
+  read as before; the collections agent reads a case's items; schema
+  tests for every rule.
+- **Depends on:** T86a, T86b (in `main`).
+
+### T86d Resolving an accepted dispute case by credit memo or write-off
+
+**Capability.** An AR accountant resolves an open dispute case the
+company accepts, in full or in part: by a customer credit memo for each
+accepted invoice, through receivables, or by a write-off of the accepted
+amounts to the company's payment differences account; the case closes
+as accepted, naming the documents.
+
+- **Reuses:** receivables' credit memo (T75d, entered and posted in the
+  request's transaction as sales' credit memo request does, T85d: tax
+  given as the invoice's share, the case's item as its source); the
+  ledger's posting port and account determination
+  (`payment_difference_expense`, T75f); `config.DocumentDay`; T86a's lock
+  and `If-Match`.
+- **Adds:** `POST /v1/dispute-cases/{id}:resolve`
+  (`collections.dispute.resolve`, `If-Match`, `Idempotency-Key`,
+  human-only) with `resolution` `credit_memo` or `write_off`, a `reason`,
+  an optional `posting_date` (absent: the company's today) and optional
+  `items` (`item_no`, `accepted_amount` from zero to the item's disputed
+  amount; absent: each item accepted in full; at least one above zero).
+  A credit memo per accepted item names the item's customer invoice and
+  credits its items in proportion to the accepted part of its gross
+  amount, net and tax alike (an item that is not a posted customer
+  invoice is 422 `collections.no_invoice` naming `resolution`); a
+  write-off is one `SA` entry, `source_context` `collections`: per
+  accepted item a debit on `payment_difference_expense` and a credit to
+  the item's account with the customer, at the item's booked rate. Either
+  leaves an open credit item of the customer, cleared against the invoice
+  as any credit is. The case becomes `accepted` with `resolution`,
+  `accepted_amount`, each item's `accepted_amount` and credit memo, the
+  write-off's entry and the posting date; `DisputeCaseChanged`
+  (`resolved`) and the audit record `collections.dispute_case.resolve`
+  (without the reason). Migration: the columns, the source context and
+  the permission.
+- **Walkthrough:** `step_dispute_resolution`: Bayview's case is accepted
+  in part by credit memo: one invoice credited in full, the other for
+  half of its disputed amount, each memo naming its invoice with its tax
+  in proportion; a second resolution is refused; the credits stand open;
+  a second case on the gauge is written off in full (accepting more than
+  it disputes refused) to 6850; a run duns both invoices again.
+- **Acceptance:** only an open case is resolved, once (409
+  `collections.dispute_closed`); each item named once (422
+  `collections.unknown_item`); the accepted amounts are within the
+  items' disputed amounts and one is above zero (422
+  `collections.invalid_accepted_amount`); the credit memo's gross is
+  the accepted amount, its tax the invoice's share, and receivables'
+  limit on credits per invoice holds; the write-off balances per item in
+  every currency; a company without `payment_difference_expense` is
+  refused for a write-off (422 `collections.no_write_off_account`) and
+  nothing posts; refusals by receivables or the ledger (a closed period)
+  leave the case open; the items are dunned again once the case is
+  closed; schema tests for every rule.
+- **Depends on:** T86c.
+
+**Later (still in the placeholder):** a case on a short payment at the
+incoming payment; correspondence and attachments; escalation and
+deadlines; dunning the undisputed part of an invoice; disputed amounts in
+the credit exposure and the cash forecast; cases opened by the customer;
+clearing the credit against the invoice in the resolution; write-off
+reason codes with their own accounts.

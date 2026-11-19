@@ -18,11 +18,14 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// Invoices enters, posts and reverses the customer debit memos a dunning
-// run charges its notices with (receivables context, T76h, T76i): the
-// published API sales posts its billing documents through. A memo is
-// entered, posted and reversed in the caller's transaction.
+// Invoices is receivables' published API for customer invoices, debit and
+// credit memos, the one sales posts its billing documents through: it
+// enters, posts and reverses the debit memos a dunning run charges its
+// notices with (T76h, T76i), and reads the invoices a dispute case's items
+// name and enters and posts the credit memos resolving it (T86d). Each
+// call runs in the caller's transaction.
 type Invoices interface {
+	Invoice(ctx context.Context, id uuid.UUID) (receivables.Invoice, error)
 	CreateInvoice(ctx context.Context, in receivables.Input) (receivables.Invoice, error)
 	PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (receivables.Invoice, error)
 	ReverseSourced(ctx context.Context, id, source uuid.UUID, in receivables.Reversal) (receivables.Invoice, error)

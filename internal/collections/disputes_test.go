@@ -115,7 +115,9 @@ func (e env) caseRecorded(t *testing.T, id string, entry ledger.Entry) {
 	want := map[string]any{"dispute_case_id": id, "change": "opened", "legal_entity_id": e.DE.String(), "legal_entity_code": "2000",
 		"customer_id": e.north.String(), "customer_number": "BP70000002", "fiscal_year": float64(2026), "journal_entry_id": entry.ID.String(),
 		"line_no": float64(1), "document_number": entry.DocumentNumber, "disputed_amount": map[string]any{"amount": "40.00", "currency": "EUR"},
-		"assignee_id": e.Tenant.Human.ID.String(), "status": "open", "status_before": nil, "version": float64(1)}
+		"assignee_id": e.Tenant.Human.ID.String(), "status": "open", "status_before": nil, "version": float64(1),
+		"items": []any{map[string]any{"item_no": float64(1), "fiscal_year": float64(2026), "journal_entry_id": entry.ID.String(), "line_no": float64(1),
+			"document_number": entry.DocumentNumber, "disputed_amount": map[string]any{"amount": "40.00", "currency": "EUR"}}}, "resolution": nil}
 	if a, b := mustJSON(t, events[0]), mustJSON(t, want); a != b {
 		t.Errorf("the opened event: got %s, want %s", a, b)
 	}
@@ -316,8 +318,8 @@ func TestDisputeRace(t *testing.T) {
 	e := setup(t)
 	entries := e.story(t)
 	h := endpoints(t)
-	in := collections.CaseInput{LegalEntityID: e.DE, Item: ledger.ItemRef{FiscalYear: 2026, EntryID: entries[0].ID, LineNo: 1}, Amount: "1.00",
-		Currency: "EUR", Reason: "Twice"}
+	in := collections.CaseInput{LegalEntityID: e.DE, Items: []collections.CaseItemInput{{Item: ledger.ItemRef{FiscalYear: 2026, EntryID: entries[0].ID,
+		LineNo: 1}, Amount: "1.00", Currency: "EUR"}}, Reason: "Twice"}
 	open := func(ctx context.Context) error {
 		_, err := h.OpenCase(ctx, in)
 		return err

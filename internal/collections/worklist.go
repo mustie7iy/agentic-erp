@@ -177,6 +177,7 @@ func (w *Worklist) add(open []ledger.ReceivableItem, disputes map[ledger.ItemRef
 		}
 		c := WorklistCustomer{CustomerID: open[0].PartnerID, items: open[:n]}
 		var all, due, disputed []money.Minor
+		cases := map[uuid.UUID]bool{} // a case over several of the customer's items counts once (T86c)
 		for _, o := range overdue(c.items, w.KeyDate) {
 			due = append(due, o.AmountLC)
 			if d := o.NetDueDate(); c.OldestDue.IsZero() || d.Before(c.OldestDue) {
@@ -186,7 +187,7 @@ func (w *Worklist) add(open []ledger.ReceivableItem, disputes map[ledger.ItemRef
 		for _, it := range c.items {
 			all = append(all, it.AmountLC)
 			if d, ok := disputes[it.ItemRef]; ok {
-				disputed = append(disputed, d.AmountLC)
+				disputed, cases[d.ID] = append(disputed, d.AmountLC), true
 			}
 		}
 		open = open[n:]
@@ -197,7 +198,7 @@ func (w *Worklist) add(open []ledger.ReceivableItem, disputes map[ledger.ItemRef
 			w.Resubmitted, w.ResubmittedOverdue = w.Resubmitted+1, sum(w.ResubmittedOverdue, sum(due...))
 			continue // resubmitted after the key date: off the worklist until then
 		}
-		c.Open, c.Overdue, c.Disputed, c.DisputedCases = sum(all...), sum(due...), sum(disputed...), int32(len(disputed))
+		c.Open, c.Overdue, c.Disputed, c.DisputedCases = sum(all...), sum(due...), sum(disputed...), int32(len(cases))
 		w.Open, w.Overdue, w.Disputed = sum(w.Open, c.Open), sum(w.Overdue, c.Overdue), sum(w.Disputed, c.Disputed)
 		w.DisputedCases += c.DisputedCases
 		w.Customers = append(w.Customers, c)

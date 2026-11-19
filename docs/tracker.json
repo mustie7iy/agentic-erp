@@ -3162,9 +3162,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A collections specialist opens one dispute case over several of a customer's open invoices, each with its own disputed amount; a dunning run leaves each out while the case is open, and the worklist counts the case once",
+        "r": "T86c · docs/design/plan-depth-3.md §T86c · db/migrations/000403 · collections.dispute_case_item · POST /v1/dispute-cases items · DisputeCase.items · DisputeCaseChanged.items · 422 collections.items_or_item · dunning holds and worklist by item · collectionsagent reads items · audit details without the case's free text · walkthrough step_dispute_items · ADR-0065 As built",
+        "src": "split:T86b · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "An AR accountant resolves an accepted dispute case, in full or in part, by a customer credit memo per accepted invoice through receivables or by a write-off to the payment differences account; the case closes as accepted naming the documents",
+        "r": "T86d · docs/design/plan-depth-3.md §T86d · db/migrations/000404, 000405 · dispute_case resolution columns · dispute_case_item accepted amounts and credit memo · POST /v1/dispute-cases/{id}:resolve · collections.dispute.resolve · DisputeCaseChanged resolved · receivables credit memo per item (source the case's item) · write-off SA entry, source_context collections, to payment_difference_expense · collectionsagent.Never · walkthrough step_dispute_resolution · ADR-0065 As built",
+        "src": "split:T86b · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: dispute case variants: a case over several invoices or on a short payment at the incoming payment, the credit memo or write-off created from an accepted case, correspondence and attachments, escalation and deadlines, dunning the undisputed part of an invoice, disputed amounts in the credit exposure and the cash forecast, cases opened by the customer (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week3.md §T86b, Later",
+        "t": "later: dispute case variants: a case on a short payment at the incoming payment, correspondence and attachments, escalation and deadlines, dunning the undisputed part of an invoice, disputed amounts in the credit exposure and the cash forecast, cases opened by the customer, clearing the credit against the invoice in the resolution, write-off reason codes with their own accounts (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T86b, Later · docs/design/plan-depth-3.md §disp, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
@@ -6823,9 +6837,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A dispute case's free-text reason and note are copied into its audit details (opened, changed, closed), which a deletion run cannot blank: audit records are insert-only, so the text outlives the erasure of its subject; keep such text out of audit details, as customer contacts do since batch 79, or make it erasable (found in batch 79's review)",
-        "r": "internal/collections disputes.go audit details (recordCase, changed) · audit.audit_event · ADR-0079 · ADR-0011",
+        "r": "internal/collections disputes.go audit details (recordCase, changed) · audit.audit_event · ADR-0079 · ADR-0011 · fixed with T86c: the audit details record reason_given and note_given, not the texts",
         "src": "review:batch79",
         "c": []
        }
