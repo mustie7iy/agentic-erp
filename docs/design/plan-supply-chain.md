@@ -458,6 +458,39 @@ enters the counted quantities.
   posting block during the count. **Walkthrough:** `step_count`.
   **Acceptance:** one open count per material and storage location; a
   count is entered once per item and recounted only as a new document.
+- **Detailed** (lane count, 2026-11-19; one slice, one leaf, nothing to
+  split; decided by default, ADR-0082 As built S2c): a count document is
+  of one plant's storage location (SAP IKPF's plant and storage location)
+  with up to 100 items, one per material (ISEG), numbered from the
+  company's `physical_inventory` range of the fiscal year of its date (the
+  company's date today), `POST /v1/physical-inventory-documents`, `GET`
+  (by plant, storage location, material and status; newest first) and
+  `/{id}`, `:enterCount` (`If-Match`). An item's material is a stocked
+  material of the tenant kept at that storage location and valued in its
+  plant (so its difference can be posted, S2d), `active` or `blocked` (a
+  blocked material's stock is still counted), never `pending`. The book
+  quantity is the stock's as the document is created, read under the
+  stock row's lock (a row with no quantity written for a material never
+  moved there), and the **posting block** is always set (SAP's MI01
+  indicator, here not optional, the safer default): while the document is
+  open no goods movement of any kind (a person's, a goods receipt, a goods
+  issue) moves its materials at that storage location (409
+  `inventory.posting_blocked`, the database's `count_posting_block` on
+  every movement), so the book quantity frozen is the book quantity when
+  the differences are posted. One open count per material and storage
+  location (409 `inventory.count_open`, the database's
+  `count_item_one_open`). Counts are entered by item number (SAP MI04), in
+  any unit of the material converted exactly to its base unit, zero
+  included (a zero count is entered as `0`); an item counted is not
+  counted again (409 `inventory.item_counted`); a document is `counting`
+  until every item is counted, then `counted`. Permission
+  `inventory.count.write`; reads under `inventory.stock.read`. Audited at
+  each step; no event (the stock moves only by S2d's material documents,
+  which publish `MaterialDocumentPosted`). **Later:** counts without a
+  posting block, book quantities frozen while movements go on, counts by
+  bin, batch or special stock, count date per item, a deletion flag (a
+  document is closed by posting its differences or by rejecting them,
+  S2d).
 
 ### S2d Inventory differences posted (pilot)
 
@@ -468,6 +501,33 @@ enters the counted quantities.
   key for inventory differences. **Walkthrough:** extends `step_count`.
   **Acceptance:** book quantity after posting equals the count; a
   difference above the company's tolerance needs approval.
+- **Detailed** (lane count, 2026-11-19; one slice, one leaf, nothing to
+  split; decided by default, ADR-0082 As built S2d): `:postDifferences`
+  (`If-Match`, permission `inventory.count.post`) on a `counted`
+  document posts each item's difference (counted less book): the gains as
+  one material document of movement type `701`, the losses as one of
+  `702` (one movement type per document, As built S1c), each valued as
+  any receipt or issue is (S1d: a gain at the moving or standard price, a
+  loss at the value it takes from the stock) and posted (`WA`) between the
+  class's stock account and its new `difference` account
+  (`companies[].account_determination.inventory[].difference`, SAP GBB
+  with modifier INV), an expense holding gains and losses alike. The
+  **tolerance** is the company's `inventory_difference_tolerance`, an
+  amount in its currency (SAP's tolerance group's limit per document,
+  OMJ2): when the differences' values, gains and losses alike, total
+  more, the document waits for the controller's approval
+  (`pending_approval`; object type `inventory_difference`, permission
+  `inventory.difference.approve`, the requester never the approver), and
+  approval posts them as valued then; a company without a tolerance has
+  every difference of any value approved. Rejection (`rejected`) or the
+  requester's withdrawal (`withdrawn`) posts nothing and closes the
+  document, lifting its posting block: the materials are recounted by a
+  new document. A posted document (`posted`) names each item's difference,
+  value and material document; the book quantity is then the count. Its
+  material documents are not reversed (409 `inventory.reverse_count`): a
+  new count corrects them. **Later:** a tolerance per item and per user
+  group, difference reasons, partial posting of a document's items,
+  recount history (MI11 linking the documents).
 
 ### S2e Count planning agent
 
