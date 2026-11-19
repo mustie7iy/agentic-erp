@@ -225,15 +225,9 @@ func TestResolveRefusals(t *testing.T) {
 		{"nothing accepted", accept(`{"item_no": 1, "accepted_amount": {"amount": "0.00", "currency": "EUR"}}`), "collections.invalid_accepted_amount", "items", 422},
 		{"a reason of white space", `{"resolution": "write_off", "reason": " "}`, "request.validation_failed", "reason", 422},
 		{"a date in no period", `{"resolution": "write_off", "reason": "x", "posting_date": "2099-01-31"}`, "ledger.no_fiscal_period", "", 422},
-		{"a credit memo in no period", `{"resolution": "credit_memo", "reason": "x", "posting_date": "2099-01-31"}`, "", "", 0},
+		{"a credit memo in no period", `{"resolution": "credit_memo", "reason": "x", "posting_date": "2099-01-31"}`, "ledger.no_fiscal_period", "", 422},
 	} {
 		t.Run(r.name, func(t *testing.T) {
-			if r.status == 0 {
-				if code, got, _ := e.In(t).Do("POST", "/v1/dispute-cases/"+id+":resolve", r.body, tag); code < 400 {
-					t.Errorf("got %d %v, want a refusal", code, got)
-				}
-				return
-			}
 			got := e.In(t).Problem(r.status, r.code, "POST", "/v1/dispute-cases/"+id+":resolve", r.body, tag)
 			if r.field != "" {
 				if f := fieldOf(t, got); f != r.field {

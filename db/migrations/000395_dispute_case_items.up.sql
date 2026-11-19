@@ -10,11 +10,12 @@
 --
 -- Expand, then migrate (06 §6.4): a new table the previous version
 -- neither reads nor writes, and the existing cases' items written from
--- their own line. A case the previous version would open during the
--- rollout, without items, is refused at commit by the deferred check
--- rather than left out of the dunning holds that now read the items.
--- dispute_case_one_open on the case's line stays: the items' index
--- covers it, and dropping it is a later contract step.
+-- their own line. A case the previous version opens during the rollout,
+-- without items, is given its own line as its one item at commit
+-- (dispute_case_default_item), so the previous version keeps working and
+-- its cases are held by dunning as the new version's are; a later
+-- contract step drops that trigger, and dispute_case_one_open on the
+-- case's line, which the items' index covers.
 
 -- An item of a case: its journal line, what the case read of it (the
 -- document number and reference), the disputed amount in the case's
@@ -73,6 +74,29 @@ END $$;
 ALTER FUNCTION collections.close_dispute_case_items() OWNER TO erp_owner;
 CREATE TRIGGER dispute_case_items_closed AFTER UPDATE OF status ON collections.dispute_case
   FOR EACH ROW WHEN (OLD.status = 'open' AND NEW.status <> 'open') EXECUTE FUNCTION collections.close_dispute_case_items();
+
+-- At commit, a case the previous version wrote without items gets its own
+-- line as its one item, on the line's account, open while the case is, as
+-- the backfill below gives the existing cases theirs. It fires before
+-- dispute_case_items (deferred triggers of one event fire in name order),
+-- as the role that wrote the case, which reads the tenant's journal.
+CREATE FUNCTION collections.default_dispute_case_item() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id, line_no, account_id,
+      document_number, reference, disputed_amount, disputed_amount_lc, open)
+    SELECT d.tenant_id, d.id, 1, gen_random_uuid(), d.fiscal_year, d.journal_entry_id, d.line_no, l.account_id, d.document_number, d.reference,
+      d.disputed_amount, d.disputed_amount_lc, d.status = 'open'
+    FROM collections.dispute_case d
+    JOIN ledger.journal_line l ON l.tenant_id = d.tenant_id AND l.fiscal_year = d.fiscal_year AND l.journal_entry_id = d.journal_entry_id
+      AND l.line_no = d.line_no
+    WHERE d.tenant_id = NEW.tenant_id AND d.id = NEW.id
+      AND NOT EXISTS (SELECT FROM collections.dispute_case_item i WHERE i.tenant_id = d.tenant_id AND i.dispute_case_id = d.id);
+  RETURN NULL;
+END $$;
+ALTER FUNCTION collections.default_dispute_case_item() OWNER TO erp_owner;
+CREATE CONSTRAINT TRIGGER dispute_case_default_item AFTER INSERT ON collections.dispute_case
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION collections.default_dispute_case_item();
 
 -- At commit, a case has items: its first is its own journal line, their
 -- disputed amounts add up to its own in both currencies, and each is open

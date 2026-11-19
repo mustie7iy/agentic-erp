@@ -332,3 +332,29 @@ func TestCollectionsJournalSource(t *testing.T) {
 		t.Errorf("source contexts: got %s with %d checks not validated, want collections among them, every check validated", def, unvalidated)
 	}
 }
+
+// TestDisputeCaseOfThePreviousVersion (T86c, migration 000395): a case
+// written as the previous version writes it, without items, commits and
+// has its own line as its one item, on the line's account (the trigger
+// dispute_case_default_item), so a release that still runs that version
+// keeps opening cases and dunning holds their items.
+func TestDisputeCaseOfThePreviousVersion(t *testing.T) {
+	need(t)
+	f := newFixture(t)
+	c := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		entry, err := f.entry(tx, 2, "2026-02-10", line{account: f.bank, amount: 100}, line{account: f.expense, amount: -100})
+		if err != nil {
+			return err
+		}
+		return exec(tx, disputeCaseOf, f.tenant, c, entry)
+	})
+	var got string
+	if err := testDB.QueryRow(context.Background(), `SELECT string_agg(i.item_no || ' ' || (i.account_id = $2)::text || ' ' || i.disputed_amount || ' '
+			|| i.open, ', ' ORDER BY i.item_no) FROM collections.dispute_case_item i WHERE i.dispute_case_id = $1`, c, f.bank).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if want := "1 true 100 true"; got != want {
+		t.Errorf("the case's items: got %q, want %q", got, want)
+	}
+}

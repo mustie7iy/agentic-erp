@@ -64,8 +64,8 @@ BEGIN
       OR (OLD.accepted_amount IS NOT NULL AND (NEW.accepted_amount, NEW.accepted_amount_lc, NEW.credit_memo_id, NEW.credit_memo_number)
         IS DISTINCT FROM (OLD.accepted_amount, OLD.accepted_amount_lc, OLD.credit_memo_id, OLD.credit_memo_number))
       OR (OLD.accepted_amount IS NULL AND NEW.accepted_amount IS NOT NULL AND NOT OLD.open) THEN
-    RAISE EXCEPTION 'dispute case item %/%: an item stays as its case named it, its resolution is written once while its case is open, and it is closed with its case',
-      OLD.dispute_case_id, OLD.item_no USING ERRCODE = 'check_violation', CONSTRAINT = 'dispute_case_item_fixed';
+    RAISE EXCEPTION 'dispute case item %/%: an item stays as its case named it, its resolution is written once while its case is open, '
+      'and it is closed with its case', OLD.dispute_case_id, OLD.item_no USING ERRCODE = 'check_violation', CONSTRAINT = 'dispute_case_item_fixed';
   END IF;
   RETURN NEW;
 END $$;

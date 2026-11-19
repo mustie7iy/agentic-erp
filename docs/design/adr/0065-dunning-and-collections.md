@@ -944,6 +944,11 @@ FSCM Dispute Management's case over several disputed objects as the
 reference, from memory; product owner 2026-11-17: the variants go on),
 each listed for the product owner's digest.
 
+- **Rollout.** A case the previous version opens without items gets its
+  own line as its one item at commit (deferred trigger
+  `dispute_case_default_item`, named to fire before the check), so the
+  running version keeps working and its cases are held; a contract step
+  drops it with `dispute_case_one_open` (review round 1).
 - **Schema.** `collections.dispute_case_item`: a case's items numbered
   1 to 50, each a journal line named once in the case, with its document
   number and reference, the amount disputed of it in the case's currency
@@ -958,9 +963,7 @@ each listed for the product owner's digest.
   totals in both currencies, items open exactly while the case is). The
   application inserts items and changes or deletes none; no role changes
   what an item names or reopens it (`dispute_case_item_fixed`). The
-  existing cases got their own line as their one item; a case the
-  previous version opens during the rollout without items is refused at
-  commit rather than escaping the holds. Checks in 03 §3.27 and
+  existing cases got their own line as their one item. Checks in 03 §3.27 and
   `db/dispute_items_test.go`.
 - **Request.** `POST /v1/dispute-cases` takes `items` (1 to 50) or, as
   before, one item by the request's own fields; one form or the other,
@@ -1022,7 +1025,14 @@ digest.
   proportion to the accepted part of its gross amount (shared out over
   the items by gross, then each over net and tax, `money.Allocate`), and
   gives the tax as that share of what the item bore, so the memo's gross
-  is the accepted amount. Its source is the case's item: the item's own
+  is the accepted amount exactly. Each memo's tax is rounded on its own,
+  once per document (ADR-0049 §8), as a credit note's is; sales' credit
+  memo requests instead round cumulatively over a billing item's posted
+  credits (product owner 2026-11-12, what was billed is what is credited),
+  which a dispute case's memo, crediting a part of a customer invoice
+  that other memos may also credit, has no billing item to count against:
+  several partial memos of one invoice may give back a minor unit more or
+  less tax than the invoice bore, never more gross than accepted. Its source is the case's item: the item's own
   id and `<case id>/<item number>` (at most 39 characters), which keeps
   receivables' one memo per source document. Receivables' limit on the
   credits of an invoice holds. collections now imports receivables

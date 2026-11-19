@@ -709,7 +709,7 @@ as accepted, naming the documents.
   A credit memo per accepted item names the item's customer invoice and
   credits its items in proportion to the accepted part of its gross
   amount, net and tax alike (an item that is not a posted customer
-  invoice is 422 `collections.no_invoice` naming `items[n]`); a
+  invoice is 422 `collections.no_invoice` naming `resolution`); a
   write-off is one `SA` entry, `source_context` `collections`: per
   accepted item a debit on `payment_difference_expense` and a credit to
   the item's account with the customer, at the item's booked rate. Either

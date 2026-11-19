@@ -139,8 +139,9 @@ func requestItems(req *gen.DisputeCaseCreate) ([]CaseItemInput, error) {
 	all, some := !slices.Contains(own, false), slices.Contains(own, true)
 	switch {
 	case len(req.Items) == 0 && all:
-		return []CaseItemInput{{Item: ledger.ItemRef{FiscalYear: int16(req.FiscalYear.Value), EntryID: req.JournalEntryID.Value, // the contract bounds the year to 1900-2100
-			LineNo: req.LineNo.Value}, Amount: req.DisputedAmount.Value.Amount, Currency: req.DisputedAmount.Value.Currency}}, nil
+		// The contract bounds the year to 1900-2100.
+		ref := ledger.ItemRef{FiscalYear: int16(req.FiscalYear.Value), EntryID: req.JournalEntryID.Value, LineNo: req.LineNo.Value}
+		return []CaseItemInput{{Item: ref, Amount: req.DisputedAmount.Value.Amount, Currency: req.DisputedAmount.Value.Currency}}, nil
 	case len(req.Items) > 0 && !some:
 		out := make([]CaseItemInput, len(req.Items))
 		for i, it := range req.Items {

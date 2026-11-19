@@ -309,7 +309,8 @@ func (e *Endpoints) invoiceOf(ctx context.Context, it CaseItem, sources map[ledg
 // part of its gross amount (creditedItems), and the case's item as its
 // source, by the case's id and the item's number. It keeps the invoice's
 // term (ADR-0063 §7). A refusal names the resolution (asResolution).
-func (e *Endpoints) creditMemo(ctx context.Context, c Case, it CaseItem, inv receivables.Invoice, accepted money.Minor, date time.Time) (receivables.Invoice, error) {
+func (e *Endpoints) creditMemo(ctx context.Context, c Case, it CaseItem, inv receivables.Invoice, accepted money.Minor,
+	date time.Time) (receivables.Invoice, error) {
 	lead := fmt.Sprintf("Item %d's credit memo, crediting %s %s of customer invoice %s, cannot be posted: ", it.ItemNo,
 		accepted.Plain(inv.Exponent), inv.Currency, inv.DocumentNumber)
 	in := receivables.Input{LegalEntityID: c.LegalEntityID, CustomerID: c.CustomerID, Kind: receivables.KindCreditMemo, ReferenceInvoiceID: &inv.ID,
@@ -317,12 +318,14 @@ func (e *Endpoints) creditMemo(ctx context.Context, c Case, it CaseItem, inv rec
 		Source: &receivables.Source{ID: it.ID, Number: fmt.Sprintf("%s/%d", c.ID, it.ItemNo)}} // 36 + 1 + 2 characters, within 40
 	draft, err := e.Resolving.Invoices.CreateInvoice(ctx, in)
 	if err != nil {
-		return receivables.Invoice{}, asResolution(fmt.Errorf("collections: enter the credit memo of dispute case %s item %d: %w", c.ID, it.ItemNo, err), lead)
+		err = fmt.Errorf("collections: enter the credit memo of dispute case %s item %d: %w", c.ID, it.ItemNo, err)
+		return receivables.Invoice{}, asResolution(err, lead)
 	}
 	// The draft is this transaction's: no one else can have read it, so it posts at the version it was entered at.
 	v, err := e.Resolving.Invoices.PostInvoice(ctx, draft.ID, func(int32) error { return nil }, &date)
 	if err != nil {
-		return receivables.Invoice{}, asResolution(fmt.Errorf("collections: post credit memo %s of dispute case %s: %w", draft.DocumentNumber, c.ID, err), lead)
+		err = fmt.Errorf("collections: post credit memo %s of dispute case %s: %w", draft.DocumentNumber, c.ID, err)
+		return receivables.Invoice{}, asResolution(err, lead)
 	}
 	return v, nil
 }
@@ -347,7 +350,8 @@ func creditedItems(inv receivables.Invoice, accepted money.Minor) []receivables.
 		}
 		gross := big.NewInt(int64(it.Net + it.Tax))
 		parts, _ := money.Allocate([]*big.Rat{new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(it.Net)), big.NewInt(int64(shares[i]))), gross),
-			new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(it.Tax)), big.NewInt(int64(shares[i]))), gross)}) // they add up to the item's share: in range
+			// They add up to the item's share: in range.
+			new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(it.Tax)), big.NewInt(int64(shares[i]))), gross)})
 		tax := parts[1]
 		out = append(out, receivables.ItemInput{Description: it.Description, AccountID: it.AccountID,
 			Net: receivables.Amount{Value: parts[0].Plain(inv.Exponent), Currency: inv.Currency}, TaxCode: it.TaxCode, TaxJurisdiction: it.TaxJurisdiction,
@@ -429,7 +433,8 @@ func markResolved(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Case, in
 	if _, err := tx.Exec(ctx, `UPDATE collections.dispute_case_item i SET accepted_amount = x.a, accepted_amount_lc = x.lc, credit_memo_id = x.m,
 			credit_memo_number = x.n
 		FROM unnest($2::smallint[], $3::bigint[], $4::bigint[], $5::uuid[], $6::text[]) AS x(no, a, lc, m, n)
-		WHERE i.dispute_case_id = $1 AND i.item_no = x.no AND i.accepted_amount IS NULL`, c.ID, nos, r.accepted, r.acceptedLC, memoIDs, memoNumbers); err != nil {
+		WHERE i.dispute_case_id = $1 AND i.item_no = x.no AND i.accepted_amount IS NULL`,
+		c.ID, nos, r.accepted, r.acceptedLC, memoIDs, memoNumbers); err != nil {
 		return fmt.Errorf("collections: the accepted items of dispute case %s: %w", c.ID, err)
 	}
 	return closeResolved(ctx, tx, p, c, in, r)
