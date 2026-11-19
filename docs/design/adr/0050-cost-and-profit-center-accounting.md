@@ -1144,6 +1144,11 @@ Classic EC-PCA's periodic transfer of payables and receivables to profit
 centers (1KEK) is not proposed: it is a second ledger of balances that
 reconciles only by job.
 
+As built (ADR-0063 As built T75m, batch 81): without splitting, a customer
+invoice's customer line carries no profit center or segment (none is
+inherited from its revenue lines), so aging by profit center or segment
+shows billed invoices in the row without a center. PO 2026-11-19: kept.
+
 ### 10. Migration from SAP (T56h)
 - **Master data**: `CSKS` (KOKRS, KOSTL, DATAB, DATBI, BUKRS, KOSAR,
   VERAK, PRCTR, KHINR, BKZKP, BKZER, PKZKP, WAERS) with texts `CSKT`

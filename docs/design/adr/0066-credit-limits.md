@@ -427,7 +427,7 @@ date of its next check; stated from memory) and the ADRs:
   setting changes it). `credit_limit_id` names the limit all the same, so
   a consumer knows a limit exists. Listed for the product owner: an
   expired limit then restricts nothing, as no limit does, rather than
-  reading as zero.
+  reading as zero. PO 2026-11-19: kept.
 - **Reviews.** `next_review_on` is the day the limit's next review is
   planned for; a review is recorded by changing the limit (its amount or
   dates), the new review date with it. The worklist is
@@ -485,6 +485,7 @@ materials' governed changes (ADR-0082 §9, S1b) as the pattern:
   `active`. Rejected or withdrawn, it stays `pending`, and a patch of it
   asks again, as it is or changed (a new create). A customer still has
   one limit row per company, so `credit.limit_exists` stays as it was.
+  A pending limit counting as no limit: PO 2026-11-19: kept.
 - **The change.** `credit.credit_limit_change`: kind `create` or
   `change`, the amount and dates asked for and, for a change, the limit's
   when asked (a create has none: its limit was never in effect), status
@@ -501,7 +502,8 @@ materials' governed changes (ADR-0082 §9, S1b) as the pattern:
   (its requester may withdraw it). Applying the lowering and withdrawing
   the raise in one step would take the approval request's row lock after
   the limit's, the opposite of an approval's order, and could deadlock.
-  Listed for the product owner and kept in the placeholder.
+  Listed for the product owner and kept in the placeholder. PO
+  2026-11-19: kept.
 - **Versions.** A limit's version moves when it comes to name a change
   waiting and when it no longer does (rejected, withdrawn or applied), so
   its ETag follows what it shows.

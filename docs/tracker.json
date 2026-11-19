@@ -7820,7 +7820,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "D",
+      "s": "P",
       "t": "Country packs",
       "r": "ADR-0048 · T62 (split T62a-T62f)",
       "c": [
@@ -7903,6 +7903,13 @@
         "t": "Numbering-only packs Canada 2026.10 and UAE 2026.7 bring the debit memos' journal range journal_dd (T75j), which a company activated from Canada 2026.9 or UAE 2026.6 lacks (422 config.no_number_range); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried (product owner 2026-11-18)",
         "r": "docs/design/plan-depth-3.md §packperm · packs/ca/2026.10 · packs/ae/2026.7 · packs/released.sha256 · TestCanadaPack2026_10 · TestUAEPack2026_7 (numberingOnly, adoptsAddedRanges) · ADR-0048 As built (the debit memos' journal range) · ADR-0063 As built T75j · walkthrough steps 2 and 41 apply them, the pilot's settings no longer add journal_dd",
         "src": "po:2026-11-18",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Numbering-only packs Canada 2026.11 and UAE 2026.8 bring the ranges the pilot's settings still add themselves: returns_order, credit_memo_request, lease_contract, expense_report, material, material_document, journal_wa and journal_pr (a company activated from Canada 2026.10 or UAE 2026.7 lacks them: 422 config.no_number_range); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried (product owner 2026-11-19, batch 81's open item (b) as recommended); built in the next refill",
+        "r": "packs/ca/2026.11 · packs/ae/2026.8 · packs/released.sha256 · ADR-0048 As built",
+        "src": "po:2026-11-19",
         "c": []
        }
       ]

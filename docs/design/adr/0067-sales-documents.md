@@ -2095,7 +2095,8 @@ overruled.
   the segregation-of-duties rule `sales.customer_sales_data.write` /
   `sales.price.write` (`createSodRule`), which no migration seeds (rules
   are the tenant's, ADR-0010); a new tenant's roles are its own from the
-  start. Listed for the product owner's digest. (2) The copied
+  start. Listed for the product owner's digest. PO 2026-11-19: kept
+  (tenants end the write per role). (2) The copied
   grants write no audit record and publish no event, as no permission
   seed has: they repeat grants already audited, and the migration runs
   outside any request. (3) Read stays with every role that read prices,
