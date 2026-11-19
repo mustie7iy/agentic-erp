@@ -319,10 +319,99 @@ mapped to materials once.
 - **Acceptance:** a blocked or pending material is refused on a new item;
   a key that names no material stays a free-text item; nothing already
   billed or received changes.
+- **Split** (lane scm4, 2026-11-19) into two slices, S1f1 and S1f2, each
+  a leaf; the decisions below are by default (ADR-0082 As built S1f).
+
+#### S1f1 Sales items by material (pilot)
+
+**Capability.** A sales clerk enters a quotation's or a sales order's item
+(or adds one by an order change) by its material: its description is the
+material's unless the clerk gives one, its item key is the material's
+number, and its quantity is in a unit of the material that converts to the
+base unit exactly; the order made from the quotation, and the order's
+billing documents, name the material.
+
+- **Adds:** optional `material_id` on `SalesItemCreate` (`description`
+  then optional) and on every sales item read (`SalesItem`: quotation,
+  order and billing items); `sales.quotation_item.material_id` and
+  `sales.sales_order_item.material_id` (expand: nullable, a material item
+  has an item key, checked `NOT VALID` and validated by the next
+  migration); `sales → materials` (ADR-0082 §3).
+- **Decided by default:** the item key is the material's number (SAP's
+  item names its material by MATNR, from memory), so prices, discounts,
+  scales, revenue obligations, segments and analytics find a material item
+  by key as they find any other ("sales prices found by material as well
+  as by key" needs no change of the price records); another key sent with
+  a material is refused (422 `sales.item_key_not_material`). The material
+  is one of the tenant's in status `active` (unknown: 422
+  `request.reference_not_found`; `pending` or `blocked`: 422
+  `sales.material_not_usable`), of any type (sales views per sales
+  organisation, MVKE, are Later). The quantity's unit is the base unit or
+  an alternative unit and converts exactly in six decimals (422
+  `sales.invalid_material_quantity`); the converted quantity is not
+  stored: it is taken where stock moves (S2b), as S1e's receipt takes it.
+  An item an order change keeps keeps its material, and its new quantity
+  must still convert exactly; a material blocked since does not refuse
+  the change, as S1e's kept stock item.
+- **Walkthrough:** `step_material_items` (sales part): a sales order item
+  for the bracket by material, in boxes of 20, takes the material's
+  description and number and its price recorded by the number; a blocked
+  material and a key other than the number are refused; the billing
+  document's item names the material.
+- **Acceptance:** a blocked or pending material is refused on a new item;
+  an item without a material behaves as before; a quotation's material is
+  carried to its order and its order's billing.
+- **As built** (2026-11-19): ADR-0082 As built S1f, walkthrough step 135.
+
+#### S1f2 Purchasing items by material and the catalog's keys mapped (pilot)
+
+**Capability.** A requester enters a requisition item, a buyer an RFQ
+item and a catalog manager a catalog item by its material, with the same
+rules as a sales item; and the catalog manager maps a company's catalog
+items whose key is a material's number onto that material once, with a
+report of the keys that match none.
+
+- **Adds:** requisition items' `material_id` (000006, unchecked until now)
+  checked; optional `material_id` on RFQ items and catalog items
+  (`procurement.rfq_item.material_id`, `procurement.catalog_item.material_id`;
+  expand), their `material_key`/`item_key` the material's number, an
+  RFQ's `material_key` and a catalog item's `item_key` then optional; the
+  material carried from a catalog item to a requisition item, from a
+  requisition item to an RFQ item and from an RFQ item to its award's
+  contract item; `POST /v1/catalog-material-mappings` (permission
+  `procurement.catalog.manage`) and its report; a catalog item's material
+  set once and never changed (a database rule).
+- **Decided by default:** the mapping maps the catalog, the master data
+  new items are taken from: an active catalog item without a material
+  whose key equals an active material's number and whose unit is a unit of
+  that material. Documents keep their keys: a quotation, order, billing
+  document, requisition, RFQ or contract is a record of what was offered,
+  ordered or billed (so nothing billed or received changes), and SAP does
+  not re-key a document's item either (from memory). Sales prices need no
+  mapping: they are found by the material's number (S1f1). The report
+  names every distinct key of the company's active catalog items still
+  without a material, as `mapped`, `no_material` (no material has that
+  number) or `not_mappable` (the material is not active, or the item's unit
+  is not one of its units), with its items' count; a second run maps
+  nothing twice.
+- **Walkthrough:** `step_material_items` (purchasing part): a
+  requisition item for the bracket by material takes its description; a
+  catalog item keyed by the bracket's number and one by a free-text key are
+  mapped, the one onto the bracket and the other reported as matching no
+  material; a second run maps nothing.
+- **Acceptance:** a blocked or pending material is refused on a new item;
+  a key that names no material stays a free-text item, reported; a mapped
+  catalog item keeps its material; nothing already billed or received
+  changes.
+- **As built** (2026-11-19): ADR-0082 As built S1f, walkthrough step 135.
 
 **Later for mapping item keys:** customer-material info records (SAP
 KNMT), purchasing info records and source lists (EINA/EINE, EORD), the
-material's sales and purchasing texts, substitution of materials.
+material's sales and purchasing texts, substitution of materials, sales
+views per sales organisation (MVKE), mapping by a table of key and
+material pairs rather than the number alone, mapping open documents'
+items and contracts' items, checking the material a purchase order's or a
+contract's own item names (still unchecked unless it is a stock item, S1e).
 
 ## S2 Flows (parallel once S1 is on main)
 

@@ -167,6 +167,8 @@ type Endpoints struct {
 	Rates         Rates
 	Credit        Credit
 	People        People
+	// Materials are the materials items name (S1f1).
+	Materials Materials
 	// Uploads, OrderExtractor and Finder serve order capture (T90a): the
 	// upload's document, the model that reads it (nil: capture answers
 	// 503) and the customer it names.

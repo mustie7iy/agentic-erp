@@ -3205,11 +3205,12 @@ func (s *Server) handleApplyCountryPackRequest(args [0]string, argsEscaped bool,
 // application left; one that is no longer open, all applied or cleared otherwise, is refused (409
 // `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared` when another request
 // cleared it meanwhile, as two applications racing for it end). The items are the customer's open
-// items in the company, invoices and credits, in the payment's currency, refused as
-// `createIncomingPayment` refuses them, each naming its place in the request as the field `items[i]`,
-// and each may name a `residual` as there. Together, net of their residuals, they may be less than the
-// credit: what is left stays on account as a new credit of the customer's, a line of the application's
-// clearing entry, at the credit's rate. More than the credit is refused (422
+// items in the company, invoices and credits, in the payment's currency or another, translated into
+// the payment's on the posting date and refused as `createIncomingPayment` translates and refuses them
+// (T75n), each naming its place in the request as the field `items[i]`, and each may name a `residual`
+// as there. Together, net of their residuals and of what their reasons wrote off, they may be less
+// than the credit: what is left stays on account as a new credit of the customer's, a line of the
+// application's clearing entry, at the credit's rate. More than the credit is refused (422
 // `ledger.clearing_not_balanced`) but for an underpayment within the company's payment tolerance,
 // written off to its `payment_difference_expense` account. One clearing entry, document type `DZ`,
 // `source_context` `receivables`, its source document the payment, offsets the credit and the items at
@@ -6665,6 +6666,241 @@ func (s *Server) handleCancelDownPaymentRequestRequest(args [1]string, argsEscap
 	}
 
 	if err := encodeCancelDownPaymentRequestResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleCancelDunningRunRequest handles cancelDunningRun operation.
+//
+// Cancels a confirmed dunning run, once (ADR-0065 As built, T76i), at the version the caller read
+// (`If-Match`), with a `reason`: the run becomes `cancelled` and shows the reason
+// (`cancellation_reason`). The levels and dunning dates its confirmation recorded no longer count: a
+// run started from then on, the collection worklist and a confirmation's comparison read the confirmed
+// runs alone, so each of its items is back at the level the runs before it recorded
+// (`previous_level`), and a proposal started before the cancellation is stale when it is confirmed
+// (409 `collections.proposal_stale`). Each customer debit memo its confirmation posted its notices'
+// charges and interest with (T76h, `charge_document`) is reversed in accounts receivable, in the same
+// transaction, on the memo's posting date with the cancellation's reason: the ledger posts the
+// reversal of its entry and clears the memo's open item against it, the memo becomes `reversed`, and
+// the notice's `charge_document` shows the reversal; each memo's CustomerInvoiceReversed is written
+// beside the run's audit record, DunningRunChanged (`cancelled`, status_before `confirmed`) and one
+// DunningNoticeCancelled per notice. The run's notices, items and amounts stay as they were, for the
+// record. Refused: a run that is not `confirmed`, a proposed or a cancelled one (409
+// `collections.invalid_status`), so a second cancellation reverses nothing; a run a later confirmed
+// run of the company has dunned the items of from the levels this one recorded, or the debit memos it
+// posted (409 `collections.run_superseded`, naming that run: cancel it first); a memo whose open item
+// is cleared, by a payment applied or a clearing (409 `receivables.document_cleared`;
+// `ledger.entry_cleared` when the clearing committed while the request ran: undo that clearing first);
+// a memo posted in a period that is no longer open (409 `ledger.period_not_open`); the reason missing
+// or white space alone (422 `request.validation_failed` naming `reason`). What accounts receivable or
+// the ledger refuses is answered with their code, the memo's number and the customer's leading the
+// detail, and nothing of the cancellation is done. Cancellations and confirmations of a company's runs
+// wait for each other. Cancelling takes the credit controller's permission alone: no permission of
+// accounts receivable is needed. A retry with the same `Idempotency-Key` answers the cancelled run. A
+// run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`).
+//
+// POST /v1/dunning-runs/{id}:cancel
+func (s *Server) handleCancelDunningRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("cancelDunningRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/dunning-runs/{id}:cancel"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CancelDunningRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CancelDunningRunOperation,
+			ID:   "cancelDunningRun",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CancelDunningRunOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCancelDunningRunParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCancelDunningRunRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CancelDunningRunRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CancelDunningRunOperation,
+			OperationSummary: "Cancel a confirmed dunning run",
+			OperationID:      "cancelDunningRun",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *DunningRunCancel
+			Params   = CancelDunningRunParams
+			Response = CancelDunningRunRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCancelDunningRunParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CancelDunningRun(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CancelDunningRun(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCancelDunningRunResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -10321,9 +10557,10 @@ func (s *Server) handleClearSupplierInvoiceDownPaymentsRequest(args [1]string, a
 // more than white space (422 `request.validation_failed`). The case is read under a row lock and moves
 // to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose
 // item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is
-// credited by a person, with a credit memo request or a customer credit memo. Once the case is closed
-// the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry
-// with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
+// resolved by a credit memo or a write-off with `resolveDisputeCase` (T86d) instead, or credited by a
+// person, with a credit memo request or a customer credit memo. Once the case is closed the item is
+// dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry with the same
+// `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`).
 //
 // POST /v1/dispute-cases/{id}:close
 func (s *Server) handleCloseDisputeCaseRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -12017,8 +12254,28 @@ func (s *Server) handleCompleteYearCloseTaskRequest(args [2]string, argsEscaped 
 // at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
 // an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
 // with it. From then on a run started for the company reads the recorded level as the item's
-// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
-// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+// `previous_level` and proposes the next level, one above it at most; the highest level stays. No
+// letter or e-mail is sent. Where the company's account determination names its dunning accounts
+// (`companies[].account_determination.dunning_charges` and `.dunning_interest`, T76h), each notice
+// charged a charge or interest is posted to its customer, in the same transaction: a customer debit
+// memo (`kind` `debit_memo`, `GET /v1/customer-invoices/{id}`) is entered and posted in accounts
+// receivable with the notice as its source (`source_document_id`), the company's today in its time
+// zone as its date and posting date (the day the charge is raised, in whose fiscal year it is
+// numbered, whatever the key date), the customer's payment term and an item for the charge on the
+// charge account and one for the interest on the interest account, each only when above zero and
+// without a tax code; its entry (document type `DD`) debits the customer's reconciliation account with
+// the two, the customer's open item, and credits the accounts. The notice names its memo
+// (`charge_document`) and the run counts them (`charge_document_count`); DunningNoticeIssued names it
+// too, beside the memo's own CustomerInvoiceChanged and CustomerInvoicePosted. A company that names
+// neither account posts nothing, and the items stay as they were. What accounts receivable or the
+// ledger refuses refuses the confirmation, nothing of it recorded or posted, with their code and the
+// customer's number leading the detail: a customer that is not active, no longer a customer or blocked
+// for posting in the company (422 `receivables.customer_not_usable`), an account that can no longer be
+// posted (422 `receivables.account_not_postable`), a company without the `customer_invoice` or
+// `journal_dd` number range (422 `config.no_number_range`), a posting date in a period not open (409
+// `ledger.period_not_open`); a charge or interest whose account the company no longer names, since the
+// run was started, is refused too (422 `collections.no_charge_account`). Posting takes the credit
+// controller's permission alone: no permission of accounts receivable is needed. Before it is
 // confirmed, the proposal is compared with the open items again: when an item of it was cleared since
 // the run was started, or was dunned since by another confirmed run of the company (its recorded level
 // is no longer the run's `previous_level`), the proposal is stale and refused (409
@@ -12030,8 +12287,9 @@ func (s *Server) handleCompleteYearCloseTaskRequest(args [2]string, argsEscaped 
 // proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that
 // is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records
 // and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run
-// without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a
-// company the caller may not act in is not found (404). Human-only (`x-agent: false`).
+// without notices is confirmed too, and records nothing. A confirmed run is cancelled with
+// `cancelDunningRun` (T76i). A run of a company the caller may not act in is not found (404).
+// Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs/{id}:confirm
 func (s *Server) handleConfirmDunningRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -19053,25 +19311,32 @@ func (s *Server) handleCreateCustomerSalesDataRequest(args [0]string, argsEscape
 
 // handleCreateDisputeCaseRequest handles createDisputeCase operation.
 //
-// Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open
-// items, an invoice, for a reason. The item is named by its journal line (`fiscal_year`,
-// `journal_entry_id`, `line_no`, as a dunning notice's item names it) and must be an open item on a
+// Opens a dispute case (ADR-0065 As built, T86a, T86c): the customer disputes amounts of one or more
+// of its open items, invoices, for a reason. Each item is named by its journal line (`fiscal_year`,
+// `journal_entry_id`, `line_no`, as a dunning notice's item names it), with the amount disputed of it:
+// one item by the request's own fields, or 1 to 50 in `items`, not both (422
+// `collections.items_or_item`, naming `items`); in a list each line once (422
+// `request.validation_failed` naming `items[n].journal_entry_id`). Each must be an open item on a
 // customer reconciliation account of the company in the leading ledger, one the customer owes (422
-// `collections.item_not_open` naming `journal_entry_id`). The company is one the caller may act in
-// (422 `request.reference_not_found` naming `legal_entity_id`). `disputed_amount` is in the item's
-// currency (422 `collections.currency_mismatch` naming `disputed_amount.currency`), more than zero and
-// at most the item's open amount (422 `collections.invalid_disputed_amount` naming
-// `disputed_amount.amount`); the case also keeps its share of the item's amount in the company's
-// currency, as the item was booked (`local_disputed_amount`, the item's local amount × the disputed
-// amount ÷ its amount, rounded half away from zero). An item has one open case at a time: a second is
-// refused, whether it comes after the first or races it (409 `collections.dispute_exists`). An
-// assignee, if named, is an active person of the tenant who may act in the company (422
-// `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than
-// white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening
-// a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the
-// case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by
-// id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only
-// (`x-agent: false`).
+// `collections.item_not_open` naming its `journal_entry_id`); the first item's customer is the case's,
+// and every other item is that customer's (422 `collections.item_not_open`) and in the first item's
+// currency (422 `collections.currency_mismatch` naming its `journal_entry_id`). The company is one the
+// caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). An item's disputed
+// amount is in the item's currency (422 `collections.currency_mismatch` naming its
+// `disputed_amount.currency`), more than zero and at most the item's open amount (422
+// `collections.invalid_disputed_amount` naming its `disputed_amount.amount`); the case also keeps each
+// item's share of its amount in the company's currency, as the item was booked (the item's local
+// amount × the disputed amount ÷ its amount, rounded half away from zero). The case's
+// `disputed_amount` and `local_disputed_amount` are its items' totals (more than an amount holds: 422
+// `collections.amount_too_large`), and its own journal line is its first item's. An item is in one
+// open case at a time: an item in another open case is refused, whether the case comes after the other
+// or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the
+// tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`).
+// `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the
+// field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a
+// dunning run leaves the item out while the case is open (T86b). Audited, and published as
+// DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same
+// `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`).
 //
 // POST /v1/dispute-cases
 func (s *Server) handleCreateDisputeCaseRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -19222,7 +19487,7 @@ func (s *Server) handleCreateDisputeCaseRequest(args [0]string, argsEscaped bool
 		mreq := middleware.Request{
 			Context:          ctx,
 			OperationName:    CreateDisputeCaseOperation,
-			OperationSummary: "Open a dispute case on a customer's open item",
+			OperationSummary: "Open a dispute case on a customer's open items",
 			OperationID:      "createDisputeCase",
 			Body:             request,
 			RawBody:          rawBody,
@@ -19726,13 +19991,14 @@ func (s *Server) handleCreateDunningBlockRequest(args [0]string, argsEscaped boo
 // and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a
 // year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away
 // from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges
-// and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused
-// (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused
-// (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed
-// ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet)
-// and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A
-// key date at which nothing is overdue gives a run without notices. A retry with the same
-// `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
+// and interest are what the notices ask for: nothing is posted until the run is confirmed
+// (`confirmDunningRun`, T76h). A key date after 2100-12-31 is refused (422
+// `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422
+// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it
+// lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one
+// whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date
+// at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+// answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (s *Server) handleCreateDunningRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -21226,22 +21492,40 @@ func (s *Server) handleCreateHierarchyRequest(args [0]string, argsEscaped bool, 
 // line matched as incoming posted, whose credit line waits as an open item on the house bank's
 // incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are
 // open items of the customer on customer reconciliation accounts of the company
-// (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency. An item paid in part
-// names its `residual`: what stays open of it, more than zero and less than the item, which is an
-// amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more
-// than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422
-// `receivables.currency_mismatch`), with a reason (422 `receivables.unknown_residual_reason`) and, if
-// wanted, a free text that is not white space alone (422 `request.validation_failed`). Together the
-// items, net of their residuals, equal the receipt, but for a payment difference within the company's
+// (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency or another (T75n): an
+// item in another currency is translated into the receipt's at the average exchange rate valid on the
+// posting date between the two (`GET /v1/exchange-rates`, either direction, the reciprocal when only
+// the reverse pair is recorded; no rate through a third currency), rounded once half away from zero,
+// and is cleared at its own rate: the clearing entry, in the receipt's currency, offsets it at that
+// amount and at the local and group amounts it was booked at, so what the translation leaves is part
+// of the realized exchange difference below. An item without such a rate that day is refused (422
+// `ledger.no_exchange_rate`), as is one that translates to nothing in the receipt's currency (422
+// `ledger.item_rounds_to_zero`), each naming `items[i]`; residuals, the tolerance and what is left on
+// account are in the receipt's currency for every item. An item paid in part names its `residual`:
+// what stays open of it, more than zero and less than the item, which is an amount the customer owes
+// (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more than zero (422
+// `receivables.amount_not_positive`) in the receipt's currency (422 `receivables.currency_mismatch`),
+// with a reason, one of the company's payment-difference reasons
+// (`companies[].receivables.payment_difference_reasons`, SAP OBBE; a company that configures none has
+// `short_payment`, `disputed`, `deduction` and `other`; another is refused, 422
+// `receivables.unknown_residual_reason`), and, if wanted, a free text that is not white space alone
+// (422 `request.validation_failed`). The reason decides what becomes of the residual (T75o): a reason
+// whose treatment is `residual` leaves it open as a residual item, as below; one whose treatment is
+// `write_off` writes it off instead, a debit line of the clearing entry on the reason's account at the
+// receipt's rate, shown as the item's `write_off` (422 `receivables.no_write_off_account` when the
+// company's chart no longer has that account), and what reasons write off counts with the payment
+// difference against the payment tolerance. Together the items, net of their residuals and of what
+// their reasons wrote off, equal the receipt, but for a payment difference within the company's
 // payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in
 // the company's currency and a percent of the items applied, the lower binding; none configured, none
-// allowed); anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the
-// difference. No cash discount is granted. One clearing entry, document type `DZ`, `source_context`
-// `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them
-// all; each residual is a new open item of the customer, a debit line of that entry on the item's
-// account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due
-// when the item did; a difference is a line on the company's `payment_difference_expense` account (an
-// underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
+// allowed), what reasons write off included; anything more is refused, 422
+// `ledger.clearing_not_balanced`, its message giving the difference. No cash discount is granted. One
+// clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every
+// item at the amounts they were booked at and clears them all; each residual is a new open item of the
+// customer, a debit line of that entry on the item's account at the item's rate, with the item's
+// payment terms but no cash discount tier, so it falls due when the item did; a difference is a line
+// on the company's `payment_difference_expense` account (an underpayment) or
+// `payment_difference_revenue` account (an overpayment), at the receipt's rate (422
 // `ledger.no_payment_difference_account` without it); what that leaves in local or group currency,
 // receipt and items having been booked at different rates, is a realized exchange difference on the
 // company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date
@@ -21262,12 +21546,11 @@ func (s *Server) handleCreateHierarchyRequest(args [0]string, argsEscaped bool, 
 // open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as
 // are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a
 // cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409
-// `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds
-// (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its
-// place in the request as the field `items[i]`. Nothing is posted when the application is refused. A
-// retry with the same `Idempotency-Key` answers the payment applied; another request for the same
-// receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only
-// (`x-agent: false`).
+// `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`) and one a payment run
+// holds (409 `ledger.item_reserved`), each naming its place in the request as the field `items[i]`.
+// Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers
+// the payment applied; another request for the same receipt is refused while the payment is applied.
+// `resetIncomingPayment` undoes it (T75i). Human-only (`x-agent: false`).
 //
 // POST /v1/incoming-payments
 func (s *Server) handleCreateIncomingPaymentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -25984,21 +26267,26 @@ func (s *Server) handleCreatePurchaseOrderChangeRequest(args [1]string, argsEsca
 // `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is
 // required from the sales order, not here. `valid_until` is not before the quotation's date (422
 // `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
-// `item_key` (there is no material master; neither is white space alone, 422
-// `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
-// of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
-// `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
-// `price_unit` (1 when absent; sent without a unit price it is refused, 422
-// `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its
-// `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency,
-// the customer's before its price group's (by its sales data in the company,
-// `createCustomerSalesData`) before the general one and then the latest `valid_from`
-// (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is
-// refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing
-// credits, one that can be posted in the company (422 `sales.account_not_postable` naming
-// `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the
-// quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the
-// subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales
+// `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a
+// `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422
+// `request.reference_not_found` naming `items[i].material_id`) that is `active` (422
+// `sales.material_not_usable`), whose number is then the item's `item_key` (another key is refused,
+// 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the item's
+// when it sends none; its quantity is in the material's base unit or one of its alternative units and
+// converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity` naming
+// `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the
+// reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit`
+// naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when
+// absent; sent without a unit price it is refused, 422 `request.validation_failed` naming
+// `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the
+// quotation's date in the item's unit and the quotation's currency, the customer's before its price
+// group's (by its sales data in the company, `createCustomerSalesData`) before the general one and
+// then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a
+// price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
+// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
+// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
+// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies
+// the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales
 // document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is
 // quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
 // more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or
@@ -102306,6 +102594,221 @@ func (s *Server) handleLockProfitCenterRequest(args [1]string, argsEscaped bool,
 	}
 }
 
+// handleMapCatalogItemMaterialsRequest handles mapCatalogItemMaterials operation.
+//
+// Maps the item keys of a company's catalog onto the material master once (S1f2, ADR-0082 As built
+// S1f): each `active` catalog item of the company that names no material and whose `item_key` is the
+// number of an `active` material of the tenant, in whose base unit or one of whose alternative units
+// it is ordered, is given that material (`material_id`), its key and everything else unchanged; a
+// catalog item's material, once set, never changes. A requisition item taken from it afterwards names
+// the material too; requisitions, RFQs, contracts and orders already made keep their items as they
+// are, and nothing is posted. The answer reports, by item key in order, every key of the company's
+// active catalog items still without a material before the run: `mapped` (its items were given the
+// material), `no_material` (no material has that number: the key stays a free-text key) or
+// `not_mappable` (the material is not active, or an item is ordered in a unit that is none of the
+// material's: `reason` says which, and those items keep no material), with the count of its items. A
+// second run maps nothing twice and reports the keys still unmapped. Each item mapped is audited and
+// published as `CatalogItemChanged`, its version raised. The items are locked in the order of their
+// keys and ids, so two runs of one company wait for each other.
+//
+// POST /v1/catalog-material-mappings
+func (s *Server) handleMapCatalogItemMaterialsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("mapCatalogItemMaterials"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/catalog-material-mappings"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), MapCatalogItemMaterialsOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: MapCatalogItemMaterialsOperation,
+			ID:   "mapCatalogItemMaterials",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, MapCatalogItemMaterialsOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeMapCatalogItemMaterialsParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeMapCatalogItemMaterialsRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response MapCatalogItemMaterialsRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    MapCatalogItemMaterialsOperation,
+			OperationSummary: "Map a company's catalog item keys onto materials",
+			OperationID:      "mapCatalogItemMaterials",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *CatalogMaterialMapping
+			Params   = MapCatalogItemMaterialsParams
+			Response = MapCatalogItemMaterialsRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackMapCatalogItemMaterialsParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.MapCatalogItemMaterials(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.MapCatalogItemMaterials(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeMapCatalogItemMaterialsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleMatchBankStatementRequest handles matchBankStatement operation.
 //
 // Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the
@@ -116791,6 +117294,256 @@ func (s *Server) handleResetIncomingPaymentApplicationRequest(args [2]string, ar
 	}
 }
 
+// handleResolveDisputeCaseRequest handles resolveDisputeCase operation.
+//
+// Resolves an `open` dispute case the company accepts, in full or in part, once (ADR-0065 As built,
+// T86d), at the version the caller read (`If-Match`; 412 when another change came first): the case is
+// read under a row lock; one that is not open is refused (409 `collections.dispute_closed`).
+// `resolution` is `credit_memo` or `write_off` (another value is 422 `collections.unknown_resolution`
+// naming `resolution`), with the reason, a text of more than white space (422
+// `request.validation_failed`). Without `items` every item of the case is accepted in full; with them,
+// each names an item of the case by `item_no`, once (422 `collections.unknown_item` naming its
+// `item_no`), and what is accepted of it, in the case's currency (422
+// `collections.currency_mismatch`), from zero to what the item disputes (422
+// `collections.invalid_accepted_amount` naming its `accepted_amount.amount`); an item not named is not
+// accepted, and more than zero must be accepted in all (422 `collections.invalid_accepted_amount`
+// naming `items`: a case the company does not accept is closed as rejected, `closeDisputeCase`). The
+// documents post on `posting_date`, else on the company's today in its time zone, in an open period
+// (409 `ledger.period_not_open`). `credit_memo`: for each item accepted above zero a customer credit
+// memo is entered and posted through receivables (`postCustomerInvoice`), naming the posted customer
+// invoice the item's entry was posted for (an item of any other entry, a manual entry's or a residual
+// item's, is 422 `collections.no_invoice` naming `resolution`: write it off instead), with the
+// invoice's items credited in proportion to the accepted part of its gross amount, net and tax alike,
+// so its gross amount is the accepted amount; its source is the case's item (`source_document_id`, the
+// item's id, and `source_document_number`, the case's id and the item's number). Receivables' rules
+// hold: the credits naming one invoice never exceed its gross amount (422
+// `receivables.credit_exceeds_invoice`), and a customer no longer usable is refused (422
+// `receivables.customer_not_usable`). `write_off`: one journal entry, document type `SA`,
+// `source_context` `collections`, the case its source document, with per item accepted above zero a
+// debit of the accepted amount on the company's `payment_difference_expense` account (422
+// `collections.no_write_off_account` without it) and a credit to the item's account naming the
+// customer, both at the item's booked rate. An item of a debit memo a dunning run posted its charges
+// and interest with is not written off (422 `collections.dunning_charge_write_off` naming
+// `resolution`): cancelling the run (`cancelDunningRun`) reverses that memo, and a write-off would
+// give the customer the charge back a second time. Either leaves a credit item of the customer open
+// beside the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as
+// any credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names
+// `resolution` (or `posting_date`), its detail led by the document that could not be posted, and
+// leaves the case open with nothing posted. The case becomes `accepted` with `resolution`,
+// `accepted_amount`, `local_accepted_amount` (each item's accepted part of its local disputed amount,
+// rounded half away from zero), `posting_date`, its write-off's entry (`write_off_journal_entry_id`,
+// `write_off_journal_entry_year`, `write_off_journal_entry_number`) and each item's `accepted_amount`
+// and credit memo (`credit_memo_id`, `credit_memo_number`); `close_reason` is the reason. Once closed,
+// its items are dunned again (T86b) for what is still open of them. Audited (without the reason), and
+// published as DisputeCaseChanged (`resolved`). A retry with the same `Idempotency-Key` answers the
+// resolved case. Human-only (`x-agent: false`).
+//
+// POST /v1/dispute-cases/{id}:resolve
+func (s *Server) handleResolveDisputeCaseRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("resolveDisputeCase"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/dispute-cases/{id}:resolve"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ResolveDisputeCaseOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ResolveDisputeCaseOperation,
+			ID:   "resolveDisputeCase",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ResolveDisputeCaseOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeResolveDisputeCaseParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeResolveDisputeCaseRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response ResolveDisputeCaseRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ResolveDisputeCaseOperation,
+			OperationSummary: "Resolve an accepted dispute case by credit memo or write-off",
+			OperationID:      "resolveDisputeCase",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *DisputeCaseResolve
+			Params   = ResolveDisputeCaseParams
+			Response = ResolveDisputeCaseRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackResolveDisputeCaseParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ResolveDisputeCase(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ResolveDisputeCase(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeResolveDisputeCaseResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleResumeWebhookSubscriptionRequest handles resumeWebhookSubscription operation.
 //
 // Makes a paused or disabled subscription active. A paused one's held deliveries are sent, in event
@@ -118482,11 +119235,13 @@ func (s *Server) handleReverseAssetTransferRequest(args [1]string, argsEscaped b
 // invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit
 // memo another context entered from its own document, a billing document's cancellation or a credit
 // memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is
-// corrected there; a memo whose open item is cleared, netted when a payment was applied or cleared
-// against its invoice (409 `receivables.document_cleared`: undo that clearing first;
-// `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under
-// its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry
-// with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`).
+// corrected there, and a debit memo of a dunning notice's charge and interest (T76h; the same code),
+// which the cancellation of its dunning run reverses (`cancelDunningRun`); a memo whose open item is
+// cleared, netted when a payment was applied or cleared against its invoice (409
+// `receivables.document_cleared`: undo that clearing first; `ledger.entry_cleared` when the clearing
+// committed while the request ran). The memo is read under its row lock at the version the client read
+// (`If-Match`, 412 `request.version_mismatch`); a retry with the same `Idempotency-Key` answers the
+// reversed document. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices/{id}:reverse
 func (s *Server) handleReverseCustomerInvoiceRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

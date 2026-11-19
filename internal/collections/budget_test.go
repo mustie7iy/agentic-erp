@@ -60,14 +60,22 @@ func TestCollectionWorklistBudget(t *testing.T) {
 	exec(`INSERT INTO ledger.open_item_terms (tenant_id, fiscal_year, journal_entry_id, line_no, payment_term_code, baseline_date, net_days)
 		SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, 'NT30', DATE '2026-01-01' + (abs(hashtext(l.journal_entry_id::text)) % 300), 30
 		FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2`, e.Tenant.ID, e.receivable)
+	// The confirmed run the levels were recorded by: only a confirmed run's count (T76i).
+	exec(`INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count, overdue_amount,
+			created_by, updated_by) VALUES ($1, md5('run')::uuid, $2, '2026-08-31', 'confirmed', 'EUR', 0, 0, 0, $3, $3)`, e.Tenant.ID, e.DE, e.Tenant.Human.ID)
 	exec(`INSERT INTO collections.dunned_item (tenant_id, fiscal_year, journal_entry_id, line_no, dunning_run_id, level, dunning_date)
 		SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, md5('run')::uuid, 1, '2026-08-31'
 		FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2`, e.Tenant.ID, e.receivable)
-	exec(`INSERT INTO collections.dispute_case (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year, journal_entry_id, line_no,
-			document_number, currency, disputed_amount, currency_lc, disputed_amount_lc, reason, status, created_by, updated_by)
-		SELECT l.tenant_id, gen_random_uuid(), l.legal_entity_id, l.partner_id, 'BP', l.fiscal_year, l.journal_entry_id, l.line_no, 'B', 'EUR', 50, 'EUR',
-			50, 'Price', 'open', $3, $3
-		FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2 AND abs(hashtext(l.journal_entry_id::text)) % 10 = 0`,
+	// Each case with its one item (T86c), whose line the worklist reads.
+	exec(`WITH c AS (
+			INSERT INTO collections.dispute_case (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year, journal_entry_id, line_no,
+				document_number, currency, disputed_amount, currency_lc, disputed_amount_lc, reason, status, created_by, updated_by)
+			SELECT l.tenant_id, gen_random_uuid(), l.legal_entity_id, l.partner_id, 'BP', l.fiscal_year, l.journal_entry_id, l.line_no, 'B', 'EUR', 50, 'EUR',
+				50, 'Price', 'open', $3, $3
+			FROM ledger.journal_line l WHERE l.tenant_id = $1 AND l.account_id = $2 AND abs(hashtext(l.journal_entry_id::text)) % 10 = 0 RETURNING *
+		) INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id, line_no, account_id,
+			document_number, disputed_amount, disputed_amount_lc)
+		SELECT tenant_id, id, 1, gen_random_uuid(), fiscal_year, journal_entry_id, line_no, $2, document_number, disputed_amount, disputed_amount_lc FROM c`,
 		e.Tenant.ID, e.receivable, e.Tenant.Human.ID)
 	exec(`WITH p AS (
 			INSERT INTO collections.promise_to_pay (tenant_id, id, legal_entity_id, customer_id, customer_number, currency, promised_amount, promised_date,
@@ -87,7 +95,7 @@ func TestCollectionWorklistBudget(t *testing.T) {
 			CASE WHEN n % 20 = 0 AND k = 3 THEN DATE '2026-10-01' ELSE DATE '2026-09-10' END, $3, $3
 		FROM generate_series(0, 1999) n, generate_series(1, 3) k`, e.Tenant.ID, e.DE, e.Tenant.Human.ID)
 	exec(`RESET session_replication_role`)
-	exec(`ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms, collections.dunned_item, collections.dispute_case,
+	exec(`ANALYZE ledger.journal_entry, ledger.journal_line, ledger.open_item_terms, collections.dunned_item, collections.dunning_run, collections.dispute_case, collections.dispute_case_item,
 		collections.promise_to_pay, collections.promise_to_pay_item, collections.customer_contact, partner.business_partner`)
 	var times []time.Duration
 	for range 10 {

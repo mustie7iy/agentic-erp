@@ -393,7 +393,7 @@ func TestSalesDataDatabaseFailures(t *testing.T) {
 		},
 		"a quotation of a customer in a group": func(ctx context.Context) error {
 			_, err := h.CreateQuotation(ctx, &gen.QuotationCreate{LegalEntityID: e.DE, CustomerID: e.customer, ValidUntil: instant(t, far+"T00:00:00Z"),
-				Currency: "EUR", Items: []gen.SalesItemCreate{{ItemKey: gen.NewOptString("BRACKET-M8"), Description: "Bracket",
+				Currency: "EUR", Items: []gen.SalesItemCreate{{ItemKey: gen.NewOptString("BRACKET-M8"), Description: gen.NewOptString("Bracket"),
 					Quantity: gen.Quantity{Value: "2", Unit: "EA"}, AccountID: e.revenue}}}, gen.CreateQuotationParams{})
 			return err
 		},

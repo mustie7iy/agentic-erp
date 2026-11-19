@@ -63,12 +63,14 @@ const DraftLabel = "Draft message:"
 // the worklist, the largest overdue amount first.
 const MaxCustomers = 20
 
-// Never are the operations the agent never calls (ADR-0072): starting or
-// confirming a dunning run and opening, changing or closing a dispute
-// case, placing or releasing a dunning block (T76e), recording a promise
-// to pay (T76f) or a contact with a customer (T76g); nothing in the contract sends a message to a customer,
-// and its tools hold none of these.
-var Never = []string{"createDunningRun", "confirmDunningRun", "createDisputeCase", "updateDisputeCase", "closeDisputeCase",
+// Never are the operations the agent never calls (ADR-0072): starting,
+// confirming or cancelling (T76i) a dunning run and opening, changing,
+// closing or resolving a dispute case (T86d: resolving posts a credit memo
+// or a write-off), placing or releasing a dunning block (T76e), recording
+// a promise to pay (T76f) or a contact with a customer (T76g); nothing in
+// the contract sends a message to a customer, and its tools hold none of
+// these.
+var Never = []string{"createDunningRun", "confirmDunningRun", "cancelDunningRun", "createDisputeCase", "updateDisputeCase", "closeDisputeCase", "resolveDisputeCase",
 	"createDunningBlock", "releaseDunningBlock", "createPromiseToPay", "createCustomerContact"}
 
 // Reads are the operations the agent reads with (ADR-0072 As built,
@@ -261,7 +263,7 @@ func (a *Agent) receivables(ctx context.Context, le string) (map[string]bool, er
 }
 
 // disputes works out whether every overdue item of a customer with open
-// dispute cases has one: its open items on a customer reconciliation
+// dispute cases is one of a case's items: its open items on a customer reconciliation
 // account (a partner that also supplies has items on supplier accounts,
 // which the worklist does not count) overdue on the key date (a debit
 // past its net due date, or, posted without terms, past its posting date)
@@ -272,9 +274,11 @@ func (a *Agent) receivables(ctx context.Context, le string) (map[string]bool, er
 // overdue only by those days, never the other way round.
 func (a *Agent) disputes(ctx context.Context, le, keyDate string, receivables map[string]bool, c *customer) error {
 	cases, err := apitools.List[struct {
-		FiscalYear     int    `json:"fiscal_year"`
-		JournalEntryID string `json:"journal_entry_id"`
-		LineNo         int    `json:"line_no"`
+		Items []struct {
+			FiscalYear     int    `json:"fiscal_year"`
+			JournalEntryID string `json:"journal_entry_id"`
+			LineNo         int    `json:"line_no"`
+		} `json:"items"`
 	}](ctx, a.API, "/v1/dispute-cases", url.Values{"legal_entity_id": {le}, "customer_id": {c.ID}, "status": {"open"}})
 	if err != nil {
 		return fmt.Errorf("collectionsagent: the open dispute cases of customer %s: %w", c.Number, err)
@@ -285,7 +289,9 @@ func (a *Agent) disputes(ctx context.Context, le, keyDate string, receivables ma
 	}
 	disputed := map[string]bool{}
 	for _, dc := range cases {
-		disputed[line(dc.FiscalYear, dc.JournalEntryID, dc.LineNo)] = true
+		for _, it := range dc.Items { // a case over several invoices disputes each of them (T86c)
+			disputed[line(it.FiscalYear, it.JournalEntryID, it.LineNo)] = true
+		}
 	}
 	c.disputed = true
 	for _, it := range items {

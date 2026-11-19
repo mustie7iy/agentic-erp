@@ -3,6 +3,8 @@ package collections
 import (
 	"context"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -15,6 +17,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -85,7 +88,38 @@ func caseToAPI(c Case, r caseRefs) gen.DisputeCase {
 	if c.ClosedBy != nil {
 		out.ClosedByName.SetTo(r.people[*c.ClosedBy])
 	}
+	resolutionToAPI(c, &out)
+	out.Items = make([]gen.DisputeCaseItem, len(c.Items))
+	for i, it := range c.Items {
+		out.Items[i] = gen.DisputeCaseItem{ItemNo: int32(it.ItemNo), FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
+			DocumentNumber: it.DocumentNumber, Reference: apitypes.OptString(it.Reference), DisputedAmount: apitypes.Money(it.Amount, c.Currency, c.Exponent),
+			LocalDisputedAmount: apitypes.Money(it.AmountLC, c.CurrencyLC, c.ExponentLC), CreditMemoID: apitypes.OptUUID(it.CreditMemoID),
+			CreditMemoNumber: apitypes.OptString(it.CreditMemoNumber)}
+		if it.Accepted != nil { // with its local part (dispute_case_item_accepted_check)
+			out.Items[i].AcceptedAmount.SetTo(apitypes.Money(*it.Accepted, c.Currency, c.Exponent))
+			out.Items[i].LocalAcceptedAmount.SetTo(apitypes.Money(*it.AcceptedLC, c.CurrencyLC, c.ExponentLC))
+		}
+	}
 	return out
+}
+
+// resolutionToAPI gives a resolved case's representation its resolution:
+// what it accepted, in both currencies, when its documents posted and a
+// write-off's entry.
+func resolutionToAPI(c Case, out *gen.DisputeCase) {
+	r := c.Resolution
+	if r == nil {
+		return
+	}
+	out.Resolution.SetTo(r.Kind)
+	out.AcceptedAmount.SetTo(apitypes.Money(r.Accepted, c.Currency, c.Exponent))
+	out.LocalAcceptedAmount.SetTo(apitypes.Money(r.AcceptedLC, c.CurrencyLC, c.ExponentLC))
+	out.PostingDate.SetTo(r.PostingDate)
+	if w := r.WriteOff; w != nil {
+		out.WriteOffJournalEntryID.SetTo(w.ID)
+		out.WriteOffJournalEntryYear.SetTo(int32(w.Year))
+		out.WriteOffJournalEntryNumber.SetTo(w.Number)
+	}
 }
 
 // shownCase is a case as the API gives it, with what it names.
@@ -97,11 +131,36 @@ func (e *Endpoints) shownCase(ctx context.Context, c Case) (gen.DisputeCase, err
 	return caseToAPI(c, r), nil
 }
 
+// requestItems are the items a request to open a case names: its own
+// item fields, all of them, or its list, not both (T86c), 422
+// collections.items_or_item otherwise.
+func requestItems(req *gen.DisputeCaseCreate) ([]CaseItemInput, error) {
+	own := []bool{req.FiscalYear.Set, req.JournalEntryID.Set, req.LineNo.Set, req.DisputedAmount.Set}
+	all, some := !slices.Contains(own, false), slices.Contains(own, true)
+	switch {
+	case len(req.Items) == 0 && all:
+		// The contract bounds the year to 1900-2100.
+		ref := ledger.ItemRef{FiscalYear: int16(req.FiscalYear.Value), EntryID: req.JournalEntryID.Value, LineNo: req.LineNo.Value}
+		return []CaseItemInput{{Item: ref, Amount: req.DisputedAmount.Value.Amount, Currency: req.DisputedAmount.Value.Currency}}, nil
+	case len(req.Items) > 0 && !some:
+		out := make([]CaseItemInput, len(req.Items))
+		for i, it := range req.Items {
+			out[i] = CaseItemInput{Item: ledger.ItemRef{FiscalYear: int16(it.FiscalYear), EntryID: it.JournalEntryID, LineNo: it.LineNo}, // as above
+				Amount: it.DisputedAmount.Amount, Currency: it.DisputedAmount.Currency, Field: fmt.Sprintf("items[%d].", i)}
+		}
+		return out, nil
+	}
+	return nil, problem.Invalid("collections.items_or_item", "items", "A dispute case names its items either in items or, for one item, by "+
+		"fiscal_year, journal_entry_id, line_no and disputed_amount together; not both, and not neither.")
+}
+
 // CreateDisputeCase implements POST /v1/dispute-cases.
 func (e *Endpoints) CreateDisputeCase(ctx context.Context, req *gen.DisputeCaseCreate, _ gen.CreateDisputeCaseParams) (gen.CreateDisputeCaseRes, error) {
-	c, err := e.OpenCase(ctx, CaseInput{LegalEntityID: req.LegalEntityID,
-		Item:   ledger.ItemRef{FiscalYear: int16(req.FiscalYear), EntryID: req.JournalEntryID, LineNo: req.LineNo}, // the contract bounds the year to 1900-2100
-		Amount: req.DisputedAmount.Amount, Currency: req.DisputedAmount.Currency, Reason: req.Reason,
+	items, err := requestItems(req)
+	if err != nil {
+		return nil, err
+	}
+	c, err := e.OpenCase(ctx, CaseInput{LegalEntityID: req.LegalEntityID, Items: items, Reason: req.Reason,
 		Assignee: apitypes.Ptr[uuid.UUID](req.AssigneeID), Note: apitypes.Ptr[string](req.Note)})
 	if err != nil {
 		return nil, err
@@ -160,6 +219,24 @@ func (e *Endpoints) CloseDisputeCase(ctx context.Context, req *gen.DisputeCaseCl
 	return &gen.UpdateDisputeCaseOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: out}, nil
 }
 
+// ResolveDisputeCase implements POST /v1/dispute-cases/{id}:resolve.
+func (e *Endpoints) ResolveDisputeCase(ctx context.Context, req *gen.DisputeCaseResolve, params gen.ResolveDisputeCaseParams) (gen.ResolveDisputeCaseRes, error) {
+	in := ResolutionInput{Kind: req.Resolution, Reason: req.Reason, PostingDate: apitypes.Ptr[time.Time](req.PostingDate),
+		Items: make([]AcceptedInput, len(req.Items))}
+	for i, it := range req.Items {
+		in.Items[i] = AcceptedInput{ItemNo: it.ItemNo, Amount: it.AcceptedAmount.Amount, Currency: it.AcceptedAmount.Currency}
+	}
+	c, err := e.ResolveCase(ctx, params.ID, etag.IfMatch(params.IfMatch), in)
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.shownCase(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateDisputeCaseOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: out}, nil
+}
+
 var caseSort = pagination.Sort{Default: "created_at", DefaultDesc: true, Fields: []pagination.Field{
 	{Name: "created_at", Column: "d.created_at", Type: "timestamptz"},
 }}
@@ -189,6 +266,9 @@ func (e *Endpoints) ListDisputeCases(ctx context.Context, params gen.ListDispute
 	cases, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Case, error) { return scanCase(r) })
 	if err != nil {
 		return nil, fmt.Errorf("collections: list dispute cases: %w", err)
+	}
+	if err := caseItems(ctx, tx, cases); err != nil {
+		return nil, err
 	}
 	items, next, err := apitypes.PageWith(ks, cases, func(c Case) (string, uuid.UUID) { return pagination.Instant(c.CreatedAt), c.ID },
 		func(page []Case) (caseRefs, error) { return e.refs(ctx, page) }, caseToAPI)

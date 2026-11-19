@@ -445,7 +445,7 @@ func TestRFQDatabaseFailures(t *testing.T) {
 	for name, call := range map[string]func(ctx context.Context) error{
 		"create RFQ": func(ctx context.Context) error {
 			_, err := h.CreateRfq(ctx, &gen.RfqCreate{LegalEntityID: e.DE, Currency: gen.NewOptString("EUR"), DueDate: dateOf("2026-07-31"), SupplierIds: []uuid.UUID{e.Supplier, e.Vendor},
-				Items: []gen.RfqItemInput{{MaterialKey: "A", Description: "P", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, AccountID: uuid.MustParse(e.office)}}},
+				Items: []gen.RfqItemInput{{MaterialKey: gen.NewOptString("A"), Description: gen.NewOptString("P"), Quantity: gen.Quantity{Value: "1", Unit: "EA"}, AccountID: uuid.MustParse(e.office)}}},
 				gen.CreateRfqParams{})
 			return err
 		},

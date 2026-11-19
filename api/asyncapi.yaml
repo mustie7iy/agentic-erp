@@ -456,6 +456,7 @@ channels:
     messages:
       DunningRunChanged: {$ref: '#/components/messages/DunningRunChanged'}
       DunningNoticeIssued: {$ref: '#/components/messages/DunningNoticeIssued'}
+      DunningNoticeCancelled: {$ref: '#/components/messages/DunningNoticeCancelled'}
       DisputeCaseChanged: {$ref: '#/components/messages/DisputeCaseChanged'}
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
@@ -842,6 +843,7 @@ operations:
     messages:
       - $ref: '#/channels/collections/messages/DunningRunChanged'
       - $ref: '#/channels/collections/messages/DunningNoticeIssued'
+      - $ref: '#/channels/collections/messages/DunningNoticeCancelled'
       - $ref: '#/channels/collections/messages/DisputeCaseChanged'
   publishSalesEvents:
     action: send
@@ -2617,7 +2619,9 @@ components:
       description: |
         Emitted at each change of a catalog item's status (ADR-0071 §4,
         T84a): when it is loaded (`active`, status_before null) and when it
-        is retired (`retired`, status_before `active`). It names the
+        is retired (`retired`, status_before `active`); and when a mapping
+        of the company's keys gives it a material (S1f2: `active`,
+        status_before `active`, `material_id` set). It names the
         supplier by id and number, never by name, and carries the item's
         key, unit and price, not its description:
         `GET /v1/catalog-items/{id}` returns the item at `version` or
@@ -2632,7 +2636,7 @@ components:
       examples:
         - name: loaded
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f84, source: /erp/eu-1/procurement, type: com.example.erp.procurement.catalog_item_changed.v1, subject: 0192a000-0000-7000-8000-000000000f85, time: '2026-11-18T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {catalog_item_id: 0192a000-0000-7000-8000-000000000f85, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_number: BP100057, item_key: CHAIR-ERGO-01, unit: EA, unit_price: {amount: '450.00', currency: CAD}, price_unit: 1, contract_id: null, contract_item_no: null, status: active, status_before: null, version: 1}
+          payload: {catalog_item_id: 0192a000-0000-7000-8000-000000000f85, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_number: BP100057, item_key: CHAIR-ERGO-01, unit: EA, unit_price: {amount: '450.00', currency: CAD}, price_unit: 1, contract_id: null, contract_item_no: null, status: active, status_before: null, version: 1, material_id: null}
     ContractCancelled:
       name: ContractCancelled
       x-webhook: true
@@ -4432,12 +4436,15 @@ components:
       name: DunningRunChanged
       x-webhook: true
       title: Dunning run changed
-      summary: A dunning run was proposed or confirmed.
+      summary: A dunning run was proposed, confirmed or cancelled.
       description: |
         Emitted at each change of a dunning run's status (ADR-0065 §6,
-        T76a, T76b): when it is started (`proposed`, status_before null)
-        and when it is confirmed (`confirmed`, status_before `proposed`),
-        then followed by one DunningNoticeIssued per customer of the run.
+        T76a, T76b, T76i): when it is started (`proposed`, status_before
+        null) and when it is confirmed (`confirmed`, status_before
+        `proposed`), then followed by one DunningNoticeIssued per customer
+        of the run, and when it is cancelled (`cancelled`, status_before
+        `confirmed`), then followed by one DunningNoticeCancelled per
+        customer.
         It carries the run's totals, not its notices, and names no customer:
         `GET /v1/dunning-runs/{id}/notices` returns the notices, and
         `GET /v1/dunning-runs/{id}` the run at `version` or later. Subject
@@ -4452,7 +4459,7 @@ components:
       examples:
         - name: proposed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_run_changed.v1, subject: 0192a000-0000-7000-8000-000000000f31, time: '2026-12-31T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', key_date: '2026-12-31', notice_count: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, status: proposed, status_before: null, version: 1}
+          payload: {dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', key_date: '2026-12-31', notice_count: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, charge_document_count: 0, status: proposed, status_before: null, version: 1}
     DunningNoticeIssued:
       name: DunningNoticeIssued
       x-webhook: true
@@ -4463,8 +4470,11 @@ components:
         confirmed (ADR-0065 §6 and §8, T76b), after the run's
         DunningRunChanged and in the same transaction: the customer's
         items in the run are recorded as dunned on `dunning_date` and the
-        notice stands at `level`. It names the customer by id and number,
-        never by name, and carries the notice's totals, not its items:
+        notice stands at `level`. Where the company names its dunning
+        accounts, the notice's charge and interest were posted to the
+        customer as a debit memo, which it names (T76h). It names the
+        customer by id and number, never by name, and carries the
+        notice's totals, not its items:
         `GET /v1/dunning-runs/{id}/notices?customer_id=` returns the
         notice with its items. Nothing was sent to the customer: a
         subscriber that writes to customers does so from this event.
@@ -4479,7 +4489,34 @@ components:
       examples:
         - name: issued
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f04, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_notice_issued.v1, subject: 0192a000-0000-7000-8000-000000000f32, time: '2026-12-31T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 2, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, total_amount: {amount: '1072.77', currency: CAD}}
+          payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 2, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, total_amount: {amount: '1072.77', currency: CAD}, customer_invoice_id: 0192a000-0000-7000-8000-000000000f12, customer_invoice_number: CI100007}
+    DunningNoticeCancelled:
+      name: DunningNoticeCancelled
+      x-webhook: true
+      title: Dunning notice cancelled
+      summary: A cancelled dunning run withdrew a customer's notice.
+      description: |
+        Emitted once per customer of a dunning run when the confirmed run
+        is cancelled (ADR-0065 As built, T76i), after the run's
+        DunningRunChanged and in the same transaction: the levels the
+        notice's items were recorded at no longer count, and the debit
+        memo its charge and interest were posted with, if any, is
+        reversed (its CustomerInvoiceReversed precedes this event). A
+        subscriber that wrote to the customer from DunningNoticeIssued
+        withdraws the notice from this event. It names the customer by id
+        and number, never by name, and carries no reason, which the run
+        keeps. Subject is the dunning notice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.collections.dunning_notice_cancelled.v1}
+      payload: {$ref: '#/components/schemas/DunningNoticeCancelledV1'}
+      examples:
+        - name: cancelled
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f05, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_notice_cancelled.v1, subject: 0192a000-0000-7000-8000-000000000f32, time: '2027-01-04T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 2, customer_invoice_id: 0192a000-0000-7000-8000-000000000f12, customer_invoice_number: CI100007, reversal_entry_id: 0192a000-0000-7000-8000-000000000f33, reversal_date: '2026-12-31'}
     DisputeCaseChanged:
       name: DisputeCaseChanged
       title: Dispute case changed
@@ -6114,8 +6151,9 @@ components:
         overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
         charge_amount: {$ref: '#/components/schemas/Money', description: "The dunning charges of the run's notices, in the company's currency (T76d); 0 when its levels charge none. Always sent since T76d; optional in v1 (ADR-0041)."}
         interest_amount: {$ref: '#/components/schemas/Money', description: "The interest of the run's notices, in the company's currency (T76d); 0 when its levels charge none. Always sent since T76d; optional in v1 (ADR-0041)."}
-        status: {type: string, description: "The run's status after the change. Open enum: proposed, confirmed."}
-        status_before: {type: [string, 'null'], description: 'Its status before; null when it was started, proposed when it was confirmed.'}
+        charge_document_count: {type: integer, description: "The customer debit memos the run's confirmation posted its notices' charges and interest with (T76h); 0 before it is confirmed and for a company that names no dunning account. Always sent since T76h; optional in v1 (ADR-0041)."}
+        status: {type: string, description: "The run's status after the change. Open enum: proposed, confirmed, cancelled."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was started, proposed when it was confirmed, confirmed when it was cancelled.'}
         version: {type: integer, description: "The run's version after the change."}
     DunningNoticeIssuedV1:
       type: object
@@ -6133,26 +6171,71 @@ components:
         overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
         charge_amount: {$ref: '#/components/schemas/Money', description: "The dunning charge of the notice's level, in the company's currency (T76d); 0 when the level charges none."}
         interest_amount: {$ref: '#/components/schemas/Money', description: "The interest on the notice's items at the company's rate for their days overdue, in the company's currency (T76d); 0 when their levels charge none."}
-        total_amount: {$ref: '#/components/schemas/Money', description: 'What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted. The three amounts are always sent since T76d; optional in v1 (ADR-0041).'}
+        total_amount: {$ref: '#/components/schemas/Money', description: 'What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. The three amounts are always sent since T76d; optional in v1 (ADR-0041).'}
+        customer_invoice_id: {$ref: '#/components/schemas/NullableUuid', description: "The customer debit memo the confirmation posted the notice's charge and interest with (T76h; `GET /v1/customer-invoices/{id}`), whose CustomerInvoicePosted precedes this event in the same transaction; null when the notice is charged nothing or the company names no dunning account, and nothing was posted. Always sent since T76h; optional in v1 (ADR-0041)."}
+        customer_invoice_number: {type: [string, 'null'], description: "That memo's document number; null with `customer_invoice_id`. Always sent since T76h; optional in v1 (ADR-0041)."}
+    DunningNoticeCancelledV1:
+      type: object
+      required: [dunning_notice_id, dunning_run_id, legal_entity_id, legal_entity_code, customer_id, customer_number, dunning_date, level, customer_invoice_id, customer_invoice_number, reversal_entry_id, reversal_date]
+      properties:
+        dunning_notice_id: {$ref: '#/components/schemas/Uuid', description: '`collections.dunning_notice.id`.'}
+        dunning_run_id: {$ref: '#/components/schemas/Uuid', description: 'The cancelled run the notice is of: `collections.dunning_run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that dunned the customer.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number, as it was when the run was started."}
+        dunning_date: {$ref: '#/components/schemas/Date', description: "The date the customer's items had been recorded as dunned on: the run's key date."}
+        level: {type: integer, description: "The withdrawn notice's dunning level, 1 to 9."}
+        customer_invoice_id: {$ref: '#/components/schemas/NullableUuid', description: "The debit memo the notice's charge and interest were posted with (T76h), now reversed; null when none was posted."}
+        customer_invoice_number: {type: [string, 'null'], description: "That memo's document number; null with `customer_invoice_id`."}
+        reversal_entry_id: {$ref: '#/components/schemas/NullableUuid', description: "The journal entry that reversed the memo's; null with `customer_invoice_id`."}
+        reversal_date: {type: [string, 'null'], format: date, description: "The date the reversal posted on, the memo's posting date; null with `customer_invoice_id`."}
     DisputeCaseChangedV1:
       type: object
       required: [dispute_case_id, change, legal_entity_id, legal_entity_code, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, assignee_id, status, status_before, version]
       properties:
         dispute_case_id: {$ref: '#/components/schemas/Uuid', description: '`collections.dispute_case.id`.'}
-        change: {type: string, description: 'What changed. Open enum: opened, updated (the assignee or the note), closed.'}
+        change: {type: string, description: 'What changed. Open enum: opened, updated (the assignee or the note), closed, resolved (closed as accepted with a credit memo or a write-off, T86d).'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose customer item is disputed.}
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
-        fiscal_year: {type: integer, description: "The fiscal year of the item's journal entry."}
-        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The journal entry whose line is the disputed item.'}
-        line_no: {type: integer, description: 'The line of the journal entry that is the disputed item.'}
-        document_number: {type: string, description: "The journal entry's document number."}
-        disputed_amount: {$ref: '#/components/schemas/Money', description: "The amount disputed, in the item's currency."}
+        fiscal_year: {type: integer, description: "The fiscal year of the journal entry of the case's first item (`items`)."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: "The journal entry whose line is the case's first item."}
+        line_no: {type: integer, description: "The line of the journal entry that is the case's first item."}
+        document_number: {type: string, description: "The document number of the first item's journal entry."}
+        disputed_amount: {$ref: '#/components/schemas/Money', description: "The amount disputed, in the items' currency: what the items dispute together."}
         assignee_id: {type: [string, 'null'], format: uuid, description: 'The person who works the case after the change; null when nobody is assigned.'}
         status: {type: string, description: "The case's status after the change. Open enum: open, accepted, rejected."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was opened.'}
         version: {type: integer, description: "The case's version after the change."}
+        items:
+          type: array
+          description: "The case's items by number (T86c), each an open item of the customer by its journal line, with its entry's document number and the amount disputed of it. Always present from T86c on; absent in events published before."
+          items:
+            type: object
+            required: [item_no, fiscal_year, journal_entry_id, line_no, document_number, disputed_amount]
+            properties:
+              item_no: {type: integer, description: "The item's number in the case, from 1."}
+              fiscal_year: {type: integer, description: "The fiscal year of the item's journal entry."}
+              journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The journal entry whose line is the disputed item.'}
+              line_no: {type: integer, description: 'The line of the journal entry that is the disputed item.'}
+              document_number: {type: string, description: "The journal entry's document number."}
+              disputed_amount: {$ref: '#/components/schemas/Money', description: "The amount disputed of the item, in its currency."}
+              accepted_amount: {$ref: '#/components/schemas/Money', description: "What the case's resolution accepted of the item (T86d); absent unless the case is resolved."}
+              credit_memo_id: {type: [string, 'null'], format: uuid, description: "The customer credit memo that credited the item (`receivables.customer_invoice.id`); null when none did; absent unless the case is resolved."}
+              credit_memo_number: {type: [string, 'null'], description: "That credit memo's document number; null with it; absent unless the case is resolved."}
+        resolution:
+          type: [object, 'null']
+          description: "How an accepted case was resolved (T86d); null for a case not resolved. Always present from T86d on; absent in events published before."
+          required: [kind, accepted_amount, posting_date, write_off_journal_entry_id, write_off_journal_entry_year, write_off_journal_entry_number]
+          properties:
+            kind: {type: string, description: 'Open enum: credit_memo, write_off.'}
+            accepted_amount: {$ref: '#/components/schemas/Money', description: "What the resolution accepted, in the case's currency."}
+            posting_date: {type: string, format: date, description: "The date its documents posted on."}
+            write_off_journal_entry_id: {type: [string, 'null'], format: uuid, description: "A write-off's journal entry; null for a credit memo resolution, whose items name their memos."}
+            write_off_journal_entry_year: {type: [integer, 'null'], description: "Its fiscal year; null with it."}
+            write_off_journal_entry_number: {type: [string, 'null'], description: "Its document number; null with it."}
     CreditLimitChangedV1:
       type: object
       required: [credit_limit_id, legal_entity_id, legal_entity_code, customer_id, customer_number, limit, limit_before, version]
@@ -6187,18 +6270,18 @@ components:
         journal_entry_number: {type: string, description: "The clearing entry's document number."}
         item_count: {type: integer, description: "How many open items the payment was applied to, of every customer it paid."}
         residual_count: {type: integer, description: "How many of those it paid in part, leaving a residual item of the customer (T75f)."}
-        difference: {$ref: '#/components/schemas/Money', description: "The payment difference written off within the company's payment tolerance: what the items, net of their residuals, exceed the receipt by; positive an underpayment, negative an overpayment, zero for none (T75f)."}
+        difference: {$ref: '#/components/schemas/Money', description: "The payment difference written off within the company's payment tolerance: what the items, net of their residuals and of what their reasons wrote off, exceed the receipt by; positive an underpayment, negative an overpayment, zero for none (T75f)."}
         on_account_amount: {$ref: '#/components/schemas/Money', description: "What the payment left on the customer's account as a credit (T75g); zero for none."}
         customers:
           type: array
-          description: "Each customer whose items the payment applied (T75h: one receipt for several customers), the payer first, by id and number, never by name, with its part: its items net of their residuals."
+          description: "Each customer whose items the payment applied (T75h: one receipt for several customers), the payer first, by id and number, never by name, with its part: its items net of their residuals and of what their reasons wrote off."
           items:
             type: object
             required: [customer_id, customer_number, amount]
             properties:
               customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
               customer_number: {type: string, description: "The customer's business partner number."}
-              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals."}
+              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals and of what their reasons wrote off."}
     IncomingPaymentOnAccountAppliedV1:
       type: object
       required: [incoming_payment_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, application_no, posting_date, amount, difference, on_account_amount, journal_entry_id, journal_entry_year, journal_entry_number, item_count, residual_count]
@@ -6246,7 +6329,7 @@ components:
             properties:
               customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
               customer_number: {type: string, description: "The customer's business partner number."}
-              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals."}
+              amount: {$ref: '#/components/schemas/Money', description: "Its part: its items applied, net of their residuals and of what their reasons wrote off."}
     QuotationChangedV1:
       type: object
       required: [quotation_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, quotation_date, valid_until, net_amount, status, status_before, version]
@@ -8260,6 +8343,7 @@ components:
         status: {type: string, description: "The item's status after the change. Open enum: active, retired."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was loaded.'}
         version: {type: integer, description: "The item's version after the change."}
+        material_id: {$ref: '#/components/schemas/NullableUuid', description: "The material the item is of (S1f2), whose number is `item_key`; null for an item known by its key alone. Added within v1 (S1f2); consumers ignore it if absent."}
     ContractCancelledV1:
       type: object
       required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "previous_status", "status"]

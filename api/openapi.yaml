@@ -10964,8 +10964,11 @@ paths:
         - procurement.invalid_catalog_item
         - procurement.invalid_contract
         - procurement.invalid_item_no
+        - procurement.invalid_material_quantity
         - procurement.invalid_quantity
+        - procurement.key_not_material
         - procurement.legal_entity_not_active
+        - procurement.material_not_usable
         - procurement.supplier_not_usable
         - procurement.unknown_currency
         - procurement.unknown_unit
@@ -11063,8 +11066,11 @@ paths:
         - procurement.invalid_catalog_item
         - procurement.invalid_contract
         - procurement.invalid_item_no
+        - procurement.invalid_material_quantity
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.key_not_material
+        - procurement.material_not_usable
         - procurement.not_requester
         - procurement.supplier_not_usable
         - procurement.unknown_currency
@@ -12233,7 +12239,10 @@ paths:
         - procurement.invalid_contract
         - procurement.invalid_contract_item
         - procurement.invalid_item_key
+        - procurement.invalid_material_quantity
+        - procurement.key_not_material
         - procurement.legal_entity_not_active
+        - procurement.material_not_usable
         - procurement.supplier_not_usable
         - procurement.unknown_currency
         - procurement.unknown_unit
@@ -12262,6 +12271,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CatalogItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/catalog-material-mappings:
+    post:
+      operationId: mapCatalogItemMaterials
+      tags:
+        - procurement
+      summary: Map a company's catalog item keys onto materials
+      description: "Maps the item keys of a company's catalog onto the material master once (S1f2, ADR-0082 As built S1f): each `active` catalog item of the company that names no material and whose `item_key` is the number of an `active` material of the tenant, in whose base unit or one of whose alternative units it is ordered, is given that material (`material_id`), its key and everything else unchanged; a catalog item's material, once set, never changes. A requisition item taken from it afterwards names the material too; requisitions, RFQs, contracts and orders already made keep their items as they are, and nothing is posted. The answer reports, by item key in order, every key of the company's active catalog items still without a material before the run: `mapped` (its items were given the material), `no_material` (no material has that number: the key stays a free-text key) or `not_mappable` (the material is not active, or an item is ordered in a unit that is none of the material's: `reason` says which, and those items keep no material), with the count of its items. A second run maps nothing twice and reports the keys still unmapped. Each item mapped is audited and published as `CatalogItemChanged`, its version raised. The items are locked in the order of their keys and ids, so two runs of one company wait for each other."
+      x-permission: procurement.catalog.manage
+      x-problem-codes:
+        # The database's answers to a second active item of a key (catalog_item_active_key) and to an unknown unit
+        # (catalog_item_uom_code_fkey), which TestProblemCodes lists for every operation that writes catalog items; this one
+        # cannot reach them, as it sets the material of items already loaded and changes neither their key nor their unit.
+        - procurement.catalog_item_exists
+        - procurement.legal_entity_not_active
+        - procurement.unknown_unit
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The company whose catalog is mapped.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CatalogMaterialMapping"
+      responses:
+        "200":
+          description: "The mapping's report."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogMaterialMappingReport"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -13091,9 +13150,12 @@ paths:
         - procurement.account_not_postable
         - procurement.duplicate_material_key
         - procurement.invalid_item_no
+        - procurement.invalid_material_quantity
         - procurement.invalid_quantity
         - procurement.invalid_status
+        - procurement.key_not_material
         - procurement.legal_entity_not_active
+        - procurement.material_not_usable
         - procurement.requisition_mismatch
         - procurement.requisition_on_contract
         - procurement.rfq_due_date_past
@@ -18167,7 +18229,7 @@ paths:
       tags:
         - receivables
       summary: Reverse a customer credit memo or debit memo
-      description: "Reverses a posted customer credit memo or debit memo, once (ADR-0063 As built T75k): the ledger posts the reversal of its journal entry, the original's lines with the signs turned, its document type, reference and `source_context` kept, its tax items taken back on the original's tax date, and clears the memo's open item against the reversal's, so neither is open. The reversal posts on `posting_date`, else on the memo's own posting date; that date must be in an open period (409 `ledger.period_not_open`, the period's problem: give a date in an open period) and not before the memo posted (422 `receivables.reversal_before_posting` naming `posting_date`). The document becomes `reversed` and shows its reversal (`reversal_entry_id`, `reversal_entry_year`, `reversal_entry_number`, `reversal_posting_date`) and the `reason`; an audit record and CustomerInvoiceReversed, without the reason, are written with it. A reversed credit memo no longer counts against the gross amount of the invoice it names (`postCustomerInvoice`, 422 `receivables.credit_exceeds_invoice`): the credit it took is free for another memo. Refused: a document that is not posted, a draft or one reversed already (409 `receivables.invalid_status`); an invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit memo another context entered from its own document, a billing document's cancellation or a credit memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is corrected there; a memo whose open item is cleared, netted when a payment was applied or cleared against its invoice (409 `receivables.document_cleared`: undo that clearing first; `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`)."
+      description: "Reverses a posted customer credit memo or debit memo, once (ADR-0063 As built T75k): the ledger posts the reversal of its journal entry, the original's lines with the signs turned, its document type, reference and `source_context` kept, its tax items taken back on the original's tax date, and clears the memo's open item against the reversal's, so neither is open. The reversal posts on `posting_date`, else on the memo's own posting date; that date must be in an open period (409 `ledger.period_not_open`, the period's problem: give a date in an open period) and not before the memo posted (422 `receivables.reversal_before_posting` naming `posting_date`). The document becomes `reversed` and shows its reversal (`reversal_entry_id`, `reversal_entry_year`, `reversal_entry_number`, `reversal_posting_date`) and the `reason`; an audit record and CustomerInvoiceReversed, without the reason, are written with it. A reversed credit memo no longer counts against the gross amount of the invoice it names (`postCustomerInvoice`, 422 `receivables.credit_exceeds_invoice`): the credit it took is free for another memo. Refused: a document that is not posted, a draft or one reversed already (409 `receivables.invalid_status`); an invoice, which is corrected by a credit memo (409 `receivables.invoice_not_reversible`); a credit memo another context entered from its own document, a billing document's cancellation or a credit memo request of sales (`source_document_id`; 409 `receivables.entered_from_source`), which is corrected there, and a debit memo of a dunning notice's charge and interest (T76h; the same code), which the cancellation of its dunning run reverses (`cancelDunningRun`); a memo whose open item is cleared, netted when a payment was applied or cleared against its invoice (409 `receivables.document_cleared`: undo that clearing first; `ledger.entry_cleared` when the clearing committed while the request ran). The memo is read under its row lock at the version the client read (`If-Match`, 412 `request.version_mismatch`); a retry with the same `Idempotency-Key` answers the reversed document. Human-only (`x-agent: false`)."
       x-permission: receivables.invoice.post
       x-agent: false
       x-problem-codes:
@@ -18370,16 +18432,18 @@ paths:
       operationId: createDisputeCase
       tags:
         - collections
-      summary: Open a dispute case on a customer's open item
-      description: "Opens a dispute case (ADR-0065 As built, T86a): the customer disputes an amount of one of its open items, an invoice, for a reason. The item is named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names it) and must be an open item on a customer reconciliation account of the company in the leading ledger, one the customer owes (422 `collections.item_not_open` naming `journal_entry_id`). The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). `disputed_amount` is in the item's currency (422 `collections.currency_mismatch` naming `disputed_amount.currency`), more than zero and at most the item's open amount (422 `collections.invalid_disputed_amount` naming `disputed_amount.amount`); the case also keeps its share of the item's amount in the company's currency, as the item was booked (`local_disputed_amount`, the item's local amount × the disputed amount ÷ its amount, rounded half away from zero). An item has one open case at a time: a second is refused, whether it comes after the first or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`)."
+      summary: Open a dispute case on a customer's open items
+      description: "Opens a dispute case (ADR-0065 As built, T86a, T86c): the customer disputes amounts of one or more of its open items, invoices, for a reason. Each item is named by its journal line (`fiscal_year`, `journal_entry_id`, `line_no`, as a dunning notice's item names it), with the amount disputed of it: one item by the request's own fields, or 1 to 50 in `items`, not both (422 `collections.items_or_item`, naming `items`); in a list each line once (422 `request.validation_failed` naming `items[n].journal_entry_id`). Each must be an open item on a customer reconciliation account of the company in the leading ledger, one the customer owes (422 `collections.item_not_open` naming its `journal_entry_id`); the first item's customer is the case's, and every other item is that customer's (422 `collections.item_not_open`) and in the first item's currency (422 `collections.currency_mismatch` naming its `journal_entry_id`). The company is one the caller may act in (422 `request.reference_not_found` naming `legal_entity_id`). An item's disputed amount is in the item's currency (422 `collections.currency_mismatch` naming its `disputed_amount.currency`), more than zero and at most the item's open amount (422 `collections.invalid_disputed_amount` naming its `disputed_amount.amount`); the case also keeps each item's share of its amount in the company's currency, as the item was booked (the item's local amount × the disputed amount ÷ its amount, rounded half away from zero). The case's `disputed_amount` and `local_disputed_amount` are its items' totals (more than an amount holds: 422 `collections.amount_too_large`), and its own journal line is its first item's. An item is in one open case at a time: an item in another open case is refused, whether the case comes after the other or races it (409 `collections.dispute_exists`). An assignee, if named, is an active person of the tenant who may act in the company (422 `collections.assignee_invalid` naming `assignee_id`). `reason` and `note` are texts of more than white space (422 `request.validation_failed` naming the field). The case is created `open`. Opening a case posts nothing and changes nothing on the item; a dunning run leaves the item out while the case is open (T86b). Audited, and published as DisputeCaseChanged (`opened`), naming the customer by id and number. A retry with the same `Idempotency-Key` answers the case opened. Human-only (`x-agent: false`)."
       x-permission: collections.dispute.write
       x-agent: false
       x-problem-codes:
+        - collections.amount_too_large
         - collections.assignee_invalid
         - collections.currency_mismatch
         - collections.dispute_exists
         - collections.invalid_disputed_amount
         - collections.item_not_open
+        - collections.items_or_item
         - request.invalid_amount
         - request.validation_failed
       parameters:
@@ -18402,6 +18466,14 @@ paths:
                   disputed_amount: {amount: "150.00", currency: CAD}
                   reason: The customer says the bearing was priced above the quotation
                   assignee_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+              several:
+                summary: Two invoices disputed for a late delivery
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  items:
+                    - {fiscal_year: 2026, journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61", line_no: 1, disputed_amount: {amount: "30.00", currency: CAD}}
+                    - {fiscal_year: 2026, journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62", line_no: 1, disputed_amount: {amount: "120.00", currency: CAD}}
+                  reason: Delivered two weeks late, past the agreed date
       responses:
         "201":
           description: "Created; the new dispute case."
@@ -18525,7 +18597,7 @@ paths:
       tags:
         - collections
       summary: Close a dispute case as accepted or rejected
-      description: "Closes an `open` dispute case once (ADR-0065 As built, T86a), at the version the caller read (`If-Match`): `outcome` `accepted` (the customer is right) or `rejected` (it owes the amount; another value is 422 `collections.unknown_outcome` naming `outcome`), with the reason, a text of more than white space (422 `request.validation_failed`). The case is read under a row lock and moves to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is credited by a person, with a credit memo request or a customer credit memo. Once the case is closed the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`)."
+      description: "Closes an `open` dispute case once (ADR-0065 As built, T86a), at the version the caller read (`If-Match`): `outcome` `accepted` (the customer is right) or `rejected` (it owes the amount; another value is 422 `collections.unknown_outcome` naming `outcome`), with the reason, a text of more than white space (422 `request.validation_failed`). The case is read under a row lock and moves to its outcome; one that is not open is refused (409 `collections.dispute_closed`). A case whose item was cleared meanwhile is closed as any other. Closing posts nothing: an accepted case is resolved by a credit memo or a write-off with `resolveDisputeCase` (T86d) instead, or credited by a person, with a credit memo request or a customer credit memo. Once the case is closed the item is dunned again (T86b). Audited, and published as DisputeCaseChanged (`closed`). A retry with the same `Idempotency-Key` answers the closed case. Human-only (`x-agent: false`)."
       x-permission: collections.dispute.write
       x-agent: false
       x-problem-codes:
@@ -18556,6 +18628,156 @@ paths:
       responses:
         "200":
           description: "The dispute case, closed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisputeCase"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dispute-cases/{id}:resolve":
+    post:
+      operationId: resolveDisputeCase
+      tags:
+        - collections
+      summary: Resolve an accepted dispute case by credit memo or write-off
+      description: "Resolves an `open` dispute case the company accepts, in full or in part, once (ADR-0065 As built, T86d), at the version the caller read (`If-Match`; 412 when another change came first): the case is read under a row lock; one that is not open is refused (409 `collections.dispute_closed`). `resolution` is `credit_memo` or `write_off` (another value is 422 `collections.unknown_resolution` naming `resolution`), with the reason, a text of more than white space (422 `request.validation_failed`). Without `items` every item of the case is accepted in full; with them, each names an item of the case by `item_no`, once (422 `collections.unknown_item` naming its `item_no`), and what is accepted of it, in the case's currency (422 `collections.currency_mismatch`), from zero to what the item disputes (422 `collections.invalid_accepted_amount` naming its `accepted_amount.amount`); an item not named is not accepted, and more than zero must be accepted in all (422 `collections.invalid_accepted_amount` naming `items`: a case the company does not accept is closed as rejected, `closeDisputeCase`). The documents post on `posting_date`, else on the company's today in its time zone, in an open period (409 `ledger.period_not_open`). `credit_memo`: for each item accepted above zero a customer credit memo is entered and posted through receivables (`postCustomerInvoice`), naming the posted customer invoice the item's entry was posted for (an item of any other entry, a manual entry's or a residual item's, is 422 `collections.no_invoice` naming `resolution`: write it off instead), with the invoice's items credited in proportion to the accepted part of its gross amount, net and tax alike, so its gross amount is the accepted amount; its source is the case's item (`source_document_id`, the item's id, and `source_document_number`, the case's id and the item's number). Receivables' rules hold: the credits naming one invoice never exceed its gross amount (422 `receivables.credit_exceeds_invoice`), and a customer no longer usable is refused (422 `receivables.customer_not_usable`). `write_off`: one journal entry, document type `SA`, `source_context` `collections`, the case its source document, with per item accepted above zero a debit of the accepted amount on the company's `payment_difference_expense` account (422 `collections.no_write_off_account` without it) and a credit to the item's account naming the customer, both at the item's booked rate. An item of a debit memo a dunning run posted its charges and interest with is not written off (422 `collections.dunning_charge_write_off` naming `resolution`): cancelling the run (`cancelDunningRun`) reverses that memo, and a write-off would give the customer the charge back a second time. Either leaves a credit item of the customer open beside the invoice, which clears against it (`createClearing`) or nets when a payment is applied, as any credit does; no tax is adjusted by a write-off. A refusal by receivables or the ledger names `resolution` (or `posting_date`), its detail led by the document that could not be posted, and leaves the case open with nothing posted. The case becomes `accepted` with `resolution`, `accepted_amount`, `local_accepted_amount` (each item's accepted part of its local disputed amount, rounded half away from zero), `posting_date`, its write-off's entry (`write_off_journal_entry_id`, `write_off_journal_entry_year`, `write_off_journal_entry_number`) and each item's `accepted_amount` and credit memo (`credit_memo_id`, `credit_memo_number`); `close_reason` is the reason. Once closed, its items are dunned again (T86b) for what is still open of them. Audited (without the reason), and published as DisputeCaseChanged (`resolved`). A retry with the same `Idempotency-Key` answers the resolved case. Human-only (`x-agent: false`)."
+      x-permission: collections.dispute.resolve
+      x-agent: false
+      x-problem-codes:
+        - collections.currency_mismatch
+        - collections.dispute_closed
+        # The database's answer to a second open case of an item (dispute_case_one_open), which TestProblemCodes lists for every
+        # operation that writes cases; this one cannot reach it, as it closes a case without opening one.
+        - collections.dispute_exists
+        - collections.dunning_charge_write_off
+        - collections.invalid_accepted_amount
+        - collections.no_invoice
+        - collections.no_write_off_account
+        - collections.unknown_item
+        - collections.unknown_resolution
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.credit_exceeds_invoice
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
+        - receivables.invalid_status
+        - receivables.items_required
+        - receivables.no_tax_account
+        - receivables.reference_not_allowed
+        - receivables.tax_changed
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
+        - receivables.unknown_currency
+        - receivables.unknown_kind
+        - receivables.unknown_payment_term
+        - receivables.unknown_tax_code
+        - request.invalid_amount
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The resolution, what is accepted of which items, and the reason.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeCaseResolve"
+            examples:
+              partly:
+                summary: One invoice credited in full, the other in part
+                value:
+                  resolution: credit_memo
+                  reason: Both deliveries were late; the valve kit's discount in full, half of the gauge's
+                  items:
+                    - {item_no: 1, accepted_amount: {amount: "21.00", currency: CAD}}
+                    - {item_no: 2, accepted_amount: {amount: "42.00", currency: CAD}}
+              written_off:
+                summary: The whole case written off
+                value:
+                  resolution: write_off
+                  reason: Not worth pursuing
+      responses:
+        "200":
+          description: "The dispute case, resolved."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -19074,6 +19296,7 @@ paths:
             x-extensible-enum:
               - proposed
               - confirmed
+              - cancelled
         - name: key_date_from
           in: query
           required: false
@@ -19111,7 +19334,7 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items` (T76e). An item a customer promised to pay (`createPromiseToPay`) by a date on or after the key date is in no notice either, unless blocked: the run lists it in `promised_items` with its promise, outside its totals, and not in `disputed_items` (T76f). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. The company's dunning procedure applies as the configuration has it when the run is started, and the run keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`, and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. The net due date is that of the payment terms the item was posted with; an item posted without payment terms (a manual or migrated entry's) is due on its document date and is proposed like any other. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing, with or without terms. An item with an open dispute case (`createDisputeCase`) is in no notice, whatever part of it is disputed: the run lists it in `disputed_items` with its case, and it counts in none of the run's totals; once the case is closed a new run proposes it again (T86b). An item with an active dunning block (`createDunningBlock`) of its own or of its customer, whose `valid_to` is on or after the key date, is in no notice either: the run lists it in `blocked_items` with its block, outside its totals, and not in `disputed_items` (T76e). An item a customer promised to pay (`createPromiseToPay`) by a date on or after the key date is in no notice either, unless blocked: the run lists it in `promised_items` with its promise, outside its totals, and not in `disputed_items` (T76f). An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. The company's dunning procedure applies as the configuration has it when the run is started, and the run keeps it (T76d): an item overdue by no more than `companies[].dunning.grace_days` is not proposed; a customer whose notice's overdue amount would be below `companies[].dunning.minimum_amount` gets no notice, and the run counts it in `below_minimum_notice_count` and `below_minimum_amount`; a notice is charged its level's `charge`, and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges and interest are what the notices ask for: nothing is posted until the run is confirmed (`confirmDunningRun`, T76h). A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
@@ -19200,12 +19423,85 @@ paths:
       tags:
         - collections
       summary: Confirm a dunning run
-      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the item or its customer, placed since and holding for the run's key date, blocks (T76e), and one with an item a customer promised since, by a date on or after the run's key date, to pay (T76f). Nothing of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. No letter or e-mail is sent. Where the company's account determination names its dunning accounts (`companies[].account_determination.dunning_charges` and `.dunning_interest`, T76h), each notice charged a charge or interest is posted to its customer, in the same transaction: a customer debit memo (`kind` `debit_memo`, `GET /v1/customer-invoices/{id}`) is entered and posted in accounts receivable with the notice as its source (`source_document_id`), the company's today in its time zone as its date and posting date (the day the charge is raised, in whose fiscal year it is numbered, whatever the key date), the customer's payment term and an item for the charge on the charge account and one for the interest on the interest account, each only when above zero and without a tax code; its entry (document type `DD`) debits the customer's reconciliation account with the two, the customer's open item, and credits the accounts. The notice names its memo (`charge_document`) and the run counts them (`charge_document_count`); DunningNoticeIssued names it too, beside the memo's own CustomerInvoiceChanged and CustomerInvoicePosted. A company that names neither account posts nothing, and the items stay as they were. What accounts receivable or the ledger refuses refuses the confirmation, nothing of it recorded or posted, with their code and the customer's number leading the detail: a customer that is not active, no longer a customer or blocked for posting in the company (422 `receivables.customer_not_usable`), an account that can no longer be posted (422 `receivables.account_not_postable`), a company without the `customer_invoice` or `journal_dd` number range (422 `config.no_number_range`), a posting date in a period not open (409 `ledger.period_not_open`); a charge or interest whose account the company no longer names, since the run was started, is refused too (422 `collections.no_charge_account`). Posting takes the credit controller's permission alone: no permission of accounts receivable is needed. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`); so is a proposal with an item that an active dunning block of the item or its customer, placed since and holding for the run's key date, blocks (T76e), and one with an item a customer promised since, by a date on or after the run's key date, to pay (T76f). Nothing of a stale proposal is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A dispute case opened on an item after the run was started does not make the proposal stale: the run is confirmed as proposed and the item recorded as dunned (T86b). A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is cancelled with `cancelDunningRun` (T76i). A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
         - collections.invalid_status
+        - collections.no_charge_account
         - collections.proposal_stale
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.credit_exceeds_invoice
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
+        - receivables.invalid_status
+        - receivables.items_required
+        - receivables.no_tax_account
+        - receivables.reference_not_allowed
+        - receivables.tax_changed
+        - receivables.tax_jurisdiction_not_levied
+        - receivables.tax_jurisdiction_required
+        - receivables.unknown_currency
+        - receivables.unknown_kind
+        - receivables.unknown_payment_term
+        - receivables.unknown_tax_code
+        - request.invalid_amount
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
@@ -19214,6 +19510,105 @@ paths:
       responses:
         "200":
           description: "The confirmed run."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-runs/{id}:cancel":
+    post:
+      operationId: cancelDunningRun
+      tags:
+        - collections
+      summary: Cancel a confirmed dunning run
+      description: "Cancels a confirmed dunning run, once (ADR-0065 As built, T76i), at the version the caller read (`If-Match`), with a `reason`: the run becomes `cancelled` and shows the reason (`cancellation_reason`). The levels and dunning dates its confirmation recorded no longer count: a run started from then on, the collection worklist and a confirmation's comparison read the confirmed runs alone, so each of its items is back at the level the runs before it recorded (`previous_level`), and a proposal started before the cancellation is stale when it is confirmed (409 `collections.proposal_stale`). Each customer debit memo its confirmation posted its notices' charges and interest with (T76h, `charge_document`) is reversed in accounts receivable, in the same transaction, on the memo's posting date with the cancellation's reason: the ledger posts the reversal of its entry and clears the memo's open item against it, the memo becomes `reversed`, and the notice's `charge_document` shows the reversal; each memo's CustomerInvoiceReversed is written beside the run's audit record, DunningRunChanged (`cancelled`, status_before `confirmed`) and one DunningNoticeCancelled per notice. The run's notices, items and amounts stay as they were, for the record. Refused: a run that is not `confirmed`, a proposed or a cancelled one (409 `collections.invalid_status`), so a second cancellation reverses nothing; a run a later confirmed run of the company has dunned the items of from the levels this one recorded, or the debit memos it posted (409 `collections.run_superseded`, naming that run: cancel it first); a memo whose open item is cleared, by a payment applied or a clearing (409 `receivables.document_cleared`; `ledger.entry_cleared` when the clearing committed while the request ran: undo that clearing first); a memo posted in a period that is no longer open (409 `ledger.period_not_open`); the reason missing or white space alone (422 `request.validation_failed` naming `reason`). What accounts receivable or the ledger refuses is answered with their code, the memo's number and the customer's leading the detail, and nothing of the cancellation is done. Cancellations and confirmations of a company's runs wait for each other. Cancelling takes the credit controller's permission alone: no permission of accounts receivable is needed. A retry with the same `Idempotency-Key` answers the cancelled run. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: collections.dunning.run
+      x-agent: false
+      x-problem-codes:
+        - collections.invalid_status
+        - collections.run_superseded
+        - config.no_number_range
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.already_reversed
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cannot_reverse_reversal
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.entry_cleared
+        - ledger.entry_is_copy
+        - ledger.entry_owned_elsewhere
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.no_fiscal_period
+        - ledger.no_price_difference_account
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unknown_unit
+        - receivables.document_cleared
+        - receivables.entered_from_source
+        - receivables.invalid_status
+        - receivables.invoice_not_reversible
+        - receivables.reversal_before_posting
+        - request.validation_failed
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of cancelDunningRun.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DunningRunCancel"
+            examples:
+              cancel:
+                summary: Cancel a run confirmed at the wrong key date
+                value:
+                  reason: Run at the wrong key date; the notices were not sent.
+      responses:
+        "200":
+          description: "The cancelled run."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -21040,7 +21435,7 @@ paths:
       tags:
         - receivables
       summary: Apply an incoming payment to a customer's open items
-      description: "Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f), and with `other_customer_ids` to other customers' items as well (T75h: one receipt for several customers, each customer's items cleared by the one entry and its part shown in `customers`, a part out of range refused with 422 `receivables.amount_too_large`; a residual item stays its item's customer's, what is left on account the payer's). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency. An item paid in part names its `residual`: what stays open of it, more than zero and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422 `receivables.currency_mismatch`), with a reason (422 `receivables.unknown_residual_reason`) and, if wanted, a free text that is not white space alone (422 `request.validation_failed`). Together the items, net of their residuals, equal the receipt, but for a payment difference within the company's payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's currency and a percent of the items applied, the lower binding; none configured, none allowed); anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; each residual is a new open item of the customer, a debit line of that entry on the item's account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item did; a difference is a line on the company's `payment_difference_expense` account (an underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422 `ledger.no_payment_difference_account` without it); what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). With `on_account`, what the receipt leaves after the items, the whole receipt when there are none, is posted to the customer's reconciliation account (its company data, 422 `receivables.customer_not_usable` without it) as a credit of the customer's at the receipt's rate, a line of the clearing entry, which `applyIncomingPaymentOnAccount` applies later; an overpayment is then left on account rather than kept within the tolerance, and something must be left (422 `receivables.nothing_left_on_account`); without it the items are required (422 `ledger.no_items`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only (`x-agent: false`)."
+      description: "Applies an incoming payment to a customer's open items (ADR-0063 §6, T75c, T75f), and with `other_customer_ids` to other customers' items as well (T75h: one receipt for several customers, each customer's items cleared by the one entry and its part shown in `customers`, a part out of range refused with 422 `receivables.amount_too_large`; a residual item stays its item's customer's, what is left on account the payer's). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency or another (T75n): an item in another currency is translated into the receipt's at the average exchange rate valid on the posting date between the two (`GET /v1/exchange-rates`, either direction, the reciprocal when only the reverse pair is recorded; no rate through a third currency), rounded once half away from zero, and is cleared at its own rate: the clearing entry, in the receipt's currency, offsets it at that amount and at the local and group amounts it was booked at, so what the translation leaves is part of the realized exchange difference below. An item without such a rate that day is refused (422 `ledger.no_exchange_rate`), as is one that translates to nothing in the receipt's currency (422 `ledger.item_rounds_to_zero`), each naming `items[i]`; residuals, the tolerance and what is left on account are in the receipt's currency for every item. An item paid in part names its `residual`: what stays open of it, more than zero and less than the item, which is an amount the customer owes (422 `ledger.invalid_residual` naming `items[i].residual.amount`), more than zero (422 `receivables.amount_not_positive`) in the receipt's currency (422 `receivables.currency_mismatch`), with a reason, one of the company's payment-difference reasons (`companies[].receivables.payment_difference_reasons`, SAP OBBE; a company that configures none has `short_payment`, `disputed`, `deduction` and `other`; another is refused, 422 `receivables.unknown_residual_reason`), and, if wanted, a free text that is not white space alone (422 `request.validation_failed`). The reason decides what becomes of the residual (T75o): a reason whose treatment is `residual` leaves it open as a residual item, as below; one whose treatment is `write_off` writes it off instead, a debit line of the clearing entry on the reason's account at the receipt's rate, shown as the item's `write_off` (422 `receivables.no_write_off_account` when the company's chart no longer has that account), and what reasons write off counts with the payment difference against the payment tolerance. Together the items, net of their residuals and of what their reasons wrote off, equal the receipt, but for a payment difference within the company's payment tolerance (`companies[].receivables.payment_tolerance`, SAP OBA3: per direction an amount in the company's currency and a percent of the items applied, the lower binding; none configured, none allowed), what reasons write off included; anything more is refused, 422 `ledger.clearing_not_balanced`, its message giving the difference. No cash discount is granted. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; each residual is a new open item of the customer, a debit line of that entry on the item's account at the item's rate, with the item's payment terms but no cash discount tier, so it falls due when the item did; a difference is a line on the company's `payment_difference_expense` account (an underpayment) or `payment_difference_revenue` account (an overpayment), at the receipt's rate (422 `ledger.no_payment_difference_account` without it); what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item` naming `posting_date`, its message giving that date). With `on_account`, what the receipt leaves after the items, the whole receipt when there are none, is posted to the customer's reconciliation account (its company data, 422 `receivables.customer_not_usable` without it) as a credit of the customer's at the receipt's rate, a line of the clearing entry, which `applyIncomingPaymentOnAccount` applies later; an overpayment is then left on account rather than kept within the tolerance, and something must be left (422 `receivables.nothing_left_on_account`); without it the items are required (422 `ledger.no_items`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`) and one a payment run holds (409 `ledger.item_reserved`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused while the payment is applied. `resetIncomingPayment` undoes it (T75i). Human-only (`x-agent: false`)."
       x-permission: receivables.payment.apply
       x-agent: false
       x-problem-codes:
@@ -21062,8 +21457,10 @@ paths:
         - ledger.invalid_residual
         - ledger.item_already_cleared
         - ledger.item_reserved
+        - ledger.item_rounds_to_zero
         - ledger.legal_entity_not_active
         - ledger.mixed_items
+        - ledger.no_exchange_rate
         - ledger.no_fiscal_period
         - ledger.no_fx_account
         - ledger.no_items
@@ -21092,6 +21489,7 @@ paths:
         - receivables.customer_not_usable
         - receivables.customer_without_items
         - receivables.duplicate_customer
+        - receivables.no_write_off_account
         - receivables.nothing_left_on_account
         - receivables.receipt_already_applied
         - receivables.receipt_not_open
@@ -21218,7 +21616,7 @@ paths:
       tags:
         - receivables
       summary: Apply an incoming payment's credit on account to open items
-      description: "Applies what an incoming payment left on the customer's account (T75g, `createIncomingPayment` with `on_account`) to the customer's open items, as SAP clears an account with a payment on account. The credit applied is the one still open: the payment's own before any application, else what the last application left; one that is no longer open, all applied or cleared otherwise, is refused (409 `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared` when another request cleared it meanwhile, as two applications racing for it end). The items are the customer's open items in the company, invoices and credits, in the payment's currency, refused as `createIncomingPayment` refuses them, each naming its place in the request as the field `items[i]`, and each may name a `residual` as there. Together, net of their residuals, they may be less than the credit: what is left stays on account as a new credit of the customer's, a line of the application's clearing entry, at the credit's rate. More than the credit is refused (422 `ledger.clearing_not_balanced`) but for an underpayment within the company's payment tolerance, written off to its `payment_difference_expense` account. One clearing entry, document type `DZ`, `source_context` `receivables`, its source document the payment, offsets the credit and the items at the amounts they were booked at and clears them all; an exchange difference is realized as `createIncomingPayment` realizes one. The posting date is the request's, else today, the company's date in its time zone, in an open period and on or after the latest posting date of the credit and the items. The application is numbered in the payment from 1; its items join the payment's items with its number. The payment's `version` moves with each application (`ETag`), and the answer is the payment with the application, which its `applications` list last. Audited, and published as IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`)."
+      description: "Applies what an incoming payment left on the customer's account (T75g, `createIncomingPayment` with `on_account`) to the customer's open items, as SAP clears an account with a payment on account. The credit applied is the one still open: the payment's own before any application, else what the last application left; one that is no longer open, all applied or cleared otherwise, is refused (409 `receivables.no_credit_on_account`, or 409 `ledger.item_already_cleared` when another request cleared it meanwhile, as two applications racing for it end). The items are the customer's open items in the company, invoices and credits, in the payment's currency or another, translated into the payment's on the posting date and refused as `createIncomingPayment` translates and refuses them (T75n), each naming its place in the request as the field `items[i]`, and each may name a `residual` as there. Together, net of their residuals and of what their reasons wrote off, they may be less than the credit: what is left stays on account as a new credit of the customer's, a line of the application's clearing entry, at the credit's rate. More than the credit is refused (422 `ledger.clearing_not_balanced`) but for an underpayment within the company's payment tolerance, written off to its `payment_difference_expense` account. One clearing entry, document type `DZ`, `source_context` `receivables`, its source document the payment, offsets the credit and the items at the amounts they were booked at and clears them all; an exchange difference is realized as `createIncomingPayment` realizes one. The posting date is the request's, else today, the company's date in its time zone, in an open period and on or after the latest posting date of the credit and the items. The application is numbered in the payment from 1; its items join the payment's items with its number. The payment's `version` moves with each application (`ETag`), and the answer is the payment with the application, which its `applications` list last. Audited, and published as IncomingPaymentOnAccountApplied. One of a company the caller may not act in is not found. A retry with the same `Idempotency-Key` answers the payment as the first answered it. Human-only (`x-agent: false`)."
       x-permission: receivables.payment.apply
       x-agent: false
       x-problem-codes:
@@ -21240,8 +21638,10 @@ paths:
         - ledger.invalid_residual
         - ledger.item_already_cleared
         - ledger.item_reserved
+        - ledger.item_rounds_to_zero
         - ledger.legal_entity_not_active
         - ledger.mixed_items
+        - ledger.no_exchange_rate
         - ledger.no_fiscal_period
         - ledger.no_fx_account
         - ledger.no_items
@@ -21267,6 +21667,7 @@ paths:
         - receivables.amount_not_positive
         - receivables.currency_mismatch
         - receivables.no_credit_on_account
+        - receivables.no_write_off_account
         - receivables.unknown_residual_reason
         - request.invalid_amount
         - request.validation_failed
@@ -21648,7 +22049,7 @@ paths:
       tags:
         - sales
       summary: Create a quotation
-      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
+      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422 `request.reference_not_found` naming `items[i].material_id`) that is `active` (422 `sales.material_not_usable`), whose number is then the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the material's base unit or one of its alternative units and converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
       x-permission: sales.quotation.write
       x-agent: false
       x-problem-codes:
@@ -21663,9 +22064,12 @@ paths:
         - sales.amount_too_large
         - sales.currency_mismatch
         - sales.customer_not_usable
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
         - sales.invalid_validity
+        - sales.item_key_not_material
         - sales.items_required
+        - sales.material_not_usable
         - sales.no_price
         - sales.tax_jurisdiction_not_supported
         - sales.unknown_currency
@@ -21939,9 +22343,12 @@ paths:
         - sales.amount_too_large
         - sales.currency_mismatch
         - sales.customer_not_usable
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
         - sales.invalid_requested_delivery_date
+        - sales.item_key_not_material
         - sales.items_required
+        - sales.material_not_usable
         - sales.no_price
         - sales.quotation_not_accepted
         - sales.quotation_or_items
@@ -22040,8 +22447,11 @@ paths:
         - sales.capture_customer_unknown
         - sales.currency_mismatch
         - sales.customer_not_usable
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
+        - sales.item_key_not_material
         - sales.items_required
+        - sales.material_not_usable
         - sales.no_price
         - sales.quotation_not_accepted
         - sales.quotation_or_items
@@ -22730,10 +23140,13 @@ paths:
         - sales.amount_not_positive
         - sales.amount_too_large
         - sales.currency_mismatch
+        - sales.invalid_material_quantity
         - sales.invalid_quantity
         - sales.invalid_requested_delivery_date
         - sales.invalid_status
+        - sales.item_key_not_material
         - sales.item_repeated
+        - sales.material_not_usable
         - sales.no_price
         - sales.nothing_changed
         - sales.order_billed
@@ -50219,7 +50632,7 @@ components:
         material_id:
           type: string
           format: uuid
-          description: Material (product context, later phases).
+          description: "The material needed (S1f2, `GET /v1/materials/{id}`); absent for an item described by the requester alone. An RFQ or a purchase order from the requisition names it too."
         description:
           type: string
           description: What is needed.
@@ -50258,7 +50671,7 @@ components:
           readOnly: true
         item_key:
           type: string
-          description: "That catalog item's key; absent for an item the requester described."
+          description: "That catalog item's key, or, for an item of a material without one, the material's number (S1f2); absent for an item the requester described without a material."
           readOnly: true
       examples:
         - description: Office chairs, ergonomic
@@ -50288,10 +50701,10 @@ components:
         material_id:
           type: string
           format: uuid
-          description: Material (product context, later phases).
+          description: "The material needed (S1f2, `GET /v1/materials/{id}`): an `active` material of the tenant (422 `request.reference_not_found`, `procurement.material_not_usable`), the quantity in its base unit or one of its alternative units, converting to the base unit exactly (422 `procurement.invalid_material_quantity` naming `items[i].quantity.unit`); its description is the item's when it sends none. An item from the catalog takes the catalog item's material: sent with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise)."
         description:
           type: string
-          description: "What is needed. Required unless the item names a catalog item, whose description it then takes; sent with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise)."
+          description: "What is needed. Required unless the item names a catalog item, whose description it then takes, or a material, whose description it then takes when it sends none; sent with a catalog item, it is the catalog item's (422 `procurement.catalog_item_override` otherwise)."
           minLength: 1
           maxLength: 200
         quantity:
@@ -51181,13 +51594,14 @@ components:
     CatalogItemCreate:
       type: object
       description: "Load one item of a supplier into a company's catalog. It is created `active`."
-      required: [legal_entity_id, supplier_id, item_key, description, unit, unit_price]
+      required: [legal_entity_id, supplier_id, unit, unit_price]
       additionalProperties: false
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company whose catalog the item is loaded into: an active legal entity the caller may act in."}
         supplier_id: {type: string, format: uuid, description: "The supplier (business partner id): one that can be ordered from in the company."}
-        item_key: {type: string, minLength: 1, maxLength: 40, description: "The supplier's or the company's key of the item, without leading or trailing white space; the supplier's once among the company's active items."}
-        description: {type: string, minLength: 1, maxLength: 200, description: "What the item is; a requisition item from it takes this description."}
+        item_key: {type: string, minLength: 1, maxLength: 40, description: "The supplier's or the company's key of the item, without leading or trailing white space; the supplier's once among the company's active items. Required for an item without `material_id` (422 `procurement.invalid_item_key`); the material's number for an item of a material: absent, it is taken, another is refused (422 `procurement.key_not_material`)."}
+        material_id: {type: string, format: uuid, description: "The material the item is of (S1f2, `GET /v1/materials/{id}`): an `active` material of the tenant (422 `request.reference_not_found`, `procurement.material_not_usable`) of which `unit` is the base unit or an alternative unit (422 `procurement.invalid_material_quantity` naming `unit`). A requisition item taken from the catalog item names it too. Absent: the item is known by its `item_key` alone, until a mapping (`mapCatalogItemMaterials`) finds a material of that number."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the item is; a requisition item from it takes this description. Required for an item without `material_id` (422 `request.validation_failed`); the material's when absent."}
         unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "Unit of measure code (reference data) the item is ordered in."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The price per `price_unit`, in its own currency; positive."}
         price_unit: {type: integer, format: int32, minimum: 1, default: 1, description: "Quantity the unit price refers to."}
@@ -51200,6 +51614,46 @@ components:
           description: Office chair, ergonomic
           unit: EA
           unit_price: {amount: "450.00", currency: CAD}
+    CatalogMaterialMapping:
+      type: object
+      description: "A mapping of a company's catalog item keys onto materials (`mapCatalogItemMaterials`)."
+      required: [legal_entity_id]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose catalog is mapped: an active legal entity the caller may act in."}
+    CatalogMaterialMappingReport:
+      type: object
+      description: "What a mapping of a company's catalog item keys onto materials did, by item key."
+      required: [legal_entity_id, company_code, company_name, mapped_items, no_material_items, not_mappable_items, keys]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose catalog was mapped.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name.", readOnly: true}
+        mapped_items: {type: integer, format: int32, minimum: 0, description: "The catalog items this run gave a material: the sum of the `mapped` keys' `items`.", readOnly: true}
+        no_material_items: {type: integer, format: int32, minimum: 0, description: "The active catalog items left without a material because no material has their key as its number: the sum of the `no_material` keys' `items`.", readOnly: true}
+        not_mappable_items: {type: integer, format: int32, minimum: 0, description: "The active catalog items left without a material because the material of their key's number is not active or they are ordered in none of its units: the sum of the `not_mappable` keys' `items`.", readOnly: true}
+        keys:
+          type: array
+          maxItems: 100000
+          items: {$ref: "#/components/schemas/CatalogKeyMapping"}
+          description: "Every item key of the company's active catalog items that named no material before the run, in the order of the keys; a key whose items were partly mapped is listed once per outcome."
+          readOnly: true
+    CatalogKeyMapping:
+      type: object
+      description: "One item key of a catalog mapping: whether its items were given a material."
+      required: [item_key, outcome, items]
+      properties:
+        item_key: {type: string, description: "The item key.", readOnly: true}
+        outcome:
+          type: string
+          x-extensible-enum: [mapped, no_material, not_mappable]
+          description: "`mapped`: the key's items were given the material of that number; `no_material`: no material has that number, so the key stays a free-text key; `not_mappable`: a material has that number but is not active, or the key's items are ordered in a unit that is none of its units (`reason`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        material_id: {type: string, format: uuid, description: "The material of that number (`GET /v1/materials/{id}`); absent for `no_material`.", readOnly: true}
+        material_number: {type: string, description: "Its number, the item key; absent for `no_material`.", readOnly: true}
+        material_description: {type: string, description: "Its description; absent for `no_material`.", readOnly: true}
+        reason: {type: string, description: "Why the key's items were not mapped, for `not_mappable`: the material's status, or the units its items are ordered in that are none of the material's.", readOnly: true}
+        items: {type: integer, format: int32, minimum: 1, description: "The key's catalog items: those mapped, or those left without a material.", readOnly: true}
     CatalogItem:
       description: "A catalog item (procurement, ADR-0071): a supplier's item in a company's catalog, with one price."
       allOf:
@@ -51211,7 +51665,8 @@ components:
             supplier_id: {type: string, format: uuid, description: "The supplier (`GET /v1/business-partners/{id}`).", readOnly: true}
             supplier_number: {type: string, description: "The supplier's business partner number.", readOnly: true}
             supplier_name: {type: string, description: "The supplier's name, as it is now.", readOnly: true}
-            item_key: {type: string, description: "The item's key, the supplier's once among the company's active items.", readOnly: true}
+            item_key: {type: string, description: "The item's key, the supplier's once among the company's active items; the material's number for an item of a material.", readOnly: true}
+            material_id: {type: string, format: uuid, description: "The material the item is of (S1f2, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item known by its key alone. Set once, at creation or by a mapping (`mapCatalogItemMaterials`), and never changed.", readOnly: true}
             description: {type: string, description: "What the item is.", readOnly: true}
             unit: {type: string, description: "Unit of measure code the item is ordered in.", readOnly: true}
             unit_price: {$ref: "#/components/schemas/Money", description: "The price per `price_unit`, in its own currency."}
@@ -51731,10 +52186,8 @@ components:
           minimum: 0
     RfqItemInput:
       type: object
-      description: "An item of a request for quotation as it is created: what is asked for, without a price."
+      description: "An item of a request for quotation as it is created: what is asked for, without a price. It names what is asked for by `material_key` and `description`, or by `material_id` (S1f2): a material of the tenant (422 `request.reference_not_found`) that is `active` (422 `procurement.material_not_usable`), whose number is its `material_key` (another is refused, 422 `procurement.key_not_material`) and whose description is its own when it sends none, its quantity in the material's base unit or one of its alternative units, converting to the base unit exactly (422 `procurement.invalid_material_quantity` naming `items[i].quantity.unit`)."
       required:
-        - material_key
-        - description
         - quantity
         - account_id
       properties:
@@ -51745,12 +52198,16 @@ components:
           minimum: 1
         material_key:
           type: string
-          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by."
+          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by. Required for an item without `material_id` (422 `request.validation_failed`); the material's number for an item of a material."
           minLength: 1
           maxLength: 40
+        material_id:
+          type: string
+          format: uuid
+          description: "The material asked for (S1f2, `GET /v1/materials/{id}`); its award's contract item, and the order an award creates, name it too. Absent: the item is described by `material_key` and `description` alone."
         description:
           type: string
-          description: Description.
+          description: "Description. Required for an item without `material_id` (422 `request.validation_failed`); the material's when absent for an item of a material."
           minLength: 1
           maxLength: 200
         quantity:
@@ -51790,9 +52247,13 @@ components:
           minimum: 1
         material_key:
           type: string
-          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by."
+          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by; the material's number for an item of a material."
           minLength: 1
           maxLength: 40
+        material_id:
+          type: string
+          format: uuid
+          description: "The material asked for (S1f2, `GET /v1/materials/{id}`), whose number is `material_key`; absent for an item without one. An RFQ from a requisition takes its item's material, keyed by its number, unless another of the requisition's items has the same key (the same material, or a catalog item keyed by that number): then each of them is asked for by the requisition's number and its item number, without the material."
         description:
           type: string
           description: Description.
@@ -59028,8 +59489,8 @@ components:
             journal_entry_id: {type: string, format: uuid, description: "The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year. Absent until posted.", readOnly: true}
             journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
-            source_document_id: {type: string, format: uuid, description: "The document the invoice was entered from: the billing document that posted it (`GET /v1/billing-documents/{id}`, `postBillingDocument`). Absent for an invoice a person entered (`createCustomerInvoice`).", readOnly: true}
-            source_document_number: {type: string, description: "That document's number; absent with `source_document_id`.", readOnly: true}
+            source_document_id: {type: string, format: uuid, description: "The document the invoice was entered from: the billing document that posted it (`GET /v1/billing-documents/{id}`, `postBillingDocument`), or, for a debit memo of dunning charges and interest, the dunning notice whose run's confirmation posted it (`listDunningNotices`, `confirmDunningRun`; T76h), which the run's cancellation reverses (`cancelDunningRun`, T76i). Absent for an invoice a person entered (`createCustomerInvoice`).", readOnly: true}
+            source_document_number: {type: string, description: "That document's number, a dunning notice's id for a dunning notice, which has no number; absent with `source_document_id`.", readOnly: true}
             reversal_entry_id: {type: string, format: uuid, description: "The journal entry that reversed the document's entry (`GET /v1/journal-entries/{id}`, `reverseCustomerInvoice`). Absent unless `reversed`.", readOnly: true}
             reversal_entry_year: {type: integer, format: int32, description: "The reversal entry's fiscal year. Absent unless `reversed`.", readOnly: true}
             reversal_entry_number: {type: string, description: "The reversal entry's document number. Absent unless `reversed`.", readOnly: true}
@@ -59160,18 +59621,74 @@ components:
               last_contact_outcome: left_message
     DisputeCaseCreate:
       type: object
-      description: "Open a dispute case on a customer's open item. It is created `open`."
-      required: [legal_entity_id, fiscal_year, journal_entry_id, line_no, disputed_amount, reason]
+      description: "Open a dispute case on a customer's open items: one by `fiscal_year`, `journal_entry_id`, `line_no` and `disputed_amount`, or several in `items` (T86c), not both. It is created `open`."
+      required: [legal_entity_id, reason]
       additionalProperties: false
       properties:
-        legal_entity_id: {type: string, format: uuid, description: "The company whose customer item is disputed: a legal entity the caller may act in."}
-        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2100, description: "The fiscal year of the item's journal entry."}
-        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name it)."}
-        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item."}
-        disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount the customer disputes, in the item's currency: more than zero and at most what it owes on the item."}
+        legal_entity_id: {type: string, format: uuid, description: "The company whose customer items are disputed: a legal entity the caller may act in."}
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2100, description: "The fiscal year of the item's journal entry, for a case of one item named by the request's own fields."}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name it), for a case of one item named by the request's own fields."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item, for a case of one item named by the request's own fields."}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount the customer disputes, in the item's currency: more than zero and at most what it owes on the item; for a case of one item named by the request's own fields."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: {$ref: "#/components/schemas/DisputeCaseItemCreate"}
+          description: "The items of the case, each once, the first naming the case's customer and currency (T86c); absent for a case of one item named by the request's own fields."
         reason: {type: string, minLength: 1, maxLength: 500, description: "Why the customer disputes the amount."}
         assignee_id: {type: string, format: uuid, description: "The person who works the case: an active person of the tenant who may act in the company. Absent: nobody yet."}
         note: {type: string, minLength: 1, maxLength: 2000, description: "A note on the case, for whoever works it."}
+    DisputeCaseItemCreate:
+      type: object
+      description: "An item of a dispute case to open: an open item of the case's customer by its journal line, and the amount disputed of it."
+      required: [fiscal_year, journal_entry_id, line_no, disputed_amount]
+      additionalProperties: false
+      properties:
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2100, description: "The fiscal year of the item's journal entry."}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name it)."}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item."}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount the customer disputes of the item, in its currency (the case's): more than zero and at most what it owes on the item."}
+    DisputeCaseItem:
+      type: object
+      description: "An item of a dispute case (T86c): an open item of the case's customer when the case was opened, and the amount disputed of it."
+      required: [item_no, fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, local_disputed_amount]
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, maximum: 50, description: "The item's number in the case, from 1 in the order the request named them.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the disputed item.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
+        reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+        disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount disputed of the item, in its currency."}
+        local_disputed_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, its share of the item's amount as the item was booked."}
+        accepted_amount: {$ref: "#/components/schemas/Money", description: "What the case's resolution accepted of the item, in its currency, from zero to its disputed amount (T86d); absent unless the case is resolved."}
+        local_accepted_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency: that part of `local_disputed_amount`, rounded half away from zero; absent unless the case is resolved."}
+        credit_memo_id: {type: string, format: uuid, description: "The customer credit memo that credited the item (`GET /v1/customer-invoices/{id}`); absent unless a credit memo resolution accepted some of it.", readOnly: true}
+        credit_memo_number: {type: string, description: "That credit memo's document number; absent with `credit_memo_id`.", readOnly: true}
+    DisputeCaseResolve:
+      type: object
+      description: "Resolve an open dispute case the company accepts (T86d): by a customer credit memo per accepted item or a write-off, with what is accepted of which items."
+      required: [resolution, reason]
+      additionalProperties: false
+      properties:
+        resolution: {type: string, x-extensible-enum: [credit_memo, write_off], description: "`credit_memo`: a customer credit memo per item accepted above zero, naming its invoice; `write_off`: one journal entry writing the accepted amounts off to the company's `payment_difference_expense` account. Another value is refused (422 `collections.unknown_resolution`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
+        reason: {type: string, minLength: 1, maxLength: 500, description: "Why the case is accepted and resolved so; its close reason."}
+        posting_date: {type: string, format: date, description: "The date the documents are dated and posted on, in an open period; absent: the company's today in its time zone."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: {$ref: "#/components/schemas/DisputeCaseItemAccepted"}
+          description: "What is accepted of which items, each once; an item not named is not accepted. Absent: every item in full."
+    DisputeCaseItemAccepted:
+      type: object
+      description: "What a resolution accepts of an item of the case."
+      required: [item_no, accepted_amount]
+      additionalProperties: false
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, maximum: 50, description: "The item's number in the case (`items[].item_no`)."}
+        accepted_amount: {$ref: "#/components/schemas/Money", description: "What is accepted of the item, in the case's currency: from zero to what it disputes."}
     DisputeCaseUpdate:
       type: object
       description: "Merge patch of an open dispute case: its assignee and its note."
@@ -59190,12 +59707,12 @@ components:
         outcome: {type: string, x-extensible-enum: [accepted, rejected], description: "`accepted`: the customer is right about the disputed amount; `rejected`: it owes it. Another value is refused (422 `collections.unknown_outcome`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."}
         reason: {type: string, minLength: 1, maxLength: 500, description: "Why the case is closed with this outcome."}
     DisputeCase:
-      description: "A dispute case (collections, ADR-0065 As built T86a): a customer disputes an amount of one of its open items."
+      description: "A dispute case (collections, ADR-0065 As built T86a, T86c): a customer disputes amounts of one or more of its open items."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
           required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, fiscal_year, journal_entry_id, line_no,
-            document_number, disputed_amount, local_disputed_amount, reason, status]
+            document_number, disputed_amount, local_disputed_amount, reason, status, items]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customer item is disputed.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -59203,13 +59720,18 @@ components:
             customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
             customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
             customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
-            fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
-            journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).", readOnly: true}
-            line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the disputed item.", readOnly: true}
-            document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
-            reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
-            disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount disputed, in the item's currency."}
-            local_disputed_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, its share of the item's amount as the item was booked."}
+            fiscal_year: {type: integer, format: int32, description: "The fiscal year of the journal entry of the case's first item (`items`).", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the case's first item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+            line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the case's first item.", readOnly: true}
+            document_number: {type: string, description: "The document number of the first item's journal entry.", readOnly: true}
+            reference: {type: string, description: "The reference of the first item's journal entry, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+            disputed_amount: {$ref: "#/components/schemas/Money", description: "The amount disputed, in the items' currency: what the items dispute together."}
+            local_disputed_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency: the items' shares of their amounts as they were booked, together."}
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/DisputeCaseItem"}
+              description: "The case's items by number (T86c): one for a case on one invoice, the first being the item the case's own journal line names."
+              readOnly: true
             reason: {type: string, description: "Why the customer disputes the amount.", readOnly: true}
             assignee_id: {type: string, format: uuid, description: "The person who works the case; absent when nobody is assigned.", readOnly: true}
             assignee_name: {type: string, description: "The assignee's name; absent when `assignee_id` is.", readOnly: true}
@@ -59217,12 +59739,19 @@ components:
             status:
               type: string
               x-extensible-enum: [open, accepted, rejected]
-              description: "`open`: the case is being worked, and a dunning run leaves its item out (T86b). `accepted`: closed, the customer was right; a person credits it. `rejected`: closed, the customer owes the amount. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`open`: the case is being worked, and a dunning run leaves its items out (T86b). `accepted`: closed, the customer was right, in full or in part; resolved by a credit memo or a write-off (`resolution`, T86d), or credited by a person when closed without one. `rejected`: closed, the customer owes the amount. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             close_reason: {type: string, description: "Why the case was closed with its outcome; absent while it is open.", readOnly: true}
             closed_at: {type: string, format: date-time, description: "When the case was closed; absent while it is open.", readOnly: true}
             closed_by: {type: string, format: uuid, description: "Who closed the case; absent while it is open.", readOnly: true}
             closed_by_name: {type: string, description: "The name of who closed the case; absent while it is open.", readOnly: true}
+            resolution: {type: string, x-extensible-enum: [credit_memo, write_off], description: "How an accepted case was resolved (`resolveDisputeCase`, T86d): `credit_memo`, its items' credit memos (`items[].credit_memo_id`), or `write_off`, its write-off entry; absent for a case not resolved, an accepted case closed without one among them. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1.", readOnly: true}
+            accepted_amount: {$ref: "#/components/schemas/Money", description: "What the resolution accepted, the items' accepted amounts together, in the case's currency; absent unless resolved."}
+            local_accepted_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, the items' accepted parts as they were booked; absent unless resolved."}
+            posting_date: {type: string, format: date, description: "The date the resolution's documents posted on; absent unless resolved.", readOnly: true}
+            write_off_journal_entry_id: {type: string, format: uuid, description: "The write-off's journal entry (`GET /v1/journal-entries/{id}`); absent unless the resolution is `write_off`.", readOnly: true}
+            write_off_journal_entry_year: {type: integer, format: int32, description: "The write-off entry's fiscal year; absent with it.", readOnly: true}
+            write_off_journal_entry_number: {type: string, description: "The write-off entry's document number; absent with it.", readOnly: true}
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
           version: 2
@@ -59551,7 +60080,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
-          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, charge_amount, interest_amount, total_amount, grace_days, minimum_amount, below_minimum_notice_count, below_minimum_amount, disputed_item_count, disputed_amount, disputed_items, blocked_item_count, blocked_amount, blocked_items, promised_item_count, promised_amount, promised_items]
+          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount, charge_amount, interest_amount, total_amount, grace_days, minimum_amount, below_minimum_notice_count, below_minimum_amount, disputed_item_count, disputed_amount, disputed_items, blocked_item_count, blocked_amount, blocked_items, promised_item_count, promised_amount, promised_items, charge_document_count]
           properties:
             legal_entity_id: {type: string, format: uuid, description: "The company whose customers the run duns.", readOnly: true}
             company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -59559,8 +60088,8 @@ components:
             key_date: {type: string, format: date, description: "The date the items' days overdue were counted on.", readOnly: true}
             status:
               type: string
-              x-extensible-enum: [proposed, confirmed]
-              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date, the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [proposed, confirmed, cancelled]
+              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date, the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. `cancelled`: the confirmation was taken back (`cancelDunningRun`, T76i): its recorded levels no longer count, the debit memos it posted are reversed, `cancellation_reason` says why and `updated_at` and `updated_by` when and by whom. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of `overdue_amount`.", readOnly: true}
             notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
@@ -59568,7 +60097,7 @@ components:
             overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were booked."}
             charge_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `charge_amount`, in the company's currency (T76d); 0 when their levels charge none."}
             interest_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `interest_amount`, in the company's currency (T76d); 0 when their levels charge none."}
-            total_amount: {$ref: "#/components/schemas/Money", description: "What the notices ask for in all: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted."}
+            total_amount: {$ref: "#/components/schemas/Money", description: "What the notices ask for in all: `overdue_amount`, `charge_amount` and `interest_amount` together. The charges and interest are posted to the customers when the run is confirmed, where the company names its dunning accounts (`charge_document_count`, T76h)."}
             grace_days: {type: integer, format: int32, minimum: 0, maximum: 365, description: "The company's grace days when the run was started (`companies[].dunning.grace_days`, T76d): an item overdue by no more days was not proposed; 0 for none, and for runs started before grace days existed.", readOnly: true}
             minimum_amount: {$ref: "#/components/schemas/Money", description: "The company's minimum amount when the run was started (`companies[].dunning.minimum_amount`, T76d), in its currency: a notice whose `overdue_amount` would have been below it was not proposed; 0 for none."}
             interest_rate_percent: {type: string, pattern: "^[0-9]{1,2}\\.[0-9]{3}$", description: "The company's annual dunning interest rate when the run was started (`companies[].dunning.interest_rate_percent`, T76d), in percent with three places; absent when it has none.", readOnly: true}
@@ -59595,6 +60124,8 @@ components:
               items: {$ref: "#/components/schemas/DunningRunPromisedItem"}
               description: "The items the run would have proposed but left out, each for a promise to pay whose `promised_date` is on or after the key date (T76f), by customer and item; in no notice and in none of the run's totals. An item blocked is listed in `blocked_items` alone, and an item promised is not listed in `disputed_items`. Empty when none was promised, and for runs started before promises to pay existed."
               readOnly: true
+            cancellation_reason: {type: string, description: "Why the run was cancelled (`cancelDunningRun`, T76i); absent unless `cancelled`.", readOnly: true}
+            charge_document_count: {type: integer, format: int32, minimum: 0, description: "The customer debit memos the run's confirmation posted (T76h): one per notice charged a charge or interest, where the company's account determination names its dunning accounts (`companies[].account_determination.dunning_charges`, `.dunning_interest`); each notice names its own (`charge_document`, `GET /v1/dunning-runs/{id}/notices`). 0 for a run not confirmed, one whose notices are charged nothing, and one of a company that names neither account, which posts nothing.", readOnly: true}
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
           version: 1
@@ -59627,6 +60158,7 @@ components:
           promised_item_count: 0
           promised_amount: {amount: "0.00", currency: CAD}
           promised_items: []
+          charge_document_count: 0
           disputed_items:
             - dispute_case_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
               customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
@@ -59701,12 +60233,13 @@ components:
         overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `local_amount`, in the company's currency."}
         charge_amount: {$ref: "#/components/schemas/Money", description: "The dunning charge of the notice's level (`companies[].dunning.levels[].charge`, T76d), in the company's currency; 0 when the level charges none. A level above the configured ones (kept from a confirmed run after the company dropped levels) takes the highest configured level's charge and interest."}
         interest_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `interest_amount`, in the company's currency (T76d)."}
-        total_amount: {$ref: "#/components/schemas/Money", description: "What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted."}
+        total_amount: {$ref: "#/components/schemas/Money", description: "What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. The charge and interest are posted when the run is confirmed, where the company names its dunning accounts (`charge_document`)."}
         items:
           type: array
           items: {$ref: "#/components/schemas/DunningNoticeItem"}
           description: "The customer's overdue items, by item number."
           readOnly: true
+        charge_document: {$ref: "#/components/schemas/DunningChargeDocument"}
       examples:
         - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
           dunning_run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
@@ -59734,6 +60267,33 @@ components:
               previous_level: 0
               level: 1
               interest_amount: {amount: "0.00", currency: CAD}
+    DunningChargeDocument:
+      type: object
+      description: "The customer debit memo a confirmed dunning run posted a notice's charge and interest with (T76h): absent from a notice charged nothing, from one of a run not confirmed and from one of a company that names neither dunning account. Its gross amount is the notice's `charge_amount` and `interest_amount` together, in the company's currency."
+      required: [customer_invoice_id, customer_invoice_number, journal_entry_id, journal_entry_year, posting_date, status]
+      properties:
+        customer_invoice_id: {type: string, format: uuid, description: "The debit memo (`GET /v1/customer-invoices/{id}`, `kind` `debit_memo`), whose `source_document_id` is the notice.", readOnly: true}
+        customer_invoice_number: {type: string, description: "The debit memo's document number.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The memo's journal entry (`GET /v1/journal-entries/{id}`): it debits the customer's reconciliation account, the customer's open item (`GET /v1/open-items`), and credits the dunning charge and interest accounts.", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The date the memo posted on, also its date: the company's today when the run was confirmed.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [posted, reversed]
+          description: "`posted`: the memo stands. `reversed`: the run was cancelled (`cancelDunningRun`, T76i) and the memo reversed; the reversal is named beside. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        reversal_entry_id: {type: string, format: uuid, description: "The journal entry that reversed the memo's (`GET /v1/journal-entries/{id}`), clearing its open item. Absent unless `reversed`.", readOnly: true}
+        reversal_entry_year: {type: integer, format: int32, description: "The reversal entry's fiscal year. Absent unless `reversed`.", readOnly: true}
+        reversal_date: {type: string, format: date, description: "The date the reversal posted on: the memo's posting date. Absent unless `reversed`.", readOnly: true}
+    DunningRunCancel:
+      type: object
+      description: "Cancel a confirmed dunning run."
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 200, description: "Why the run is cancelled: a text, not white space alone (422 `request.validation_failed` naming `reason`). Kept with the run and given to the reversal of each debit memo it posted; not in the events or the audit records."}
+      examples:
+        - reason: Run at the wrong key date; the notices were not sent.
     DunningNoticePage:
       type: object
       description: One page of a dunning run's notices.
@@ -59953,7 +60513,7 @@ components:
           maxItems: 999
           uniqueItems: true
           items: {$ref: "#/components/schemas/IncomingPaymentItemRef"}
-          description: "The open items the payment is applied to (`GET /v1/open-items`), the payer's and the other customers', invoices and credits, each with a residual item if it is paid in part; together, net of their residuals, they equal the receipt, in its currency, but for a difference within the company's payment tolerance and, with `on_account`, what is left on account. Empty only with `on_account`."
+          description: "The open items the payment is applied to (`GET /v1/open-items`), the payer's and the other customers', invoices and credits, each with a residual item if it is paid in part; together, net of their residuals and of what their reasons wrote off, they equal the receipt, in its currency, but for a difference within the company's payment tolerance and, with `on_account`, what is left on account. Empty only with `on_account`."
         on_account: {type: boolean, default: false, description: "Leave what the receipt has left after the items, the whole receipt when there are none, on the customer's account as a credit of the customer's (T75g): an open item that `applyIncomingPaymentOnAccount` applies later. Something must be left (422 `receivables.nothing_left_on_account`)."}
     IncomingPaymentItemRef:
       type: object
@@ -59975,15 +60535,15 @@ components:
             reason_text: The workshop's second day is disputed.
     IncomingPaymentResidualCreate:
       type: object
-      description: "What stays open of an item the payment pays in part: a residual item of the customer for the amount, linked to the item, with the item's due date (T75f)."
+      description: "What of an item the payment pays in part it does not pay: a residual item of the customer for the amount, linked to the item, with the item's due date (T75f), or, when the reason's treatment is `write_off`, the amount written off to the reason's account (T75o)."
       required: [amount, reason]
       additionalProperties: false
       properties:
-        amount: {$ref: "#/components/schemas/Money", description: "What stays open, in the receipt's currency: more than zero and less than the item, which is an amount the customer owes (an invoice)."}
+        amount: {$ref: "#/components/schemas/Money", description: "What is not paid, in the receipt's currency: more than zero and less than the item, which is an amount the customer owes (an invoice)."}
         reason:
           type: string
           x-extensible-enum: [short_payment, disputed, deduction, other]
-          description: "Why the item is paid in part. `short_payment`: the customer paid less without saying why; `disputed`: the customer disputes the rest; `deduction`: the customer deducted something it claims (a return, a fee); `other`: anything else, which `reason_text` says. Open enumeration: values may be added within /v1; one that is not known is refused."
+          description: "Why the item is paid in part: the code of one of the company's payment-difference reasons (`companies[].receivables.payment_difference_reasons`, T75o), whose treatment decides whether the amount stays open or is written off. A company that configures none has the four listed: `short_payment`, the customer paid less without saying why; `disputed`, the customer disputes the rest; `deduction`, the customer deducted something it claims (a return, a fee); `other`, anything else, which `reason_text` says; all four leave a residual item. Open enumeration: a company's own codes are values too; one the company does not have is refused."
         reason_text: {type: string, minLength: 1, maxLength: 200, description: "A free text on the reason, as the remittance or the customer gave it."}
     IncomingPaymentResidual:
       type: object
@@ -59994,17 +60554,32 @@ components:
         reason:
           type: string
           x-extensible-enum: [short_payment, disputed, deduction, other]
-          description: "Why the item was paid in part (`IncomingPaymentResidualCreate.reason`). Open enumeration: clients accept values they do not know."
+          description: "Why the item was paid in part (`IncomingPaymentResidualCreate.reason`), one of the company's residual reasons. Open enumeration: clients accept values they do not know, a company's own codes among them."
           readOnly: true
         reason_text: {type: string, description: "The free text on the reason; absent when none was given.", readOnly: true}
         fiscal_year: {type: integer, format: int32, description: "Fiscal year of the residual item's journal entry, the clearing entry.", readOnly: true}
         journal_entry_id: {type: string, format: uuid, description: "The clearing entry the residual item is a line of (`GET /v1/journal-entries/{id}`).", readOnly: true}
         journal_entry_number: {type: string, description: "That entry's document number.", readOnly: true}
         line_no: {type: integer, format: int32, minimum: 1, description: "The residual item's line in the entry: `GET /v1/open-items` lists it while it is open.", readOnly: true}
+    IncomingPaymentWriteOff:
+      type: object
+      description: "What of an item an incoming payment paid in part its reason wrote off (T75o, a reason whose treatment is `write_off`): a debit line of the clearing entry on the reason's account, at the receipt's rate; the item itself is cleared and nothing of it stays open."
+      required: [amount, reason, account_id, account_number, account_name, fiscal_year, journal_entry_id, journal_entry_number, line_no]
+      properties:
+        amount: {$ref: "#/components/schemas/Money", description: "What was written off, in the payment's currency."}
+        reason: {type: string, description: "The code of the company's payment-difference reason that wrote it off (`companies[].receivables.payment_difference_reasons`).", readOnly: true}
+        reason_text: {type: string, description: "The free text on the reason; absent when none was given.", readOnly: true}
+        account_id: {type: string, format: uuid, description: "The account it was written off to, the reason's (`GET /v1/accounts/{id}`).", readOnly: true}
+        account_number: {type: string, description: "That account's number.", readOnly: true}
+        account_name: {type: string, description: "That account's name, as it is now.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "Fiscal year of the clearing entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The clearing entry the write-off is a line of (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        journal_entry_number: {type: string, description: "That entry's document number.", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The write-off's line in the entry.", readOnly: true}
     IncomingPaymentItem:
       type: object
       description: "An open item an incoming payment was applied to, identified by (fiscal_year, journal_entry_id, line_no)."
-      required: [item_no, application_no, customer_id, customer_number, customer_name, fiscal_year, journal_entry_id, line_no, journal_entry_number, reference, amount]
+      required: [item_no, application_no, customer_id, customer_number, customer_name, fiscal_year, journal_entry_id, line_no, journal_entry_number, reference, amount, item_amount]
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the payment, in the order of the requests.", readOnly: true}
         customer_id: {type: string, format: uuid, description: "The customer whose item it is: the payment's or one of the other customers it paid (T75h) (`GET /v1/business-partners/{id}`).", readOnly: true}
@@ -60016,8 +60591,11 @@ components:
         line_no: {type: integer, format: int32, minimum: 1, description: "The item's line in the entry.", readOnly: true}
         journal_entry_number: {type: string, description: "The entry's document number.", readOnly: true}
         reference: {type: string, description: "The entry's reference, a customer invoice's document number for one; its document number when it has none.", readOnly: true}
-        amount: {$ref: "#/components/schemas/Money", description: "The amount the item stood at, in the payment's currency: positive for what the customer owed (an invoice), negative for a credit of the customer's."}
-        residual: {$ref: "#/components/schemas/IncomingPaymentResidual", description: "The residual item the payment left of the item, paid in part; absent when the payment cleared it in full."}
+        amount: {$ref: "#/components/schemas/Money", description: "The amount the item stood at, in the payment's currency: positive for what the customer owed (an invoice), negative for a credit of the customer's. For an item in another currency, its `item_amount` translated at `exchange_rate`, as the clearing entry offset it."}
+        item_amount: {$ref: "#/components/schemas/Money", description: "The amount the item stood at in its own currency, signed as `amount`: `amount` itself for an item in the payment's currency (T75n)."}
+        exchange_rate: {$ref: "#/components/schemas/Decimal", description: "The rate the item was translated into the payment's currency at, units of the payment's currency per unit of the item's, the average rate valid on the posting date (T75n); absent for an item in the payment's currency.", readOnly: true}
+        residual: {$ref: "#/components/schemas/IncomingPaymentResidual", description: "The residual item the payment left of the item, paid in part; absent when the payment cleared it in full or its reason wrote the rest off."}
+        write_off: {$ref: "#/components/schemas/IncomingPaymentWriteOff", description: "What of the item, paid in part, its reason wrote off instead of leaving a residual item (T75o); absent otherwise."}
     IncomingPayment:
       description: "An incoming payment applied to a customer's open items (accounts receivable, ADR-0063 §6): a receipt from a house bank's incoming payments clearing account, cleared with the items by one journal entry. Its `version` is 1 when it is applied and moves with each application of its credit on account (T75g) and each undoing (T75i)."
       allOf:
@@ -60046,9 +60624,9 @@ components:
               description: "Each customer whose items the payment applied with the receipt (T75h), the payer first (its part zero when none of the items was its own), then the others in the order of their first item, with its part; the parts less `difference`, and with what was left `on_account`, are the receipt."
               readOnly: true
             posting_date: {type: string, format: date, description: "The posting date of the clearing entry.", readOnly: true}
-            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The payment's currency (ISO 4217), the receipt's and every item's.", readOnly: true}
+            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The payment's currency (ISO 4217), the receipt's: every amount of the payment is in it, an item in another currency translated (`items[].item_amount`, T75n).", readOnly: true}
             amount: {$ref: "#/components/schemas/Money", description: "What was received: the receipt's amount. It is the items' amounts less their residuals and less `difference`."}
-            difference: {$ref: "#/components/schemas/Money", description: "The payment difference written off within the company's payment tolerance (`companies[].receivables.payment_tolerance`): what the items applied with the receipt, net of their residuals, exceed it by. Positive: an underpayment, posted to the company's `payment_difference_expense` account; negative: an overpayment, kept on its `payment_difference_revenue` account; zero when the items equal the receipt."}
+            difference: {$ref: "#/components/schemas/Money", description: "The payment difference written off within the company's payment tolerance (`companies[].receivables.payment_tolerance`): what the items applied with the receipt, net of their residuals and of what their reasons wrote off, exceed it by. Positive: an underpayment, posted to the company's `payment_difference_expense` account; negative: an overpayment, kept on its `payment_difference_revenue` account; zero when the items equal the receipt."}
             on_account: {$ref: "#/components/schemas/IncomingPaymentOnAccount", description: "What the payment left on the customer's account and what of it is still open; absent when it left nothing."}
             applications:
               type: array
@@ -60126,7 +60704,7 @@ components:
         customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
         customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
         customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
-        amount: {$ref: "#/components/schemas/Money", description: "Its part of the receipt: its items applied with the receipt, net of their residuals, in the payment's currency; negative when its credits exceed its invoices."}
+        amount: {$ref: "#/components/schemas/Money", description: "Its part of the receipt: its items applied with the receipt, net of their residuals and of what their reasons wrote off, in the payment's currency; negative when its credits exceed its invoices."}
     IncomingPaymentOnAccount:
       type: object
       description: "What an incoming payment left on the customer's account (T75g): a credit of the customer's on its reconciliation account, a line of the payment's clearing entry, which each application of it consumes, leaving what the items do not take as a new credit line."
@@ -60146,8 +60724,8 @@ components:
         application_no: {type: integer, format: int32, minimum: 1, description: "The application's number in the payment, from 1.", readOnly: true}
         posting_date: {type: string, format: date, description: "The posting date of its clearing entry.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "The credit on account it applied, as it stood."}
-        difference: {$ref: "#/components/schemas/Money", description: "The payment difference it wrote off within the company's payment tolerance: what the items, net of their residuals, exceed the credit by; zero for none."}
-        on_account_amount: {$ref: "#/components/schemas/Money", description: "What it left on account: the credit less the items, net of their residuals; zero when the items took it all."}
+        difference: {$ref: "#/components/schemas/Money", description: "The payment difference it wrote off within the company's payment tolerance: what the items, net of their residuals and of what their reasons wrote off, exceed the credit by; zero for none."}
+        on_account_amount: {$ref: "#/components/schemas/Money", description: "What it left on account: the credit less the items, net of their residuals and of what their reasons wrote off; zero when the items took it all."}
         journal_entry_id: {type: string, format: uuid, description: "Its clearing entry (`GET /v1/journal-entries/{id}`).", readOnly: true}
         journal_entry_year: {type: integer, format: int32, description: "The clearing entry's fiscal year.", readOnly: true}
         journal_entry_number: {type: string, description: "The clearing entry's document number.", readOnly: true}
@@ -60167,7 +60745,7 @@ components:
           maxItems: 999
           uniqueItems: true
           items: {$ref: "#/components/schemas/IncomingPaymentItemRef"}
-          description: "The customer's open items the credit is applied to, invoices and credits, each with a residual item if it is paid in part; together, net of their residuals, at most the credit, but for an underpayment within the company's payment tolerance. What they leave stays on account."
+          description: "The customer's open items the credit is applied to, invoices and credits, each with a residual item if it is paid in part; together, net of their residuals and of what their reasons wrote off, at most the credit, but for an underpayment within the company's payment tolerance. What they leave stays on account."
     IncomingPaymentReset:
       type: object
       description: "Undo an incoming payment's application, or an application of its credit on account (T75i)."
@@ -60228,11 +60806,12 @@ components:
     SalesItemCreate:
       type: object
       description: "An item of a quotation or a sales order to create (ADR-0067 §3): a quantity of what is sold at a unit price, entered with it or taken from the company's price records by its item key (§10), with the revenue account and output tax code its billing posts with."
-      required: [description, quantity, account_id]
+      required: [quantity, account_id]
       additionalProperties: false
       properties:
-        item_key: {type: string, minLength: 1, maxLength: 40, description: "A free-text key naming what is sold, as the company calls it; there is no material master. An item without a `unit_price` is priced by it (`createSalesPrice`)."}
-        description: {type: string, minLength: 1, maxLength: 200, description: "What is sold."}
+        item_key: {type: string, minLength: 1, maxLength: 40, description: "A free-text key naming what is sold, as the company calls it. An item without a `unit_price` is priced by it (`createSalesPrice`). An item of a material has the material's number as its key: absent, it is taken; another is refused (422 `sales.item_key_not_material`)."}
+        material_id: {type: string, format: uuid, description: "The material sold (S1f1, `GET /v1/materials/{id}`): an `active` material of the tenant. Its number is the item's `item_key`, so the price records find it by that number, and its description the item's when `description` is absent; `quantity` is in its base unit or one of its alternative units, converting to the base unit exactly. Absent: the item is described by `description` and `item_key` alone."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What is sold. Required for an item without `material_id` (422 `request.validation_failed`); for an item of a material it is the material's description when absent."}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity, more than zero, in a unit of measure of the reference data."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`, in the document's currency; it stays as entered, whatever the price records say (`price_source` `manual`), and is the item's final net price: the pricing procedure takes no discount off it. Absent: the item takes the price recorded for its `item_key`, valid on the document's date, in the item's unit and the document's currency: the customer's before the general one, then the latest `valid_from` (`price_source` `price_list`); an item with neither is refused (422 `sales.no_price`)."}
         price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the unit price refers to; 1 when absent. It is sent with `unit_price` alone: a price from the price records comes with its own, so an item that sends `price_unit` without `unit_price` is refused (422 `request.validation_failed` naming `items[i].price_unit`)."}
@@ -60244,7 +60823,8 @@ components:
       required: [item_no, description, quantity, unit_price, price_unit, price_source, conditions, net_amount, account_id, account_number, account_name]
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the document.", readOnly: true}
-        item_key: {type: string, description: "The free-text key naming what is sold; absent when none was given.", readOnly: true}
+        item_key: {type: string, description: "The free-text key naming what is sold, the material's number for an item of a material; absent when none was given.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material sold (S1f1, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item without one. A billing document's item has its order item's.", readOnly: true}
         description: {type: string, description: "What is sold.", readOnly: true}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity and its unit of measure."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`."}
@@ -60451,7 +61031,7 @@ components:
       additionalProperties: false
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The order's item that changes."}
-        quantity: {$ref: "#/components/schemas/Quantity", description: "The new quantity, more than zero, in the item's own unit, and not below what is delivered of it. Absent: the quantity stays."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The new quantity, more than zero, in the item's own unit, and not below what is delivered of it. An item of a material keeps its material, whatever its status since, and its new quantity converts to the material's base unit exactly (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). Absent: the quantity stays."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The new net price per `price_unit`, in the order's currency, entered (`price_source` `manual`) and final, as an entered price is (`SalesItemCreate`). Absent: an entered price stays, and a price from the price records is taken again on the order's date."}
         price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the new unit price refers to; 1 when absent. It is sent with `unit_price` alone (422 `request.validation_failed` naming `items[i].price_unit`)."}
     SalesOrderChange:

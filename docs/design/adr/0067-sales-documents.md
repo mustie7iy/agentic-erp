@@ -2095,8 +2095,25 @@ overruled.
   the segregation-of-duties rule `sales.customer_sales_data.write` /
   `sales.price.write` (`createSodRule`), which no migration seeds (rules
   are the tenant's, ADR-0010); a new tenant's roles are its own from the
-  start. Listed for the product owner's digest. (2) The copied
+  start. Listed for the product owner's digest. PO 2026-11-19: kept
+  (tenants end the write per role). (2) The copied
   grants write no audit record and publish no event, as no permission
   seed has: they repeat grants already audited, and the migration runs
   outside any request. (3) Read stays with every role that read prices,
   pricing analysts among them: they see which group a customer is in.
+
+### S1f1 Items by material (migrations 000395, 000396)
+
+ADR-0082 As built S1f decides it; here what it changes of the sales
+documents. An item of a quotation, a sales order or an order change's new
+items may name a material (`material_id`); its `item_key` is then the
+material's number, so §10's price records, §11's discounts, §12's scales,
+ADR-0068's obligations, ADR-0075's segments and the analytics read it by
+key unchanged, and no price record names a material. Its description is
+the material's unless the item gives one. The quantity's unit is one of
+the material's and converts to its base unit exactly; the converted
+quantity is not stored. The order from a quotation takes its items'
+materials, an order change keeps a kept item's (the column is not among
+the application's grants), and a billing document's item answers its
+order item's. Delivery confirmations, returns and credit memo requests
+name the item by its key, as before.

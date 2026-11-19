@@ -94,7 +94,7 @@ const rfqSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.currency
 		(SELECT po.document_number FROM procurement.purchase_order po WHERE po.tenant_id = r.tenant_id AND po.id = r.purchase_order_id) AS purchase_order_document_number,
 		r.award_reason, r.closing_reason, r.requisition_id,
 		(SELECT rq.document_number FROM procurement.requisition rq WHERE rq.tenant_id = r.tenant_id AND rq.id = r.requisition_id) AS requisition_document_number,
-		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_key', i.material_key, 'description', i.description,
+		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_key', i.material_key, 'material_id', i.material_id, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'account_id', i.account_id, 'delivery_date', ` + deliveryDate + `,
 			'requisition_item_no', i.requisition_item_no) ORDER BY i.item_no)
 		 FROM procurement.rfq_item i WHERE i.tenant_id = r.tenant_id AND i.rfq_id = r.id), '[]'),
@@ -221,11 +221,19 @@ type NewRFQ struct {
 // material key once, a described positive quantity, on an account the
 // legal entity can post to, with the delivery date given, if any.
 func (e *Endpoints) rfqItems(ctx context.Context, le uuid.UUID, in []ItemInput) ([]Item, error) {
+	in, err := e.materialItems(ctx, in, "material_key")
+	if err != nil {
+		return nil, err
+	}
 	return e.keyedItems(ctx, le, in, "RFQ", func(field string, it ItemInput) (Item, error) {
+		if it.MaterialKey == "" {
+			return Item{}, problem.Unprocessable("request.validation_failed", "An RFQ item names its material key, or its material.",
+				problem.FieldError{Field: field + ".material_key", Code: "required", Message: "the item's key, for an item that names no material"})
+		}
 		if err := problem.RequireText(field+".description", it.Description); err != nil {
 			return Item{}, err
 		}
-		return Item{Quantity: it.Quantity, DeliveryDate: it.DeliveryDate}, quantity(it.Quantity, field+".quantity")
+		return Item{MaterialID: it.MaterialID, Quantity: it.Quantity, DeliveryDate: it.DeliveryDate}, quantity(it.Quantity, field+".quantity")
 	})
 }
 
@@ -350,16 +358,16 @@ func writeRFQ(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r RFQ) error {
 	}
 	n := len(r.Items)
 	nos, keys, descriptions, quantities, units, accounts := make([]int32, n), make([]string, n), make([]string, n), make([]string, n), make([]string, n), make([]uuid.UUID, n)
-	dates, sources := make([]*time.Time, n), make([]*int32, n)
+	dates, sources, mats := make([]*time.Time, n), make([]*int32, n), make([]*uuid.UUID, n)
 	for i, it := range r.Items {
 		nos[i], keys[i], descriptions[i], quantities[i], units[i], accounts[i] = it.No, it.MaterialKey, it.Description, it.Quantity, it.Unit, it.AccountID
-		dates[i], sources[i] = it.DeliveryDate, it.RequisitionItemNo
+		dates[i], sources[i], mats[i] = it.DeliveryDate, it.RequisitionItemNo, it.MaterialID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.rfq_item (tenant_id, rfq_id, item_no, material_key, description, quantity, uom_code, account_id,
-			delivery_date, requisition_item_no)
-		SELECT $1, $2, n, k, d, q, u, a, dd, ri
-		FROM unnest($3::int[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::uuid[], $9::date[], $10::int[]) AS x(n, k, d, q, u, a, dd, ri)`,
-		p.TenantID, r.ID, nos, keys, descriptions, quantities, units, accounts, dates, sources); err != nil {
+			delivery_date, requisition_item_no, material_id)
+		SELECT $1, $2, n, k, d, q, u, a, dd, ri, m
+		FROM unnest($3::int[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::uuid[], $9::date[], $10::int[], $11::uuid[]) AS x(n, k, d, q, u, a, dd, ri, m)`,
+		p.TenantID, r.ID, nos, keys, descriptions, quantities, units, accounts, dates, sources, mats); err != nil {
 		return fmt.Errorf("procurement: write items of RFQ %s: %w", r.ID, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.rfq_supplier (tenant_id, rfq_id, supplier_id, invite_no)

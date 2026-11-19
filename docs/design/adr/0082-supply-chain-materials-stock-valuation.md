@@ -609,3 +609,109 @@ follow by type.
   difference to the company's price difference account, not to the stock
   (for the specialist).
 - Walkthrough step 130, `step_stock_receipt`, after step 125.
+
+### S1f (2026-11-19)
+
+Split into S1f1 (sales items) and S1f2 (purchasing items and the
+catalog's keys mapped), plan-supply-chain.md §S1f.
+
+- **S1f1, migrations 000395 and 000396:** `sales.quotation_item` and
+  `sales.sales_order_item` gain `material_id` (expand: nullable; a material
+  item has an item key, `quotation_item_material_key` and
+  `sales_order_item_material_key`, added `NOT VALID` and validated by
+  000396; schema test `db/sales_material_items_test.go`). Sales imports
+  `materials`' published API (§3, as decided).
+- **The item key is the material's number** (SAP's item names its material
+  by MATNR, from memory): absent, it is taken; another is refused (422
+  `sales.item_key_not_material`). So the price records, discounts and
+  scales (ADR-0067 §10-§12), the revenue obligations, the profitability
+  segments and the sales analytics find a material item by key as they
+  find any other: "sales prices found by material as well as by key" is
+  met without a material on the price record (decided by default; the
+  lane owns no pricing beyond the key lookup).
+- **The material** is one of the tenant's (422 `request.reference_not_found`
+  naming `items[i].material_id`), `active` on a new item (422
+  `sales.material_not_usable` for `pending` or `blocked`), of any type: a
+  sales view per sales organisation (MVKE) is Later, so a material needs no
+  extension to a plant to be sold. Its description is the item's when the
+  item sends none; one sent is the item's own (SAP's item text, from
+  memory).
+- **The quantity** is in the material's base unit or one of its
+  alternative units and converts exactly in six decimals (422
+  `sales.invalid_material_quantity` naming `items[i].quantity.unit`). The
+  converted quantity is not stored, as S1e's order item does not store it:
+  it is taken where stock moves (S2b's goods issue).
+- **An item an order change keeps** keeps its material: the column is not
+  among the application's grants on `sales.sales_order_item` (000355), and
+  a quotation's items are immutable. Its new quantity must still convert
+  exactly; a material blocked since does not refuse the change, as S1e's
+  kept stock item. An added item is checked as a new one, its refusals
+  naming `new_items[i]`.
+- **Reads:** every sales item (`SalesItem`: quotation, order and billing
+  items) answers `material_id`, its number being `item_key`; a billing
+  document's item has its order item's. Delivery confirmations, returns
+  and credit memo requests keep naming the item by its key.
+- **One check for both contexts:** `materials.Material.ForItem` (the
+  published API) checks an item naming a material (active when added, keyed
+  by the number, in one of its units, exact) and gives its key and
+  description; `UnitRefusal` says why a unit or quantity is refused. Sales,
+  procurement and S1e's stock item use them, each with its own problem
+  codes; `ByNumber` reads materials by number for the mapping.
+- **S1f2, migration 000397:** `procurement.rfq_item.material_id` and
+  `procurement.catalog_item.material_id` (expand: nullable); the
+  application may update a catalog item's `material_id`, which
+  `catalog_item_material_fixed` lets it set once and never change or clear,
+  for the tables' owner too; `procurement.requisition_item.material_number`,
+  the material's number kept beside its id as SAP's item keeps MATNR
+  (`requisition_item_material_number`: only with a material, 1 to 40
+  characters; schema tests `db/purchasing_material_items_test.go`). A
+  requisition item's `material_id` (000006, unchecked until now) is checked
+  as it is entered, and the item answers the number as its `item_key` when
+  it has no catalog item's (review round 1: an id with the number a
+  consumer needs).
+- **Purchasing items** are checked as a sales item is (422
+  `request.reference_not_found`, `procurement.material_not_usable`,
+  `procurement.key_not_material` naming the RFQ item's `material_key` or the
+  catalog item's `item_key`, `procurement.invalid_material_quantity` naming
+  the item's unit; a catalog item, having no quantity, needs only its unit
+  to be the material's). A requisition item has no key of its own; an RFQ
+  item's `material_key` and a catalog item's `item_key` become optional in
+  the contract, required without a material. Requisition items are checked
+  as new on every write: a draft's material blocked since refuses its next
+  change, as a draft's other references do.
+- **The material is carried** from a catalog item to a requisition item
+  taken from it (which may send that material or none, 422
+  `procurement.catalog_item_override` otherwise), from a requisition item
+  to the RFQ item created from it, and from an RFQ item to its award's
+  contract item and to the purchase order an award creates. An RFQ's keys
+  are unique: a requisition item is asked for by its key (its catalog
+  item's, or its material's number), and items sharing a key (one material
+  twice, or a material whose number an unmapped catalog item's key is)
+  are each asked for by the requisition's number and their item number,
+  without the material, rather than refused (decided by default; review
+  round 1: such a requisition could otherwise never be sourced). A purchase order's item keeps
+  answering `material_id` only for a stock item (S1e).
+- **The mapping** (`POST /v1/catalog-material-mappings`,
+  `procurement.catalog.manage`) maps a company's catalog, the master data
+  new items are taken from: each active catalog item without a material
+  whose key is the number of an active material, in one of its units,
+  takes it, its version raised, audited and published
+  (`CatalogItemChanged` gains `material_id` within v1). The items are locked
+  in key and id order, so two runs of a company wait for each other; a
+  second run maps nothing twice (a test holds the first run's transaction
+  and sees the second wait). The report lists every key still without a
+  material before the run, `mapped`, `no_material` or `not_mappable` with
+  its reason (the status, or every unit that is none of the material's),
+  and its items' count, with the items of each outcome totalled. It answers 200 with its report, a
+  run as `/v1/accrual-proposals` is, not a collection custom method (those
+  answer 202 with an Operation).
+- **Documents are not re-keyed** (decided by default): a quotation, sales
+  order, billing document, requisition, RFQ or contract already made keeps
+  its items, so nothing billed or received changes, and SAP does not re-key
+  a document's item either (from memory). Sales prices need no mapping:
+  they are found by the material's number (S1f1). Mapping by a table of key
+  and material pairs, open documents' items and contracts' items are Later.
+- Walkthrough step 135, `step_material_items`, after step 134: the sales
+  part (S1f1), then a requisition item by material and the catalog mapped
+  (S1f2).
+

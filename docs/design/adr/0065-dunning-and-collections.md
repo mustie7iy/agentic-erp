@@ -543,7 +543,8 @@ default 4; no new ADR), each listed for the product owner's digest.
   names the customer by id and number and carries no free text, since a
   reason or a note may name people; audit actions
   `collections.dispute_case.open`, `.update`, `.close`, whose detail
-  holds the texts.
+  held the texts until T86c and since records only that a reason or a
+  note was given (ADR-0079; batch 79 review).
 - **List.** `GET /v1/dispute-cases`, the latest first (`created_at`,
   keyset), filtered by company, customer, status and assignee. No
   budget test: a keyset-paged list of stored rows over an index (07
@@ -935,3 +936,316 @@ reference), each listed for the product owner's digest.
   date it is back with its last contact; a later message without a
   resubmission date brings it back at once; its contacts read the latest
   first.
+
+### T76h Dunning charges and interest posted (migration 000400)
+
+Decided by default under this ADR (`plan-depth-3.md` §T76h; product
+owner 2026-11-17: the variants start; SAP S/4HANA's interest on arrears
+posted to the customer, FINT, as the reference, from memory), each
+listed for the product owner's digest. It changes §1 and T76d's
+"Nothing is posted": a confirmed run posts.
+
+- **Where it posts.** Through receivables' published API, as sales posts
+  its billing documents (ADR-0067 §9): per notice charged a charge or
+  interest, one customer debit memo (T75j, document type `DD`) entered
+  and posted in the confirmation's transaction, after its status guard,
+  naming the notice as its source document (`source_document_id`, the
+  notice's id also as its number: a notice has none), so receivables
+  takes it once (`customer_invoice_source_once`). Its entry debits the
+  customer's reconciliation account, the customer's open item, which a
+  later run duns like any other once it is overdue, and credits the
+  charge and the interest on their accounts. One memo for the two rather
+  than one each: one document per notice for the customer, as the notice
+  asks for both together.
+- **Accounts.** `companies[].account_determination.dunning_charges` and
+  `.dunning_interest`, revenue accounts of the company's chart; tier 3,
+  posting-relevant, as the account determination is. A company naming
+  neither posts nothing (T76d's behaviour, every company today); one
+  naming either posts, and must name the account of each its levels
+  charge (a charge above zero, interest), or the configuration is
+  refused naming the missing one. The charges, rate and levels stay tier
+  2: they change what a notice asks for, as a price does, not where it
+  posts. Collections resolves the numbers through the ledger's account
+  reads (`ledger.AssetReads.Accounts`), not the ledger's account
+  determination rows, which keep a removed key's account.
+- **The memo.** The notice's customer, the company's currency, the
+  company's today in its time zone (`clock`, `CompanyDay`) as its date
+  and posting date: the day the charge is raised, in whose fiscal year it
+  is numbered and due by the customer's payment term in the company. Not
+  the run's key date, which may lie in a fiscal year without a
+  `customer_invoice` range yet (the walkthrough's future key dates found
+  it). An item "Dunning charge, level n" on the charge account and one
+  "Interest on overdue items to <key date>" on the interest account, each
+  only when above zero, without a tax code.
+- **Refusals.** What receivables or the ledger refuses refuses the whole
+  confirmation, nothing recorded or posted, with their code and the
+  customer's number leading the detail and without their field errors,
+  which name the memo's fields (`problem.Led`, moved to the platform for
+  any context that posts through another's): a customer that is not
+  usable (blocked for posting, without data in the company), an account
+  no longer postable, a missing `customer_invoice` or `journal_dd` range,
+  a period not open. A charge or interest whose account the
+  configuration no longer names since the run was proposed is 422
+  `collections.no_charge_account`. The controller blocks such a customer
+  from dunning (T76e) and starts a new run. Posting needs the credit
+  controller's `collections.dunning.run` alone, as billing's posting
+  needs no permission of receivables.
+- **Stored.** `collections.dunning_charge`: per notice the memo's id and
+  number, its entry and posting date; insert-only, one per notice and
+  per memo (03 §3.27, `db/dunning_charge_test.go`). `DunningRun`
+  `charge_document_count`, `DunningNotice` `charge_document`;
+  `DunningNoticeIssued` names the memo (`customer_invoice_id`, `_number`,
+  null for none) and `DunningRunChanged` the count. Receivables' API
+  refuses to reverse such a memo, naming the dunning notice
+  (`receivables.entered_from_source`).
+- **Layout.** Collections imports receivables' published types for the
+  port (`collections.Invoices`), as sales does; it stays a leaf, nothing
+  imports it.
+- **Size.** A run of 5,000 items has at most as many notices, each a
+  memo entered and posted in the one transaction; runs as a workflow stay
+  later.
+- **Specialist question.** Whether a pilot country taxes dunning charges
+  or interest on late payment (VAT/GST): posted without a tax code, as
+  outside the scope of tax, stated from memory and not checked.
+- **Walkthrough.** `step_dunning_postings` (step 138), first half: Ada
+  adds 4810 Dunning charges and 4820 Interest on overdue receivables and
+  names them through a governed change; Bayview Marine's CAD 400.00
+  invoice is dunned at level 1 without a memo, then at level 2: a debit
+  memo of CAD 15.00 and 2.96 interest, on the two accounts, Bayview's
+  open item.
+
+### T76i A confirmed dunning run cancelled (migrations 000401, 000402)
+
+Decided by default under this ADR (`plan-depth-3.md` §T76i; SAP's reset
+of a dunning run's dunning data, from memory, as the reference), each
+listed for the product owner's digest. It changes §8's "a confirmed run
+is not cancelled".
+
+- **What a cancellation does.** `POST /v1/dunning-runs/{id}:cancel`
+  (`If-Match`, a `reason`, permission `collections.dunning.run`,
+  human-only and on `collectionsagent.Never`) moves a confirmed run to
+  `cancelled` once, by an update guarded by its status under the
+  company's dunning lock, which confirmations take too (`lockDunning`).
+  The levels its confirmation recorded stay in `dunned_item`, insert-only,
+  and no longer count: `recorded` reads the records of confirmed runs
+  alone, so the next run, the worklist and a confirmation's stale check
+  see each item at the level the runs before it recorded. A proposal
+  started before the cancellation is stale (the times its items were
+  dunned changed). The run's notices and amounts stay, for the record.
+- **Latest first.** A run whose items a later confirmed run dunned from
+  the levels this one recorded (that run's `previous_dunnings` above this
+  one's), or whose debit memos a later run dunned, is refused, 409
+  `collections.run_superseded`, naming the latest such run: its levels
+  were reached through this one's, and cancelling it first keeps every
+  item's recorded levels a chain one level at a time (the
+  `dunning_notice_item_dunnings_check` invariant).
+- **Memos reversed.** Each debit memo its confirmation posted (T76h) is
+  reversed through receivables' new published `ReverseSourced`, for the
+  context that entered it, with the cancellation's reason, on the memo's
+  own posting date (T75k's reversal: the ledger reverses the entry and
+  clears the memo's item against it). A memo whose item is cleared (409
+  `receivables.document_cleared`, `ledger.entry_cleared`) or posted in a
+  period no longer open (409 `ledger.period_not_open`) refuses the whole
+  cancellation, its number and customer leading the detail; nothing is
+  done. A reversal on a date of its own (into the next open period) is
+  later. Receivables' API still refuses to reverse such a memo, naming
+  the dunning notice and this operation (`receivables.entered_from_source`);
+  `customer_invoice_reversed` admits a reversed debit memo with a source.
+- **Stored.** `dunning_run.cancellation_reason` (1-200 characters, not
+  white space alone, exactly when cancelled, `dunning_run_cancelled`) and
+  status `cancelled`; the trigger `dunning_run_confirmed_once` admits
+  confirmed → cancelled and no change after it. `dunning_charge` names the
+  memo's reversal (entry year and id, date not before the memo posted,
+  `dunning_charge_reversed`), set once (trigger
+  `dunning_charge_reversed_once`, for every role). Checks added NOT VALID,
+  validated by 000402 (03 §3.27, `db/dunning_cancel_test.go`,
+  `db/dunning_charge_test.go`). The reverts are refused while a run is
+  cancelled or a sourced memo reversed.
+- **API and events.** `DunningRun.cancellation_reason`, status
+  `cancelled`; `DunningChargeDocument.status` (`posted`, `reversed`) with
+  the reversal. `DunningRunChanged` (`cancelled` from `confirmed`) and one
+  `DunningNoticeCancelled` per notice, naming the customer by id and
+  number and the reversed memo, so a subscriber that wrote to the customer
+  withdraws the notice. Neither event nor the audit record carries the
+  reason (ADR-0079); the run and the memos keep it.
+- **Concurrency.** Cancellation and confirmation of a company's runs
+  serialize on the lock; a cancellation racing a later proposal's
+  confirmation either makes that proposal stale or is refused as
+  superseded, and two cancellations of a run cancel once
+  (`TestCancellationsSerialize`). Locks after the company's: the run's
+  row, then each memo's row (receivables) and its entry (ledger), the
+  order an incoming payment's application never reverses (it locks
+  entries alone).
+- **Walkthrough.** `step_dunning_postings` (step 138), second half: a
+  level 3 run posts Bayview a second memo; cancelling the level 2 run
+  first is refused as superseded; the level 3 run is cancelled, then the
+  level 2 run, each memo reversed on its posting date; a second
+  cancellation is refused; Bayview's open items are its invoice alone and
+  a new run dunns it from level 1 again.
+
+### T86c A dispute case over several invoices (migration 000403)
+
+Decided by default under this ADR (`plan-depth-3.md` §T86c; SAP S/4HANA
+FSCM Dispute Management's case over several disputed objects as the
+reference, from memory; product owner 2026-11-17: the variants go on),
+each listed for the product owner's digest.
+
+- **Rollout.** A case the previous version opens without items gets its
+  own line as its one item at commit (deferred trigger
+  `dispute_case_default_item`, named to fire before the check), so the
+  running version keeps working and its cases are held; a contract step
+  drops it with `dispute_case_one_open` (review round 1).
+- **Schema.** `collections.dispute_case_item`: a case's items numbered
+  1 to 50, each a journal line named once in the case, with its document
+  number and reference, the amount disputed of it in the case's currency
+  and its share of the item in the company's as booked, and an id of its
+  own (which T86d's documents name). The unique index of one open case
+  per item moves to the items (`dispute_case_item_one_open`, on a flag
+  `open` the case's close clears by trigger); the case's own index stays
+  until a contract step drops it. The case keeps its journal line, its
+  first item's, and its amounts, the items' totals, so every reader of
+  the case reads as before; a deferred constraint trigger holds the two
+  to each other at commit (items present, first item the case's line,
+  totals in both currencies, items open exactly while the case is). The
+  application inserts items and changes or deletes none; no role changes
+  what an item names or reopens it (`dispute_case_item_fixed`). The
+  existing cases got their own line as their one item. Checks in 03 §3.27 and
+  `db/dispute_items_test.go`.
+- **Request.** `POST /v1/dispute-cases` takes `items` (1 to 50) or, as
+  before, one item by the request's own fields; one form or the other,
+  never both or neither (422 `collections.items_or_item`). The request's
+  item fields became optional: no breaking change. Each item is read as
+  T86a reads one, the refusal naming `items[n].…`: an open item the
+  first item's customer owes the company (422 `collections.item_not_open`,
+  as a promise's items, T76f), in the first item's currency (422
+  `collections.currency_mismatch` naming its `journal_entry_id`: a case
+  has one currency, SAP's disputed amount has one), each line once (422
+  `request.validation_failed`), disputed above zero and at most what is
+  owed on it. Totals out of range are 422 `collections.amount_too_large`.
+- **Holds and worklist.** A dunning run reads the open cases' items
+  (`openCases` joins the items to the company's open cases) and leaves
+  each item out, naming its case; the worklist adds each item's share and
+  counts a case over several of a customer's items once.
+- **Representation and event.** `DisputeCase.items` and
+  `DisputeCaseChanged.items` (item number, journal line, document number,
+  disputed amount; the event's item list is new and absent from events
+  published before). The case's journal line fields are documented as
+  its first item's.
+- **Audit.** The open, update and close records now hold the items and
+  that a reason or a note was given, not the texts (ADR-0079): this
+  closes the batch 79 review item on the case's free text.
+- **Collections agent.** It reads a case's items, so a customer whose
+  overdue items are each in some case's items is told disputed.
+- **Lock order.** Opening still takes no row lock; the case row and its
+  items are inserted in one transaction, the items' foreign key taking a
+  key-share lock on the new case row, which no one else can see yet. A
+  close updates the case row (`FOR UPDATE`) and, by trigger, its items;
+  nothing locks an item before its case.
+- **Walkthrough.** `step_dispute_items`: see `scripts/walkthrough.sh`.
+
+
+### T86d Resolving an accepted dispute case by credit memo or write-off (migrations 000404, 000405)
+
+Decided by default under this ADR (`plan-depth-3.md` §T86d; SAP S/4HANA
+FSCM Dispute Management as the reference, from memory: a case is
+resolved by a credit memo or a write-off, each reducing what is
+disputed, the rest not accepted), each listed for the product owner's
+digest.
+
+- **Operation.** `POST /v1/dispute-cases/{id}:resolve` with `resolution`
+  (`credit_memo` or `write_off`, an open enumeration), the reason, an
+  optional `posting_date` (absent: the company's today, `config.DocumentDay`)
+  and optional `items` (`item_no`, `accepted_amount` from zero to what
+  the item disputes; absent: every item in full; something must be
+  accepted, else the case is closed as rejected). New permission
+  `collections.dispute.resolve`, separate from `.write` because it
+  posts; human-only, `If-Match`, `Idempotency-Key`. The collections agent
+  never calls it (`collectionsagent.Never`).
+- **Credit memo.** Per item accepted above zero, a customer credit memo
+  is entered and posted through receivables' published API in the
+  request's transaction, as sales' credit memo requests do (ADR-0067 As
+  built T85d): it names the posted customer invoice the item's entry was
+  posted for (the ledger's source documents of the receivables context;
+  any other item, a manual entry's or an incoming payment's residual, is
+  422 `collections.no_invoice`), credits the invoice's items in
+  proportion to the accepted part of its gross amount (shared out over
+  the items by gross, then each over net and tax, `money.Allocate`), and
+  gives the tax as that share of what the item bore, so the memo's gross
+  is the accepted amount exactly. Each memo's tax is rounded on its own,
+  once per document (ADR-0049 §8), as a credit note's is; sales' credit
+  memo requests instead round cumulatively over a billing item's posted
+  credits (product owner 2026-11-12, what was billed is what is credited),
+  which a dispute case's memo, crediting a part of a customer invoice
+  that other memos may also credit, has no billing item to count against:
+  several partial memos of one invoice may give back a minor unit more or
+  less tax than the invoice bore, never more gross than accepted. Its source is the case's item: the item's own
+  id and `<case id>/<item number>` (at most 39 characters), which keeps
+  receivables' one memo per source document. Receivables' limit on the
+  credits of an invoice holds. collections now imports receivables
+  (`internal/layout`): no cycle, receivables imports no context of
+  collections'.
+- **Write-off.** One `SA` entry, `source_context` `collections` (the
+  journal's check widened by 000404, validated by 000405), the case its
+  source document: per item accepted above zero, a debit on the
+  company's `payment_difference_expense` account (SAP posts a dispute's
+  write-off by payment difference reason, ZDI; the payment-difference
+  reasons with their own accounts that incoming payments use since T75o
+  (ADR-0063 As built) are not used by a dispute's write-off yet) and a
+  credit to the item's account with the
+  customer, both with the accepted part of the item's local amount, so
+  each pair balances in every currency and the credit clears against the
+  item without an exchange difference. The item's account was recorded
+  when the case was opened (`dispute_case_item.account_id`, T86c's
+  migration). No output tax is corrected by a write-off: whether a
+  pilot country allows it is a question for the tax specialist. A
+  company without the account is refused (422
+  `collections.no_write_off_account`). An item of a dunning charge's
+  debit memo (T76h; `collections.dunning_charge` names its entry) is not
+  written off (422 `collections.dunning_charge_write_off` naming
+  `resolution`), before or after its run is cancelled: the cancellation
+  (T76i) reverses the memo, and a write-off leaves the memo's item open
+  beside its credit, so together they would give the customer the charge
+  back twice. The charge is taken back by cancelling the run, or the
+  case is closed as rejected; a credit memo resolution refuses the item
+  already (`collections.no_invoice`). Which memos a run posted is fixed
+  once posted, so the check takes no lock (batch 82 integration review,
+  decided by default). `requireOwnEntry` refuses the
+  entry's reversal through the ledger, as for any context without one.
+- **What stays open.** Neither document clears the invoice: each leaves
+  a credit item of the customer beside it, cleared against it
+  (`createClearing`) or netted when a payment is applied, as receivables'
+  credit memos are (T75d). The item need not be open when the case is
+  resolved: a partly paid invoice's residual is credited the same way.
+  Clearing within the resolution is later.
+- **Refusals.** A refusal by receivables or the ledger names
+  `resolution` (or `posting_date`), its detail led by the document that
+  could not be posted (`asResolution`), and leaves the case open with
+  nothing posted: the request's transaction rolls back.
+- **Schema.** `dispute_case` gains `resolution`, `accepted_amount`,
+  `accepted_amount_lc`, `posting_date` and the write-off entry (year, id,
+  number); `dispute_case_item` gains `accepted_amount`,
+  `accepted_amount_lc`, `credit_memo_id`, `credit_memo_number`. Checks:
+  only an accepted case has a resolution, accepting 1 to its disputed
+  amount, with its local amount and date; a write-off names its entry, a
+  credit memo resolution none; an item's accepted amount from zero to
+  what it disputes, a memo only on an item accepted above zero. The
+  deferred `dispute_case_items` check also holds a resolved case's items
+  to its totals and its memos to its kind; an item's part is written
+  once, while its case is open (`dispute_case_item_fixed`). Tests in
+  `db/dispute_items_test.go`.
+- **Lock order.** The case row `FOR UPDATE`, then receivables' invoice
+  row (`creditedInvoice`) and the ledger's locks of its posting, then
+  the case's items and the case's own update; nothing locks those in the
+  other order, so no cycle. Two resolutions of one case wait on the row
+  lock: the second meets another version (412) or a closed case (409).
+- **Event and audit.** `DisputeCaseChanged` (`resolved`) with
+  `resolution` (kind, accepted amount, posting date, write-off entry) and
+  each item's accepted amount and credit memo; audit action
+  `collections.dispute_case.resolve`, without the reason (ADR-0079).
+  Receivables and the ledger record and publish their documents as
+  always.
+- **Walkthrough.** `step_dispute_resolution`: see `scripts/walkthrough.sh`.
+- **Specialist question.** Whether a write-off of a disputed amount in
+  Canada or the UAE must correct the output tax (a bad-debt or price
+  reduction rule); the first version corrects none, and a credit memo is
+  the resolution that does.

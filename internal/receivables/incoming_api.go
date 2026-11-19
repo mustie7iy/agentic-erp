@@ -22,7 +22,8 @@ import (
 
 // paymentReferences are what incoming payments name by id, as their
 // consumer reads them (REVIEW.md, API-consumer classes): the companies,
-// the customers, the receipts' accounts, the journal entries (the
+// the customers, the receipts' and the write-offs' accounts, the journal
+// entries (the
 // receipt, the clearing entry, the items') by document number and, for
 // the items, by reference, and the bank statement line that posted each
 // receipt.
@@ -37,6 +38,18 @@ type paymentReferences struct {
 	closed map[ledger.ItemRef]bool
 	// parts are each payment's customers with their parts (T75h).
 	parts map[uuid.UUID][]CustomerPart
+}
+
+// itemIDs appends what the payment's items name by id: their entries,
+// their customers and the accounts their reasons wrote off to (T75o).
+func (v IncomingPayment) itemIDs(entries, customers, accounts []uuid.UUID) (e, c, a []uuid.UUID) {
+	for _, it := range v.Items {
+		entries, customers = append(entries, it.EntryID), append(customers, it.CustomerID)
+		if it.WriteOffAccount != nil {
+			accounts = append(accounts, *it.WriteOffAccount)
+		}
+	}
+	return entries, customers, accounts
 }
 
 // paymentReferences reads what the payments name by id, once for all of
@@ -57,9 +70,7 @@ func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPa
 		if credit, _, ok := v.credit(); ok {
 			credits = append(credits, credit)
 		}
-		for _, it := range v.Items {
-			items, partners = append(items, it.EntryID), append(partners, it.CustomerID)
-		}
+		items, partners, accounts = v.itemIDs(items, partners, accounts)
 		refs.parts[v.ID] = v.Parts()
 		if _, ok := refs.companies[v.LegalEntityID]; ok {
 			continue
@@ -123,12 +134,19 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 		out.Items[i] = gen.IncomingPaymentItem{ItemNo: it.ItemNo, ApplicationNo: it.ApplicationNo, CustomerID: it.CustomerID, CustomerNumber: named.Number,
 			CustomerName: named.Name, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID,
 			LineNo: it.LineNo, JournalEntryNumber: refs.numbers[it.EntryID], Reference: refs.references[it.EntryID],
-			Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
+			Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent), ItemAmount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
+		if it.ItemAmount != nil { // stored with its currency and rate (incoming_payment_item_translation)
+			out.Items[i].ItemAmount = apitypes.Money(*it.ItemAmount, *it.ItemCurrency, *it.ItemExponent)
+			out.Items[i].ExchangeRate.SetTo(gen.Decimal(*it.ExchangeRate))
+		}
 		if it.ResidualAmount != nil { // stored with its line and reason (incoming_payment_item_residual)
 			year, entry := v.clearing(it.ApplicationNo)
 			out.Items[i].Residual.SetTo(gen.IncomingPaymentResidual{Amount: apitypes.Money(*it.ResidualAmount, v.Currency, v.Exponent), Reason: *it.ResidualReason,
 				ReasonText: apitypes.OptString(it.ResidualText), FiscalYear: int32(year), JournalEntryID: entry, JournalEntryNumber: refs.numbers[entry],
 				LineNo: *it.ResidualLineNo})
+		}
+		if it.WriteOffAmount != nil { // stored with its line, account and reason (incoming_payment_item_write_off)
+			out.Items[i].WriteOff.SetTo(writeOffToAPI(v, it, refs))
 		}
 	}
 	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, v.Currency, v.Exponent) }
@@ -152,6 +170,16 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 		out.OnAccount.SetTo(on)
 	}
 	return out
+}
+
+// writeOffToAPI is what an item's reason wrote off (T75o) as the API gives
+// it, with its account's number and name and its clearing entry's number.
+func writeOffToAPI(v IncomingPayment, it PaymentItem, refs paymentReferences) gen.IncomingPaymentWriteOff {
+	year, entry := v.clearing(it.ApplicationNo)
+	account := refs.accounts[*it.WriteOffAccount]
+	return gen.IncomingPaymentWriteOff{Amount: apitypes.Money(*it.WriteOffAmount, v.Currency, v.Exponent), Reason: *it.WriteOffReason,
+		ReasonText: apitypes.OptString(it.WriteOffText), AccountID: *it.WriteOffAccount, AccountNumber: account.Number, AccountName: account.Name,
+		FiscalYear: int32(year), JournalEntryID: entry, JournalEntryNumber: refs.numbers[entry], LineNo: *it.WriteOffLineNo}
 }
 
 // resetToAPI is an undoing as the API gives it, with its reversal's

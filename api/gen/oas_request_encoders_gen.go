@@ -339,6 +339,20 @@ func encodeCancelDownPaymentRequestRequest(
 	return nil
 }
 
+func encodeCancelDunningRunRequest(
+	req *DunningRunCancel,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCancelMemoRecordRequest(
 	req OptMemoRecordCancel,
 	r *http.Request,
@@ -2157,6 +2171,20 @@ func encodeLockProfitCenterRequest(
 	return nil
 }
 
+func encodeMapCatalogItemMaterialsRequest(
+	req *CatalogMaterialMapping,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeMatchBankStatementLineRequest(
 	req *StatementLineMatchInput,
 	r *http.Request,
@@ -2885,6 +2913,20 @@ func encodeResetIncomingPaymentRequest(
 
 func encodeResetIncomingPaymentApplicationRequest(
 	req *IncomingPaymentReset,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeResolveDisputeCaseRequest(
+	req *DisputeCaseResolve,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

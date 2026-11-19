@@ -1205,9 +1205,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "An AR accountant applies a receipt in one currency to a customer's items in another: each item translated into the receipt's currency at the average rate valid on the posting date and cleared at its own rate, the realized exchange difference posted to fx_gain or fx_loss; refused when no rate is valid on the day",
+        "r": "T75n · docs/design/plan-depth-3.md §T75n · item_amount and exchange_rate on IncomingPaymentItem, items in another currency on POST /v1/incoming-payments and POST /v1/incoming-payments/{id}/applications (422 ledger.no_exchange_rate, ledger.item_rounds_to_zero) · db/migrations/000398 · ledger.Translation, AppliedReceipt.Translations (internal/ledger/receiptfx.go) · TestApplyReceiptInAnotherCurrency, TestApplyReceiptInAnotherCurrencyRefusals, TestReceiptInAnotherCurrency, db TestIncomingPaymentTranslationRules · walkthrough step_receipt_other_currency · ADR-0063 §6 and As built T75n",
+        "src": "split:T75c · adr:ADR-0063",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A company configures its payment-difference reason codes (companies[].receivables.payment_difference_reasons: code, description, residual or write_off, the write-off account); an item's residual names one, and the reason decides whether the difference stays open as a residual item or is written off to its account within the tolerance, in place of the four fixed reasons",
+        "r": "T75o · docs/design/plan-depth-3.md §T75o · companies[].receivables.payment_difference_reasons (internal/config/receivables.go, tier 3) · residual.reason from configuration and write_off on IncomingPaymentItem (422 receivables.no_write_off_account) · db/migrations/000399 · ledger.Residual.WriteOff, AppliedReceipt.WriteOffLines (internal/ledger/receiptdiff.go) · TestDifferenceReasonsValid, TestDifferenceReasonsTier, TestApplyReceiptWriteOff, TestReasonWritesOff, TestReasonRefusals, db TestIncomingPaymentWriteOffRules · walkthrough step_payment_difference_reasons · ADR-0063 §6 and As built T75o",
+        "src": "split:T75c · adr:ADR-0063",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: incoming payment variants: a receipt in another currency than the items, matching by rule and agent proposals from statement lines, receipts without a statement, direct debits, refunds, reason codes from configuration, output tax corrected on a payment difference, resetting a clearing without reversing it and resetting clearings other than incoming payments' (partial payments with residual items, payment differences and tolerances, payments on account, one receipt for several customers and undoing an application are T75f, T75g, T75h and T75i; after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T75c, Later · docs/design/plan-depth-1.md §recv, Later · docs/design/plan-depth-2.md §recv2, Later",
+        "t": "later: incoming payment variants: matching by rule and agent proposals from statement lines, receipts without a statement, direct debits, refunds, output tax corrected on a payment difference, resetting a clearing without reversing it and resetting clearings other than incoming payments' (partial payments with residual items, payment differences and tolerances, payments on account, one receipt for several customers, undoing an application, a receipt in another currency than the items and reason codes from configuration are T75f, T75g, T75h, T75i, T75n and T75o; after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75c, Later · docs/design/plan-depth-1.md §recv, Later · docs/design/plan-depth-2.md §recv2, Later · docs/design/plan-depth-3.md §rcpt, Later",
         "src": "po:2026-11-10 · design:03 §3.16 · adr:ADR-0047",
         "c": []
        }
@@ -3107,9 +3121,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A credit controller's confirmed dunning run posts each notice's dunning charge and interest to its customer as a customer debit memo against the company's dunning charge and interest revenue accounts (account determination dunning_charges, dunning_interest), one memo per notice, in the confirmation's transaction; a company without the accounts posts nothing",
+        "r": "T76h · docs/design/plan-depth-3.md §T76h · db/migrations/000400 · collections.dunning_charge · companies[].account_determination.dunning_charges, .dunning_interest (tier 3) · DunningRun.charge_document_count · DunningNotice.charge_document · DunningNoticeIssued customer_invoice_id · 422 collections.no_charge_account · receivables.CreateInvoice/PostInvoice (debit memo, source the notice) · problem.Led · TestChargesPosted, TestChargesNotPosted, TestChargeRefusals, TestDunningAccounts, TestDunningChargeRules · walkthrough step_dunning_postings · ADR-0065 As built T76h, ADR-0063 As built",
+        "src": "split:T76e · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A credit controller cancels a confirmed dunning run: its items' dunning levels set back, the debit memos it posted reversed; refused once a memo is cleared, into a closed period, or when a later confirmed run dunned its items (POST /v1/dunning-runs/{id}:cancel)",
+        "r": "T76i · docs/design/plan-depth-3.md §T76i · db/migrations/000401, 000402 · POST /v1/dunning-runs/{id}:cancel · dunning_run status cancelled, cancellation_reason · dunning_charge reversal · DunningChargeDocument.status · DunningNoticeCancelled · 409 collections.run_superseded · receivables.ReverseSourced · customer_invoice_reversed widened · collectionsagent.Never · TestCancelRun, TestCancelStaleProposal, TestCancelRefusals, TestCancellationsSerialize, TestReverseSourced, TestDunningRunCancellation · walkthrough step_dunning_postings · ADR-0065 As built T76i, ADR-0063 As built",
+        "src": "split:T76e · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: dunning variants: letters and e-mails, procedures per customer, charges and minimum amounts per currency, posting dunning charges and interest, blocks in the collection worklist, scheduled and large runs as a workflow, cancelling a confirmed run (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T76b, Later · docs/design/plan-depth-1.md §T76e, Later",
+        "t": "later: dunning variants: letters and e-mails, procedures per customer, charges and minimum amounts per currency, blocks in the collection worklist, scheduled and large runs as a workflow, a cancellation's reversal on a date of its own, tax on dunning charges (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T76b, Later · docs/design/plan-depth-1.md §T76e, Later · docs/design/plan-depth-3.md §dun, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
@@ -3134,9 +3162,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A collections specialist opens one dispute case over several of a customer's open invoices, each with its own disputed amount; a dunning run leaves each out while the case is open, and the worklist counts the case once",
+        "r": "T86c · docs/design/plan-depth-3.md §T86c · db/migrations/000403 · collections.dispute_case_item · POST /v1/dispute-cases items · DisputeCase.items · DisputeCaseChanged.items · 422 collections.items_or_item · dunning holds and worklist by item · collectionsagent reads items · audit details without the case's free text · walkthrough step_dispute_items · ADR-0065 As built",
+        "src": "split:T86b · po:2026-11-17",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "An AR accountant resolves an accepted dispute case, in full or in part, by a customer credit memo per accepted invoice through receivables or by a write-off to the payment differences account; the case closes as accepted naming the documents",
+        "r": "T86d · docs/design/plan-depth-3.md §T86d · db/migrations/000404, 000405 · dispute_case resolution columns · dispute_case_item accepted amounts and credit memo · POST /v1/dispute-cases/{id}:resolve · collections.dispute.resolve · DisputeCaseChanged resolved · receivables credit memo per item (source the case's item) · write-off SA entry, source_context collections, to payment_difference_expense, an item of a dunning charge's debit memo refused (422 collections.dunning_charge_write_off, TestWriteOffOfADunningCharge) · collectionsagent.Never · walkthrough step_dispute_resolution · ADR-0065 As built",
+        "src": "split:T86b · po:2026-11-17",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "later: dispute case variants: a case over several invoices or on a short payment at the incoming payment, the credit memo or write-off created from an accepted case, correspondence and attachments, escalation and deadlines, dunning the undisputed part of an invoice, disputed amounts in the credit exposure and the cash forecast, cases opened by the customer (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week3.md §T86b, Later",
+        "t": "later: dispute case variants: a case on a short payment at the incoming payment, correspondence and attachments, escalation and deadlines, dunning the undisputed part of an invoice, disputed amounts in the credit exposure and the cash forecast, cases opened by the customer, clearing the credit against the invoice in the resolution, write-off reason codes with their own accounts (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T86b, Later · docs/design/plan-depth-3.md §disp, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
@@ -5368,9 +5410,16 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Sales and procurement items (quotation, sales order, billing, requisition, RFQ, catalog) may name a material instead of a free-text key, taking its description and unit, and the tenant's existing item keys are mapped onto materials once",
-      "r": "S1f · docs/design/plan-supply-chain.md §S1f · ADR-0082",
+      "s": "D",
+      "t": "A sales clerk enters a quotation's or sales order's item (or one an order change adds) by its material: the material's description unless one is given, its number as the item key (so prices by key find it), a unit of the material converting exactly to its base unit; the order and its billing documents name the material",
+      "r": "S1f1 · docs/design/plan-supply-chain.md §S1f1 · ADR-0082 As built S1f · ADR-0067 As built S1f1 · db/migrations/000395, 000396 · sales.quotation_item.material_id, sales.sales_order_item.material_id · SalesItemCreate.material_id · SalesItem.material_id · sales.material_not_usable, sales.item_key_not_material, sales.invalid_material_quantity · walkthrough step_material_items",
+      "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Requisition, RFQ and catalog items may name a material with the sales item's rules, the material carried from catalog to requisition to RFQ to contract; a company's catalog items keyed by a material's number are mapped onto it once, with a report of the keys that match none",
+      "r": "S1f2 · docs/design/plan-supply-chain.md §S1f2 · ADR-0082 As built S1f · ADR-0071 As built S1f2 · db/migrations/000397 · procurement.rfq_item.material_id, procurement.catalog_item.material_id, requisition_item.material_id checked and .material_number · catalog_item_material_fixed · materials.Material.ForItem, Materials.ByNumber · POST /v1/catalog-material-mappings · CatalogItemChanged.material_id · procurement.material_not_usable, procurement.key_not_material, procurement.invalid_material_quantity · walkthrough step_material_items",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -6788,9 +6837,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A dispute case's free-text reason and note are copied into its audit details (opened, changed, closed), which a deletion run cannot blank: audit records are insert-only, so the text outlives the erasure of its subject; keep such text out of audit details, as customer contacts do since batch 79, or make it erasable (found in batch 79's review)",
-        "r": "internal/collections disputes.go audit details (recordCase, changed) · audit.audit_event · ADR-0079 · ADR-0011",
+        "r": "internal/collections disputes.go audit details (recordCase, changed) · audit.audit_event · ADR-0079 · ADR-0011 · fixed with T86c: the audit details record reason_given and note_given, not the texts",
         "src": "review:batch79",
         "c": []
        }
@@ -7771,7 +7820,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "D",
+      "s": "P",
       "t": "Country packs",
       "r": "ADR-0048 · T62 (split T62a-T62f)",
       "c": [
@@ -7854,6 +7903,13 @@
         "t": "Numbering-only packs Canada 2026.10 and UAE 2026.7 bring the debit memos' journal range journal_dd (T75j), which a company activated from Canada 2026.9 or UAE 2026.6 lacks (422 config.no_number_range); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried (product owner 2026-11-18)",
         "r": "docs/design/plan-depth-3.md §packperm · packs/ca/2026.10 · packs/ae/2026.7 · packs/released.sha256 · TestCanadaPack2026_10 · TestUAEPack2026_7 (numberingOnly, adoptsAddedRanges) · ADR-0048 As built (the debit memos' journal range) · ADR-0063 As built T75j · walkthrough steps 2 and 41 apply them, the pilot's settings no longer add journal_dd",
         "src": "po:2026-11-18",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "Numbering-only packs Canada 2026.11 and UAE 2026.8 bring the ranges the pilot's settings still add themselves: returns_order, credit_memo_request, lease_contract, expense_report, material, material_document, journal_wa and journal_pr (a company activated from Canada 2026.10 or UAE 2026.7 lacks them: 422 config.no_number_range); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried (product owner 2026-11-19, batch 81's open item (b) as recommended); built in the next refill",
+        "r": "packs/ca/2026.11 · packs/ae/2026.8 · packs/released.sha256 · ADR-0048 As built",
+        "src": "po:2026-11-19",
         "c": []
        }
       ]

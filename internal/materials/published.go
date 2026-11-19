@@ -22,11 +22,15 @@ type Materials struct{}
 
 // Materials reads the materials with the ids, each with its plants,
 // storage locations and alternative units, keyed by id; an id that is no
-// material has no entry.
+// material has no entry, and an id given twice is read once. No id reads
+// nothing.
 func (Materials) Materials(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Material, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if len(ids) == 0 {
+		return map[uuid.UUID]Material{}, nil
 	}
 	rows, _ := tx.Query(ctx, materialSelect+` WHERE m.id = ANY($1) ORDER BY m.id`, ids)
 	ms, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Material, error) { return scanMaterial(r) })
@@ -36,6 +40,26 @@ func (Materials) Materials(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 	out := make(map[uuid.UUID]Material, len(ms))
 	for _, m := range ms {
 		out[m.ID] = m
+	}
+	return out, nil
+}
+
+// ByNumber reads the materials with the numbers, as Materials does,
+// keyed by number; a number that is no material's has no entry. A
+// mapping of free-text keys onto materials finds them so (S1f2).
+func (Materials) ByNumber(ctx context.Context, numbers []string) (map[string]Material, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, materialSelect+` WHERE m.number = ANY($1) ORDER BY m.number`, numbers)
+	ms, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Material, error) { return scanMaterial(r) })
+	if err != nil {
+		return nil, fmt.Errorf("materials: read %d materials by number: %w", len(numbers), err)
+	}
+	out := make(map[string]Material, len(ms))
+	for _, m := range ms {
+		out[m.Number] = m
 	}
 	return out, nil
 }

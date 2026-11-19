@@ -67,7 +67,7 @@ func orderOf(ctx context.Context, tx pgx.Tx, r RFQ, win Compared, today time.Tim
 	items := make([]ItemInput, len(win.Priced))
 	for i, it := range win.Priced {
 		items[i] = ItemInput{Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, Price: it.UnitPrice.Plain(r.Exponent),
-			Currency: r.Currency, PriceUnit: it.PriceUnit, AccountID: it.AccountID, DeliveryDate: it.DeliveryDate}
+			Currency: r.Currency, PriceUnit: it.PriceUnit, AccountID: it.AccountID, DeliveryDate: it.DeliveryDate, MaterialID: it.MaterialID}
 		if it.RequisitionItemNo != nil {
 			source := assigned[*it.RequisitionItemNo]
 			assignment := source.assignment()

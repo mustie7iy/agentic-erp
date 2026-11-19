@@ -2,7 +2,6 @@ package procurement
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -26,10 +25,13 @@ import (
 // account (SAP's BSX for an item without account assignment, from
 // memory). Returns to the supplier (122) of stock items are Later.
 
-// Materials reads materials by id (the materials context's published
-// API): what a stock item's material is, where it is kept and its units.
+// Materials reads materials (the materials context's published API): by
+// id, what a stock item's or a material item's material is, where it is
+// kept and its units; by number, the materials a catalog's keys are
+// mapped onto (S1f2).
 type Materials interface {
 	Materials(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]materials.Material, error)
+	ByNumber(ctx context.Context, numbers []string) (map[string]materials.Material, error)
 }
 
 // Movements moves stock (the inventory context's published API): a
@@ -81,11 +83,7 @@ func (e *Endpoints) stockItem(ctx context.Context, h orderHeader, field string, 
 		}
 	}
 	if _, err := m.Convert(money.ParseRat(it.Quantity), it.Unit); err != nil {
-		why := " is no unit of material " + m.Number
-		if errors.Is(err, materials.ErrInexact) {
-			why = " does not convert exactly to its base unit " + m.BaseUnit + " in six decimals"
-		}
-		return problem.Invalid("procurement.invalid_stock_item", field+".quantity.unit", it.Quantity+" "+it.Unit+why+".")
+		return problem.Invalid("procurement.invalid_stock_item", field+".quantity.unit", m.UnitRefusal(it.Quantity, it.Unit, err))
 	}
 	return nil
 }

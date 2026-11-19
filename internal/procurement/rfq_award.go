@@ -125,7 +125,7 @@ func (c Comparison) winner(quotation uuid.UUID, zone *time.Location) (Compared, 
 func (row Compared) contractOf(r RFQ, in Award) NewContract {
 	items := make([]ItemInput, len(row.Priced))
 	for i, it := range row.Priced {
-		items[i] = ItemInput{MaterialKey: it.MaterialKey, Description: it.Description, Unit: it.Unit, Price: it.UnitPrice.Plain(r.Exponent),
+		items[i] = ItemInput{MaterialID: it.MaterialID, MaterialKey: it.MaterialKey, Description: it.Description, Unit: it.Unit, Price: it.UnitPrice.Plain(r.Exponent),
 			Currency: r.Currency, PriceUnit: it.PriceUnit, AccountID: it.AccountID}
 	}
 	return NewContract{LegalEntityID: r.LegalEntityID, SupplierID: row.Supplier.ID, Currency: r.Currency, ValidFrom: *in.ValidFrom, ValidTo: *in.ValidTo,

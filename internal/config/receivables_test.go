@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -96,5 +97,121 @@ func TestPaymentToleranceLimits(t *testing.T) {
 	under, over = none.Tolerance().Limits(2)
 	if under.Amount != 0 || under.Percent.Sign() != 0 || over.Amount != 0 || over.Percent.Sign() != 0 {
 		t.Errorf("no company's limits: got %+v and %+v, want zero", under, over)
+	}
+}
+
+// withReasons gives company 1000 the payment differences of withTolerance
+// and three reasons (T75o): two residuals and bank charges written off to
+// 690000.
+func withReasons(t *testing.T) *Config {
+	t.Helper()
+	c := withTolerance(t)
+	co := &c.Companies[0]
+	co.ChartOfAccounts = append(co.ChartOfAccounts, Account{Number: "690000", Name: "Bank charges borne", Type: Expense})
+	co.Receivables.PaymentDifferenceReasons = []DifferenceReason{{Code: "short_payment", Description: "Paid less", Treatment: TreatmentResidual},
+		{Code: "disputed", Description: "Disputed", Treatment: TreatmentResidual},
+		{Code: "bank_charges", Description: "The customer's bank charged", Treatment: TreatmentWriteOff, Account: "690000"}}
+	return c
+}
+
+// TestDifferenceReasonsValid (T75o; ADR-0063 §6): each reason has a code
+// of lower case letters, digits and underscores, once, a description, a
+// treatment, residual or write_off, and a write-off its account, an
+// expense of the chart that reconciles nothing, which is then an account
+// the system posts to; a residual reason has none.
+func TestDifferenceReasonsValid(t *testing.T) {
+	if fs := Validate(withReasons(t), currency.Seeded()); HasErrors(fs) {
+		t.Fatalf("reasons: got %v, want no errors", fs)
+	}
+	if !slices.Contains(withReasons(t).Companies[0].AutomaticAccounts(), AutomaticAccount{Path: "receivables.payment_difference_reasons[bank_charges].account",
+		Account: "690000"}) {
+		t.Errorf("automatic accounts: got %v, want the write-off account among them", withReasons(t).Companies[0].AutomaticAccounts())
+	}
+	const p = "companies[1000].receivables.payment_difference_reasons"
+	reason := func(i int, change func(r *DifferenceReason)) func(co *Company) {
+		return func(co *Company) { change(&co.Receivables.PaymentDifferenceReasons[i]) }
+	}
+	for _, c := range []struct {
+		name   string
+		change func(co *Company)
+		path   string
+	}{
+		{"a code in capitals", reason(0, func(r *DifferenceReason) { r.Code = "SHORT" }), p + "[SHORT].code"},
+		{"a code of 41 characters", reason(0, func(r *DifferenceReason) { r.Code = strings.Repeat("a", 41) }), p + "[" + strings.Repeat("a", 41) + "].code"},
+		{"a code twice", reason(1, func(r *DifferenceReason) { r.Code = "short_payment" }), p + "[short_payment].code"},
+		{"no description", reason(0, func(r *DifferenceReason) { r.Description = "" }), p + "[short_payment].description"},
+		{"a description of 81 characters", reason(0, func(r *DifferenceReason) { r.Description = strings.Repeat("d", 81) }), p + "[short_payment].description"},
+		{"a treatment not listed", reason(0, func(r *DifferenceReason) { r.Treatment = "ignore" }), p + "[short_payment].treatment"},
+		{"a write-off without its account", reason(2, func(r *DifferenceReason) { r.Account = "" }), p + "[bank_charges].account"},
+		{"a write-off to a revenue", reason(2, func(r *DifferenceReason) { r.Account = "480000" }), p + "[bank_charges].account"},
+		{"a write-off to an account not in the chart", reason(2, func(r *DifferenceReason) { r.Account = "699999" }), p + "[bank_charges].account"},
+		{"a residual reason with an account", reason(1, func(r *DifferenceReason) { r.Account = "690000" }), p + "[disputed].account"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			doc := withReasons(t)
+			c.change(&doc.Companies[0])
+			var paths []string
+			for _, f := range Validate(doc, currency.Seeded()) {
+				if f.Severity == SevError {
+					paths = append(paths, f.Path)
+				}
+			}
+			if got := strings.Join(paths, " "); got != c.path {
+				t.Errorf("errors: got %s, want one at %s", got, c.path)
+			}
+		})
+	}
+}
+
+// TestDifferenceReasons: a company's reasons are those it configures, else
+// the four T75f fixed, all residuals, as for a company the document does
+// not name.
+func TestDifferenceReasons(t *testing.T) {
+	codes := func(rs []DifferenceReason) string {
+		var out []string
+		for _, r := range rs {
+			out = append(out, r.Code+" "+r.Treatment)
+		}
+		return strings.Join(out, ", ")
+	}
+	var none *Company
+	for name, c := range map[string]struct {
+		co   *Company
+		want string
+	}{
+		"configured":      {&withReasons(t).Companies[0], "short_payment residual, disputed residual, bank_charges write_off"},
+		"none":            {&withTolerance(t).Companies[0], "short_payment residual, disputed residual, deduction residual, other residual"},
+		"no such company": {none, "short_payment residual, disputed residual, deduction residual, other residual"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := codes(c.co.DifferenceReasons()); got != c.want {
+				t.Errorf("reasons: got %s, want %s", got, c.want)
+			}
+		})
+	}
+}
+
+// TestDifferenceReasonsTier: a reason decides what is written off to
+// profit and loss and where, so adding one and changing its treatment or
+// account are posting-related (tier 3), each named by its code.
+func TestDifferenceReasonsTier(t *testing.T) {
+	moved := withReasons(t)
+	moved.Companies[0].Receivables.PaymentDifferenceReasons[1].Treatment = TreatmentWriteOff
+	diffs, _ := Diff(withReasons(t), moved) // Diff never fails
+	if len(diffs) != 1 || diffs[0].Path != "companies[1000].receivables.payment_difference_reasons[disputed].treatment" || diffs[0].Tier != TierPostingRelated {
+		t.Errorf("a treatment changed: got %v, want one change of tier %v", diffs, TierPostingRelated)
+	}
+	diffs, _ = Diff(withTolerance(t), withReasons(t)) // Diff never fails
+	var reasons []string
+	for _, d := range diffs {
+		if strings.Contains(d.Path, ".payment_difference_reasons[") {
+			reasons = append(reasons, d.Path)
+			if d.Tier != TierPostingRelated {
+				t.Errorf("tier of %s: got %v, want %v", d.Path, d.Tier, TierPostingRelated)
+			}
+		}
+	}
+	if len(reasons) != 3 {
+		t.Errorf("reasons set: got %v, want one change per reason", reasons)
 	}
 }

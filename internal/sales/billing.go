@@ -95,7 +95,7 @@ const billingSelect = `SELECT b.id, b.document_number, b.legal_entity_id, b.cust
 		(SELECT o.payment_term_code FROM sales.sales_order o WHERE o.tenant_id = b.tenant_id AND o.id = b.sales_order_id),
 		b.billing_date, b.currency, c.exponent, b.net_amount, b.status, b.posting_date, b.customer_invoice_id, b.customer_invoice_number,
 		b.journal_entry_year, b.journal_entry_id,
-		(SELECT json_agg(json_build_object('item_no', i.item_no, 'item_key', t.item_key, 'description', t.description,
+		(SELECT json_agg(json_build_object('item_no', i.item_no, 'item_key', t.item_key, 'material_id', t.material_id, 'description', t.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', t.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
 			'price_source', i.price_source, 'conditions', i.conditions, 'net_amount', i.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code, 'order_item_no', i.order_item_no,
 			'credited_amount', (SELECT coalesce(sum(c.net_amount), 0) FROM sales.credit_memo_request_item c JOIN sales.credit_memo_request r

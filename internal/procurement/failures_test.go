@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -30,7 +31,7 @@ func endpoints() *procurement.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &procurement.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Partners: partner.Payees{}, AccountNames: ledger.AssetReads{}, Accounts: ledger.Accounts{},
 		Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{},
-		Approvals: fixture.Approvals(), Invoices: payables.Invoices{}, SupplierNames: partner.Payees{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
+		Approvals: fixture.Approvals(), Invoices: payables.Invoices{}, SupplierNames: partner.Payees{}, Materials: materials.Materials{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
 			Settings: configuration.Settings{}}}
 }
 
@@ -233,8 +234,8 @@ func failureCalls(e env, h *procurement.Endpoints, f failureFixture) map[string]
 			return err
 		},
 		"create catalog item": func(ctx context.Context) error {
-			_, err := h.CreateCatalogItem(ctx, &gen.CatalogItemCreate{LegalEntityID: e.DE, SupplierID: e.Supplier, ItemKey: "FAIL-" + uuid.NewString()[:8],
-				Description: "P", Unit: "EA", UnitPrice: gen.Money{Amount: "5.00", Currency: "EUR"}, ContractID: gen.NewOptUUID(u(f.active)),
+			_, err := h.CreateCatalogItem(ctx, &gen.CatalogItemCreate{LegalEntityID: e.DE, SupplierID: e.Supplier, ItemKey: gen.NewOptString("FAIL-" + uuid.NewString()[:8]),
+				Description: gen.NewOptString("P"), Unit: "EA", UnitPrice: gen.Money{Amount: "5.00", Currency: "EUR"}, ContractID: gen.NewOptUUID(u(f.active)),
 				ContractItemNo: gen.NewOptInt32(1)}, gen.CreateCatalogItemParams{})
 			return err
 		},
@@ -321,6 +322,21 @@ func TestDatabaseFailures(t *testing.T) {
 				apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
 			})
 		}
+	})
+	t.Run("catalog mapping", func(t *testing.T) {
+		e := e.in(t)
+		material := e.material(t, "FAIL-MAP", "active")
+		e.catalogItem(t, e.Supplier, "FAIL-MAP", "Mapped", "1.00", "")
+		if _, err := h.MapCatalogItemMaterials(context.Background(), &gen.CatalogMaterialMapping{LegalEntityID: e.DE}, gen.MapCatalogItemMaterialsParams{}); err == nil {
+			t.Error("a mapping outside a unit of work: got nil error, want an error")
+		}
+		apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "catalog mapping", func(ctx context.Context) error {
+			got, err := h.MapCatalogItemMaterials(ctx, &gen.CatalogMaterialMapping{LegalEntityID: e.DE}, gen.MapCatalogItemMaterialsParams{})
+			if err == nil && got.(*gen.CatalogMaterialMappingReportHeaders).Response.MappedItems != 1 {
+				t.Errorf("the mapping: got %+v, want the item mapped onto %s", got, material)
+			}
+			return err
+		})
 	})
 	t.Run("order from a requisition", func(t *testing.T) {
 		e := e.in(t)

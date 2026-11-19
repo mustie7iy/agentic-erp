@@ -17242,8 +17242,12 @@ func (*BillingDocumentHeaders) createBillingDocumentRes() {}
 type BillingDocumentItem struct {
 	// The item's number in the document.
 	ItemNo int32 `json:"item_no"`
-	// The free-text key naming what is sold; absent when none was given.
+	// The free-text key naming what is sold, the material's number for an item of a material; absent when
+	// none was given.
 	ItemKey OptString `json:"item_key"`
+	// The material sold (S1f1, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item
+	// without one. A billing document's item has its order item's.
+	MaterialID OptUUID `json:"material_id"`
 	// What is sold.
 	Description string `json:"description"`
 	// The quantity and its unit of measure.
@@ -17289,6 +17293,11 @@ func (s *BillingDocumentItem) GetItemNo() int32 {
 // GetItemKey returns the value of ItemKey.
 func (s *BillingDocumentItem) GetItemKey() OptString {
 	return s.ItemKey
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *BillingDocumentItem) GetMaterialID() OptUUID {
+	return s.MaterialID
 }
 
 // GetDescription returns the value of Description.
@@ -17364,6 +17373,11 @@ func (s *BillingDocumentItem) SetItemNo(val int32) {
 // SetItemKey sets the value of ItemKey.
 func (s *BillingDocumentItem) SetItemKey(val OptString) {
 	s.ItemKey = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *BillingDocumentItem) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
 }
 
 // SetDescription sets the value of Description.
@@ -18657,6 +18671,70 @@ func (*CancelDownPaymentRequestPreconditionRequired) cancelDownPaymentRequestRes
 type CancelDownPaymentRequestUnprocessableEntity Problem
 
 func (*CancelDownPaymentRequestUnprocessableEntity) cancelDownPaymentRequestRes() {}
+
+type CancelDunningRunBadRequest Problem
+
+func (*CancelDunningRunBadRequest) cancelDunningRunRes() {}
+
+type CancelDunningRunForbidden Problem
+
+func (*CancelDunningRunForbidden) cancelDunningRunRes() {}
+
+type CancelDunningRunNotFound Problem
+
+func (*CancelDunningRunNotFound) cancelDunningRunRes() {}
+
+// CancelDunningRunOKHeaders wraps DunningRun with response headers.
+type CancelDunningRunOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           DunningRun
+}
+
+// GetETag returns the value of ETag.
+func (s *CancelDunningRunOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CancelDunningRunOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CancelDunningRunOKHeaders) GetResponse() DunningRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CancelDunningRunOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CancelDunningRunOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CancelDunningRunOKHeaders) SetResponse(val DunningRun) {
+	s.Response = val
+}
+
+func (*CancelDunningRunOKHeaders) cancelDunningRunRes()  {}
+func (*CancelDunningRunOKHeaders) confirmDunningRunRes() {}
+
+type CancelDunningRunPreconditionFailed Problem
+
+func (*CancelDunningRunPreconditionFailed) cancelDunningRunRes() {}
+
+type CancelDunningRunPreconditionRequired Problem
+
+func (*CancelDunningRunPreconditionRequired) cancelDunningRunRes() {}
+
+type CancelDunningRunUnprocessableEntity Problem
+
+func (*CancelDunningRunUnprocessableEntity) cancelDunningRunRes() {}
 
 type CancelMemoRecordBadRequest Problem
 
@@ -22305,8 +22383,13 @@ type CatalogItem struct {
 	SupplierNumber string `json:"supplier_number"`
 	// The supplier's name, as it is now.
 	SupplierName string `json:"supplier_name"`
-	// The item's key, the supplier's once among the company's active items.
+	// The item's key, the supplier's once among the company's active items; the material's number for an
+	// item of a material.
 	ItemKey string `json:"item_key"`
+	// The material the item is of (S1f2, `GET /v1/materials/{id}`), whose number is `item_key`; absent for
+	// an item known by its key alone. Set once, at creation or by a mapping (`mapCatalogItemMaterials`),
+	// and never changed.
+	MaterialID OptUUID `json:"material_id"`
 	// What the item is.
 	Description string `json:"description"`
 	// Unit of measure code the item is ordered in.
@@ -22380,6 +22463,11 @@ func (s *CatalogItem) GetSupplierName() string {
 // GetItemKey returns the value of ItemKey.
 func (s *CatalogItem) GetItemKey() string {
 	return s.ItemKey
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *CatalogItem) GetMaterialID() OptUUID {
+	return s.MaterialID
 }
 
 // GetDescription returns the value of Description.
@@ -22477,6 +22565,11 @@ func (s *CatalogItem) SetItemKey(val string) {
 	s.ItemKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *CatalogItem) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
 func (s *CatalogItem) SetDescription(val string) {
 	s.Description = val
@@ -22525,10 +22618,19 @@ type CatalogItemCreate struct {
 	// The supplier (business partner id): one that can be ordered from in the company.
 	SupplierID uuid.UUID `json:"supplier_id"`
 	// The supplier's or the company's key of the item, without leading or trailing white space; the
-	// supplier's once among the company's active items.
-	ItemKey string `json:"item_key"`
-	// What the item is; a requisition item from it takes this description.
-	Description string `json:"description"`
+	// supplier's once among the company's active items. Required for an item without `material_id` (422
+	// `procurement.invalid_item_key`); the material's number for an item of a material: absent, it is
+	// taken, another is refused (422 `procurement.key_not_material`).
+	ItemKey OptString `json:"item_key"`
+	// The material the item is of (S1f2, `GET /v1/materials/{id}`): an `active` material of the tenant
+	// (422 `request.reference_not_found`, `procurement.material_not_usable`) of which `unit` is the base
+	// unit or an alternative unit (422 `procurement.invalid_material_quantity` naming `unit`). A
+	// requisition item taken from the catalog item names it too. Absent: the item is known by its
+	// `item_key` alone, until a mapping (`mapCatalogItemMaterials`) finds a material of that number.
+	MaterialID OptUUID `json:"material_id"`
+	// What the item is; a requisition item from it takes this description. Required for an item without
+	// `material_id` (422 `request.validation_failed`); the material's when absent.
+	Description OptString `json:"description"`
 	// Unit of measure code (reference data) the item is ordered in.
 	Unit string `json:"unit"`
 	// The price per `price_unit`, in its own currency; positive.
@@ -22554,12 +22656,17 @@ func (s *CatalogItemCreate) GetSupplierID() uuid.UUID {
 }
 
 // GetItemKey returns the value of ItemKey.
-func (s *CatalogItemCreate) GetItemKey() string {
+func (s *CatalogItemCreate) GetItemKey() OptString {
 	return s.ItemKey
 }
 
+// GetMaterialID returns the value of MaterialID.
+func (s *CatalogItemCreate) GetMaterialID() OptUUID {
+	return s.MaterialID
+}
+
 // GetDescription returns the value of Description.
-func (s *CatalogItemCreate) GetDescription() string {
+func (s *CatalogItemCreate) GetDescription() OptString {
 	return s.Description
 }
 
@@ -22599,12 +22706,17 @@ func (s *CatalogItemCreate) SetSupplierID(val uuid.UUID) {
 }
 
 // SetItemKey sets the value of ItemKey.
-func (s *CatalogItemCreate) SetItemKey(val string) {
+func (s *CatalogItemCreate) SetItemKey(val OptString) {
 	s.ItemKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *CatalogItemCreate) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
-func (s *CatalogItemCreate) SetDescription(val string) {
+func (s *CatalogItemCreate) SetDescription(val OptString) {
 	s.Description = val
 }
 
@@ -22713,6 +22825,237 @@ func (s *CatalogItemPage) SetNextPageToken(val OptString) {
 }
 
 func (*CatalogItemPage) listCatalogItemsRes() {}
+
+// One item key of a catalog mapping: whether its items were given a material.
+// Ref: #/components/schemas/CatalogKeyMapping
+type CatalogKeyMapping struct {
+	// The item key.
+	ItemKey string `json:"item_key"`
+	// `mapped`: the key's items were given the material of that number; `no_material`: no material has
+	// that number, so the key stays a free-text key; `not_mappable`: a material has that number but is not
+	// active, or the key's items are ordered in a unit that is none of its units (`reason`). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Outcome string `json:"outcome"`
+	// The material of that number (`GET /v1/materials/{id}`); absent for `no_material`.
+	MaterialID OptUUID `json:"material_id"`
+	// Its number, the item key; absent for `no_material`.
+	MaterialNumber OptString `json:"material_number"`
+	// Its description; absent for `no_material`.
+	MaterialDescription OptString `json:"material_description"`
+	// Why the key's items were not mapped, for `not_mappable`: the material's status, or the units its
+	// items are ordered in that are none of the material's.
+	Reason OptString `json:"reason"`
+	// The key's catalog items: those mapped, or those left without a material.
+	Items int32 `json:"items"`
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *CatalogKeyMapping) GetItemKey() string {
+	return s.ItemKey
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *CatalogKeyMapping) GetOutcome() string {
+	return s.Outcome
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *CatalogKeyMapping) GetMaterialID() OptUUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *CatalogKeyMapping) GetMaterialNumber() OptString {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *CatalogKeyMapping) GetMaterialDescription() OptString {
+	return s.MaterialDescription
+}
+
+// GetReason returns the value of Reason.
+func (s *CatalogKeyMapping) GetReason() OptString {
+	return s.Reason
+}
+
+// GetItems returns the value of Items.
+func (s *CatalogKeyMapping) GetItems() int32 {
+	return s.Items
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *CatalogKeyMapping) SetItemKey(val string) {
+	s.ItemKey = val
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *CatalogKeyMapping) SetOutcome(val string) {
+	s.Outcome = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *CatalogKeyMapping) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *CatalogKeyMapping) SetMaterialNumber(val OptString) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *CatalogKeyMapping) SetMaterialDescription(val OptString) {
+	s.MaterialDescription = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CatalogKeyMapping) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetItems sets the value of Items.
+func (s *CatalogKeyMapping) SetItems(val int32) {
+	s.Items = val
+}
+
+// A mapping of a company's catalog item keys onto materials (`mapCatalogItemMaterials`).
+// Ref: #/components/schemas/CatalogMaterialMapping
+type CatalogMaterialMapping struct {
+	// The company whose catalog is mapped: an active legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CatalogMaterialMapping) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CatalogMaterialMapping) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// What a mapping of a company's catalog item keys onto materials did, by item key.
+// Ref: #/components/schemas/CatalogMaterialMappingReport
+type CatalogMaterialMappingReport struct {
+	// The company whose catalog was mapped.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The catalog items this run gave a material: the sum of the `mapped` keys' `items`.
+	MappedItems int32 `json:"mapped_items"`
+	// The active catalog items left without a material because no material has their key as its number:
+	// the sum of the `no_material` keys' `items`.
+	NoMaterialItems int32 `json:"no_material_items"`
+	// The active catalog items left without a material because the material of their key's number is not
+	// active or they are ordered in none of its units: the sum of the `not_mappable` keys' `items`.
+	NotMappableItems int32 `json:"not_mappable_items"`
+	// Every item key of the company's active catalog items that named no material before the run, in the
+	// order of the keys; a key whose items were partly mapped is listed once per outcome.
+	Keys []CatalogKeyMapping `json:"keys"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CatalogMaterialMappingReport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CatalogMaterialMappingReport) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CatalogMaterialMappingReport) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetMappedItems returns the value of MappedItems.
+func (s *CatalogMaterialMappingReport) GetMappedItems() int32 {
+	return s.MappedItems
+}
+
+// GetNoMaterialItems returns the value of NoMaterialItems.
+func (s *CatalogMaterialMappingReport) GetNoMaterialItems() int32 {
+	return s.NoMaterialItems
+}
+
+// GetNotMappableItems returns the value of NotMappableItems.
+func (s *CatalogMaterialMappingReport) GetNotMappableItems() int32 {
+	return s.NotMappableItems
+}
+
+// GetKeys returns the value of Keys.
+func (s *CatalogMaterialMappingReport) GetKeys() []CatalogKeyMapping {
+	return s.Keys
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CatalogMaterialMappingReport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CatalogMaterialMappingReport) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CatalogMaterialMappingReport) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetMappedItems sets the value of MappedItems.
+func (s *CatalogMaterialMappingReport) SetMappedItems(val int32) {
+	s.MappedItems = val
+}
+
+// SetNoMaterialItems sets the value of NoMaterialItems.
+func (s *CatalogMaterialMappingReport) SetNoMaterialItems(val int32) {
+	s.NoMaterialItems = val
+}
+
+// SetNotMappableItems sets the value of NotMappableItems.
+func (s *CatalogMaterialMappingReport) SetNotMappableItems(val int32) {
+	s.NotMappableItems = val
+}
+
+// SetKeys sets the value of Keys.
+func (s *CatalogMaterialMappingReport) SetKeys(val []CatalogKeyMapping) {
+	s.Keys = val
+}
+
+// CatalogMaterialMappingReportHeaders wraps CatalogMaterialMappingReport with response headers.
+type CatalogMaterialMappingReportHeaders struct {
+	IdempotentReplayed OptBool
+	Response           CatalogMaterialMappingReport
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CatalogMaterialMappingReportHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CatalogMaterialMappingReportHeaders) GetResponse() CatalogMaterialMappingReport {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CatalogMaterialMappingReportHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CatalogMaterialMappingReportHeaders) SetResponse(val CatalogMaterialMappingReport) {
+	s.Response = val
+}
+
+func (*CatalogMaterialMappingReportHeaders) mapCatalogItemMaterialsRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/CenterChange
@@ -27251,45 +27594,6 @@ type ConfirmDunningRunNotFound Problem
 
 func (*ConfirmDunningRunNotFound) confirmDunningRunRes() {}
 
-// ConfirmDunningRunOKHeaders wraps DunningRun with response headers.
-type ConfirmDunningRunOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           DunningRun
-}
-
-// GetETag returns the value of ETag.
-func (s *ConfirmDunningRunOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *ConfirmDunningRunOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *ConfirmDunningRunOKHeaders) GetResponse() DunningRun {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *ConfirmDunningRunOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *ConfirmDunningRunOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ConfirmDunningRunOKHeaders) SetResponse(val DunningRun) {
-	s.Response = val
-}
-
-func (*ConfirmDunningRunOKHeaders) confirmDunningRunRes() {}
-
 type ConfirmDunningRunPreconditionFailed Problem
 
 func (*ConfirmDunningRunPreconditionFailed) confirmDunningRunRes() {}
@@ -27478,6 +27782,7 @@ func (*ConflictHeaders) cancelAssetRes()                           {}
 func (*ConflictHeaders) cancelBillingDocumentRes()                 {}
 func (*ConflictHeaders) cancelContractRes()                        {}
 func (*ConflictHeaders) cancelDownPaymentRequestRes()              {}
+func (*ConflictHeaders) cancelDunningRunRes()                      {}
 func (*ConflictHeaders) cancelMemoRecordRes()                      {}
 func (*ConflictHeaders) cancelOperationRes()                       {}
 func (*ConflictHeaders) cancelParkedJournalEntryRes()              {}
@@ -27655,6 +27960,7 @@ func (*ConflictHeaders) lockCostCenterRes()                        {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                      {}
 func (*ConflictHeaders) lockPlanCategoryRes()                      {}
 func (*ConflictHeaders) lockProfitCenterRes()                      {}
+func (*ConflictHeaders) mapCatalogItemMaterialsRes()               {}
 func (*ConflictHeaders) matchBankStatementLineRes()                {}
 func (*ConflictHeaders) matchBankStatementRes()                    {}
 func (*ConflictHeaders) matchSupplierInvoiceRes()                  {}
@@ -27722,6 +28028,7 @@ func (*ConflictHeaders) requestBankAccountChangeRes()              {}
 func (*ConflictHeaders) requestBankAccountEndRes()                 {}
 func (*ConflictHeaders) resetIncomingPaymentApplicationRes()       {}
 func (*ConflictHeaders) resetIncomingPaymentRes()                  {}
+func (*ConflictHeaders) resolveDisputeCaseRes()                    {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) retireCatalogItemRes()                     {}
 func (*ConflictHeaders) retireControlRes()                         {}
@@ -38483,10 +38790,13 @@ type CustomerInvoice struct {
 	// The entry's document number. Absent until posted.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// The document the invoice was entered from: the billing document that posted it
-	// (`GET /v1/billing-documents/{id}`, `postBillingDocument`). Absent for an invoice a person entered
-	// (`createCustomerInvoice`).
+	// (`GET /v1/billing-documents/{id}`, `postBillingDocument`), or, for a debit memo of dunning charges
+	// and interest, the dunning notice whose run's confirmation posted it (`listDunningNotices`,
+	// `confirmDunningRun`; T76h), which the run's cancellation reverses (`cancelDunningRun`, T76i). Absent
+	// for an invoice a person entered (`createCustomerInvoice`).
 	SourceDocumentID OptUUID `json:"source_document_id"`
-	// That document's number; absent with `source_document_id`.
+	// That document's number, a dunning notice's id for a dunning notice, which has no number; absent with
+	// `source_document_id`.
 	SourceDocumentNumber OptString `json:"source_document_number"`
 	// The journal entry that reversed the document's entry (`GET /v1/journal-entries/{id}`,
 	// `reverseCustomerInvoice`). Absent unless `reversed`.
@@ -41256,21 +41566,25 @@ type DisputeCase struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
-	// The fiscal year of the item's journal entry.
+	// The fiscal year of the journal entry of the case's first item (`items`).
 	FiscalYear int32 `json:"fiscal_year"`
-	// The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).
+	// The journal entry whose line is the case's first item (`GET /v1/journal-entries/{id}`).
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
-	// The line of the journal entry that is the disputed item.
+	// The line of the journal entry that is the case's first item.
 	LineNo int32 `json:"line_no"`
-	// The journal entry's document number.
+	// The document number of the first item's journal entry.
 	DocumentNumber string `json:"document_number"`
-	// The journal entry's reference, a customer invoice's document number for one; absent when it has
-	// none.
+	// The reference of the first item's journal entry, a customer invoice's document number for one;
+	// absent when it has none.
 	Reference OptString `json:"reference"`
-	// The amount disputed, in the item's currency.
+	// The amount disputed, in the items' currency: what the items dispute together.
 	DisputedAmount Money `json:"disputed_amount"`
-	// The same in the company's currency, its share of the item's amount as the item was booked.
+	// The same in the company's currency: the items' shares of their amounts as they were booked,
+	// together.
 	LocalDisputedAmount Money `json:"local_disputed_amount"`
+	// The case's items by number (T86c): one for a case on one invoice, the first being the item the
+	// case's own journal line names.
+	Items []DisputeCaseItem `json:"items"`
 	// Why the customer disputes the amount.
 	Reason string `json:"reason"`
 	// The person who works the case; absent when nobody is assigned.
@@ -41279,10 +41593,11 @@ type DisputeCase struct {
 	AssigneeName OptString `json:"assignee_name"`
 	// The note on the case; absent when it has none.
 	Note OptString `json:"note"`
-	// `open`: the case is being worked, and a dunning run leaves its item out (T86b). `accepted`: closed,
-	// the customer was right; a person credits it. `rejected`: closed, the customer owes the amount. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// `open`: the case is being worked, and a dunning run leaves its items out (T86b). `accepted`: closed,
+	// the customer was right, in full or in part; resolved by a credit memo or a write-off (`resolution`,
+	// T86d), or credited by a person when closed without one. `rejected`: closed, the customer owes the
+	// amount. Open enumeration: clients must accept and preserve values not listed here; values may be
+	// added within /v1.
 	Status string `json:"status"`
 	// Why the case was closed with its outcome; absent while it is open.
 	CloseReason OptString `json:"close_reason"`
@@ -41292,6 +41607,26 @@ type DisputeCase struct {
 	ClosedBy OptUUID `json:"closed_by"`
 	// The name of who closed the case; absent while it is open.
 	ClosedByName OptString `json:"closed_by_name"`
+	// How an accepted case was resolved (`resolveDisputeCase`, T86d): `credit_memo`, its items' credit
+	// memos (`items[].credit_memo_id`), or `write_off`, its write-off entry; absent for a case not
+	// resolved, an accepted case closed without one among them. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
+	Resolution OptString `json:"resolution"`
+	// What the resolution accepted, the items' accepted amounts together, in the case's currency; absent
+	// unless resolved.
+	AcceptedAmount OptMoney `json:"accepted_amount"`
+	// The same in the company's currency, the items' accepted parts as they were booked; absent unless
+	// resolved.
+	LocalAcceptedAmount OptMoney `json:"local_accepted_amount"`
+	// The date the resolution's documents posted on; absent unless resolved.
+	PostingDate OptDate `json:"posting_date"`
+	// The write-off's journal entry (`GET /v1/journal-entries/{id}`); absent unless the resolution is
+	// `write_off`.
+	WriteOffJournalEntryID OptUUID `json:"write_off_journal_entry_id"`
+	// The write-off entry's fiscal year; absent with it.
+	WriteOffJournalEntryYear OptInt32 `json:"write_off_journal_entry_year"`
+	// The write-off entry's document number; absent with it.
+	WriteOffJournalEntryNumber OptString `json:"write_off_journal_entry_number"`
 }
 
 // GetID returns the value of ID.
@@ -41389,6 +41724,11 @@ func (s *DisputeCase) GetLocalDisputedAmount() Money {
 	return s.LocalDisputedAmount
 }
 
+// GetItems returns the value of Items.
+func (s *DisputeCase) GetItems() []DisputeCaseItem {
+	return s.Items
+}
+
 // GetReason returns the value of Reason.
 func (s *DisputeCase) GetReason() string {
 	return s.Reason
@@ -41432,6 +41772,41 @@ func (s *DisputeCase) GetClosedBy() OptUUID {
 // GetClosedByName returns the value of ClosedByName.
 func (s *DisputeCase) GetClosedByName() OptString {
 	return s.ClosedByName
+}
+
+// GetResolution returns the value of Resolution.
+func (s *DisputeCase) GetResolution() OptString {
+	return s.Resolution
+}
+
+// GetAcceptedAmount returns the value of AcceptedAmount.
+func (s *DisputeCase) GetAcceptedAmount() OptMoney {
+	return s.AcceptedAmount
+}
+
+// GetLocalAcceptedAmount returns the value of LocalAcceptedAmount.
+func (s *DisputeCase) GetLocalAcceptedAmount() OptMoney {
+	return s.LocalAcceptedAmount
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DisputeCase) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetWriteOffJournalEntryID returns the value of WriteOffJournalEntryID.
+func (s *DisputeCase) GetWriteOffJournalEntryID() OptUUID {
+	return s.WriteOffJournalEntryID
+}
+
+// GetWriteOffJournalEntryYear returns the value of WriteOffJournalEntryYear.
+func (s *DisputeCase) GetWriteOffJournalEntryYear() OptInt32 {
+	return s.WriteOffJournalEntryYear
+}
+
+// GetWriteOffJournalEntryNumber returns the value of WriteOffJournalEntryNumber.
+func (s *DisputeCase) GetWriteOffJournalEntryNumber() OptString {
+	return s.WriteOffJournalEntryNumber
 }
 
 // SetID sets the value of ID.
@@ -41529,6 +41904,11 @@ func (s *DisputeCase) SetLocalDisputedAmount(val Money) {
 	s.LocalDisputedAmount = val
 }
 
+// SetItems sets the value of Items.
+func (s *DisputeCase) SetItems(val []DisputeCaseItem) {
+	s.Items = val
+}
+
 // SetReason sets the value of Reason.
 func (s *DisputeCase) SetReason(val string) {
 	s.Reason = val
@@ -41574,6 +41954,41 @@ func (s *DisputeCase) SetClosedByName(val OptString) {
 	s.ClosedByName = val
 }
 
+// SetResolution sets the value of Resolution.
+func (s *DisputeCase) SetResolution(val OptString) {
+	s.Resolution = val
+}
+
+// SetAcceptedAmount sets the value of AcceptedAmount.
+func (s *DisputeCase) SetAcceptedAmount(val OptMoney) {
+	s.AcceptedAmount = val
+}
+
+// SetLocalAcceptedAmount sets the value of LocalAcceptedAmount.
+func (s *DisputeCase) SetLocalAcceptedAmount(val OptMoney) {
+	s.LocalAcceptedAmount = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DisputeCase) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetWriteOffJournalEntryID sets the value of WriteOffJournalEntryID.
+func (s *DisputeCase) SetWriteOffJournalEntryID(val OptUUID) {
+	s.WriteOffJournalEntryID = val
+}
+
+// SetWriteOffJournalEntryYear sets the value of WriteOffJournalEntryYear.
+func (s *DisputeCase) SetWriteOffJournalEntryYear(val OptInt32) {
+	s.WriteOffJournalEntryYear = val
+}
+
+// SetWriteOffJournalEntryNumber sets the value of WriteOffJournalEntryNumber.
+func (s *DisputeCase) SetWriteOffJournalEntryNumber(val OptString) {
+	s.WriteOffJournalEntryNumber = val
+}
+
 // The outcome of a dispute case and its reason.
 // Ref: #/components/schemas/DisputeCaseClose
 type DisputeCaseClose struct {
@@ -41605,21 +42020,27 @@ func (s *DisputeCaseClose) SetReason(val string) {
 	s.Reason = val
 }
 
-// Open a dispute case on a customer's open item. It is created `open`.
+// Open a dispute case on a customer's open items: one by `fiscal_year`, `journal_entry_id`, `line_no`
+// and `disputed_amount`, or several in `items` (T86c), not both. It is created `open`.
 // Ref: #/components/schemas/DisputeCaseCreate
 type DisputeCaseCreate struct {
-	// The company whose customer item is disputed: a legal entity the caller may act in.
+	// The company whose customer items are disputed: a legal entity the caller may act in.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// The fiscal year of the item's journal entry.
-	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal year of the item's journal entry, for a case of one item named by the request's own
+	// fields.
+	FiscalYear OptInt32 `json:"fiscal_year"`
 	// The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name
-	// it).
-	JournalEntryID uuid.UUID `json:"journal_entry_id"`
-	// The line of the journal entry that is the open item.
-	LineNo int32 `json:"line_no"`
+	// it), for a case of one item named by the request's own fields.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item, for a case of one item named by the request's
+	// own fields.
+	LineNo OptInt32 `json:"line_no"`
 	// The amount the customer disputes, in the item's currency: more than zero and at most what it owes on
-	// the item.
-	DisputedAmount Money `json:"disputed_amount"`
+	// the item; for a case of one item named by the request's own fields.
+	DisputedAmount OptMoney `json:"disputed_amount"`
+	// The items of the case, each once, the first naming the case's customer and currency (T86c); absent
+	// for a case of one item named by the request's own fields.
+	Items []DisputeCaseItemCreate `json:"items"`
 	// Why the customer disputes the amount.
 	Reason string `json:"reason"`
 	// The person who works the case: an active person of the tenant who may act in the company. Absent:
@@ -41635,23 +42056,28 @@ func (s *DisputeCaseCreate) GetLegalEntityID() uuid.UUID {
 }
 
 // GetFiscalYear returns the value of FiscalYear.
-func (s *DisputeCaseCreate) GetFiscalYear() int32 {
+func (s *DisputeCaseCreate) GetFiscalYear() OptInt32 {
 	return s.FiscalYear
 }
 
 // GetJournalEntryID returns the value of JournalEntryID.
-func (s *DisputeCaseCreate) GetJournalEntryID() uuid.UUID {
+func (s *DisputeCaseCreate) GetJournalEntryID() OptUUID {
 	return s.JournalEntryID
 }
 
 // GetLineNo returns the value of LineNo.
-func (s *DisputeCaseCreate) GetLineNo() int32 {
+func (s *DisputeCaseCreate) GetLineNo() OptInt32 {
 	return s.LineNo
 }
 
 // GetDisputedAmount returns the value of DisputedAmount.
-func (s *DisputeCaseCreate) GetDisputedAmount() Money {
+func (s *DisputeCaseCreate) GetDisputedAmount() OptMoney {
 	return s.DisputedAmount
+}
+
+// GetItems returns the value of Items.
+func (s *DisputeCaseCreate) GetItems() []DisputeCaseItemCreate {
+	return s.Items
 }
 
 // GetReason returns the value of Reason.
@@ -41675,23 +42101,28 @@ func (s *DisputeCaseCreate) SetLegalEntityID(val uuid.UUID) {
 }
 
 // SetFiscalYear sets the value of FiscalYear.
-func (s *DisputeCaseCreate) SetFiscalYear(val int32) {
+func (s *DisputeCaseCreate) SetFiscalYear(val OptInt32) {
 	s.FiscalYear = val
 }
 
 // SetJournalEntryID sets the value of JournalEntryID.
-func (s *DisputeCaseCreate) SetJournalEntryID(val uuid.UUID) {
+func (s *DisputeCaseCreate) SetJournalEntryID(val OptUUID) {
 	s.JournalEntryID = val
 }
 
 // SetLineNo sets the value of LineNo.
-func (s *DisputeCaseCreate) SetLineNo(val int32) {
+func (s *DisputeCaseCreate) SetLineNo(val OptInt32) {
 	s.LineNo = val
 }
 
 // SetDisputedAmount sets the value of DisputedAmount.
-func (s *DisputeCaseCreate) SetDisputedAmount(val Money) {
+func (s *DisputeCaseCreate) SetDisputedAmount(val OptMoney) {
 	s.DisputedAmount = val
+}
+
+// SetItems sets the value of Items.
+func (s *DisputeCaseCreate) SetItems(val []DisputeCaseItemCreate) {
+	s.Items = val
 }
 
 // SetReason sets the value of Reason.
@@ -41759,6 +42190,245 @@ func (s *DisputeCaseHeaders) SetResponse(val DisputeCase) {
 
 func (*DisputeCaseHeaders) createDisputeCaseRes() {}
 
+// An item of a dispute case (T86c): an open item of the case's customer when the case was opened, and
+// the amount disputed of it.
+// Ref: #/components/schemas/DisputeCaseItem
+type DisputeCaseItem struct {
+	// The item's number in the case, from 1 in the order the request named them.
+	ItemNo int32 `json:"item_no"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the disputed item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the disputed item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The amount disputed of the item, in its currency.
+	DisputedAmount Money `json:"disputed_amount"`
+	// The same in the company's currency, its share of the item's amount as the item was booked.
+	LocalDisputedAmount Money `json:"local_disputed_amount"`
+	// What the case's resolution accepted of the item, in its currency, from zero to its disputed amount
+	// (T86d); absent unless the case is resolved.
+	AcceptedAmount OptMoney `json:"accepted_amount"`
+	// The same in the company's currency: that part of `local_disputed_amount`, rounded half away from
+	// zero; absent unless the case is resolved.
+	LocalAcceptedAmount OptMoney `json:"local_accepted_amount"`
+	// The customer credit memo that credited the item (`GET /v1/customer-invoices/{id}`); absent unless a
+	// credit memo resolution accepted some of it.
+	CreditMemoID OptUUID `json:"credit_memo_id"`
+	// That credit memo's document number; absent with `credit_memo_id`.
+	CreditMemoNumber OptString `json:"credit_memo_number"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *DisputeCaseItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DisputeCaseItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DisputeCaseItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DisputeCaseItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DisputeCaseItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *DisputeCaseItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *DisputeCaseItem) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// GetLocalDisputedAmount returns the value of LocalDisputedAmount.
+func (s *DisputeCaseItem) GetLocalDisputedAmount() Money {
+	return s.LocalDisputedAmount
+}
+
+// GetAcceptedAmount returns the value of AcceptedAmount.
+func (s *DisputeCaseItem) GetAcceptedAmount() OptMoney {
+	return s.AcceptedAmount
+}
+
+// GetLocalAcceptedAmount returns the value of LocalAcceptedAmount.
+func (s *DisputeCaseItem) GetLocalAcceptedAmount() OptMoney {
+	return s.LocalAcceptedAmount
+}
+
+// GetCreditMemoID returns the value of CreditMemoID.
+func (s *DisputeCaseItem) GetCreditMemoID() OptUUID {
+	return s.CreditMemoID
+}
+
+// GetCreditMemoNumber returns the value of CreditMemoNumber.
+func (s *DisputeCaseItem) GetCreditMemoNumber() OptString {
+	return s.CreditMemoNumber
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *DisputeCaseItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DisputeCaseItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DisputeCaseItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DisputeCaseItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DisputeCaseItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DisputeCaseItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *DisputeCaseItem) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
+// SetLocalDisputedAmount sets the value of LocalDisputedAmount.
+func (s *DisputeCaseItem) SetLocalDisputedAmount(val Money) {
+	s.LocalDisputedAmount = val
+}
+
+// SetAcceptedAmount sets the value of AcceptedAmount.
+func (s *DisputeCaseItem) SetAcceptedAmount(val OptMoney) {
+	s.AcceptedAmount = val
+}
+
+// SetLocalAcceptedAmount sets the value of LocalAcceptedAmount.
+func (s *DisputeCaseItem) SetLocalAcceptedAmount(val OptMoney) {
+	s.LocalAcceptedAmount = val
+}
+
+// SetCreditMemoID sets the value of CreditMemoID.
+func (s *DisputeCaseItem) SetCreditMemoID(val OptUUID) {
+	s.CreditMemoID = val
+}
+
+// SetCreditMemoNumber sets the value of CreditMemoNumber.
+func (s *DisputeCaseItem) SetCreditMemoNumber(val OptString) {
+	s.CreditMemoNumber = val
+}
+
+// What a resolution accepts of an item of the case.
+// Ref: #/components/schemas/DisputeCaseItemAccepted
+type DisputeCaseItemAccepted struct {
+	// The item's number in the case (`items[].item_no`).
+	ItemNo int32 `json:"item_no"`
+	// What is accepted of the item, in the case's currency: from zero to what it disputes.
+	AcceptedAmount Money `json:"accepted_amount"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *DisputeCaseItemAccepted) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetAcceptedAmount returns the value of AcceptedAmount.
+func (s *DisputeCaseItemAccepted) GetAcceptedAmount() Money {
+	return s.AcceptedAmount
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *DisputeCaseItemAccepted) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetAcceptedAmount sets the value of AcceptedAmount.
+func (s *DisputeCaseItemAccepted) SetAcceptedAmount(val Money) {
+	s.AcceptedAmount = val
+}
+
+// An item of a dispute case to open: an open item of the case's customer by its journal line, and the
+// amount disputed of it.
+// Ref: #/components/schemas/DisputeCaseItemCreate
+type DisputeCaseItemCreate struct {
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (as `listOpenItems` and a dunning notice's item name
+	// it).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+	// The amount the customer disputes of the item, in its currency (the case's): more than zero and at
+	// most what it owes on the item.
+	DisputedAmount Money `json:"disputed_amount"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DisputeCaseItemCreate) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DisputeCaseItemCreate) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DisputeCaseItemCreate) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDisputedAmount returns the value of DisputedAmount.
+func (s *DisputeCaseItemCreate) GetDisputedAmount() Money {
+	return s.DisputedAmount
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DisputeCaseItemCreate) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DisputeCaseItemCreate) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DisputeCaseItemCreate) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDisputedAmount sets the value of DisputedAmount.
+func (s *DisputeCaseItemCreate) SetDisputedAmount(val Money) {
+	s.DisputedAmount = val
+}
+
 // One page of dispute cases.
 // Ref: #/components/schemas/DisputeCasePage
 type DisputeCasePage struct {
@@ -41789,6 +42459,65 @@ func (s *DisputeCasePage) SetNextPageToken(val OptString) {
 }
 
 func (*DisputeCasePage) listDisputeCasesRes() {}
+
+// Resolve an open dispute case the company accepts (T86d): by a customer credit memo per accepted item
+// or a write-off, with what is accepted of which items.
+// Ref: #/components/schemas/DisputeCaseResolve
+type DisputeCaseResolve struct {
+	// `credit_memo`: a customer credit memo per item accepted above zero, naming its invoice; `write_off`:
+	// one journal entry writing the accepted amounts off to the company's `payment_difference_expense`
+	// account. Another value is refused (422 `collections.unknown_resolution`). Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Resolution string `json:"resolution"`
+	// Why the case is accepted and resolved so; its close reason.
+	Reason string `json:"reason"`
+	// The date the documents are dated and posted on, in an open period; absent: the company's today in
+	// its time zone.
+	PostingDate OptDate `json:"posting_date"`
+	// What is accepted of which items, each once; an item not named is not accepted. Absent: every item in
+	// full.
+	Items []DisputeCaseItemAccepted `json:"items"`
+}
+
+// GetResolution returns the value of Resolution.
+func (s *DisputeCaseResolve) GetResolution() string {
+	return s.Resolution
+}
+
+// GetReason returns the value of Reason.
+func (s *DisputeCaseResolve) GetReason() string {
+	return s.Reason
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DisputeCaseResolve) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetItems returns the value of Items.
+func (s *DisputeCaseResolve) GetItems() []DisputeCaseItemAccepted {
+	return s.Items
+}
+
+// SetResolution sets the value of Resolution.
+func (s *DisputeCaseResolve) SetResolution(val string) {
+	s.Resolution = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DisputeCaseResolve) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DisputeCaseResolve) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *DisputeCaseResolve) SetItems(val []DisputeCaseItemAccepted) {
+	s.Items = val
+}
 
 // Merge patch of an open dispute case: its assignee and its note.
 // Ref: #/components/schemas/DisputeCaseUpdate
@@ -42846,6 +43575,128 @@ func (s *DunningBlockPage) SetNextPageToken(val OptString) {
 
 func (*DunningBlockPage) listDunningBlocksRes() {}
 
+// The customer debit memo a confirmed dunning run posted a notice's charge and interest with (T76h):
+// absent from a notice charged nothing, from one of a run not confirmed and from one of a company that
+// names neither dunning account. Its gross amount is the notice's `charge_amount` and
+// `interest_amount` together, in the company's currency.
+// Ref: #/components/schemas/DunningChargeDocument
+type DunningChargeDocument struct {
+	// The debit memo (`GET /v1/customer-invoices/{id}`, `kind` `debit_memo`), whose `source_document_id`
+	// is the notice.
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// The debit memo's document number.
+	CustomerInvoiceNumber string `json:"customer_invoice_number"`
+	// The memo's journal entry (`GET /v1/journal-entries/{id}`): it debits the customer's reconciliation
+	// account, the customer's open item (`GET /v1/open-items`), and credits the dunning charge and
+	// interest accounts.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The date the memo posted on, also its date: the company's today when the run was confirmed.
+	PostingDate time.Time `json:"posting_date"`
+	// `posted`: the memo stands. `reversed`: the run was cancelled (`cancelDunningRun`, T76i) and the memo
+	// reversed; the reversal is named beside. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The journal entry that reversed the memo's (`GET /v1/journal-entries/{id}`), clearing its open item.
+	// Absent unless `reversed`.
+	ReversalEntryID OptUUID `json:"reversal_entry_id"`
+	// The reversal entry's fiscal year. Absent unless `reversed`.
+	ReversalEntryYear OptInt32 `json:"reversal_entry_year"`
+	// The date the reversal posted on: the memo's posting date. Absent unless `reversed`.
+	ReversalDate OptDate `json:"reversal_date"`
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *DunningChargeDocument) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *DunningChargeDocument) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DunningChargeDocument) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *DunningChargeDocument) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *DunningChargeDocument) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetStatus returns the value of Status.
+func (s *DunningChargeDocument) GetStatus() string {
+	return s.Status
+}
+
+// GetReversalEntryID returns the value of ReversalEntryID.
+func (s *DunningChargeDocument) GetReversalEntryID() OptUUID {
+	return s.ReversalEntryID
+}
+
+// GetReversalEntryYear returns the value of ReversalEntryYear.
+func (s *DunningChargeDocument) GetReversalEntryYear() OptInt32 {
+	return s.ReversalEntryYear
+}
+
+// GetReversalDate returns the value of ReversalDate.
+func (s *DunningChargeDocument) GetReversalDate() OptDate {
+	return s.ReversalDate
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *DunningChargeDocument) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *DunningChargeDocument) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DunningChargeDocument) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *DunningChargeDocument) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *DunningChargeDocument) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DunningChargeDocument) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetReversalEntryID sets the value of ReversalEntryID.
+func (s *DunningChargeDocument) SetReversalEntryID(val OptUUID) {
+	s.ReversalEntryID = val
+}
+
+// SetReversalEntryYear sets the value of ReversalEntryYear.
+func (s *DunningChargeDocument) SetReversalEntryYear(val OptInt32) {
+	s.ReversalEntryYear = val
+}
+
+// SetReversalDate sets the value of ReversalDate.
+func (s *DunningChargeDocument) SetReversalDate(val OptDate) {
+	s.ReversalDate = val
+}
+
 // A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer.
 // Ref: #/components/schemas/DunningNotice
 type DunningNotice struct {
@@ -42873,10 +43724,12 @@ type DunningNotice struct {
 	// The sum of the items' `interest_amount`, in the company's currency (T76d).
 	InterestAmount Money `json:"interest_amount"`
 	// What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount`
-	// together. Nothing is posted.
+	// together. The charge and interest are posted when the run is confirmed, where the company names its
+	// dunning accounts (`charge_document`).
 	TotalAmount Money `json:"total_amount"`
 	// The customer's overdue items, by item number.
-	Items []DunningNoticeItem `json:"items"`
+	Items          []DunningNoticeItem      `json:"items"`
+	ChargeDocument OptDunningChargeDocument `json:"charge_document"`
 }
 
 // GetID returns the value of ID.
@@ -42939,6 +43792,11 @@ func (s *DunningNotice) GetItems() []DunningNoticeItem {
 	return s.Items
 }
 
+// GetChargeDocument returns the value of ChargeDocument.
+func (s *DunningNotice) GetChargeDocument() OptDunningChargeDocument {
+	return s.ChargeDocument
+}
+
 // SetID sets the value of ID.
 func (s *DunningNotice) SetID(val uuid.UUID) {
 	s.ID = val
@@ -42997,6 +43855,11 @@ func (s *DunningNotice) SetTotalAmount(val Money) {
 // SetItems sets the value of Items.
 func (s *DunningNotice) SetItems(val []DunningNoticeItem) {
 	s.Items = val
+}
+
+// SetChargeDocument sets the value of ChargeDocument.
+func (s *DunningNotice) SetChargeDocument(val OptDunningChargeDocument) {
+	s.ChargeDocument = val
 }
 
 // An item of a dunning notice: a customer's open item overdue on the run's key date, as the run read
@@ -43236,9 +44099,11 @@ type DunningRun struct {
 	KeyDate time.Time `json:"key_date"`
 	// `proposed`: the notices are a proposal; nothing changed on the items and nothing was sent.
 	// `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date,
-	// the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. `cancelled`: the
+	// confirmation was taken back (`cancelDunningRun`, T76i): its recorded levels no longer count, the
+	// debit memos it posted are reversed, `cancellation_reason` says why and `updated_at` and `updated_by`
+	// when and by whom. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
 	Status string `json:"status"`
 	// The company's currency (ISO 4217), the currency of `overdue_amount`.
 	Currency string `json:"currency"`
@@ -43256,7 +44121,8 @@ type DunningRun struct {
 	// charge none.
 	InterestAmount Money `json:"interest_amount"`
 	// What the notices ask for in all: `overdue_amount`, `charge_amount` and `interest_amount` together.
-	// Nothing is posted.
+	// The charges and interest are posted to the customers when the run is confirmed, where the company
+	// names its dunning accounts (`charge_document_count`, T76h).
 	TotalAmount Money `json:"total_amount"`
 	// The company's grace days when the run was started (`companies[].dunning.grace_days`, T76d): an item
 	// overdue by no more days was not proposed; 0 for none, and for runs started before grace days
@@ -43307,6 +44173,14 @@ type DunningRun struct {
 	// totals. An item blocked is listed in `blocked_items` alone, and an item promised is not listed in
 	// `disputed_items`. Empty when none was promised, and for runs started before promises to pay existed.
 	PromisedItems []DunningRunPromisedItem `json:"promised_items"`
+	// Why the run was cancelled (`cancelDunningRun`, T76i); absent unless `cancelled`.
+	CancellationReason OptString `json:"cancellation_reason"`
+	// The customer debit memos the run's confirmation posted (T76h): one per notice charged a charge or
+	// interest, where the company's account determination names its dunning accounts
+	// (`companies[].account_determination.dunning_charges`, `.dunning_interest`); each notice names its
+	// own (`charge_document`, `GET /v1/dunning-runs/{id}/notices`). 0 for a run not confirmed, one whose
+	// notices are charged nothing, and one of a company that names neither account, which posts nothing.
+	ChargeDocumentCount int32 `json:"charge_document_count"`
 }
 
 // GetID returns the value of ID.
@@ -43469,6 +44343,16 @@ func (s *DunningRun) GetPromisedItems() []DunningRunPromisedItem {
 	return s.PromisedItems
 }
 
+// GetCancellationReason returns the value of CancellationReason.
+func (s *DunningRun) GetCancellationReason() OptString {
+	return s.CancellationReason
+}
+
+// GetChargeDocumentCount returns the value of ChargeDocumentCount.
+func (s *DunningRun) GetChargeDocumentCount() int32 {
+	return s.ChargeDocumentCount
+}
+
 // SetID sets the value of ID.
 func (s *DunningRun) SetID(val uuid.UUID) {
 	s.ID = val
@@ -43629,6 +44513,16 @@ func (s *DunningRun) SetPromisedItems(val []DunningRunPromisedItem) {
 	s.PromisedItems = val
 }
 
+// SetCancellationReason sets the value of CancellationReason.
+func (s *DunningRun) SetCancellationReason(val OptString) {
+	s.CancellationReason = val
+}
+
+// SetChargeDocumentCount sets the value of ChargeDocumentCount.
+func (s *DunningRun) SetChargeDocumentCount(val int32) {
+	s.ChargeDocumentCount = val
+}
+
 // An item a dunning run left out for a dunning block (T76e): a customer's open item overdue on the
 // run's key date that would have reached a dunning level, as the run read it.
 // Ref: #/components/schemas/DunningRunBlockedItem
@@ -43780,6 +44674,25 @@ func (s *DunningRunBlockedItem) SetAmount(val Money) {
 // SetLocalAmount sets the value of LocalAmount.
 func (s *DunningRunBlockedItem) SetLocalAmount(val Money) {
 	s.LocalAmount = val
+}
+
+// Cancel a confirmed dunning run.
+// Ref: #/components/schemas/DunningRunCancel
+type DunningRunCancel struct {
+	// Why the run is cancelled: a text, not white space alone (422 `request.validation_failed` naming
+	// `reason`). Kept with the run and given to the reversal of each debit memo it posted; not in the
+	// events or the audit records.
+	Reason string `json:"reason"`
+}
+
+// GetReason returns the value of Reason.
+func (s *DunningRunCancel) GetReason() string {
+	return s.Reason
+}
+
+// SetReason sets the value of Reason.
+func (s *DunningRunCancel) SetReason(val string) {
+	s.Reason = val
 }
 
 // Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue
@@ -55493,15 +56406,16 @@ type IncomingPayment struct {
 	Customers []IncomingPaymentCustomer `json:"customers"`
 	// The posting date of the clearing entry.
 	PostingDate time.Time `json:"posting_date"`
-	// The payment's currency (ISO 4217), the receipt's and every item's.
+	// The payment's currency (ISO 4217), the receipt's: every amount of the payment is in it, an item in
+	// another currency translated (`items[].item_amount`, T75n).
 	Currency string `json:"currency"`
 	// What was received: the receipt's amount. It is the items' amounts less their residuals and less
 	// `difference`.
 	Amount Money `json:"amount"`
 	// The payment difference written off within the company's payment tolerance
 	// (`companies[].receivables.payment_tolerance`): what the items applied with the receipt, net of their
-	// residuals, exceed it by. Positive: an underpayment, posted to the company's
-	// `payment_difference_expense` account; negative: an overpayment, kept on its
+	// residuals and of what their reasons wrote off, exceed it by. Positive: an underpayment, posted to
+	// the company's `payment_difference_expense` account; negative: an overpayment, kept on its
 	// `payment_difference_revenue` account; zero when the items equal the receipt.
 	Difference Money `json:"difference"`
 	// What the payment left on the customer's account and what of it is still open; absent when it left
@@ -55900,10 +56814,10 @@ type IncomingPaymentApplication struct {
 	// The credit on account it applied, as it stood.
 	Amount Money `json:"amount"`
 	// The payment difference it wrote off within the company's payment tolerance: what the items, net of
-	// their residuals, exceed the credit by; zero for none.
+	// their residuals and of what their reasons wrote off, exceed the credit by; zero for none.
 	Difference Money `json:"difference"`
-	// What it left on account: the credit less the items, net of their residuals; zero when the items took
-	// it all.
+	// What it left on account: the credit less the items, net of their residuals and of what their reasons
+	// wrote off; zero when the items took it all.
 	OnAccountAmount Money `json:"on_account_amount"`
 	// Its clearing entry (`GET /v1/journal-entries/{id}`).
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
@@ -56036,8 +56950,9 @@ type IncomingPaymentApplicationCreate struct {
 	// The posting date of the clearing entry; absent: today, the company's date in its time zone.
 	PostingDate OptDate `json:"posting_date"`
 	// The customer's open items the credit is applied to, invoices and credits, each with a residual item
-	// if it is paid in part; together, net of their residuals, at most the credit, but for an underpayment
-	// within the company's payment tolerance. What they leave stays on account.
+	// if it is paid in part; together, net of their residuals and of what their reasons wrote off, at most
+	// the credit, but for an underpayment within the company's payment tolerance. What they leave stays on
+	// account.
 	Items []IncomingPaymentItemRef `json:"items"`
 }
 
@@ -56083,8 +56998,9 @@ type IncomingPaymentCreate struct {
 	PostingDate OptDate `json:"posting_date"`
 	// The open items the payment is applied to (`GET /v1/open-items`), the payer's and the other
 	// customers', invoices and credits, each with a residual item if it is paid in part; together, net of
-	// their residuals, they equal the receipt, in its currency, but for a difference within the company's
-	// payment tolerance and, with `on_account`, what is left on account. Empty only with `on_account`.
+	// their residuals and of what their reasons wrote off, they equal the receipt, in its currency, but
+	// for a difference within the company's payment tolerance and, with `on_account`, what is left on
+	// account. Empty only with `on_account`.
 	Items []IncomingPaymentItemRef `json:"items"`
 	// Leave what the receipt has left after the items, the whole receipt when there are none, on the
 	// customer's account as a credit of the customer's (T75g): an open item that
@@ -56172,8 +57088,8 @@ type IncomingPaymentCustomer struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
-	// Its part of the receipt: its items applied with the receipt, net of their residuals, in the
-	// payment's currency; negative when its credits exceed its invoices.
+	// Its part of the receipt: its items applied with the receipt, net of their residuals and of what
+	// their reasons wrote off, in the payment's currency; negative when its credits exceed its invoices.
 	Amount Money `json:"amount"`
 }
 
@@ -56296,11 +57212,22 @@ type IncomingPaymentItem struct {
 	// none.
 	Reference string `json:"reference"`
 	// The amount the item stood at, in the payment's currency: positive for what the customer owed (an
-	// invoice), negative for a credit of the customer's.
+	// invoice), negative for a credit of the customer's. For an item in another currency, its
+	// `item_amount` translated at `exchange_rate`, as the clearing entry offset it.
 	Amount Money `json:"amount"`
+	// The amount the item stood at in its own currency, signed as `amount`: `amount` itself for an item in
+	// the payment's currency (T75n).
+	ItemAmount Money `json:"item_amount"`
+	// The rate the item was translated into the payment's currency at, units of the payment's currency per
+	// unit of the item's, the average rate valid on the posting date (T75n); absent for an item in the
+	// payment's currency.
+	ExchangeRate OptDecimal `json:"exchange_rate"`
 	// The residual item the payment left of the item, paid in part; absent when the payment cleared it in
-	// full.
+	// full or its reason wrote the rest off.
 	Residual OptIncomingPaymentResidual `json:"residual"`
+	// What of the item, paid in part, its reason wrote off instead of leaving a residual item (T75o);
+	// absent otherwise.
+	WriteOff OptIncomingPaymentWriteOff `json:"write_off"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -56358,9 +57285,24 @@ func (s *IncomingPaymentItem) GetAmount() Money {
 	return s.Amount
 }
 
+// GetItemAmount returns the value of ItemAmount.
+func (s *IncomingPaymentItem) GetItemAmount() Money {
+	return s.ItemAmount
+}
+
+// GetExchangeRate returns the value of ExchangeRate.
+func (s *IncomingPaymentItem) GetExchangeRate() OptDecimal {
+	return s.ExchangeRate
+}
+
 // GetResidual returns the value of Residual.
 func (s *IncomingPaymentItem) GetResidual() OptIncomingPaymentResidual {
 	return s.Residual
+}
+
+// GetWriteOff returns the value of WriteOff.
+func (s *IncomingPaymentItem) GetWriteOff() OptIncomingPaymentWriteOff {
+	return s.WriteOff
 }
 
 // SetItemNo sets the value of ItemNo.
@@ -56418,9 +57360,24 @@ func (s *IncomingPaymentItem) SetAmount(val Money) {
 	s.Amount = val
 }
 
+// SetItemAmount sets the value of ItemAmount.
+func (s *IncomingPaymentItem) SetItemAmount(val Money) {
+	s.ItemAmount = val
+}
+
+// SetExchangeRate sets the value of ExchangeRate.
+func (s *IncomingPaymentItem) SetExchangeRate(val OptDecimal) {
+	s.ExchangeRate = val
+}
+
 // SetResidual sets the value of Residual.
 func (s *IncomingPaymentItem) SetResidual(val OptIncomingPaymentResidual) {
 	s.Residual = val
+}
+
+// SetWriteOff sets the value of WriteOff.
+func (s *IncomingPaymentItem) SetWriteOff(val OptIncomingPaymentWriteOff) {
+	s.WriteOff = val
 }
 
 // An open item an incoming payment is applied to (fiscal_year, journal_entry_id, line_no), with what
@@ -56694,8 +57651,9 @@ func (s *IncomingPaymentResetDone) SetCreatedBy(val uuid.UUID) {
 type IncomingPaymentResidual struct {
 	// What stayed open of the item, in the payment's currency.
 	Amount Money `json:"amount"`
-	// Why the item was paid in part (`IncomingPaymentResidualCreate.reason`). Open enumeration: clients
-	// accept values they do not know.
+	// Why the item was paid in part (`IncomingPaymentResidualCreate.reason`), one of the company's
+	// residual reasons. Open enumeration: clients accept values they do not know, a company's own codes
+	// among them.
 	Reason string `json:"reason"`
 	// The free text on the reason; absent when none was given.
 	ReasonText OptString `json:"reason_text"`
@@ -56779,17 +57737,21 @@ func (s *IncomingPaymentResidual) SetLineNo(val int32) {
 	s.LineNo = val
 }
 
-// What stays open of an item the payment pays in part: a residual item of the customer for the amount,
-// linked to the item, with the item's due date (T75f).
+// What of an item the payment pays in part it does not pay: a residual item of the customer for the
+// amount, linked to the item, with the item's due date (T75f), or, when the reason's treatment is
+// `write_off`, the amount written off to the reason's account (T75o).
 // Ref: #/components/schemas/IncomingPaymentResidualCreate
 type IncomingPaymentResidualCreate struct {
-	// What stays open, in the receipt's currency: more than zero and less than the item, which is an
+	// What is not paid, in the receipt's currency: more than zero and less than the item, which is an
 	// amount the customer owes (an invoice).
 	Amount Money `json:"amount"`
-	// Why the item is paid in part. `short_payment`: the customer paid less without saying why;
-	// `disputed`: the customer disputes the rest; `deduction`: the customer deducted something it claims
-	// (a return, a fee); `other`: anything else, which `reason_text` says. Open enumeration: values may be
-	// added within /v1; one that is not known is refused.
+	// Why the item is paid in part: the code of one of the company's payment-difference reasons
+	// (`companies[].receivables.payment_difference_reasons`, T75o), whose treatment decides whether the
+	// amount stays open or is written off. A company that configures none has the four listed:
+	// `short_payment`, the customer paid less without saying why; `disputed`, the customer disputes the
+	// rest; `deduction`, the customer deducted something it claims (a return, a fee); `other`, anything
+	// else, which `reason_text` says; all four leave a residual item. Open enumeration: a company's own
+	// codes are values too; one the company does not have is refused.
 	Reason string `json:"reason"`
 	// A free text on the reason, as the remittance or the customer gave it.
 	ReasonText OptString `json:"reason_text"`
@@ -56823,6 +57785,134 @@ func (s *IncomingPaymentResidualCreate) SetReason(val string) {
 // SetReasonText sets the value of ReasonText.
 func (s *IncomingPaymentResidualCreate) SetReasonText(val OptString) {
 	s.ReasonText = val
+}
+
+// What of an item an incoming payment paid in part its reason wrote off (T75o, a reason whose
+// treatment is `write_off`): a debit line of the clearing entry on the reason's account, at the
+// receipt's rate; the item itself is cleared and nothing of it stays open.
+// Ref: #/components/schemas/IncomingPaymentWriteOff
+type IncomingPaymentWriteOff struct {
+	// What was written off, in the payment's currency.
+	Amount Money `json:"amount"`
+	// The code of the company's payment-difference reason that wrote it off
+	// (`companies[].receivables.payment_difference_reasons`).
+	Reason string `json:"reason"`
+	// The free text on the reason; absent when none was given.
+	ReasonText OptString `json:"reason_text"`
+	// The account it was written off to, the reason's (`GET /v1/accounts/{id}`).
+	AccountID uuid.UUID `json:"account_id"`
+	// That account's number.
+	AccountNumber string `json:"account_number"`
+	// That account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// Fiscal year of the clearing entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The clearing entry the write-off is a line of (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// That entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The write-off's line in the entry.
+	LineNo int32 `json:"line_no"`
+}
+
+// GetAmount returns the value of Amount.
+func (s *IncomingPaymentWriteOff) GetAmount() Money {
+	return s.Amount
+}
+
+// GetReason returns the value of Reason.
+func (s *IncomingPaymentWriteOff) GetReason() string {
+	return s.Reason
+}
+
+// GetReasonText returns the value of ReasonText.
+func (s *IncomingPaymentWriteOff) GetReasonText() OptString {
+	return s.ReasonText
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *IncomingPaymentWriteOff) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *IncomingPaymentWriteOff) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *IncomingPaymentWriteOff) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *IncomingPaymentWriteOff) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPaymentWriteOff) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPaymentWriteOff) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *IncomingPaymentWriteOff) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// SetAmount sets the value of Amount.
+func (s *IncomingPaymentWriteOff) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetReason sets the value of Reason.
+func (s *IncomingPaymentWriteOff) SetReason(val string) {
+	s.Reason = val
+}
+
+// SetReasonText sets the value of ReasonText.
+func (s *IncomingPaymentWriteOff) SetReasonText(val OptString) {
+	s.ReasonText = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *IncomingPaymentWriteOff) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *IncomingPaymentWriteOff) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *IncomingPaymentWriteOff) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *IncomingPaymentWriteOff) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPaymentWriteOff) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPaymentWriteOff) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *IncomingPaymentWriteOff) SetLineNo(val int32) {
+	s.LineNo = val
 }
 
 // A consolidation run's intercompany difference (ADR-0059 §8): a pair of its companies on an
@@ -66239,6 +67329,22 @@ func (*LockProfitCenterPreconditionRequired) lockProfitCenterRes() {}
 type LockProfitCenterUnprocessableEntity Problem
 
 func (*LockProfitCenterUnprocessableEntity) lockProfitCenterRes() {}
+
+type MapCatalogItemMaterialsBadRequest Problem
+
+func (*MapCatalogItemMaterialsBadRequest) mapCatalogItemMaterialsRes() {}
+
+type MapCatalogItemMaterialsForbidden Problem
+
+func (*MapCatalogItemMaterialsForbidden) mapCatalogItemMaterialsRes() {}
+
+type MapCatalogItemMaterialsPreconditionRequired Problem
+
+func (*MapCatalogItemMaterialsPreconditionRequired) mapCatalogItemMaterialsRes() {}
+
+type MapCatalogItemMaterialsUnprocessableEntity Problem
+
+func (*MapCatalogItemMaterialsUnprocessableEntity) mapCatalogItemMaterialsRes() {}
 
 // One page of a legal entity's margin report by profit center (ADR-0075), with the selection, the
 // accounts counted as cost of sales and the totals on every page.
@@ -76397,6 +77503,52 @@ func (o OptDepreciationRunError) Or(d DepreciationRunError) DepreciationRunError
 	return d
 }
 
+// NewOptDunningChargeDocument returns new OptDunningChargeDocument with value set to v.
+func NewOptDunningChargeDocument(v DunningChargeDocument) OptDunningChargeDocument {
+	return OptDunningChargeDocument{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptDunningChargeDocument is optional DunningChargeDocument.
+type OptDunningChargeDocument struct {
+	Value DunningChargeDocument
+	Set   bool
+}
+
+// IsSet returns true if OptDunningChargeDocument was set.
+func (o OptDunningChargeDocument) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptDunningChargeDocument) Reset() {
+	var v DunningChargeDocument
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptDunningChargeDocument) SetTo(v DunningChargeDocument) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptDunningChargeDocument) Get() (v DunningChargeDocument, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptDunningChargeDocument) Or(d DunningChargeDocument) DunningChargeDocument {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptEliminationRef returns new OptEliminationRef with value set to v.
 func NewOptEliminationRef(v EliminationRef) OptEliminationRef {
 	return OptEliminationRef{
@@ -77081,6 +78233,52 @@ func (o OptIncomingPaymentResidualCreate) Get() (v IncomingPaymentResidualCreate
 
 // Or returns value if set, or given parameter if does not.
 func (o OptIncomingPaymentResidualCreate) Or(d IncomingPaymentResidualCreate) IncomingPaymentResidualCreate {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptIncomingPaymentWriteOff returns new OptIncomingPaymentWriteOff with value set to v.
+func NewOptIncomingPaymentWriteOff(v IncomingPaymentWriteOff) OptIncomingPaymentWriteOff {
+	return OptIncomingPaymentWriteOff{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptIncomingPaymentWriteOff is optional IncomingPaymentWriteOff.
+type OptIncomingPaymentWriteOff struct {
+	Value IncomingPaymentWriteOff
+	Set   bool
+}
+
+// IsSet returns true if OptIncomingPaymentWriteOff was set.
+func (o OptIncomingPaymentWriteOff) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptIncomingPaymentWriteOff) Reset() {
+	var v IncomingPaymentWriteOff
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptIncomingPaymentWriteOff) SetTo(v IncomingPaymentWriteOff) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptIncomingPaymentWriteOff) Get() (v IncomingPaymentWriteOff, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptIncomingPaymentWriteOff) Or(d IncomingPaymentWriteOff) IncomingPaymentWriteOff {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -96277,7 +97475,8 @@ func (*RequisitionHeaders) createRequisitionRes() {}
 type RequisitionItem struct {
 	// Item number; assigned by the server when omitted.
 	ItemNo OptInt32 `json:"item_no"`
-	// Material (product context, later phases).
+	// The material needed (S1f2, `GET /v1/materials/{id}`); absent for an item described by the requester
+	// alone. An RFQ or a purchase order from the requisition names it too.
 	MaterialID OptUUID `json:"material_id"`
 	// What is needed.
 	Description string `json:"description"`
@@ -96304,7 +97503,8 @@ type RequisitionItem struct {
 	// The catalog item the item was taken from (`GET /v1/catalog-items/{id}`), whose description, unit and
 	// price it took (ADR-0071 §6); absent for an item the requester described.
 	CatalogItemID OptUUID `json:"catalog_item_id"`
-	// That catalog item's key; absent for an item the requester described.
+	// That catalog item's key, or, for an item of a material without one, the material's number (S1f2);
+	// absent for an item the requester described without a material.
 	ItemKey OptString `json:"item_key"`
 }
 
@@ -96439,10 +97639,16 @@ type RequisitionItemInput struct {
 	// `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`). The requester needs
 	// `procurement.catalog.read`.
 	CatalogItemID OptUUID `json:"catalog_item_id"`
-	// Material (product context, later phases).
+	// The material needed (S1f2, `GET /v1/materials/{id}`): an `active` material of the tenant (422
+	// `request.reference_not_found`, `procurement.material_not_usable`), the quantity in its base unit or
+	// one of its alternative units, converting to the base unit exactly (422
+	// `procurement.invalid_material_quantity` naming `items[i].quantity.unit`); its description is the
+	// item's when it sends none. An item from the catalog takes the catalog item's material: sent with
+	// one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise).
 	MaterialID OptUUID `json:"material_id"`
-	// What is needed. Required unless the item names a catalog item, whose description it then takes; sent
-	// with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise).
+	// What is needed. Required unless the item names a catalog item, whose description it then takes, or a
+	// material, whose description it then takes when it sends none; sent with a catalog item, it is the
+	// catalog item's (422 `procurement.catalog_item_override` otherwise).
 	Description OptString `json:"description"`
 	// Quantity; positive. For an item from the catalog, in the catalog item's unit.
 	Quantity Quantity `json:"quantity"`
@@ -96772,6 +97978,30 @@ func (*ResetIncomingPaymentPreconditionRequired) resetIncomingPaymentRes() {}
 type ResetIncomingPaymentUnprocessableEntity Problem
 
 func (*ResetIncomingPaymentUnprocessableEntity) resetIncomingPaymentRes() {}
+
+type ResolveDisputeCaseBadRequest Problem
+
+func (*ResolveDisputeCaseBadRequest) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCaseForbidden Problem
+
+func (*ResolveDisputeCaseForbidden) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCaseNotFound Problem
+
+func (*ResolveDisputeCaseNotFound) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCasePreconditionFailed Problem
+
+func (*ResolveDisputeCasePreconditionFailed) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCasePreconditionRequired Problem
+
+func (*ResolveDisputeCasePreconditionRequired) resolveDisputeCaseRes() {}
+
+type ResolveDisputeCaseUnprocessableEntity Problem
+
+func (*ResolveDisputeCaseUnprocessableEntity) resolveDisputeCaseRes() {}
 
 type ResumeWebhookSubscriptionBadRequest Problem
 
@@ -101798,8 +103028,14 @@ type RfqItem struct {
 	// Item number; assigned by the server when omitted.
 	ItemNo OptInt32 `json:"item_no"`
 	// Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded
-	// contract's item name it by.
+	// contract's item name it by; the material's number for an item of a material.
 	MaterialKey string `json:"material_key"`
+	// The material asked for (S1f2, `GET /v1/materials/{id}`), whose number is `material_key`; absent for
+	// an item without one. An RFQ from a requisition takes its item's material, keyed by its number,
+	// unless another of the requisition's items has the same key (the same material, or a catalog item
+	// keyed by that number): then each of them is asked for by the requisition's number and its item
+	// number, without the material.
+	MaterialID OptUUID `json:"material_id"`
 	// Description.
 	Description string `json:"description"`
 	// The quantity asked for and its unit of measure; positive.
@@ -101826,6 +103062,11 @@ func (s *RfqItem) GetItemNo() OptInt32 {
 // GetMaterialKey returns the value of MaterialKey.
 func (s *RfqItem) GetMaterialKey() string {
 	return s.MaterialKey
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *RfqItem) GetMaterialID() OptUUID {
+	return s.MaterialID
 }
 
 // GetDescription returns the value of Description.
@@ -101873,6 +103114,11 @@ func (s *RfqItem) SetMaterialKey(val string) {
 	s.MaterialKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *RfqItem) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
 func (s *RfqItem) SetDescription(val string) {
 	s.Description = val
@@ -101908,16 +103154,27 @@ func (s *RfqItem) SetRequisitionItemNo(val OptInt32) {
 	s.RequisitionItemNo = val
 }
 
-// An item of a request for quotation as it is created: what is asked for, without a price.
+// An item of a request for quotation as it is created: what is asked for, without a price. It names
+// what is asked for by `material_key` and `description`, or by `material_id` (S1f2): a material of the
+// tenant (422 `request.reference_not_found`) that is `active` (422 `procurement.material_not_usable`),
+// whose number is its `material_key` (another is refused, 422 `procurement.key_not_material`) and
+// whose description is its own when it sends none, its quantity in the material's base unit or one of
+// its alternative units, converting to the base unit exactly (422
+// `procurement.invalid_material_quantity` naming `items[i].quantity.unit`).
 // Ref: #/components/schemas/RfqItemInput
 type RfqItemInput struct {
 	// Item number; assigned by the server when omitted.
 	ItemNo OptInt32 `json:"item_no"`
 	// Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded
-	// contract's item name it by.
-	MaterialKey string `json:"material_key"`
-	// Description.
-	Description string `json:"description"`
+	// contract's item name it by. Required for an item without `material_id` (422
+	// `request.validation_failed`); the material's number for an item of a material.
+	MaterialKey OptString `json:"material_key"`
+	// The material asked for (S1f2, `GET /v1/materials/{id}`); its award's contract item, and the order an
+	// award creates, name it too. Absent: the item is described by `material_key` and `description` alone.
+	MaterialID OptUUID `json:"material_id"`
+	// Description. Required for an item without `material_id` (422 `request.validation_failed`); the
+	// material's when absent for an item of a material.
+	Description OptString `json:"description"`
 	// The quantity asked for and its unit of measure; positive.
 	Quantity Quantity `json:"quantity"`
 	// General ledger account the item is bought on.
@@ -101933,12 +103190,17 @@ func (s *RfqItemInput) GetItemNo() OptInt32 {
 }
 
 // GetMaterialKey returns the value of MaterialKey.
-func (s *RfqItemInput) GetMaterialKey() string {
+func (s *RfqItemInput) GetMaterialKey() OptString {
 	return s.MaterialKey
 }
 
+// GetMaterialID returns the value of MaterialID.
+func (s *RfqItemInput) GetMaterialID() OptUUID {
+	return s.MaterialID
+}
+
 // GetDescription returns the value of Description.
-func (s *RfqItemInput) GetDescription() string {
+func (s *RfqItemInput) GetDescription() OptString {
 	return s.Description
 }
 
@@ -101963,12 +103225,17 @@ func (s *RfqItemInput) SetItemNo(val OptInt32) {
 }
 
 // SetMaterialKey sets the value of MaterialKey.
-func (s *RfqItemInput) SetMaterialKey(val string) {
+func (s *RfqItemInput) SetMaterialKey(val OptString) {
 	s.MaterialKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *RfqItemInput) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
-func (s *RfqItemInput) SetDescription(val string) {
+func (s *RfqItemInput) SetDescription(val OptString) {
 	s.Description = val
 }
 
@@ -104269,8 +105536,12 @@ func (*SalesDeliveryPage) listSalesDeliveriesRes() {}
 type SalesItem struct {
 	// The item's number in the document.
 	ItemNo int32 `json:"item_no"`
-	// The free-text key naming what is sold; absent when none was given.
+	// The free-text key naming what is sold, the material's number for an item of a material; absent when
+	// none was given.
 	ItemKey OptString `json:"item_key"`
+	// The material sold (S1f1, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item
+	// without one. A billing document's item has its order item's.
+	MaterialID OptUUID `json:"material_id"`
 	// What is sold.
 	Description string `json:"description"`
 	// The quantity and its unit of measure.
@@ -104311,6 +105582,11 @@ func (s *SalesItem) GetItemNo() int32 {
 // GetItemKey returns the value of ItemKey.
 func (s *SalesItem) GetItemKey() OptString {
 	return s.ItemKey
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *SalesItem) GetMaterialID() OptUUID {
+	return s.MaterialID
 }
 
 // GetDescription returns the value of Description.
@@ -104378,6 +105654,11 @@ func (s *SalesItem) SetItemKey(val OptString) {
 	s.ItemKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *SalesItem) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
 func (s *SalesItem) SetDescription(val string) {
 	s.Description = val
@@ -104438,11 +105719,19 @@ func (s *SalesItem) SetTaxCode(val OptString) {
 // the revenue account and output tax code its billing posts with.
 // Ref: #/components/schemas/SalesItemCreate
 type SalesItemCreate struct {
-	// A free-text key naming what is sold, as the company calls it; there is no material master. An item
-	// without a `unit_price` is priced by it (`createSalesPrice`).
+	// A free-text key naming what is sold, as the company calls it. An item without a `unit_price` is
+	// priced by it (`createSalesPrice`). An item of a material has the material's number as its key:
+	// absent, it is taken; another is refused (422 `sales.item_key_not_material`).
 	ItemKey OptString `json:"item_key"`
-	// What is sold.
-	Description string `json:"description"`
+	// The material sold (S1f1, `GET /v1/materials/{id}`): an `active` material of the tenant. Its number
+	// is the item's `item_key`, so the price records find it by that number, and its description the
+	// item's when `description` is absent; `quantity` is in its base unit or one of its alternative units,
+	// converting to the base unit exactly. Absent: the item is described by `description` and `item_key`
+	// alone.
+	MaterialID OptUUID `json:"material_id"`
+	// What is sold. Required for an item without `material_id` (422 `request.validation_failed`); for an
+	// item of a material it is the material's description when absent.
+	Description OptString `json:"description"`
 	// The quantity, more than zero, in a unit of measure of the reference data.
 	Quantity Quantity `json:"quantity"`
 	// The net price per `price_unit`, in the document's currency; it stays as entered, whatever the price
@@ -104469,8 +105758,13 @@ func (s *SalesItemCreate) GetItemKey() OptString {
 	return s.ItemKey
 }
 
+// GetMaterialID returns the value of MaterialID.
+func (s *SalesItemCreate) GetMaterialID() OptUUID {
+	return s.MaterialID
+}
+
 // GetDescription returns the value of Description.
-func (s *SalesItemCreate) GetDescription() string {
+func (s *SalesItemCreate) GetDescription() OptString {
 	return s.Description
 }
 
@@ -104504,8 +105798,13 @@ func (s *SalesItemCreate) SetItemKey(val OptString) {
 	s.ItemKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *SalesItemCreate) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
-func (s *SalesItemCreate) SetDescription(val string) {
+func (s *SalesItemCreate) SetDescription(val OptString) {
 	s.Description = val
 }
 
@@ -105752,8 +107051,12 @@ func (*SalesOrderHeaders) createSalesOrderRes() {}
 type SalesOrderItem struct {
 	// The item's number in the document.
 	ItemNo int32 `json:"item_no"`
-	// The free-text key naming what is sold; absent when none was given.
+	// The free-text key naming what is sold, the material's number for an item of a material; absent when
+	// none was given.
 	ItemKey OptString `json:"item_key"`
+	// The material sold (S1f1, `GET /v1/materials/{id}`), whose number is `item_key`; absent for an item
+	// without one. A billing document's item has its order item's.
+	MaterialID OptUUID `json:"material_id"`
 	// What is sold.
 	Description string `json:"description"`
 	// The quantity and its unit of measure.
@@ -105807,6 +107110,11 @@ func (s *SalesOrderItem) GetItemNo() int32 {
 // GetItemKey returns the value of ItemKey.
 func (s *SalesOrderItem) GetItemKey() OptString {
 	return s.ItemKey
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *SalesOrderItem) GetMaterialID() OptUUID {
+	return s.MaterialID
 }
 
 // GetDescription returns the value of Description.
@@ -105894,6 +107202,11 @@ func (s *SalesOrderItem) SetItemKey(val OptString) {
 	s.ItemKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *SalesOrderItem) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
 func (s *SalesOrderItem) SetDescription(val string) {
 	s.Description = val
@@ -105974,8 +107287,10 @@ func (s *SalesOrderItem) SetRemovedInChange(val OptInt32) {
 type SalesOrderItemChange struct {
 	// The order's item that changes.
 	ItemNo int32 `json:"item_no"`
-	// The new quantity, more than zero, in the item's own unit, and not below what is delivered of it.
-	// Absent: the quantity stays.
+	// The new quantity, more than zero, in the item's own unit, and not below what is delivered of it. An
+	// item of a material keeps its material, whatever its status since, and its new quantity converts to
+	// the material's base unit exactly (422 `sales.invalid_material_quantity` naming
+	// `items[i].quantity.unit`). Absent: the quantity stays.
 	Quantity OptQuantity `json:"quantity"`
 	// The new net price per `price_unit`, in the order's currency, entered (`price_source` `manual`) and
 	// final, as an entered price is (`SalesItemCreate`). Absent: an entered price stays, and a price from
@@ -107618,6 +108933,7 @@ func (*ServiceUnavailableHeaders) lockCostCenterRes()                        {}
 func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()                      {}
 func (*ServiceUnavailableHeaders) lockPlanCategoryRes()                      {}
 func (*ServiceUnavailableHeaders) lockProfitCenterRes()                      {}
+func (*ServiceUnavailableHeaders) mapCatalogItemMaterialsRes()               {}
 func (*ServiceUnavailableHeaders) matchBankStatementLineRes()                {}
 func (*ServiceUnavailableHeaders) matchBankStatementRes()                    {}
 func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()                  {}
@@ -113496,6 +114812,7 @@ func (*TooManyRequestsHeaders) cancelAssetRes()                           {}
 func (*TooManyRequestsHeaders) cancelBillingDocumentRes()                 {}
 func (*TooManyRequestsHeaders) cancelContractRes()                        {}
 func (*TooManyRequestsHeaders) cancelDownPaymentRequestRes()              {}
+func (*TooManyRequestsHeaders) cancelDunningRunRes()                      {}
 func (*TooManyRequestsHeaders) cancelMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) cancelOperationRes()                       {}
 func (*TooManyRequestsHeaders) cancelParkedJournalEntryRes()              {}
@@ -113955,6 +115272,7 @@ func (*TooManyRequestsHeaders) lockCostCenterRes()                        {}
 func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                      {}
 func (*TooManyRequestsHeaders) lockPlanCategoryRes()                      {}
 func (*TooManyRequestsHeaders) lockProfitCenterRes()                      {}
+func (*TooManyRequestsHeaders) mapCatalogItemMaterialsRes()               {}
 func (*TooManyRequestsHeaders) matchBankStatementLineRes()                {}
 func (*TooManyRequestsHeaders) matchBankStatementRes()                    {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()                  {}
@@ -114022,6 +115340,7 @@ func (*TooManyRequestsHeaders) requestBankAccountChangeRes()              {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()                 {}
 func (*TooManyRequestsHeaders) resetIncomingPaymentApplicationRes()       {}
 func (*TooManyRequestsHeaders) resetIncomingPaymentRes()                  {}
+func (*TooManyRequestsHeaders) resolveDisputeCaseRes()                    {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
 func (*TooManyRequestsHeaders) retireControlRes()                         {}
@@ -114435,6 +115754,7 @@ func (*UnauthorizedHeaders) cancelAssetRes()                           {}
 func (*UnauthorizedHeaders) cancelBillingDocumentRes()                 {}
 func (*UnauthorizedHeaders) cancelContractRes()                        {}
 func (*UnauthorizedHeaders) cancelDownPaymentRequestRes()              {}
+func (*UnauthorizedHeaders) cancelDunningRunRes()                      {}
 func (*UnauthorizedHeaders) cancelMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) cancelOperationRes()                       {}
 func (*UnauthorizedHeaders) cancelParkedJournalEntryRes()              {}
@@ -114894,6 +116214,7 @@ func (*UnauthorizedHeaders) lockCostCenterRes()                        {}
 func (*UnauthorizedHeaders) lockFiscalPeriodRes()                      {}
 func (*UnauthorizedHeaders) lockPlanCategoryRes()                      {}
 func (*UnauthorizedHeaders) lockProfitCenterRes()                      {}
+func (*UnauthorizedHeaders) mapCatalogItemMaterialsRes()               {}
 func (*UnauthorizedHeaders) matchBankStatementLineRes()                {}
 func (*UnauthorizedHeaders) matchBankStatementRes()                    {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()                  {}
@@ -114961,6 +116282,7 @@ func (*UnauthorizedHeaders) requestBankAccountChangeRes()              {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()                 {}
 func (*UnauthorizedHeaders) resetIncomingPaymentApplicationRes()       {}
 func (*UnauthorizedHeaders) resetIncomingPaymentRes()                  {}
+func (*UnauthorizedHeaders) resolveDisputeCaseRes()                    {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
 func (*UnauthorizedHeaders) retireControlRes()                         {}
@@ -115846,8 +117168,9 @@ func (s *UpdateDisputeCaseOKHeaders) SetResponse(val DisputeCase) {
 	s.Response = val
 }
 
-func (*UpdateDisputeCaseOKHeaders) closeDisputeCaseRes()  {}
-func (*UpdateDisputeCaseOKHeaders) updateDisputeCaseRes() {}
+func (*UpdateDisputeCaseOKHeaders) closeDisputeCaseRes()   {}
+func (*UpdateDisputeCaseOKHeaders) resolveDisputeCaseRes() {}
+func (*UpdateDisputeCaseOKHeaders) updateDisputeCaseRes()  {}
 
 type UpdateDisputeCasePreconditionFailed Problem
 

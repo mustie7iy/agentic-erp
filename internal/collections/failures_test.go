@@ -86,8 +86,9 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"open dispute": func(ctx context.Context) error {
-			_, err := h.CreateDisputeCase(ctx, &gen.DisputeCaseCreate{LegalEntityID: e.DE, FiscalYear: 2026, JournalEntryID: entries[0].ID, LineNo: 1,
-				DisputedAmount: gen.Money{Amount: "1.00", Currency: "EUR"}, Reason: "x", AssigneeID: gen.NewOptUUID(e.Tenant.Human.ID)},
+			_, err := h.CreateDisputeCase(ctx, &gen.DisputeCaseCreate{LegalEntityID: e.DE, FiscalYear: gen.NewOptInt32(2026),
+				JournalEntryID: gen.NewOptUUID(entries[0].ID), LineNo: gen.NewOptInt32(1), DisputedAmount: gen.NewOptMoney(gen.Money{Amount: "1.00", Currency: "EUR"}),
+				Reason: "x", AssigneeID: gen.NewOptUUID(e.Tenant.Human.ID)},
 				gen.CreateDisputeCaseParams{})
 			return err
 		},
@@ -336,8 +337,8 @@ func TestDisputesThroughThePort(t *testing.T) {
 	}{
 		{"a customer that is no business partner", func(h *collections.Endpoints) { h.Partners = strangers{} },
 			func(ctx context.Context, h *collections.Endpoints) error {
-				_, err := h.OpenCase(ctx, collections.CaseInput{LegalEntityID: e.DE, Item: ledger.ItemRef{FiscalYear: 2026, EntryID: entries[1].ID, LineNo: 1},
-					Amount: "1.00", Currency: "EUR", Reason: "x"})
+				_, err := h.OpenCase(ctx, collections.CaseInput{LegalEntityID: e.DE, Items: []collections.CaseItemInput{{
+					Item: ledger.ItemRef{FiscalYear: 2026, EntryID: entries[1].ID, LineNo: 1}, Amount: "1.00", Currency: "EUR"}}, Reason: "x"})
 				return err
 			}, "is no business partner"},
 		{"an assignee nobody names", func(h *collections.Endpoints) { h.People = nobody{} },

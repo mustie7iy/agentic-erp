@@ -184,10 +184,8 @@ func TestDisputedThroughThePort(t *testing.T) {
 		}
 		// huge gives real[0]'s lines 1 and 2 to Northwind at a huge local amount; both are disputed.
 		for line := 1; line <= 2; line++ {
-			pgtest.Exec(t, `INSERT INTO collections.dispute_case (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year,
-				journal_entry_id, line_no, document_number, currency, disputed_amount, currency_lc, disputed_amount_lc, reason, status, created_by, updated_by)
-				VALUES ($1, gen_random_uuid(), $2, $3, 'BP70000002', $4, $5, $6, 'X', 'EUR', 1, 'EUR', 1, 'x', 'open', $7, $7)
-				ON CONFLICT DO NOTHING`, e.Tenant.ID, e.DE, e.north, real[0].FiscalYear, real[0].EntryID, line, e.Tenant.Human.ID)
+			pgtest.Exec(t, seedCase+` VALUES ($1, gen_random_uuid(), $2, $3, 'BP70000002', $4, $5, $6, 'X', 'EUR', 1, 'EUR', 1, 'x', 'open', $7, $7)
+				ON CONFLICT DO NOTHING`+seededItem, e.Tenant.ID, e.DE, e.north, real[0].FiscalYear, real[0].EntryID, line, e.Tenant.Human.ID)
 		}
 		err := e.inRequest(t, func(ctx context.Context) error {
 			_, err := h.ProposeRun(ctx, collections.RunInput{LegalEntityID: e.DE, KeyDate: date(t, "2026-12-31")})
@@ -198,11 +196,20 @@ func TestDisputedThroughThePort(t *testing.T) {
 		}
 	})
 	t.Run("disputed amounts out of range", func(t *testing.T) {
-		pgtest.Exec(t, `UPDATE collections.dispute_case SET disputed_amount_lc = 4611686018427387904, version = version + 1 WHERE tenant_id = $1`, e.Tenant.ID)
-		pgtest.Exec(t, `INSERT INTO collections.dispute_case (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year, journal_entry_id,
-			line_no, document_number, currency, disputed_amount, currency_lc, disputed_amount_lc, reason, status, created_by, updated_by)
-			VALUES ($1, gen_random_uuid(), $2, $3, 'BP70000002', 2026, $4, 1, 'X', 'EUR', 1, 'EUR', 4611686018427387904, 'x', 'open', $5, $5)`,
-			e.Tenant.ID, e.DE, e.north, entries[1].ID, e.Tenant.Human.ID)
+		// The open case of CI-A's item and this one add up to more than an amount holds.
+		pgtest.Exec(t, seedCase+` VALUES ($1, gen_random_uuid(), $2, $3, 'BP70000002', 2026, $4, 1, 'X', 'EUR', 1, 'EUR', 9223372036854775807, 'x', 'open',
+			$5, $5)`+seededItem, e.Tenant.ID, e.DE, e.north, entries[1].ID, e.Tenant.Human.ID)
 		e.In(t).Problem(422, "collections.amount_too_large", "GET", "/v1/collection-worklist?legal_entity_id="+e.DE.String()+"&key_date="+keyDate, "", "")
 	})
 }
+
+// seedCase and seededItem write a dispute case without its API, with its
+// one item, its own line (dispute_case_items holds them to each other).
+const (
+	seedCase = `WITH c AS (INSERT INTO collections.dispute_case (tenant_id, id, legal_entity_id, customer_id, customer_number, fiscal_year,
+		journal_entry_id, line_no, document_number, currency, disputed_amount, currency_lc, disputed_amount_lc, reason, status, created_by, updated_by)`
+	seededItem = ` RETURNING *) INSERT INTO collections.dispute_case_item (tenant_id, dispute_case_id, item_no, id, fiscal_year, journal_entry_id,
+		line_no, account_id, document_number, disputed_amount, disputed_amount_lc)
+		SELECT tenant_id, id, 1, gen_random_uuid(), fiscal_year, journal_entry_id, line_no, gen_random_uuid(), document_number, disputed_amount,
+			disputed_amount_lc FROM c`
+)

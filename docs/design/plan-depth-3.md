@@ -629,3 +629,338 @@ report as CSV for a spreadsheet.
 
 **Later (still in the placeholder):** group currency; analytics metrics;
 an allowance for expected credit losses (IFRS 9, the specialist's).
+
+## rcpt
+
+Placeholder: "later: incoming payment variants" (`plan-breadth-week1.md`
+§T75c, Later; `plan-depth-1.md` §recv, Later; `plan-depth-2.md` §recv2,
+Later; ADR-0063 §6). Two variants are split here: a receipt in another
+currency than the items, and the payment-difference reason codes from
+configuration. SAP S/4HANA is the reference, stated from memory and not
+checked against a source in the lane: F-28 clears open items in another
+currency than the payment, each translated into the payment currency at
+the rate of the clearing date (rate type M), the clearing document in the
+payment currency, the items' local amounts offset as booked and the rest
+a realized exchange difference (OBA1's keys); reason codes (OBBE) are per
+company code, each with a short text, a "charge off difference" flag
+that writes the difference off to the reason's account (OBXL) instead of
+leaving a residual item, and the payment tolerances (OBA3) still bound
+what may be written off.
+
+### T75n A receipt in another currency than the items
+
+**Capability.** An AR accountant applies a receipt in one currency (a
+customer's USD transfer to the company's USD house bank) to the
+customer's items in another (its CAD invoices): each item is translated
+into the receipt's currency at the day's rate and cleared at its own
+rate, and the realized exchange difference is posted.
+
+- **Reuses:** T75c's application (`ledger.Postings.ApplyReceipt`, one DZ
+  entry offsetting the receipt and every item in local and group currency
+  at their booked amounts, the exchange difference lines on `fx_gain` /
+  `fx_loss`), T75f's residuals and tolerance, T75g's on account and later
+  application, T75h's other customers, the ledger's rate source (the
+  average rate valid on a day, either direction, `ledger.exchange_rate`)
+  and `ledger.Conversion`.
+- **Adds:** an item of `POST /v1/incoming-payments` (and of
+  `POST /v1/incoming-payments/{id}/applications`) may be in another
+  currency than the receipt: its amount is translated into the receipt's
+  currency at the average rate valid on the posting date from the item's
+  currency into the receipt's, rounded once half away from zero; the
+  clearing entry, in the receipt's currency, offsets the item at that
+  amount and at its booked local and group amounts, so the item is
+  cleared at its own rate and what is left in local or group currency is
+  the realized exchange difference; residuals, the tolerance and what is
+  left on account are in the receipt's currency as before. The payment
+  shows each item's own amount (`item_amount`, in its currency) beside
+  its amount in the payment's currency and, for an item translated, the
+  rate (`exchange_rate`). Migration: the item's currency, amount and rate
+  on `receivables.incoming_payment_item`, all three or none.
+- **Walkthrough:** `step_receipt_other_currency`: Maple invoices
+  Northwind CAD 1,000.00; Northwind pays the CAD amount at the day's
+  USD/CAD rate in USD to RBCUS (its incoming account 1040), the receipt
+  posted at that rate; Ruth applies the USD receipt to the CAD invoice:
+  the invoice is cleared, the payment shows CAD 1,000.00 and its USD
+  amount with the rate, the DZ entry is in USD and its local amounts
+  balance with the exchange difference, if any, on fx_gain / fx_loss; a
+  receipt applied on a day without a rate is refused.
+- **Acceptance:** an item in another currency without an average rate
+  valid on the posting date for its pair, in either direction, is refused
+  (422 `ledger.no_exchange_rate` naming `items[i]`) and nothing posts;
+  each item translated on its own, the items in two other currencies
+  each at its own rate; a translated item's local and group amounts in
+  the entry are its booked amounts (it realizes its difference); the
+  translated items, net of their residuals, equal the receipt within the
+  tolerance or are refused as before (422 `ledger.clearing_not_balanced`);
+  an item in the receipt's currency is applied as before, with no rate
+  shown; a residual of a translated item is in the receipt's currency at
+  the item's local rate; replays answer the same payment.
+
+### T75o Payment-difference reason codes from configuration
+
+**Capability.** A company's finance lead configures the reasons its AR
+accountants give for paying an item in part, each saying whether the
+difference stays open as a residual item or is written off and to which
+account; the accountant names a reason and the configuration decides.
+
+- **Reuses:** T75f's residual on an item (`items[i].residual`, amount,
+  reason, text), its tolerance (`companies[].receivables.payment_tolerance`)
+  and difference line, the configuration's change tiers, the chart's
+  account checks; T75g's applications and T75h's other customers take
+  the same residuals.
+- **Adds:** `companies[].receivables.payment_difference_reasons[]`:
+  `code` (lower case, digits and `_`, to 40), `description`, `treatment`
+  `residual` or `write_off`, and for `write_off` its `account`, an
+  expense account of the chart that reconciles nothing (none for a
+  residual); a tier 3 change, as the tolerance. A company that configures
+  none keeps the four reasons T75f fixed (`short_payment`, `disputed`,
+  `deduction`, `other`, all `residual`); one that configures any has
+  exactly those. An item's `residual.reason` must be one of the
+  company's reasons; a `residual` reason leaves the residual item as
+  T75f, a `write_off` reason writes the amount off instead, a debit line
+  of the clearing entry on the reason's account at the receipt's rate,
+  the item cleared; what is written off by reasons and the payment
+  difference together stay within the tolerance of their direction. The
+  payment shows the item's `write_off` (amount, reason, text, account,
+  line) in place of a residual; the customers' parts are net of both.
+  Migration: the write-off columns of `incoming_payment_item`.
+- **Walkthrough:** `step_payment_difference_reasons`: Ada configures
+  Maple's reasons (tier 3: `short_payment` and `disputed` as residuals,
+  `bank_charges` written off to 6850, the walkthrough's payment
+  difference account); Northwind pays CAD 496.00 of an invoice of 500.00,
+  its bank having charged 4.00: Ruth applies it with a residual of 4.00,
+  reason `bank_charges`; the invoice is cleared, nothing stays open, the
+  4.00 is on 6850; a reason no longer configured (`deduction`) is
+  refused.
+- **Acceptance:** a reason the company does not have is refused (422
+  `receivables.unknown_residual_reason` naming `items[i].residual.reason`);
+  a write-off reason whose account the company's chart no longer has is
+  refused (422 `receivables.no_write_off_account`); a write-off and the
+  difference beyond the tolerance are refused (422
+  `ledger.clearing_not_balanced`) and nothing posts; configuration
+  refuses a code twice, a malformed code, a treatment not listed, a
+  write-off without its account or with one not an expense, and an
+  account on a residual reason; the stored reason of an earlier payment
+  stays as it was; replays answer the same payment.
+
+**Later (still in the placeholder):** matching by rule and agent proposals
+from statement lines; receipts without a statement; direct debits;
+refunds; output tax corrected on a payment difference; resetting a
+clearing without reversing its entry and resetting clearings other than
+incoming payments'.
+
+## dun
+
+Placeholder: "later: dunning variants" (`plan-breadth-week1.md` §T76b,
+Later; `plan-depth-1.md` §T76e, Later; ADR-0065). Two variants are split
+here: posting a confirmed run's dunning charges and interest to the
+customer, and cancelling a confirmed run. Letters and e-mails, procedures
+per customer, charges per currency, blocks in the worklist and runs as a
+workflow stay in the placeholder. SAP S/4HANA is the reference, stated
+from memory and not checked against a source in the lane: interest on
+arrears posted to the customer as an item of its own against an interest
+revenue account (FINT), charges booked as revenue, and a dunning run's
+data reset when a run is withdrawn; nothing below depends on a fact of
+SAP's beyond that shape.
+
+### T76h Dunning charges and interest posted to the customer
+
+**Capability.** A credit controller's confirmed dunning run posts each
+notice's charge and interest to its customer as a customer debit memo,
+an open item the customer owes, against the company's dunning charge and
+interest revenue accounts, in the confirmation's transaction.
+
+- **Reuses:** T76d's charges and interest stored with the notices;
+  T75j's customer debit memo, entered and posted through receivables'
+  published API (`CreateInvoice`, `PostInvoice`) with the notice as its
+  source document (`customer_invoice_source_once`: one memo per notice),
+  as sales enters its billing documents; the ledger's posting port behind
+  it; the confirmation's status guard and company lock (T76b).
+- **Adds:** configuration `companies[].account_determination`
+  `dunning_charges` and `dunning_interest` (revenue accounts, tier 3 as
+  the account determination is): a company that names either posts, and
+  must then name the account of each it charges (a level's charge, a
+  level's interest); one that names neither posts nothing, as before.
+  Table `collections.dunning_charge`: per notice the debit memo (id,
+  number), its journal entry and posting date. The debit memo: the
+  notice's customer, the company's currency, the company's today as its
+  date and posting date, the customer's payment term, an item for the charge and one for the interest (each
+  only when above zero), no tax code (specialist question). `DunningRun`
+  `charge_document_count`; `DunningNotice` `charge_document` (the memo's
+  id and number, its posting date and status); `DunningNoticeIssued`
+  carries the memo. Collections imports receivables' published types
+  (layout), as sales does.
+- **Walkthrough:** `step_dunning_postings` (first half): Ada adds the
+  dunning accounts to the chart and names them through a governed change; Ruth posts Bayview Marine, a
+  new customer, an invoice; a run at level 1 is confirmed and posts
+  nothing for it; one at level 2 is confirmed and its notice names the
+  debit memo, the customer's open item of the charge and interest,
+  posted to the two accounts.
+- **Acceptance:** a notice with a charge or interest gets exactly one
+  posted debit memo for the two together, a notice without either none;
+  a company without the accounts posts nothing; the memo's gross is the
+  notice's charge and interest; a confirmation that receivables or the
+  ledger refuses (customer not usable, number range, period) records and
+  posts nothing; a second confirmation posts nothing; configuration
+  naming one account but charging what the other takes is refused.
+- **Depends on:** T76d, T75j (in `main`).
+
+### T76i A confirmed dunning run cancelled
+
+**Capability.** A credit controller cancels a confirmed dunning run: its
+items' dunning levels are set back to what they were before it, and the
+debit memos it posted are reversed; refused once a memo is cleared, into
+a closed period, or when a later confirmed run has dunned its items.
+
+- **Reuses:** T75k's reversal of a customer debit memo (the ledger's
+  reversal, clearing the memo's item against it); the company lock of
+  confirmations; the run's audit record and `DunningRunChanged`.
+- **Adds:** `POST /v1/dunning-runs/{id}:cancel` (`If-Match`, a reason,
+  permission `collections.dunning.run`, human-only); status `cancelled`
+  with the reason; the levels a cancelled run recorded no longer count
+  (the next run, the worklist and a confirmation's stale check read
+  confirmed runs alone); receivables' `ReverseSourced`, the reversal of a
+  debit memo by the context that entered it, on the memo's posting date
+  (a debit memo entered from a source may now be reversed, by that
+  context alone; the API still refuses it, 409
+  `receivables.entered_from_source`); 409 `collections.run_superseded`
+  when a later confirmed run dunned one of its items or a memo it posted;
+  `DunningNoticeCancelled` per notice; `charge_document` shows the
+  reversal.
+- **Walkthrough:** `step_dunning_postings` (second half): a later run at
+  level 3 is confirmed, posting a second memo; cancelling the first is refused as superseded;
+  the later run is cancelled, its memo reversed; then the first, its memo
+  reversed; the next proposal reaches level 2 again from level 1, the
+  level the run before them recorded; a second cancellation is refused.
+- **Acceptance:** after the cancellation the run's items read the level
+  of the runs before it; each memo reversed once, no longer open; a memo
+  cleared, or posted in a period now closed, refuses the cancellation and
+  nothing changes; a run not confirmed is refused (409
+  `collections.invalid_status`); a proposal started before the
+  cancellation is stale; cancelling twice reverses once.
+- **Depends on:** T76h, T75k (in `main`).
+
+**Later (still in the placeholder):** letters and e-mails; procedures per
+customer; charges and minimum amounts per currency; blocks in the
+collection worklist; scheduled and large runs as a workflow; a
+cancellation's reversal on a date of its own; tax on charges, should a
+pilot country levy it.
+
+## disp
+
+Placeholder: "later: dispute case variants" (`plan-breadth-week3.md`
+§T86b, Later; ADR-0065 As built T86a, T86b). Two variants are split
+here: a case over several invoices, and resolving an accepted case by a
+credit memo or a write-off. A case on a short payment at the incoming
+payment, correspondence and attachments, escalation and deadlines,
+dunning the undisputed part of an invoice, disputed amounts in the credit
+exposure and the cash forecast, and cases opened by the customer stay in
+the placeholder. SAP S/4HANA's FSCM Dispute Management is the reference,
+stated from memory and not checked against a source in the lane: a
+dispute case names one or more disputed objects (open items of one
+customer) with a disputed amount each; it is resolved by a credit memo,
+a write-off or a payment, each reducing the disputed amount, the rest
+not accepted; the write-off posts to the payment differences account by
+reason (transaction key ZDI). Nothing below depends on a fact of SAP's
+beyond that shape.
+
+### T86c A dispute case over several invoices
+
+**Capability.** A collections specialist opens one dispute case over
+several of a customer's open invoices, each with its own disputed
+amount; a dunning run leaves each of them out while the case is open,
+and the worklist counts the case once.
+
+- **Reuses:** T86a's case, its open-item reader (`openItem`, the field
+  named), promises' list of items (T76f: 1 to 100 items, each once),
+  T86b's hold in the proposal and the worklist.
+- **Adds:** table `collections.dispute_case_item` (the case's items by
+  number, each journal line with its account, document number, reference
+  and disputed amount in the item's currency and the company's as booked);
+  an item is in one open case at a time (the unique index moves to the
+  items). `POST /v1/dispute-cases` takes `items` (1 to 50, each line once,
+  of one customer and one currency) in place of the single item, which
+  stays accepted (expand: the request's item fields become optional, one
+  form or the other, 422 `collections.items_or_item`). The case's
+  `disputed_amount` is its items' total; its journal line fields name its
+  first item. `DisputeCase.items` and `DisputeCaseChanged.items`; the
+  case's audit records keep its items. Migration: the table, the
+  existing cases' items written from their own line, a deferred check
+  that a case's items are its total and its first item its line.
+- **Walkthrough:** `step_dispute_items`: Ruth opens one case on two
+  invoices of a new customer, Bayview Marine, with an amount each; an
+  invoice named twice, another customer's and a request naming its item
+  both ways are refused, as is a second case on one of them; a dunning
+  run names both as disputed with the case; the worklist counts one case
+  and the two amounts.
+- **Acceptance:** every item is an open item the case's customer owes in
+  the company, in the case's currency, disputed above zero and at most
+  its open amount; an item in another open case is refused whether it
+  comes after or races it (409 `collections.dispute_exists`); the run
+  and the worklist read the items, not the case's line; single-item cases
+  read as before; the collections agent reads a case's items; schema
+  tests for every rule.
+- **Depends on:** T86a, T86b (in `main`).
+
+### T86d Resolving an accepted dispute case by credit memo or write-off
+
+**Capability.** An AR accountant resolves an open dispute case the
+company accepts, in full or in part: by a customer credit memo for each
+accepted invoice, through receivables, or by a write-off of the accepted
+amounts to the company's payment differences account; the case closes
+as accepted, naming the documents.
+
+- **Reuses:** receivables' credit memo (T75d, entered and posted in the
+  request's transaction as sales' credit memo request does, T85d: tax
+  given as the invoice's share, the case's item as its source); the
+  ledger's posting port and account determination
+  (`payment_difference_expense`, T75f); `config.DocumentDay`; T86a's lock
+  and `If-Match`.
+- **Adds:** `POST /v1/dispute-cases/{id}:resolve`
+  (`collections.dispute.resolve`, `If-Match`, `Idempotency-Key`,
+  human-only) with `resolution` `credit_memo` or `write_off`, a `reason`,
+  an optional `posting_date` (absent: the company's today) and optional
+  `items` (`item_no`, `accepted_amount` from zero to the item's disputed
+  amount; absent: each item accepted in full; at least one above zero).
+  A credit memo per accepted item names the item's customer invoice and
+  credits its items in proportion to the accepted part of its gross
+  amount, net and tax alike (an item that is not a posted customer
+  invoice is 422 `collections.no_invoice` naming `resolution`); a
+  write-off is one `SA` entry, `source_context` `collections`: per
+  accepted item a debit on `payment_difference_expense` and a credit to
+  the item's account with the customer, at the item's booked rate. Either
+  leaves an open credit item of the customer, cleared against the invoice
+  as any credit is. The case becomes `accepted` with `resolution`,
+  `accepted_amount`, each item's `accepted_amount` and credit memo, the
+  write-off's entry and the posting date; `DisputeCaseChanged`
+  (`resolved`) and the audit record `collections.dispute_case.resolve`
+  (without the reason). Migration: the columns, the source context and
+  the permission.
+- **Walkthrough:** `step_dispute_resolution`: Bayview's case is accepted
+  in part by credit memo: one invoice credited in full, the other for
+  half of its disputed amount, each memo naming its invoice with its tax
+  in proportion; a second resolution is refused; the credits stand open;
+  a second case on the gauge is written off in full (accepting more than
+  it disputes refused) to 6850; a run duns both invoices again.
+- **Acceptance:** only an open case is resolved, once (409
+  `collections.dispute_closed`); each item named once (422
+  `collections.unknown_item`); the accepted amounts are within the
+  items' disputed amounts and one is above zero (422
+  `collections.invalid_accepted_amount`); the credit memo's gross is
+  the accepted amount, its tax the invoice's share, and receivables'
+  limit on credits per invoice holds; the write-off balances per item in
+  every currency; a company without `payment_difference_expense` is
+  refused for a write-off (422 `collections.no_write_off_account`) and
+  nothing posts; an item of a dunning charge's debit memo (T76h) is not
+  written off (422 `collections.dunning_charge_write_off`, batch 82
+  integration: cancelling its run reverses the memo); refusals by receivables or the ledger (a closed period)
+  leave the case open; the items are dunned again once the case is
+  closed; schema tests for every rule.
+- **Depends on:** T86c.
+
+**Later (still in the placeholder):** a case on a short payment at the
+incoming payment; correspondence and attachments; escalation and
+deadlines; dunning the undisputed part of an invoice; disputed amounts in
+the credit exposure and the cash forecast; cases opened by the customer;
+clearing the credit against the invoice in the resolution; write-off
+reason codes with their own accounts.

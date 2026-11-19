@@ -125,6 +125,10 @@ type CancelDownPaymentRequestRes interface {
 	cancelDownPaymentRequestRes()
 }
 
+type CancelDunningRunRes interface {
+	cancelDunningRunRes()
+}
+
 type CancelMemoRecordRes interface {
 	cancelMemoRecordRes()
 }
@@ -1961,6 +1965,10 @@ type LockProfitCenterRes interface {
 	lockProfitCenterRes()
 }
 
+type MapCatalogItemMaterialsRes interface {
+	mapCatalogItemMaterialsRes()
+}
+
 type MatchBankStatementLineRes interface {
 	matchBankStatementLineRes()
 }
@@ -2227,6 +2235,10 @@ type ResetIncomingPaymentApplicationRes interface {
 
 type ResetIncomingPaymentRes interface {
 	resetIncomingPaymentRes()
+}
+
+type ResolveDisputeCaseRes interface {
+	resolveDisputeCaseRes()
 }
 
 type ResumeWebhookSubscriptionRes interface {
