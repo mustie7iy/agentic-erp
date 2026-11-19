@@ -26,11 +26,9 @@ type materialStates struct {
 
 // readMaterials plans the SAP side, refusing what the quality gate
 // refuses (a reconciliation run extracts again without it), and reads
-// what runs of the system loaded.
+// what runs of the system loaded, once per reconciliation (readStock,
+// before any company's checks).
 func (rc *reconciler) readMaterials(ctx context.Context) (*materialStates, error) {
-	if rc.materials != nil {
-		return rc.materials, nil
-	}
 	st := &materialStates{unitRefs: map[string]uuid.UUID{}, loaded: map[string]materials.Material{}}
 	var issues, more []Issue
 	st.plants, issues = plantsOf(rc.ext)
@@ -75,10 +73,7 @@ func (rc *reconciler) readMaterials(ctx context.Context) (*materialStates, error
 // and storage locations in the company, and alternative units; SAP's
 // held back or flagged for deletion are left out (materialsOf).
 func (rc *reconciler) materialMaster(ctx context.Context, s companyScope) error {
-	st, err := rc.readMaterials(ctx)
-	if err != nil {
-		return err
-	}
+	st := rc.materials
 	sapPlants, sapLocations := map[string]string{}, map[string]string{}
 	company := map[string]bool{}
 	for _, p := range st.plants {

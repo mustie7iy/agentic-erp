@@ -252,3 +252,31 @@ func TestMigratedStockDatabaseFailures(t *testing.T) {
 		return err
 	})
 }
+
+// TestMigratedValuationWithoutStock: a valuation SAP holds no stock of is
+// taken over as a valuation alone, with no initial entry; a reconciliation
+// of an extract that changed since and holds a valuation the quality gate
+// refuses reports the refusal, as the gate does, and fails.
+func TestMigratedValuationWithoutStock(t *testing.T) {
+	e := stockSetup(t)
+	x := withMaterials()
+	x.MBEW = []sap.MBEW{{MATNR: "M-1", BWKEY: "P1", VPRSV: "V", VERPR: "2.50", STPRS: "0.00", PEINH: "1", BKLAS: "3000", LBKUM: "0.000", SALK3: "0.00"}}
+	write(t, e.dir, "stock.json", x)
+	_, got := e.act(t, e.run(t, e.connector(t, "stock.json"), "documents", false, e.DE.String()), "start")
+	if got["status"] != "loaded" {
+		t.Fatalf("status: got %v (%s %v), want loaded", got["status"], quality(got), loadIssues(got))
+	}
+	loaded := report(got)["loaded"].(map[string]any)
+	if loaded["material_valuations"] != 1.0 {
+		t.Errorf("valuations taken over: got %v, want 1", loaded["material_valuations"])
+	}
+	if n, ok := loaded["initial_entries"]; ok {
+		t.Errorf("initial entries: got %v, want none", n)
+	}
+	x.MBEW[0].VPRSV = "X"
+	write(t, e.dir, "stock.json", x)
+	_, got = e.act(t, got, "reconcile")
+	if issues := fmt.Sprint(report(got)["issues"]); got["status"] == "reconciled" || !strings.Contains(issues, "MBEW") {
+		t.Errorf("reconciled with a refused valuation: got %v with issues %s, want it failed naming the MBEW row", got["status"], issues)
+	}
+}

@@ -24,13 +24,12 @@ type stockStates struct {
 	entries []uuid.UUID
 }
 
-// readStock plans the SAP side, refusing what the quality gate refuses
+// readStock reads the material master's two sides (readMaterials) and
+// then plans the stock's SAP side, refusing what the quality gate refuses
 // (a reconciliation run extracts again without it), and reads what runs
-// of the system took over.
+// of the system took over: once per reconciliation, before any company's
+// checks, which use rc.materials and rc.stock.
 func (rc *reconciler) readStock(ctx context.Context) (*stockStates, error) {
-	if rc.stock != nil {
-		return rc.stock, nil
-	}
 	st, err := rc.readMaterials(ctx)
 	if err != nil {
 		return nil, err
@@ -74,9 +73,9 @@ func (rc *reconciler) readStock(ctx context.Context) (*stockStates, error) {
 // stock controls reconcile them (stockControls). What is left is what the
 // run loaded of SAP's journal.
 func (rc *reconciler) withoutTakeOver(ctx context.Context, s companyScope, totals ledger.Totals) (ledger.Totals, error) {
-	st, err := rc.readStock(ctx)
-	if err != nil || len(st.entries) == 0 {
-		return totals, err
+	st := rc.stock
+	if len(st.entries) == 0 {
+		return totals, nil
 	}
 	off, err := rc.e.Reports.EntryTotals(ctx, s.le, int16(rc.t.year), st.entries)
 	if err != nil {
@@ -101,14 +100,7 @@ func (rc *reconciler) withoutTakeOver(ctx context.Context, s companyScope, total
 // stock account that holds SAP's G/L balance beside the take-over shows
 // twice its value.
 func (rc *reconciler) stockControls(ctx context.Context, s companyScope) error {
-	st, err := rc.readStock(ctx)
-	if err != nil {
-		return err
-	}
-	ms, err := rc.readMaterials(ctx)
-	if err != nil {
-		return err
-	}
+	st, ms := rc.stock, rc.materials
 	sapSide, platform := map[string]string{}, map[string]string{}
 	var sapValues, platformValues []money.Minor
 	accounts := map[string][]money.Minor{}

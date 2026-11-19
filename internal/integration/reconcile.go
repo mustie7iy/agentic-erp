@@ -80,6 +80,9 @@ func (e *Endpoints) reconcile(ctx context.Context, ext *sap.Extract, t target, r
 		codes, currency[c.BUKRS] = append(codes, c.BUKRS), c.WAERS
 	}
 	slices.Sort(codes)
+	if _, err := rc.readStock(ctx); err != nil {
+		return rc.rec, err
+	}
 	for _, cc := range codes {
 		if err := rc.company(ctx, cc, currency[cc]); err != nil {
 			return rc.rec, err

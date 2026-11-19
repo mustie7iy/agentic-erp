@@ -57,13 +57,13 @@ type TakenOverStock struct {
 // stock, so it is locked by no one else; the document takes its stock
 // rows and then the company's range, as every posting does (ADR-0008).
 func (e *Endpoints) TakeOver(ctx context.Context, in StockTakeOver) (TakenOverStock, error) {
-	v, err := e.CreateValuation(ctx, in.Valuation)
-	if err != nil || len(in.Items) == 0 {
-		return TakenOverStock{Valuation: v}, err
-	}
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return TakenOverStock{}, err
+	}
+	v, err := e.CreateValuation(ctx, in.Valuation)
+	if err != nil || len(in.Items) == 0 {
+		return TakenOverStock{Valuation: v}, err
 	}
 	items := make([]ItemInput, len(in.Items))
 	for i, it := range in.Items {
