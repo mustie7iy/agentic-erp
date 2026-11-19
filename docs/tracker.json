@@ -7932,6 +7932,13 @@
         "r": "packs/ca/2026.11 · packs/ae/2026.8 · packs/released.sha256 · TestCanadaPack2026_11 · TestUAEPack2026_8 (pilotRanges) · ADR-0048 As built (the pilot's ranges) · walkthrough steps 2 and 41 apply them, the pilot's settings add only Maple's material range",
         "src": "po:2026-11-19",
         "c": []
+       },
+       {
+        "s": "D",
+        "t": "Numbering-only packs Canada 2026.12 and UAE 2026.9 bring the ranges of count documents and outbound deliveries, physical_inventory (PI) and outbound_delivery (OD), which the pilot's settings still added themselves (a company activated from Canada 2026.11 or UAE 2026.8 lacks them: 422 config.no_number_range for a count document or a delivery); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried under the product owner's rule of 2026-11-18",
+        "r": "packs/ca/2026.12 · packs/ae/2026.9 · packs/released.sha256 · TestCanadaPack2026_12 · TestUAEPack2026_9 (stockRanges) · ADR-0048 As built (count documents and deliveries) · walkthrough steps 2 and 41 apply them, the pilot's settings add only Maple's material range",
+        "src": "review:batch83 · po:2026-11-18",
+        "c": []
        }
       ]
      },

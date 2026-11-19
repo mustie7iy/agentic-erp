@@ -481,7 +481,7 @@ document of movement 601, valued at the valuation's price, its value
 posted from the stock account to the class's cost of goods sold account;
 the sales order's items are delivered by it, and billing bills them.
 
-- **Adds:** `POST /v1/outbound-deliveries/{id}:post-goods-issue`
+- **Adds:** `POST /v1/outbound-deliveries/{id}:postGoodsIssue`
   (`If-Match`, permission `shipping.goods_issue.post`); movement types 601
   and its reversal 602 in inventory (601 posted only by shipping, through
   `inventory.Endpoints.IssueForDelivery`; a person neither posts nor

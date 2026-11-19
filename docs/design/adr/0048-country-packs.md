@@ -419,6 +419,23 @@ settings cannot simply overwrite their document.
   pack's validation refuses a range of a type numbered across the tenant
   (`numberRanges`), so a later version cannot ship one; a pack that
   templates the prefix by company is not built (listed for the digest).
+- **As built (count documents and deliveries, batch 84): Canada 2026.12
+  and UAE 2026.9** are 2026.11 and 2026.8 plus the two ranges the
+  pilot's settings still added themselves, which batch 83's physical
+  inventory (S2c, ADR-0082) and outbound deliveries (S2a, ADR-0083)
+  number from: `physical_inventory` (PI) and `outbound_delivery` (OD),
+  each 1 to 9999999, neither gapless, the pilot's prefixes and limits; a
+  company activated from 2026.11 or 2026.8 got 422
+  `config.no_number_range` for a count document or a delivery. Only
+  `numbering.yaml` and `pack.yaml` differ (`TestCanadaPack2026_12`,
+  `TestUAEPack2026_9`, `stockRanges`), and both carry the sign-off of
+  2026-11-09 under the product owner's rule of 2026-11-18 (a
+  numbering-only version carries it). The walkthrough's step 2 applies
+  Canada 2026.12 (32 ranges, signed off) and step 41 UAE 2026.9; the
+  pilot's settings add only Maple's material range. The cost of goods sold
+  (5016) and inventory differences (5198) accounts stay in the pilot's
+  settings: accounts are not numbering, and the packs' charts change
+  only with a version that is not numbering-only.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers
