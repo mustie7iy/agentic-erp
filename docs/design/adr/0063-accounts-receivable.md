@@ -1387,3 +1387,14 @@ memo (§5, plan default 3).
   reader must strip from a text cell beginning as a formula; (4) the
   totals' row only on the last page; (5) no new permission or problem
   code.
+
+### T76h Debit memos a dunning run enters (no migration of its own)
+
+Recorded for ADR-0065 As built T76h, which decides it. Collections enters
+and posts a customer debit memo per dunning notice charged a charge or
+interest through `CreateInvoice` and `PostInvoice`, as sales enters its
+billing documents: the notice is its source document, by id and with its
+id as its number (a notice has none). Nothing in receivables changes but
+the reversal's refusal (`reversible`): a debit memo entered from a
+source is a dunning notice's (sales enters credit memos alone), and
+`receivables.entered_from_source` names it so.

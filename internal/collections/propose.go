@@ -501,10 +501,10 @@ func record(ctx context.Context, action string, r Run, le tenancy.Entity, before
 	payload := map[string]any{"dunning_run_id": r.ID, "legal_entity_id": r.LegalEntityID, "legal_entity_code": le.Code,
 		"key_date": r.KeyDate.Format(time.DateOnly), "notice_count": r.NoticeCount, "item_count": r.ItemCount, "overdue_amount": overdue,
 		"charge_amount":   money.EventAmount(r.ChargeAmount, r.Currency, r.Exponent),
-		"interest_amount": money.EventAmount(r.InterestAmount, r.Currency, r.Exponent), "status": r.Status, "status_before": before,
-		"version": r.Version}
+		"interest_amount": money.EventAmount(r.InterestAmount, r.Currency, r.Exponent), "charge_document_count": r.ChargeCount, "status": r.Status,
+		"status_before": before, "version": r.Version}
 	detail := map[string]any{"legal_entity_id": r.LegalEntityID, "key_date": r.KeyDate.Format(time.DateOnly), "status": r.Status,
-		"status_before": before, "notice_count": r.NoticeCount, "item_count": r.ItemCount, "overdue_amount": overdue}
+		"status_before": before, "notice_count": r.NoticeCount, "item_count": r.ItemCount, "overdue_amount": overdue, "charge_document_count": r.ChargeCount}
 	events := append([]outbox.Event{{Context: "collections", Name: "dunning_run_changed", AggregateType: "collections.dunning_run",
 		AggregateID: r.ID, Payload: payload}}, issued...)
 	if err := audit.Record(ctx, action, "collections.dunning_run", r.ID, detail, events...); err != nil {

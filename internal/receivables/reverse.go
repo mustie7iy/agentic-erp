@@ -97,7 +97,7 @@ func (e *Endpoints) reversible(ctx context.Context, v Invoice, in Reversal) (tim
 			" is not reversed: enter a credit memo naming it (POST /v1/customer-invoices with kind credit_memo).")
 	case v.SourceDocumentID != nil:
 		return time.Time{}, problem.Conflict("receivables.entered_from_source", "Customer "+strings.ReplaceAll(v.Kind, "_", " ")+" "+v.DocumentNumber+
-			" was entered from sales document "+*v.SourceDocumentNumber+ // named with its id (customer_invoice_source)
+			" was entered from "+sourceOf(v)+" "+*v.SourceDocumentNumber+ // named with its id (customer_invoice_source)
 			" ("+v.SourceDocumentID.String()+"); it is corrected there, not reversed here.")
 	}
 	if err := problem.RequireText("reason", in.Reason); err != nil {
@@ -120,6 +120,17 @@ func (e *Endpoints) reversible(ctx context.Context, v Invoice, in Reversal) (tim
 			" is cleared (netted when a payment was applied, or cleared against its invoice); undo that clearing first.")
 	}
 	return date, nil
+}
+
+// sourceOf names the kind of document a document entered from another
+// context's came from: a debit memo is a dunning notice's, whose charge
+// and interest a confirmed dunning run posted (T76h); a credit memo is
+// sales'. Neither context enters the other kind.
+func sourceOf(v Invoice) string {
+	if v.Kind == KindDebitMemo {
+		return "dunning notice"
+	}
+	return "sales document"
 }
 
 // markReversed moves the memo from posted to reversed with its reversal.

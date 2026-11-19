@@ -3107,9 +3107,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit controller's confirmed dunning run posts each notice's dunning charge and interest to its customer as a customer debit memo against the company's dunning charge and interest revenue accounts (account determination dunning_charges, dunning_interest), one memo per notice, in the confirmation's transaction; a company without the accounts posts nothing",
-        "r": "T76h · docs/design/plan-depth-3.md §T76h · ADR-0065 As built",
+        "r": "T76h · docs/design/plan-depth-3.md §T76h · db/migrations/000395 · collections.dunning_charge · companies[].account_determination.dunning_charges, .dunning_interest (tier 3) · DunningRun.charge_document_count · DunningNotice.charge_document · DunningNoticeIssued customer_invoice_id · 422 collections.no_charge_account · receivables.CreateInvoice/PostInvoice (debit memo, source the notice) · problem.Led · TestChargesPosted, TestChargesNotPosted, TestChargeRefusals, TestDunningAccounts, TestDunningChargeRules · walkthrough step_dunning_postings · ADR-0065 As built T76h, ADR-0063 As built",
         "src": "split:T76e · po:2026-11-17",
         "c": []
        },

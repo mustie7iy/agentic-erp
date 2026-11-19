@@ -519,6 +519,14 @@ type AccountDetermination struct {
 	// (Receivables.PaymentTolerance).
 	PaymentDifferenceExpense string `yaml:"payment_difference_expense,omitempty" json:"payment_difference_expense,omitempty"`
 	PaymentDifferenceRevenue string `yaml:"payment_difference_revenue,omitempty" json:"payment_difference_revenue,omitempty"`
+	// DunningCharges and DunningInterest are the revenue accounts a
+	// confirmed dunning run posts its notices' charges and interest to,
+	// against the customer's debit memo (ADR-0065 As built, T76h). A
+	// company that names neither posts no dunning charges; one that names
+	// either names the account of each its levels charge
+	// (validator.dunningAccounts).
+	DunningCharges  string `yaml:"dunning_charges,omitempty" json:"dunning_charges,omitempty"`
+	DunningInterest string `yaml:"dunning_interest,omitempty" json:"dunning_interest,omitempty"`
 	// Inventory are the accounts goods movements and price changes of
 	// materials post to, per valuation class (ADR-0082 §8, S1d; SAP's
 	// T030 keys BSX, GBB, PRD and UMB by valuation class, from memory).

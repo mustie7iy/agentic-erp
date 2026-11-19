@@ -935,3 +935,77 @@ reference), each listed for the product owner's digest.
   date it is back with its last contact; a later message without a
   resubmission date brings it back at once; its contacts read the latest
   first.
+
+### T76h Dunning charges and interest posted (migration 000395)
+
+Decided by default under this ADR (`plan-depth-3.md` §T76h; product
+owner 2026-11-17: the variants start; SAP S/4HANA's interest on arrears
+posted to the customer, FINT, as the reference, from memory), each
+listed for the product owner's digest. It changes §1 and T76d's
+"Nothing is posted": a confirmed run posts.
+
+- **Where it posts.** Through receivables' published API, as sales posts
+  its billing documents (ADR-0067 §9): per notice charged a charge or
+  interest, one customer debit memo (T75j, document type `DD`) entered
+  and posted in the confirmation's transaction, after its status guard,
+  naming the notice as its source document (`source_document_id`, the
+  notice's id also as its number: a notice has none), so receivables
+  takes it once (`customer_invoice_source_once`). Its entry debits the
+  customer's reconciliation account, the customer's open item, which a
+  later run duns like any other once it is overdue, and credits the
+  charge and the interest on their accounts. One memo for the two rather
+  than one each: one document per notice for the customer, as the notice
+  asks for both together.
+- **Accounts.** `companies[].account_determination.dunning_charges` and
+  `.dunning_interest`, revenue accounts of the company's chart; tier 3,
+  posting-relevant, as the account determination is. A company naming
+  neither posts nothing (T76d's behaviour, every company today); one
+  naming either posts, and must name the account of each its levels
+  charge (a charge above zero, interest), or the configuration is
+  refused naming the missing one. The charges, rate and levels stay tier
+  2: they change what a notice asks for, as a price does, not where it
+  posts. Collections resolves the numbers through the ledger's account
+  reads (`ledger.AssetReads.Accounts`), not the ledger's account
+  determination rows, which keep a removed key's account.
+- **The memo.** The notice's customer, the company's currency, the run's
+  key date as its date (the date the notice is dated), the customer's
+  payment term in the company, the company's today as its posting date
+  (receivables' default), an item "Dunning charge, level n" on the charge
+  account and one "Interest on overdue items to <key date>" on the
+  interest account, each only when above zero, without a tax code.
+- **Refusals.** What receivables or the ledger refuses refuses the whole
+  confirmation, nothing recorded or posted, with their code and the
+  customer's number leading the detail and without their field errors,
+  which name the memo's fields (`problem.Led`, moved to the platform for
+  any context that posts through another's): a customer that is not
+  usable (blocked for posting, without data in the company), an account
+  no longer postable, a missing `customer_invoice` or `journal_dd` range,
+  a period not open. A charge or interest whose account the
+  configuration no longer names since the run was proposed is 422
+  `collections.no_charge_account`. The controller blocks such a customer
+  from dunning (T76e) and starts a new run. Posting needs the credit
+  controller's `collections.dunning.run` alone, as billing's posting
+  needs no permission of receivables.
+- **Stored.** `collections.dunning_charge`: per notice the memo's id and
+  number, its entry and posting date; insert-only, one per notice and
+  per memo (03 §3.27, `db/dunning_charge_test.go`). `DunningRun`
+  `charge_document_count`, `DunningNotice` `charge_document`;
+  `DunningNoticeIssued` names the memo (`customer_invoice_id`, `_number`,
+  null for none) and `DunningRunChanged` the count. Receivables' API
+  refuses to reverse such a memo, naming the dunning notice
+  (`receivables.entered_from_source`).
+- **Layout.** Collections imports receivables' published types for the
+  port (`collections.Invoices`), as sales does; it stays a leaf, nothing
+  imports it.
+- **Size.** A run of 5,000 items has at most as many notices, each a
+  memo entered and posted in the one transaction; runs as a workflow stay
+  later.
+- **Specialist question.** Whether a pilot country taxes dunning charges
+  or interest on late payment (VAT/GST): posted without a tax code, as
+  outside the scope of tax, stated from memory and not checked.
+- **Walkthrough.** `step_dunning_postings` (step 135), first half: Ada
+  adds 4810 Dunning charges and 4820 Interest on overdue receivables and
+  names them through a governed change; Bayview Marine's CAD 400.00
+  invoice is dunned at level 1 without a memo, then at level 2: a debit
+  memo of CAD 15.00 and 2.96 interest, on the two accounts, Bayview's
+  open item.

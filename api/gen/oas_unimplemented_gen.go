@@ -1026,8 +1026,27 @@ func (UnimplementedHandler) CompleteYearCloseTask(ctx context.Context, req OptCl
 // at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
 // an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
 // with it. From then on a run started for the company reads the recorded level as the item's
-// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
-// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+// `previous_level` and proposes the next level, one above it at most; the highest level stays. No
+// letter or e-mail is sent. Where the company's account determination names its dunning accounts
+// (`companies[].account_determination.dunning_charges` and `.dunning_interest`, T76h), each notice
+// charged a charge or interest is posted to its customer, in the same transaction: a customer debit
+// memo (`kind` `debit_memo`, `GET /v1/customer-invoices/{id}`) is entered and posted in accounts
+// receivable with the notice as its source (`source_document_id`), the run's key date as its date, the
+// customer's payment term, the company's today as its posting date and an item for the charge on the
+// charge account and one for the interest on the interest account, each only when above zero and
+// without a tax code; its entry (document type `DD`) debits the customer's reconciliation account with
+// the two, the customer's open item, and credits the accounts. The notice names its memo
+// (`charge_document`) and the run counts them (`charge_document_count`); DunningNoticeIssued names it
+// too, beside the memo's own CustomerInvoiceChanged and CustomerInvoicePosted. A company that names
+// neither account posts nothing, and the items stay as they were. What accounts receivable or the
+// ledger refuses refuses the confirmation, nothing of it recorded or posted, with their code and the
+// customer's number leading the detail: a customer that is not active, no longer a customer or blocked
+// for posting in the company (422 `receivables.customer_not_usable`), an account that can no longer be
+// posted (422 `receivables.account_not_postable`), a company without the `customer_invoice` or
+// `journal_dd` number range (422 `config.no_number_range`), a posting date in a period not open (409
+// `ledger.period_not_open`); a charge or interest whose account the company no longer names, since the
+// run was started, is refused too (422 `collections.no_charge_account`). Posting takes the credit
+// controller's permission alone: no permission of accounts receivable is needed. Before it is
 // confirmed, the proposal is compared with the open items again: when an item of it was cleared since
 // the run was started, or was dunned since by another confirmed run of the company (its recorded level
 // is no longer the run's `previous_level`), the proposal is stale and refused (409
@@ -1973,13 +1992,14 @@ func (UnimplementedHandler) CreateDunningBlock(ctx context.Context, req *Dunning
 // and each item at a level that charges `interest` is charged interest at `interest_rate_percent` a
 // year for its days overdue (`local_amount` × rate ÷ 100 × `days_overdue` ÷ 365, rounded half away
 // from zero in the company's currency); a notice's `total_amount` is what it asks for in all. Charges
-// and interest are what the notices ask for: nothing is posted. A key date after 2100-12-31 is refused
-// (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused
-// (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed
-// ones it lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet)
-// and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A
-// key date at which nothing is overdue gives a run without notices. A retry with the same
-// `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
+// and interest are what the notices ask for: nothing is posted until the run is confirmed
+// (`confirmDunningRun`, T76h). A key date after 2100-12-31 is refused (422
+// `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422
+// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items, the disputed ones it
+// lists counted with them (422 `collections.run_too_large`: larger runs are not supported yet) and one
+// whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date
+// at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+// answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (UnimplementedHandler) CreateDunningRun(ctx context.Context, req *DunningRunCreate, params CreateDunningRunParams) (r CreateDunningRunRes, _ error) {

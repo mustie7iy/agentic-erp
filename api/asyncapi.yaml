@@ -4452,7 +4452,7 @@ components:
       examples:
         - name: proposed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_run_changed.v1, subject: 0192a000-0000-7000-8000-000000000f31, time: '2026-12-31T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', key_date: '2026-12-31', notice_count: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, status: proposed, status_before: null, version: 1}
+          payload: {dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', key_date: '2026-12-31', notice_count: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, charge_document_count: 0, status: proposed, status_before: null, version: 1}
     DunningNoticeIssued:
       name: DunningNoticeIssued
       x-webhook: true
@@ -4463,8 +4463,11 @@ components:
         confirmed (ADR-0065 §6 and §8, T76b), after the run's
         DunningRunChanged and in the same transaction: the customer's
         items in the run are recorded as dunned on `dunning_date` and the
-        notice stands at `level`. It names the customer by id and number,
-        never by name, and carries the notice's totals, not its items:
+        notice stands at `level`. Where the company names its dunning
+        accounts, the notice's charge and interest were posted to the
+        customer as a debit memo, which it names (T76h). It names the
+        customer by id and number, never by name, and carries the
+        notice's totals, not its items:
         `GET /v1/dunning-runs/{id}/notices?customer_id=` returns the
         notice with its items. Nothing was sent to the customer: a
         subscriber that writes to customers does so from this event.
@@ -4479,7 +4482,7 @@ components:
       examples:
         - name: issued
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f04, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_notice_issued.v1, subject: 0192a000-0000-7000-8000-000000000f32, time: '2026-12-31T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 2, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, total_amount: {amount: '1072.77', currency: CAD}}
+          payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 2, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, charge_amount: {amount: '15.00', currency: CAD}, interest_amount: {amount: '7.77', currency: CAD}, total_amount: {amount: '1072.77', currency: CAD}, customer_invoice_id: 0192a000-0000-7000-8000-000000000f12, customer_invoice_number: CI100007}
     DisputeCaseChanged:
       name: DisputeCaseChanged
       title: Dispute case changed
@@ -6114,6 +6117,7 @@ components:
         overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
         charge_amount: {$ref: '#/components/schemas/Money', description: "The dunning charges of the run's notices, in the company's currency (T76d); 0 when its levels charge none. Always sent since T76d; optional in v1 (ADR-0041)."}
         interest_amount: {$ref: '#/components/schemas/Money', description: "The interest of the run's notices, in the company's currency (T76d); 0 when its levels charge none. Always sent since T76d; optional in v1 (ADR-0041)."}
+        charge_document_count: {type: integer, description: "The customer debit memos the run's confirmation posted its notices' charges and interest with (T76h); 0 before it is confirmed and for a company that names no dunning account. Always sent since T76h; optional in v1 (ADR-0041)."}
         status: {type: string, description: "The run's status after the change. Open enum: proposed, confirmed."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was started, proposed when it was confirmed.'}
         version: {type: integer, description: "The run's version after the change."}
@@ -6133,7 +6137,9 @@ components:
         overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
         charge_amount: {$ref: '#/components/schemas/Money', description: "The dunning charge of the notice's level, in the company's currency (T76d); 0 when the level charges none."}
         interest_amount: {$ref: '#/components/schemas/Money', description: "The interest on the notice's items at the company's rate for their days overdue, in the company's currency (T76d); 0 when their levels charge none."}
-        total_amount: {$ref: '#/components/schemas/Money', description: 'What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. Nothing is posted. The three amounts are always sent since T76d; optional in v1 (ADR-0041).'}
+        total_amount: {$ref: '#/components/schemas/Money', description: 'What the notice asks the customer for: `overdue_amount`, `charge_amount` and `interest_amount` together. The three amounts are always sent since T76d; optional in v1 (ADR-0041).'}
+        customer_invoice_id: {$ref: '#/components/schemas/NullableUuid', description: "The customer debit memo the confirmation posted the notice's charge and interest with (T76h; `GET /v1/customer-invoices/{id}`), whose CustomerInvoicePosted precedes this event in the same transaction; null when the notice is charged nothing or the company names no dunning account, and nothing was posted. Always sent since T76h; optional in v1 (ADR-0041)."}
+        customer_invoice_number: {type: [string, 'null'], description: "That memo's document number; null with `customer_invoice_id`. Always sent since T76h; optional in v1 (ADR-0041)."}
     DisputeCaseChangedV1:
       type: object
       required: [dispute_case_id, change, legal_entity_id, legal_entity_code, customer_id, customer_number, fiscal_year, journal_entry_id, line_no, document_number, disputed_amount, assignee_id, status, status_before, version]

@@ -18,9 +18,12 @@ import (
 
 // ConfirmRun confirms a proposed dunning run once (ADR-0065 §8, T76b):
 // each of its items' level and dunning date, the run's key date, is
-// recorded in collections.dunned_item, the run becomes confirmed, and its
-// audit record, DunningRunChanged and one DunningNoticeIssued per
-// customer are written, all in the request's transaction.
+// recorded in collections.dunned_item, each notice's charge and interest
+// is posted to its customer as a debit memo where the company's
+// configuration names the accounts (postCharges, T76h), the run becomes
+// confirmed, and its audit record, DunningRunChanged and one
+// DunningNoticeIssued per customer are written, all in the request's
+// transaction.
 //
 // The run moves by an update guarded by its status (ADR-0008): a second
 // confirmation finds no proposed run and is refused, 409
@@ -65,6 +68,15 @@ func (e *Endpoints) ConfirmRun(ctx context.Context, id uuid.UUID, ifMatch func(i
 		SELECT $1, i.fiscal_year, i.journal_entry_id, i.line_no, i.dunning_run_id, i.level, $3
 		FROM collections.dunning_notice_item i WHERE i.dunning_run_id = $2`, p.TenantID, id, run.KeyDate); err != nil {
 		return Run{}, fmt.Errorf("collections: record the levels of dunning run %s: %w", id, err)
+	}
+	charges, err := e.postCharges(ctx, tx, p, run, le, notices)
+	if err != nil {
+		return Run{}, err
+	}
+	for i := range notices {
+		if c, ok := charges[notices[i].ID]; ok {
+			notices[i].Charge = &c
+		}
 	}
 	confirmed, err := load(ctx, tx, id)
 	if err != nil {
@@ -182,17 +194,22 @@ func staleness(notices []Notice, isOpen map[ledger.ItemRef]bool, levels map[ledg
 // one per customer in the notices' order. Each names its customer by id
 // and number, never by name (product owner, 2026-11-05), and carries the
 // notice's totals, not its items: what is overdue, its charge and
-// interest (T76d) and what it asks for in all.
+// interest (T76d) and what it asks for in all, and the debit memo they
+// were posted with (T76h), null for none.
 func issued(r Run, le tenancy.Entity, notices []Notice) []outbox.Event {
 	events := make([]outbox.Event, len(notices))
 	for i, n := range notices {
+		payload := map[string]any{"dunning_notice_id": n.ID, "dunning_run_id": r.ID, "legal_entity_id": r.LegalEntityID, "legal_entity_code": le.Code,
+			"customer_id": n.CustomerID, "customer_number": n.CustomerNumber, "dunning_date": r.KeyDate.Format(time.DateOnly), "level": n.Level,
+			"item_count": n.ItemCount, "overdue_amount": money.EventAmount(n.OverdueAmount, r.Currency, r.Exponent),
+			"charge_amount":   money.EventAmount(n.ChargeAmount, r.Currency, r.Exponent),
+			"interest_amount": money.EventAmount(n.InterestAmount, r.Currency, r.Exponent),
+			"total_amount":    money.EventAmount(n.Total(), r.Currency, r.Exponent), "customer_invoice_id": nil, "customer_invoice_number": nil}
+		if n.Charge != nil {
+			payload["customer_invoice_id"], payload["customer_invoice_number"] = n.Charge.InvoiceID, n.Charge.InvoiceNumber
+		}
 		events[i] = outbox.Event{Context: "collections", Name: "dunning_notice_issued", AggregateType: "collections.dunning_notice", AggregateID: n.ID,
-			Payload: map[string]any{"dunning_notice_id": n.ID, "dunning_run_id": r.ID, "legal_entity_id": r.LegalEntityID, "legal_entity_code": le.Code,
-				"customer_id": n.CustomerID, "customer_number": n.CustomerNumber, "dunning_date": r.KeyDate.Format(time.DateOnly), "level": n.Level,
-				"item_count": n.ItemCount, "overdue_amount": money.EventAmount(n.OverdueAmount, r.Currency, r.Exponent),
-				"charge_amount":   money.EventAmount(n.ChargeAmount, r.Currency, r.Exponent),
-				"interest_amount": money.EventAmount(n.InterestAmount, r.Currency, r.Exponent),
-				"total_amount":    money.EventAmount(n.Total(), r.Currency, r.Exponent)}}
+			Payload: payload}
 	}
 	return events
 }

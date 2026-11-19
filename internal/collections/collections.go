@@ -16,12 +16,15 @@
 // pay by a date on or after its key date (T76f); a promise's status is
 // judged on read and shown in the worklist. A collector's contacts with
 // a customer are recorded with a resubmission date, which keeps the
-// customer off the worklist until then (T76g).
+// customer off the worklist until then (T76g). Confirming a run posts its
+// notices' charges and interest to the customers as debit memos, where
+// the company names its dunning accounts (T76h).
 //
 // The context is a leaf (ADR-0065 §1): it reads the ledger's customer
 // open items, the partner context's names, the identity context's people,
-// tenancy and the configuration through the ports below, posts nothing,
-// and no context imports it.
+// tenancy and the configuration through the ports below, posts only
+// through receivables' published API (Invoices), and no context imports
+// it.
 package collections
 
 import (
@@ -116,6 +119,10 @@ type Endpoints struct {
 	Partners      Partners
 	Settings      Settings
 	People        People
+	// Invoices and Accounts post a confirmed run's charges and interest
+	// as customer debit memos (T76h).
+	Invoices Invoices
+	Accounts Accounts
 	// Now is the clock a dunning block's end date is judged by, against
 	// the company's today; nil: the wall clock.
 	Now func() time.Time
@@ -160,11 +167,14 @@ type Run struct {
 	InterestAmount     money.Minor
 	BelowMinimumCount  int32
 	BelowMinimumAmount money.Minor
-	Version            int32
-	CreatedAt          time.Time
-	CreatedBy          uuid.UUID
-	UpdatedAt          time.Time
-	UpdatedBy          uuid.UUID
+	// ChargeCount is how many debit memos its confirmation posted, one
+	// per notice it charged anything (T76h).
+	ChargeCount int32
+	Version     int32
+	CreatedAt   time.Time
+	CreatedBy   uuid.UUID
+	UpdatedAt   time.Time
+	UpdatedBy   uuid.UUID
 }
 
 // DisputedLC is what the run's disputed items add up to in its currency.
@@ -293,6 +303,9 @@ type Notice struct {
 	ChargeAmount   money.Minor
 	InterestAmount money.Minor
 	Items          []Item
+	// Charge is the debit memo a confirmed run posted the notice's charge
+	// and interest with (T76h); nil for none.
+	Charge *Charge
 }
 
 // Total is what the notice asks the customer for: its overdue amount, its
@@ -319,14 +332,15 @@ const runSelect = `SELECT r.id, r.legal_entity_id, r.key_date, r.status, r.curre
 		(SELECT coalesce(jsonb_agg(d || jsonb_build_object('exponent', x.exponent) ORDER BY n), '[]')
 		 FROM jsonb_array_elements(r.promised_items) WITH ORDINALITY AS e(d, n) JOIN ref.currency x ON x.code = d->>'currency'),
 		r.grace_days, r.minimum_amount, r.interest_rate_percent::text, r.charge_amount, r.interest_amount, r.below_minimum_count,
-		r.below_minimum_amount, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by
+		r.below_minimum_amount, (SELECT count(*) FROM collections.dunning_charge g WHERE g.dunning_run_id = r.id), r.version, r.created_at, r.created_by,
+		r.updated_at, r.updated_by
 	FROM collections.dunning_run r JOIN ref.currency c ON c.code = r.currency`
 
 func scanRun(row pgx.Row) (Run, error) {
 	var r Run
 	err := row.Scan(&r.ID, &r.LegalEntityID, &r.KeyDate, &r.Status, &r.Currency, &r.Exponent, &r.NoticeCount, &r.ItemCount, &r.OverdueAmount,
 		&r.Disputed, &r.Blocked, &r.Promised, &r.GraceDays, &r.MinimumAmount, &r.InterestRate, &r.ChargeAmount, &r.InterestAmount, &r.BelowMinimumCount,
-		&r.BelowMinimumAmount, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
+		&r.BelowMinimumAmount, &r.ChargeCount, &r.Version, &r.CreatedAt, &r.CreatedBy, &r.UpdatedAt, &r.UpdatedBy)
 	return r, errs.Wrapf(err, "scan dunning run")
 }
 

@@ -131,6 +131,8 @@ func TestReverseRefusals(t *testing.T) {
 	e.Must(201, "POST", "/v1/clearings", fmt.Sprintf(`{"legal_entity_id": %q, "clearing_date": "2026-03-13", "items": [%s, %s]}`, e.DE,
 		itemRef(e.journalEntry(t, invoice), 1), itemRef(e.journalEntry(t, cleared), 1)), "")
 	fromSales := e.salesMemo(t)
+	notice := uuid.Must(uuid.NewV7())
+	fromDunning := e.sourced(t, receivables.KindDebitMemo, notice, notice.String()).String()
 	memo := posted(e.debitMemo(e.customer, "2026-03-10", e.item("10.00", "")))
 	closing := posted(e.debitMemo(e.customer, "2026-03-10", e.item("20.00", "")))
 	path := func(id string) string { return "/v1/customer-invoices/" + id + ":reverse" }
@@ -141,6 +143,7 @@ func TestReverseRefusals(t *testing.T) {
 		{"a draft", e.entered(t, e.debitMemo(e.customer, "2026-03-10", e.item("10.00", ""))), reverseBecause, `"1"`, "receivables.invalid_status", "", 409},
 		{"an invoice", invoice, reverseBecause, `"2"`, "receivables.invoice_not_reversible", "", 409},
 		{"a memo sales entered", fromSales, reverseBecause, `"2"`, "receivables.entered_from_source", "", 409},
+		{"a debit memo a dunning run entered (T76h)", fromDunning, reverseBecause, `"2"`, "receivables.entered_from_source", "", 409},
 		{"a reason of white space", memo, `{"reason": "  "}`, `"2"`, "request.validation_failed", "reason", 422},
 		{"a date before the memo posted", memo, `{"reason": "Too early.", "posting_date": "2026-03-11"}`, `"2"`, "receivables.reversal_before_posting",
 			"posting_date", 422},
@@ -157,6 +160,12 @@ func TestReverseRefusals(t *testing.T) {
 			}
 		})
 	}
+	t.Run("a dunning notice's memo names its source", func(t *testing.T) {
+		p := e.Problem(409, "receivables.entered_from_source", "POST", path(fromDunning), reverseBecause, `"2"`)
+		if detail, _ := p["detail"].(string); !strings.Contains(detail, "dunning notice "+notice.String()) {
+			t.Errorf("detail: got %q, want it to name dunning notice %s", detail, notice)
+		}
+	})
 	t.Run("into a closed period", func(t *testing.T) {
 		pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND fiscal_year = 2026 AND period = 3`,
 			e.Tenant.ID)
@@ -181,12 +190,19 @@ func (e env) journalEntry(t *testing.T, id string) any {
 // document, as sales enters a billing cancellation's (T79b, T85d).
 func (e env) salesMemo(t *testing.T) string {
 	t.Helper()
+	return e.sourced(t, receivables.KindCreditMemo, uuid.Must(uuid.NewV7()), "BC100001").String()
+}
+
+// sourced is a memo of the kind another context entered from its
+// document, the source named, and posted on 12 March.
+func (e env) sourced(t *testing.T, kind string, source uuid.UUID, number string) uuid.UUID {
+	t.Helper()
 	h := endpoints(t)
 	var id uuid.UUID
 	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
-		in := receivables.Input{LegalEntityID: e.DE, CustomerID: e.customer, Kind: receivables.KindCreditMemo, InvoiceDate: time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC),
+		in := receivables.Input{LegalEntityID: e.DE, CustomerID: e.customer, Kind: kind, InvoiceDate: time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC),
 			Currency: "EUR", Items: []receivables.ItemInput{{AccountID: e.revenue, Net: receivables.Amount{Value: "5.00", Currency: "EUR"}}},
-			Source: &receivables.Source{ID: uuid.Must(uuid.NewV7()), Number: "BC100001"}}
+			Source: &receivables.Source{ID: source, Number: number}}
 		v, err := h.CreateInvoice(ctx, in)
 		if err != nil {
 			return err
@@ -198,7 +214,7 @@ func (e env) salesMemo(t *testing.T) string {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return id.String()
+	return id
 }
 
 // TestReverseConcurrently (T75k acceptance): two reversals of one memo

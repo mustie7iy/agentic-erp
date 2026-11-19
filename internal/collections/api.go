@@ -50,7 +50,8 @@ func runToAPI(r Run, companies map[uuid.UUID]tenancy.Entity) gen.DunningRun {
 		DisputedAmount: apitypes.Money(r.DisputedLC(), r.Currency, r.Exponent), DisputedItems: make([]gen.DunningRunDisputedItem, len(r.Disputed)),
 		BlockedItemCount: int32(len(r.Blocked)), BlockedAmount: apitypes.Money(r.BlockedLC(), r.Currency, r.Exponent),
 		BlockedItems: make([]gen.DunningRunBlockedItem, len(r.Blocked)), PromisedItemCount: int32(len(r.Promised)),
-		PromisedAmount: apitypes.Money(r.PromisedLC(), r.Currency, r.Exponent), PromisedItems: make([]gen.DunningRunPromisedItem, len(r.Promised))}
+		PromisedAmount: apitypes.Money(r.PromisedLC(), r.Currency, r.Exponent), PromisedItems: make([]gen.DunningRunPromisedItem, len(r.Promised)),
+		ChargeDocumentCount: r.ChargeCount}
 	for i, d := range r.Disputed {
 		out.DisputedItems[i] = gen.DunningRunDisputedItem{DisputeCaseID: d.CaseID, CustomerID: d.CustomerID, CustomerNumber: d.CustomerNumber,
 			FiscalYear: int32(d.FiscalYear), JournalEntryID: d.EntryID, LineNo: d.LineNo, DocumentNumber: d.DocumentNumber,
@@ -158,7 +159,8 @@ type shown struct {
 }
 
 // noticeToAPI is a notice as the API gives it: its customer by number and
-// name, its amount in the run's currency and each item's in its own.
+// name, its amount in the run's currency and each item's in its own, and
+// the debit memo it was charged with (T76h).
 func noticeToAPI(n Notice, s shown) gen.DunningNotice {
 	out := gen.DunningNotice{ID: n.ID, DunningRunID: n.RunID, CustomerID: n.CustomerID, CustomerNumber: n.CustomerNumber,
 		CustomerName: s.customers[n.CustomerID].Name, Level: n.Level, ItemCount: n.ItemCount,
@@ -172,6 +174,10 @@ func noticeToAPI(n Notice, s shown) gen.DunningNotice {
 			DaysOverdue: it.DaysOverdue, Amount: apitypes.Money(it.Amount, it.Currency, it.Exponent),
 			LocalAmount:   apitypes.Money(it.AmountLC, s.run.Currency, s.run.Exponent),
 			PreviousLevel: it.PreviousLevel, Level: it.Level, InterestAmount: apitypes.Money(it.InterestAmount, s.run.Currency, s.run.Exponent)}
+	}
+	if c := n.Charge; c != nil {
+		out.ChargeDocument.SetTo(gen.DunningChargeDocument{CustomerInvoiceID: c.InvoiceID, CustomerInvoiceNumber: c.InvoiceNumber, JournalEntryID: c.EntryID,
+			JournalEntryYear: int32(c.EntryYear), PostingDate: c.PostingDate})
 	}
 	return out
 }
@@ -213,10 +219,14 @@ func (e *Endpoints) ListDunningNotices(ctx context.Context, params gen.ListDunni
 	return &gen.DunningNoticePage{Items: out, NextPageToken: next}, nil
 }
 
-// shown reads what the page's notices are shown with: their items, given
-// to them, and their customers' names.
+// shown reads what the page's notices are shown with: their items and
+// the debit memos they were charged with, given to them, and their
+// customers' names.
 func (e *Endpoints) shown(ctx context.Context, tx pgx.Tx, run Run, page []Notice) (shown, error) {
 	if err := items(ctx, tx, page); err != nil {
+		return shown{}, err
+	}
+	if err := charged(ctx, tx, page); err != nil {
 		return shown{}, err
 	}
 	customers := make([]uuid.UUID, len(page))
