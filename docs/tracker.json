@@ -5487,7 +5487,7 @@
       "c": []
      },
      {
-      "s": "D",
+      "s": "T",
       "t": "The SAP cutover loads stock by storage location (MARD) and valuation (MBEW) as initial entries valued at SAP's price against the migration clearing account, reconciled to SAP's quantities and values per material and plant",
       "r": "S2p · docs/design/plan-supply-chain.md §S2p · ADR-0082 As built S2p · docs/migration.md Stock and values · internal/sap MBEW, MARD LABST · internal/integration/stock.go, stockload.go, stockreconcile.go · inventory.Endpoints.TakeOver, TakenOver · ledger.Reports.EntryTotals · external references MBEW/<BWKEY>/<MATNR>, MKPF/<BWKEY>/<MATNR> · MigrationLoadedCounts material_valuations, initial_entries · MigrationExtractCounts mbew · checks Stock, Stock value total, Stock accounts · walkthrough step_migrate (migrated_stock)",
       "src": "po:2026-11-17",
