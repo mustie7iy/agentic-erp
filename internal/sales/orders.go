@@ -54,7 +54,10 @@ func quotationOrdered() *problem.Problem {
 // billing.
 type OrderItem struct {
 	Item
-	Delivered       string         `json:"delivered_quantity"`
+	Delivered string `json:"delivered_quantity"`
+	// InDelivery is what outbound deliveries not yet issued hold of it
+	// (ADR-0083 §4).
+	InDelivery      string         `json:"in_delivery_quantity"`
 	Billed          string         `json:"billed_quantity"`
 	Returned        string         `json:"returned_quantity"`
 	RemovedInChange *int32         `json:"removed_in_change"`
@@ -145,7 +148,8 @@ func orderQuery(extra string) string {
 		c.exponent, o.payment_term_code, o.requested_delivery_date, o.net_amount, o.status, o.changes, o.cancellation_reason, o.cancelled_at,
 		o.cancelled_by, o.cancelled_by_name, o.credit_block, o.credit_released_by, o.credit_released_by_name, o.credit_released_at, ` +
 		itemsJSON("sales_order_item", "sales_order_id", "o",
-			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text,
+			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'in_delivery_quantity', trim_scale(t.in_delivery_quantity)::text,
+				'billed_quantity', trim_scale(t.billed_quantity)::text,
 				'returned_quantity', trim_scale(t.returned_quantity)::text, 'removed_in_change', t.removed_in_change`+extra) + `,
 		o.capture, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
 	FROM sales.sales_order o JOIN ref.currency c ON c.code = o.currency`

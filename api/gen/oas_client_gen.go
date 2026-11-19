@@ -2225,6 +2225,32 @@ type Invoker interface {
 	//
 	// POST /v1/org-units
 	CreateOrgUnit(ctx context.Context, request *OrgUnitCreate, params CreateOrgUnitParams) (CreateOrgUnitRes, error)
+	// CreateOutboundDelivery invokes createOutboundDelivery operation.
+	//
+	// Creates an outbound delivery (ADR-0083 §3, S2a; SAP VL01N) of a sales order's items from a plant
+	// and a storage location. The order is one of a company the caller may act in (422
+	// `request.reference_not_found` on `sales_order_id`), `confirmed` (409 `sales.order_not_confirmed`)
+	// and not blocked for credit (409 `sales.order_credit_blocked`). The plant is an active plant of the
+	// order's company (422 `shipping.plant_invalid`) and the storage location an active one under it (422
+	// `shipping.storage_location_invalid`). Each item names an order item (`order_item_no`, once, 422
+	// `sales.item_repeated`; one the order has, 422 `sales.unknown_order_item`; not removed, 422
+	// `sales.order_item_removed`) of a material kept in stock (422 `shipping.item_not_stocked`: a service
+	// or free-text item, or a material of type `non_stock` or `service`, is confirmed by
+	// `confirmSalesDelivery`) that is extended to the plant and kept at the storage location (422
+	// `shipping.material_not_at_location`), with a positive quantity (422 `sales.invalid_quantity`) in the
+	// order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered less
+	// what is delivered and what other deliveries not yet issued hold (422 `sales.exceeds_open_quantity`).
+	// Without `items` the delivery takes what is open of every order item of a material kept in stock at
+	// the location (422 `sales.nothing_to_deliver` when that is nothing). The quantities are held for the
+	// delivery on the order (`in_delivery_quantity` of its items), so the order's items are not changed
+	// below them, removed or cancelled while the delivery holds them. The delivery is created `created`,
+	// `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of
+	// the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and
+	// published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery
+	// created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/outbound-deliveries
+	CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error)
 	// CreatePartnerChange invokes createPartnerChange operation.
 	//
 	// Opens a pending partner change of kind `update`. At most one pending change of each kind per partner
@@ -4411,6 +4437,15 @@ type Invoker interface {
 	//
 	// GET /v1/org-units/{id}
 	GetOrgUnit(ctx context.Context, params GetOrgUnitParams) (GetOrgUnitRes, error)
+	// GetOutboundDelivery invokes getOutboundDelivery operation.
+	//
+	// One outbound delivery (ADR-0083, S2a) with its company, sales order and customer by number, plant
+	// and storage location by code and name, status, picking status and items, each naming its order item,
+	// its material by number and its delivery and picked quantities. A delivery of a company the caller
+	// may not act in is not found (404).
+	//
+	// GET /v1/outbound-deliveries/{id}
+	GetOutboundDelivery(ctx context.Context, params GetOutboundDeliveryParams) (GetOutboundDeliveryRes, error)
 	// GetParkedJournalEntry invokes getParkedJournalEntry operation.
 	//
 	// Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
@@ -6136,6 +6171,14 @@ type Invoker interface {
 	//
 	// GET /v1/org-units
 	ListOrgUnits(ctx context.Context, params ListOrgUnitsParams) (ListOrgUnitsRes, error)
+	// ListOutboundDeliveries invokes listOutboundDeliveries operation.
+	//
+	// The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
+	// `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status.
+	// Sortable by: `created_at`.
+	//
+	// GET /v1/outbound-deliveries
+	ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error)
 	// ListParkedJournalEntries invokes listParkedJournalEntries operation.
 	//
 	// Manual journal entries parked before they are posted, newest first: entries people or agents
@@ -6896,6 +6939,23 @@ type Invoker interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:pause
 	PauseWebhookSubscription(ctx context.Context, params PauseWebhookSubscriptionParams) (PauseWebhookSubscriptionRes, error)
+	// PickOutboundDelivery invokes pickOutboundDelivery operation.
+	//
+	// Records what is picked of an outbound delivery's items (ADR-0083 §5, S2a), at the version read
+	// (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409
+	// `shipping.goods_issued`). Each item named (`item_no`, once, 422 `shipping.item_repeated`; one the
+	// delivery has, 422 `shipping.unknown_item`) takes the quantity picked of it, which replaces what was
+	// recorded before: zero or more (422 `shipping.invalid_quantity`), in the item's unit (422
+	// `shipping.unit_mismatch`), at most its delivery quantity (422 `shipping.exceeds_delivery_quantity`)
+	// and, with what the delivery's other items picked of the material, at most what the storage location
+	// holds of it now in the material's base unit (422 `shipping.insufficient_stock`, naming both
+	// quantities). Picking reserves no stock: the goods issue takes it. The picking status follows:
+	// `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked`
+	// between. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key`
+	// answers the delivery as it left it. Human-only (`x-agent: false`).
+	//
+	// POST /v1/outbound-deliveries/{id}:pick
+	PickOutboundDelivery(ctx context.Context, request *OutboundDeliveryPick, params PickOutboundDeliveryParams) (PickOutboundDeliveryRes, error)
 	// PingWebhookSubscription invokes pingWebhookSubscription operation.
 	//
 	// Queues a synthetic `webhook.ping` CloudEvent (data: the subscription's `subscription_id`), signed
@@ -27211,6 +27271,156 @@ func (c *Client) sendCreateOrgUnit(ctx context.Context, request *OrgUnitCreate, 
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateOrgUnitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateOutboundDelivery invokes createOutboundDelivery operation.
+//
+// Creates an outbound delivery (ADR-0083 §3, S2a; SAP VL01N) of a sales order's items from a plant
+// and a storage location. The order is one of a company the caller may act in (422
+// `request.reference_not_found` on `sales_order_id`), `confirmed` (409 `sales.order_not_confirmed`)
+// and not blocked for credit (409 `sales.order_credit_blocked`). The plant is an active plant of the
+// order's company (422 `shipping.plant_invalid`) and the storage location an active one under it (422
+// `shipping.storage_location_invalid`). Each item names an order item (`order_item_no`, once, 422
+// `sales.item_repeated`; one the order has, 422 `sales.unknown_order_item`; not removed, 422
+// `sales.order_item_removed`) of a material kept in stock (422 `shipping.item_not_stocked`: a service
+// or free-text item, or a material of type `non_stock` or `service`, is confirmed by
+// `confirmSalesDelivery`) that is extended to the plant and kept at the storage location (422
+// `shipping.material_not_at_location`), with a positive quantity (422 `sales.invalid_quantity`) in the
+// order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered less
+// what is delivered and what other deliveries not yet issued hold (422 `sales.exceeds_open_quantity`).
+// Without `items` the delivery takes what is open of every order item of a material kept in stock at
+// the location (422 `sales.nothing_to_deliver` when that is nothing). The quantities are held for the
+// delivery on the order (`in_delivery_quantity` of its items), so the order's items are not changed
+// below them, removed or cancelled while the delivery holds them. The delivery is created `created`,
+// `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of
+// the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and
+// published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/outbound-deliveries
+func (c *Client) CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error) {
+	res, err := c.sendCreateOutboundDelivery(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (res CreateOutboundDeliveryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createOutboundDelivery"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/outbound-deliveries"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateOutboundDeliveryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/outbound-deliveries"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateOutboundDeliveryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateOutboundDeliveryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateOutboundDeliveryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -50654,6 +50864,140 @@ func (c *Client) sendGetOrgUnit(ctx context.Context, params GetOrgUnitParams) (r
 
 	stage = "DecodeResponse"
 	result, err := decodeGetOrgUnitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetOutboundDelivery invokes getOutboundDelivery operation.
+//
+// One outbound delivery (ADR-0083, S2a) with its company, sales order and customer by number, plant
+// and storage location by code and name, status, picking status and items, each naming its order item,
+// its material by number and its delivery and picked quantities. A delivery of a company the caller
+// may not act in is not found (404).
+//
+// GET /v1/outbound-deliveries/{id}
+func (c *Client) GetOutboundDelivery(ctx context.Context, params GetOutboundDeliveryParams) (GetOutboundDeliveryRes, error) {
+	res, err := c.sendGetOutboundDelivery(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetOutboundDelivery(ctx context.Context, params GetOutboundDeliveryParams) (res GetOutboundDeliveryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getOutboundDelivery"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/outbound-deliveries/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetOutboundDeliveryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/outbound-deliveries/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetOutboundDeliveryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetOutboundDeliveryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -83929,6 +84273,227 @@ func (c *Client) sendListOrgUnits(ctx context.Context, params ListOrgUnitsParams
 	return result, nil
 }
 
+// ListOutboundDeliveries invokes listOutboundDeliveries operation.
+//
+// The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as
+// `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status.
+// Sortable by: `created_at`.
+//
+// GET /v1/outbound-deliveries
+func (c *Client) ListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (ListOutboundDeliveriesRes, error) {
+	res, err := c.sendListOutboundDeliveries(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListOutboundDeliveries(ctx context.Context, params ListOutboundDeliveriesParams) (res ListOutboundDeliveriesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listOutboundDeliveries"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/outbound-deliveries"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListOutboundDeliveriesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/outbound-deliveries"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "sales_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "sales_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SalesOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListOutboundDeliveriesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListOutboundDeliveriesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListParkedJournalEntries invokes listParkedJournalEntries operation.
 //
 // Manual journal entries parked before they are posted, newest first: entries people or agents
@@ -99712,6 +100277,177 @@ func (c *Client) sendPauseWebhookSubscription(ctx context.Context, params PauseW
 
 	stage = "DecodeResponse"
 	result, err := decodePauseWebhookSubscriptionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PickOutboundDelivery invokes pickOutboundDelivery operation.
+//
+// Records what is picked of an outbound delivery's items (ADR-0083 §5, S2a), at the version read
+// (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409
+// `shipping.goods_issued`). Each item named (`item_no`, once, 422 `shipping.item_repeated`; one the
+// delivery has, 422 `shipping.unknown_item`) takes the quantity picked of it, which replaces what was
+// recorded before: zero or more (422 `shipping.invalid_quantity`), in the item's unit (422
+// `shipping.unit_mismatch`), at most its delivery quantity (422 `shipping.exceeds_delivery_quantity`)
+// and, with what the delivery's other items picked of the material, at most what the storage location
+// holds of it now in the material's base unit (422 `shipping.insufficient_stock`, naming both
+// quantities). Picking reserves no stock: the goods issue takes it. The picking status follows:
+// `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked`
+// between. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key`
+// answers the delivery as it left it. Human-only (`x-agent: false`).
+//
+// POST /v1/outbound-deliveries/{id}:pick
+func (c *Client) PickOutboundDelivery(ctx context.Context, request *OutboundDeliveryPick, params PickOutboundDeliveryParams) (PickOutboundDeliveryRes, error) {
+	res, err := c.sendPickOutboundDelivery(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPickOutboundDelivery(ctx context.Context, request *OutboundDeliveryPick, params PickOutboundDeliveryParams) (res PickOutboundDeliveryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("pickOutboundDelivery"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/outbound-deliveries/{id}:pick"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PickOutboundDeliveryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/outbound-deliveries/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":pick"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePickOutboundDeliveryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PickOutboundDeliveryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePickOutboundDeliveryResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

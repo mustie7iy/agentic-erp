@@ -73,6 +73,8 @@ tags:
     description: "The material master (ADR-0082): materials with their plants, storage locations and alternative units of measure."
   - name: inventory
     description: "Inventory management (ADR-0082): goods movements posted as material documents, their reversal, and the stock of materials by plant and storage location."
+  - name: shipping
+    description: "Shipping (ADR-0083): outbound deliveries of sales orders, their picking and their goods issue."
   - name: records
     description: "Records management (ADR-0079): retention rules' status per fiscal year, archiving runs and the personal data inventory."
   - name: processmining
@@ -22350,6 +22352,7 @@ paths:
         - sales.items_required
         - sales.material_not_usable
         - sales.no_price
+        - sales.order_delivered
         - sales.quotation_not_accepted
         - sales.quotation_or_items
         - sales.quotation_ordered
@@ -22453,6 +22456,7 @@ paths:
         - sales.items_required
         - sales.material_not_usable
         - sales.no_price
+        - sales.order_delivered
         - sales.quotation_not_accepted
         - sales.quotation_or_items
         - sales.quotation_ordered
@@ -22626,6 +22630,7 @@ paths:
         - request.version_mismatch
         - sales.amount_too_large
         - sales.invalid_status
+        - sales.order_delivered
         - sales.quotation_ordered
         - sales.unknown_tax_code
       parameters:
@@ -22672,6 +22677,7 @@ paths:
       x-problem-codes:
         - request.version_mismatch
         - sales.invalid_status
+        - sales.order_delivered
         - sales.order_not_credit_blocked
         - sales.quotation_ordered
       parameters:
@@ -23140,6 +23146,7 @@ paths:
         - sales.amount_not_positive
         - sales.amount_too_large
         - sales.currency_mismatch
+        - sales.exceeds_open_quantity
         - sales.invalid_material_quantity
         - sales.invalid_quantity
         - sales.invalid_requested_delivery_date
@@ -23150,6 +23157,7 @@ paths:
         - sales.no_price
         - sales.nothing_changed
         - sales.order_billed
+        - sales.order_delivered
         - sales.order_item_billed
         - sales.order_item_delivered
         - sales.order_item_removed
@@ -25319,6 +25327,218 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/outbound-deliveries:
+    get:
+      operationId: listOutboundDeliveries
+      tags:
+        - shipping
+      summary: List outbound deliveries
+      description: "The outbound deliveries of the companies the caller may act in (ADR-0083, S2a), each as `getOutboundDelivery` gives it, the latest first. Filtered by company, sales order and status. Sortable by: `created_at`."
+      x-permission: shipping.delivery.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: sales_order_id
+          in: query
+          required: false
+          description: "Only the deliveries of this sales order (`GET /v1/sales-orders/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: "Only deliveries in this status. A value that is no status matches none."
+          schema:
+            type: string
+            maxLength: 20
+            description: "Status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [created, goods_issued]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of outbound deliveries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundDeliveryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createOutboundDelivery
+      tags:
+        - shipping
+      summary: Create an outbound delivery for a sales order
+      description: "Creates an outbound delivery (ADR-0083 §3, S2a; SAP VL01N) of a sales order's items from a plant and a storage location. The order is one of a company the caller may act in (422 `request.reference_not_found` on `sales_order_id`), `confirmed` (409 `sales.order_not_confirmed`) and not blocked for credit (409 `sales.order_credit_blocked`). The plant is an active plant of the order's company (422 `shipping.plant_invalid`) and the storage location an active one under it (422 `shipping.storage_location_invalid`). Each item names an order item (`order_item_no`, once, 422 `sales.item_repeated`; one the order has, 422 `sales.unknown_order_item`; not removed, 422 `sales.order_item_removed`) of a material kept in stock (422 `shipping.item_not_stocked`: a service or free-text item, or a material of type `non_stock` or `service`, is confirmed by `confirmSalesDelivery`) that is extended to the plant and kept at the storage location (422 `shipping.material_not_at_location`), with a positive quantity (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered less what is delivered and what other deliveries not yet issued hold (422 `sales.exceeds_open_quantity`). Without `items` the delivery takes what is open of every order item of a material kept in stock at the location (422 `sales.nothing_to_deliver` when that is nothing). The quantities are held for the delivery on the order (`in_delivery_quantity` of its items), so the order's items are not changed below them, removed or cancelled while the delivery holds them. The delivery is created `created`, `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created. Human-only (`x-agent: false`)."
+      x-permission: shipping.delivery.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - sales.exceeds_open_quantity
+        - sales.invalid_quantity
+        - sales.item_repeated
+        - sales.items_required
+        - sales.nothing_to_deliver
+        - sales.order_credit_blocked
+        - sales.order_item_removed
+        - sales.order_not_confirmed
+        - sales.unit_mismatch
+        - sales.unknown_order_item
+        - shipping.item_not_stocked
+        - shipping.material_not_at_location
+        - shipping.material_not_usable
+        - shipping.plant_invalid
+        - shipping.storage_location_invalid
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The delivery to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutboundDeliveryCreate"
+            examples:
+              items:
+                summary: Five boxes of an order's first item from the main store
+                value:
+                  sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+                  plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+                  items:
+                    - order_item_no: 1
+                      quantity: {value: "5", unit: BOX}
+      responses:
+        "201":
+          description: "Created; the outbound delivery."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/outbound-deliveries/{id}":
+    get:
+      operationId: getOutboundDelivery
+      tags:
+        - shipping
+      summary: Get an outbound delivery
+      description: "One outbound delivery (ADR-0083, S2a) with its company, sales order and customer by number, plant and storage location by code and name, status, picking status and items, each naming its order item, its material by number and its delivery and picked quantities. A delivery of a company the caller may not act in is not found (404)."
+      x-permission: shipping.delivery.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The outbound delivery.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/outbound-deliveries/{id}:pick":
+    post:
+      operationId: pickOutboundDelivery
+      tags:
+        - shipping
+      summary: Record the picked quantities of an outbound delivery
+      description: "Records what is picked of an outbound delivery's items (ADR-0083 §5, S2a), at the version read (`If-Match`; 412 `request.version_mismatch`), while its goods issue is not posted (409 `shipping.goods_issued`). Each item named (`item_no`, once, 422 `shipping.item_repeated`; one the delivery has, 422 `shipping.unknown_item`) takes the quantity picked of it, which replaces what was recorded before: zero or more (422 `shipping.invalid_quantity`), in the item's unit (422 `shipping.unit_mismatch`), at most its delivery quantity (422 `shipping.exceeds_delivery_quantity`) and, with what the delivery's other items picked of the material, at most what the storage location holds of it now in the material's base unit (422 `shipping.insufficient_stock`, naming both quantities). Picking reserves no stock: the goods issue takes it. The picking status follows: `not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked` between. Audited, and published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery as it left it. Human-only (`x-agent: false`)."
+      x-permission: shipping.delivery.write
+      x-agent: false
+      x-problem-codes:
+        - request.version_mismatch
+        - shipping.exceeds_delivery_quantity
+        - shipping.goods_issued
+        - shipping.inexact_quantity
+        - shipping.insufficient_stock
+        - shipping.invalid_quantity
+        - shipping.item_repeated
+        - shipping.unit_mismatch
+        - shipping.unknown_item
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The quantities picked.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutboundDeliveryPick"
+      responses:
+        "200":
+          description: The outbound delivery with its picked quantities.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboundDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/revenue-contracts/{id}/schedule":
@@ -60991,9 +61211,10 @@ components:
       allOf:
         - $ref: "#/components/schemas/SalesItem"
         - type: object
-          required: [delivered_quantity, billed_quantity, returned_quantity]
+          required: [delivered_quantity, in_delivery_quantity, billed_quantity, returned_quantity]
           properties:
-            delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
+            delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity delivered so far, confirmed (`confirmSalesDelivery`) or, for a material kept in stock, issued by an outbound delivery's goods issue (S2b1), in the item's unit; with `in_delivery_quantity` at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
+            in_delivery_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity outbound deliveries whose goods issue is not posted hold (`createOutboundDelivery`, ADR-0083 §4), in the item's unit: the item's quantity is not changed below what is delivered and in delivery, and the item is not removed nor its order cancelled while it is more than zero."}
             billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's unit; at most `delivered_quantity`."}
             returned_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity the returns orders for the order's billing documents take (`createReturnsOrder`), drafts included, in the item's unit; at most `billed_quantity`."}
             removed_in_change: {type: integer, format: int32, minimum: 1, description: "The change that removed the item (`changeSalesOrder`, T78e; `listSalesOrderChanges`): it keeps its values, is not in the order's net value and is not delivered or billed. Absent while the item stands.", readOnly: true}
@@ -61271,6 +61492,7 @@ components:
               account_name: Sales revenue
               tax_code: GO5
               delivered_quantity: {value: "0", unit: EA}
+              in_delivery_quantity: {value: "0", unit: EA}
               billed_quantity: {value: "0", unit: EA}
               returned_quantity: {value: "0", unit: EA}
     SalesOrderPage:
@@ -63055,6 +63277,142 @@ components:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocument"}
           description: The material documents on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    OutboundDeliveryItemInput:
+      type: object
+      description: "An item of an outbound delivery to create: a quantity of a sales order item."
+      required: [order_item_no, quantity]
+      additionalProperties: false
+      properties:
+        order_item_no: {type: integer, format: int32, minimum: 1, description: "The sales order's item (`item_no` of `GET /v1/sales-orders/{id}`)."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity to deliver, positive, in the order item's unit."}
+    OutboundDeliveryCreate:
+      type: object
+      description: "An outbound delivery to create: a sales order, the plant and storage location it ships from and, optionally, its items."
+      required: [sales_order_id, plant_id, storage_location_id]
+      additionalProperties: false
+      properties:
+        sales_order_id: {type: string, format: uuid, description: "The sales order (`GET /v1/sales-orders/{id}`)."}
+        plant_id: {type: string, format: uuid, description: "The plant it ships from, one of the order's company (`GET /v1/org-units/{id}`)."}
+        storage_location_id: {type: string, format: uuid, description: "The storage location it ships from, under the plant."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: "#/components/schemas/OutboundDeliveryItemInput"}
+          description: "Its items; absent: what is open of every order item of a material kept in stock at the location."
+    OutboundDeliveryPickItem:
+      type: object
+      description: "What is picked of an item of an outbound delivery."
+      required: [item_no, quantity]
+      additionalProperties: false
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The delivery's item."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity picked of it, zero or more, in its unit; it replaces what was recorded before."}
+    OutboundDeliveryPick:
+      type: object
+      description: "The quantities picked of an outbound delivery's items."
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: "#/components/schemas/OutboundDeliveryPickItem"}
+          description: "The items picked, each once."
+    OutboundDeliveryItem:
+      type: object
+      description: "An item of an outbound delivery (SAP LIPS): a quantity of a sales order item of a material kept in stock, and what is picked of it."
+      required: [item_no, order_item_no, material_id, material_number, description, quantity, picked_quantity]
+      properties:
+        item_no: {type: integer, format: int32, description: "The item's number in the delivery, from 1.", readOnly: true}
+        order_item_no: {type: integer, format: int32, description: "The sales order's item it delivers.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
+        material_number: {type: string, description: "The material's number.", readOnly: true}
+        description: {type: string, description: "The order item's description.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The delivery quantity, in the order item's unit.", readOnly: true}
+        picked_quantity: {$ref: "#/components/schemas/Quantity", description: "What is picked of it, in its unit.", readOnly: true}
+    OutboundDelivery:
+      type: object
+      description: "An outbound delivery (SAP LIKP with its LIPS items): what of a sales order ships from a plant's storage location, its picking and its goods issue. Never deleted; it changes only until its goods issue is posted."
+      required: [id, number, legal_entity_id, company_code, fiscal_year, sales_order_id, sales_order_number, customer_id, customer_number, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, status, picking_status, items, version, created_at, created_by, updated_at, updated_by]
+      properties:
+        id: {type: string, format: uuid, readOnly: true, description: "The delivery's id."}
+        number: {type: string, description: "Its number in its company's `outbound_delivery` range of its fiscal year.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company of its order and plant.", readOnly: true}
+        company_code: {type: string, description: "That company's code.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the day it was created, which its number is of.", readOnly: true}
+        sales_order_id: {type: string, format: uuid, description: "The sales order it delivers (`GET /v1/sales-orders/{id}`).", readOnly: true}
+        sales_order_number: {type: string, description: "That order's document number.", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The order's customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        plant_id: {type: string, format: uuid, description: "The plant it ships from.", readOnly: true}
+        plant_code: {type: string, description: "The plant's code.", readOnly: true}
+        plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+        storage_location_id: {type: string, format: uuid, description: "The storage location it ships from.", readOnly: true}
+        storage_location_code: {type: string, description: "The storage location's code.", readOnly: true}
+        storage_location_name: {type: string, description: "The storage location's name, as it is now.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [created, goods_issued]
+          description: "`created` until its goods issue is posted, then `goods_issued`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        picking_status:
+          type: string
+          x-extensible-enum: [not_picked, partly_picked, picked]
+          description: "`not_picked` while nothing is picked, `picked` when every item is picked in full, `partly_picked` between (SAP's A, C and B). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/OutboundDeliveryItem"}
+          description: "Its items, by item number."
+          readOnly: true
+        version: {type: integer, format: int32, description: "Its version, which every change moves (`If-Match`).", readOnly: true}
+        created_at: {type: string, format: date-time, readOnly: true, description: "When it was created."}
+        created_by: {type: string, format: uuid, readOnly: true, description: "Who created it."}
+        updated_at: {type: string, format: date-time, readOnly: true, description: "When it last changed."}
+        updated_by: {type: string, format: uuid, readOnly: true, description: "Who last changed it."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e11"
+          number: OD000001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          fiscal_year: 2026
+          sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e01"
+          sales_order_number: SO000012
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d31"
+          customer_number: "100001"
+          plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          plant_code: P100
+          plant_name: Toronto plant
+          storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+          storage_location_code: SL01
+          storage_location_name: Main store
+          status: created
+          picking_status: partly_picked
+          items:
+            - item_no: 1
+              order_item_no: 1
+              material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+              material_number: MA000001
+              description: Machined bracket M10
+              quantity: {value: "5", unit: BOX}
+              picked_quantity: {value: "3", unit: BOX}
+          version: 2
+          created_at: "2026-11-20T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-20T10:20:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    OutboundDeliveryPage:
+      type: object
+      description: One page of outbound deliveries.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/OutboundDelivery"}
+          description: The outbound deliveries on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     MaterialValuationCreate:
       type: object

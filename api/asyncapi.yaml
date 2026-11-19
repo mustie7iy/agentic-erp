@@ -550,6 +550,14 @@ channels:
     messages:
       MaterialDocumentPosted: {$ref: '#/components/messages/MaterialDocumentPosted'}
       MaterialPriceChanged: {$ref: '#/components/messages/MaterialPriceChanged'}
+  shipping:
+    address: 'erp.{cell}.shipping.{tenant}.{event}'
+    title: Shipping events
+    description: Outbound deliveries created, picked and goods-issued (ADR-0083).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      OutboundDeliveryChanged: {$ref: '#/components/messages/OutboundDeliveryChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -919,6 +927,12 @@ operations:
     messages:
       - $ref: '#/channels/inventory/messages/MaterialDocumentPosted'
       - $ref: '#/channels/inventory/messages/MaterialPriceChanged'
+  publishShippingEvents:
+    action: send
+    title: Shipping publishes
+    channel: {$ref: '#/channels/shipping'}
+    messages:
+      - $ref: '#/channels/shipping/messages/OutboundDeliveryChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -5138,6 +5152,32 @@ components:
         - name: issued
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001401, source: /erp/eu-1/inventory, type: com.example.erp.inventory.material_document_posted.v1, subject: 0192a000-0000-7000-8000-000000001411, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {material_document_id: 0192a000-0000-7000-8000-000000001411, number: MD1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', fiscal_year: 2026, movement_type: '201', posting_date: '2026-11-20', reversal_of_id: null, reversal_of_number: null, lines: [{line_no: 1, item_no: 1, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, storage_location_id: 0192a000-0000-7000-8000-000000001322, storage_location_code: SL01, quantity: '-10', unit: EA, cost_center_id: 0192a000-0000-7000-8000-000000001431, cost_center_code: CC-1100}]}
+    OutboundDeliveryChanged:
+      name: OutboundDeliveryChanged
+      title: Outbound delivery changed
+      summary: An outbound delivery was created, picked or goods-issued.
+      description: |
+        Emitted when an outbound delivery is created, when its picking is
+        recorded and when its goods issue is posted (ADR-0083, S2a, S2b1):
+        the delivery as it is after the change, its number, company, sales
+        order and customer by id and number (never by name), plant and
+        storage location by id and code, status and picking status, and
+        its items with their delivery and picked quantities; once its
+        goods issue is posted, the day and the material document.
+        `GET /v1/outbound-deliveries/{id}` returns it at `version` or
+        later. Not offered to webhooks until a consumer asks. Subject is
+        the delivery id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.shipping.outbound_delivery_changed.v1}
+      payload: {$ref: '#/components/schemas/OutboundDeliveryChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001501, source: /erp/eu-1/shipping, type: com.example.erp.shipping.outbound_delivery_changed.v1, subject: 0192a000-0000-7000-8000-000000001511, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {outbound_delivery_id: 0192a000-0000-7000-8000-000000001511, number: OD1, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO12, customer_id: 0192a000-0000-7000-8000-000000000301, customer_number: '100001', plant_id: 0192a000-0000-7000-8000-000000001321, plant_code: P100, storage_location_id: 0192a000-0000-7000-8000-000000001322, storage_location_code: SL01, status: created, picking_status: not_picked, goods_issue_date: null, material_document_id: null, material_document_number: null, items: [{item_no: 1, order_item_no: 1, material_id: 0192a000-0000-7000-8000-000000001311, material_number: MA1, quantity: {value: '5', unit: BOX}, picked_quantity: {value: '0', unit: BOX}}], version: 1}
     MaterialPriceChanged:
       name: MaterialPriceChanged
       title: Material price changed
@@ -6745,6 +6785,49 @@ components:
               cost_center_code: {type: [string, 'null'], description: "The cost center's code; null with it."}
               amount: {$ref: '#/components/schemas/Money', description: "What the line moves in value, signed as its quantity is (S1d); not required (ADR-0041)."}
               price_difference: {$ref: '#/components/schemas/Money', description: "What it is valued at beyond that (S1d); not required (ADR-0041)."}
+    OutboundDeliveryChangedV1:
+      type: object
+      required: [outbound_delivery_id, number, legal_entity_id, legal_entity_code, sales_order_id, sales_order_number, customer_id, customer_number, plant_id, plant_code, storage_location_id, storage_location_code, status, picking_status, goods_issue_date, material_document_id, material_document_number, items, version]
+      properties:
+        outbound_delivery_id: {$ref: '#/components/schemas/Uuid', description: '`shipping.outbound_delivery.id`.'}
+        number: {type: string, description: "The delivery's number in its company's range of its fiscal year."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company of its order and plant.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: '`sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The order's document number."}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: "The order's customer, `partner.business_partner.id`."}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        plant_id: {$ref: '#/components/schemas/Uuid', description: 'The plant it ships from: `tenancy.org_unit.id`.'}
+        plant_code: {type: string, description: "The plant's code."}
+        storage_location_id: {$ref: '#/components/schemas/Uuid', description: 'The storage location it ships from: `tenancy.org_unit.id`.'}
+        storage_location_code: {type: string, description: "The storage location's code."}
+        status: {type: string, description: 'Open enum: created, goods_issued.'}
+        picking_status: {type: string, description: 'Open enum: not_picked, partly_picked, picked.'}
+        goods_issue_date:
+          description: "The company's date its goods issue was posted on; null before."
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        material_document_id:
+          description: "The goods issue's material document, `inventory.material_document.id`; null before."
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        material_document_number: {type: [string, 'null'], description: "That document's number; null with it."}
+        items:
+          type: array
+          description: Its items, by item number.
+          items:
+            type: object
+            required: [item_no, order_item_no, material_id, material_number, quantity, picked_quantity]
+            properties:
+              item_no: {type: integer, description: "The item's number in the delivery, from 1."}
+              order_item_no: {type: integer, description: "The sales order's item it delivers."}
+              material_id: {$ref: '#/components/schemas/Uuid', description: '`materials.material.id`.'}
+              material_number: {type: string, description: "The material's number."}
+              quantity: {$ref: '#/components/schemas/Quantity', description: "The delivery quantity, in the order item's unit."}
+              picked_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is picked of it, in its unit.'}
+        version: {type: integer, description: "The delivery's version after the change."}
     MaterialPriceChangedV1:
       type: object
       required: [price_change_id, valuation_id, material_id, material_number, plant_id, plant_code, legal_entity_id, legal_entity_code, price_control, old_price, new_price, price_unit, quantity, revaluation, posting_date, journal_entry_id, journal_entry_year, journal_entry_number, version]

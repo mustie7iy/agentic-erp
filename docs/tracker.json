@@ -5648,9 +5648,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "A shipping clerk creates an outbound delivery for a confirmed sales order's items from a plant and storage location and records the picked quantities",
-      "r": "S2a · docs/design/plan-supply-chain.md §S2a · ADR-0083",
+      "r": "S2a · docs/design/plan-supply-chain.md §S2a · ADR-0083 and As built · db/migrations/000406 · internal/shipping · shipping.outbound_delivery, .outbound_delivery_item · sales.delivery_assignment, sales_order_item.in_delivery_quantity · POST /v1/outbound-deliveries · GET /v1/outbound-deliveries · GET /v1/outbound-deliveries/{id} · POST /v1/outbound-deliveries/{id}:pick · sales.Endpoints.Ship · inventory.Endpoints.Held · OutboundDeliveryChanged · shipping.delivery.read, .write · walkthrough step_outbound_delivery",
       "src": "po:2026-11-17",
       "c": []
      },

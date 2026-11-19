@@ -1,0 +1,175 @@
+package sales
+
+import (
+	"context"
+	"fmt"
+	"math/big"
+	"slices"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+)
+
+// What outbound deliveries hold of a sales order (ADR-0083 §4): the
+// shipping context takes quantities of an order's items into a delivery
+// (Ship) and, at its goods issue, gives them back and delivers what it
+// issued (S2b1). Sales keeps them as assignments
+// (sales.delivery_assignment), which the database adds to each item's
+// in_delivery_quantity, so an order change, an item's removal and the
+// order's cancellation are judged on them as on what is delivered.
+
+func init() {
+	// The application checks these under the order's row lock first;
+	// they are the database's answers should one pass it.
+	problem.RegisterConstraint("sales_order_item_in_delivery", func() *problem.Problem {
+		return problem.Conflict("sales.exceeds_open_quantity", "An order item's quantity is at least what is delivered and what outbound deliveries hold.")
+	})
+	problem.RegisterConstraint("sales_order_item_removed_unshipped", func() *problem.Problem {
+		return problem.Conflict("sales.order_item_delivered", "An order item an outbound delivery holds is not removed.")
+	})
+	problem.RegisterConstraint("sales_order_cancelled_unshipped", func() *problem.Problem {
+		return problem.Conflict("sales.order_delivered", "A sales order an outbound delivery holds is not cancelled.")
+	})
+}
+
+// ShipInput is what an outbound delivery takes of a sales order: the
+// delivery by id and number and its items, each a quantity of an order
+// item in its unit, or, when Items is nil, every open quantity of the
+// order items Open names.
+type ShipInput struct {
+	OrderID        uuid.UUID
+	DeliveryID     uuid.UUID
+	DeliveryNumber string
+	Items          []ItemQuantity
+	Open           []int32
+}
+
+// Ship takes quantities of a confirmed sales order's items into an
+// outbound delivery in the request's transaction. The order is read
+// under its row lock (ADR-0008), as a delivery confirmation reads it, so
+// two deliveries of one order, or one and an order change, wait for one
+// another and the second is judged on what the first left; an order of a
+// company the caller may not act in is not found. Only a confirmed order
+// not blocked for credit is shipped (409 sales.order_not_confirmed,
+// sales.order_credit_blocked). Named items are checked as a delivery's
+// are (taking), the refusals naming the request's items[i].order_item_no
+// and items[i].quantity: each at most what is open, ordered less
+// delivered less what deliveries hold (422 sales.exceeds_open_quantity);
+// without items each item of Open takes what is open of it, and an order
+// with nothing open of them is refused (422 sales.nothing_to_deliver
+// naming sales_order_id). Each quantity is an assignment, which adds it
+// to the item's quantity in delivery and moves the order's version, and
+// the audit record names the delivery.
+func (e *Endpoints) Ship(ctx context.Context, in ShipInput) (Shipped, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Shipped{}, err
+	}
+	o, err := order(ctx, tx, in.OrderID, true)
+	if err != nil {
+		return Shipped{}, problem.Reference(err, "sales_order_id", "sales order", "no sales order with this id that you can access")
+	}
+	if err := shippable(o); err != nil {
+		return Shipped{}, err
+	}
+	items := in.Items
+	if items == nil {
+		items = openItems(o, in.Open)
+		if len(items) == 0 {
+			return Shipped{}, problem.Invalid("sales.nothing_to_deliver", "sales_order_id", "Sales order "+o.DocumentNumber+
+				" has nothing open to deliver of the items a delivery takes: what was ordered is delivered or held by other deliveries.")
+		}
+	} else if err := takeable(o, items, "An outbound delivery", "order_item_no"); err != nil {
+		return Shipped{}, err
+	}
+	names, err := e.Partners.Names(ctx, []uuid.UUID{o.CustomerID})
+	if err != nil {
+		return Shipped{}, fmt.Errorf("sales: customer of sales order %s: %w", o.ID, err)
+	}
+	if err := assign(ctx, tx, p, o.ID, in.DeliveryID, in.DeliveryNumber, items, false); err != nil {
+		return Shipped{}, err
+	}
+	detail := map[string]any{"document_number": o.DocumentNumber, "outbound_delivery_id": in.DeliveryID, "outbound_delivery_number": in.DeliveryNumber,
+		"items": shippedDetail(o, items)}
+	if err := audit.Record(ctx, "sales.sales_order.ship", "sales.sales_order", o.ID, detail); err != nil {
+		return Shipped{}, fmt.Errorf("sales: record the shipping of sales order %s: %w", o.ID, err)
+	}
+	return Shipped{Order: o, CustomerNumber: names[o.CustomerID].Number, Items: items}, nil
+}
+
+// Shipped is what Ship took: the order as read under its lock, its
+// customer's number and the quantities taken, by item number.
+type Shipped struct {
+	Order          Order
+	CustomerNumber string
+	Items          []ItemQuantity
+}
+
+// shippable refuses an order that takes no delivery: one not confirmed,
+// or one blocked for credit until its block is released (ADR-0066).
+func shippable(o Order) error {
+	switch {
+	case o.Status != Confirmed:
+		return problem.Conflict("sales.order_not_confirmed",
+			"Sales order "+o.DocumentNumber+" is "+o.Status+"; a delivery is made of a confirmed order.")
+	case o.CreditBlock == Blocked:
+		return problem.Conflict("sales.order_credit_blocked",
+			"Sales order "+o.DocumentNumber+" is blocked for credit; it takes a delivery once its credit block is released.")
+	}
+	return nil
+}
+
+// open is what is open of an order item to deliver: what was ordered
+// less what is delivered and what outbound deliveries hold.
+func (it OrderItem) open() *big.Rat {
+	open := new(big.Rat).Sub(money.ParseRat(it.Quantity), money.ParseRat(it.Delivered))
+	return open.Sub(open, money.ParseRat(it.InDelivery))
+}
+
+// openItems are the open quantities of the order's items that nos name,
+// by item number, leaving out a removed item and one with nothing open.
+func openItems(o Order, nos []int32) []ItemQuantity {
+	var out []ItemQuantity
+	for _, it := range o.Items {
+		if it.RemovedInChange != nil || !slices.Contains(nos, it.ItemNo) {
+			continue
+		}
+		if open := it.open(); open.Sign() > 0 {
+			out = append(out, ItemQuantity{ItemNo: it.ItemNo, Quantity: money.PlainQuantity(open), Unit: it.Unit})
+		}
+	}
+	return out
+}
+
+// assign writes an assignment per quantity, in the order given, each
+// adding it to its order item's quantity in delivery, negated when back
+// is set (the goods issue gives a delivery's quantities back).
+func assign(ctx context.Context, tx pgx.Tx, p reqctx.Principal, orderID, deliveryID uuid.UUID, number string, items []ItemQuantity, back bool) error {
+	for _, it := range items {
+		q := it.Quantity
+		if back {
+			q = money.PlainQuantity(new(big.Rat).Neg(money.ParseRat(q)))
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO sales.delivery_assignment (tenant_id, id, sales_order_id, order_item_no, outbound_delivery_id,
+				outbound_delivery_number, quantity, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8)`,
+			p.TenantID, uuid.Must(uuid.NewV7()), orderID, it.ItemNo, deliveryID, number, q, p.ID); err != nil {
+			return fmt.Errorf("sales: assign item %d of sales order %s to outbound delivery %s: %w", it.ItemNo, orderID, number, err)
+		}
+	}
+	return nil
+}
+
+// shippedDetail is the audit detail of the quantities a delivery takes,
+// each with its order item's unit.
+func shippedDetail(o Order, items []ItemQuantity) []map[string]any {
+	out := make([]map[string]any, len(items))
+	for i, it := range items {
+		out[i] = map[string]any{"item_no": it.ItemNo, "quantity": it.Quantity, "unit": o.Items[it.ItemNo-1].Unit} // items are numbered from 1 in order (insertItems)
+	}
+	return out
+}

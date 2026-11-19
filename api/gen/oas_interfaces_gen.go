@@ -449,6 +449,10 @@ type CreateOrgUnitRes interface {
 	createOrgUnitRes()
 }
 
+type CreateOutboundDeliveryRes interface {
+	createOutboundDeliveryRes()
+}
+
 type CreatePartnerChangeRes interface {
 	createPartnerChangeRes()
 }
@@ -1075,6 +1079,10 @@ type GetOperationRes interface {
 
 type GetOrgUnitRes interface {
 	getOrgUnitRes()
+}
+
+type GetOutboundDeliveryRes interface {
+	getOutboundDeliveryRes()
 }
 
 type GetParkedJournalEntryRes interface {
@@ -1717,6 +1725,10 @@ type ListOrgUnitsRes interface {
 	listOrgUnitsRes()
 }
 
+type ListOutboundDeliveriesRes interface {
+	listOutboundDeliveriesRes()
+}
+
 type ListParkedJournalEntriesRes interface {
 	listParkedJournalEntriesRes()
 }
@@ -2007,6 +2019,10 @@ type ParkJournalEntryRes interface {
 
 type PauseWebhookSubscriptionRes interface {
 	pauseWebhookSubscriptionRes()
+}
+
+type PickOutboundDeliveryRes interface {
+	pickOutboundDeliveryRes()
 }
 
 type PingWebhookSubscriptionRes interface {

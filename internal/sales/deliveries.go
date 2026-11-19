@@ -173,33 +173,40 @@ func (e *Endpoints) notAfterToday(ctx context.Context, company string, date time
 	return nil
 }
 
-// deliverable checks a delivery's items against the order's, read under
-// its lock (taking): each names an item of the order, once, with a
-// quantity more than zero in the item's unit that is at most the item's
-// open quantity, what was ordered less what is delivered; a removed item
-// (T78e) takes no delivery. Every refusal
-// names the request's own field, and the last the item with what is open
-// of it.
+// deliverable checks a delivery confirmation's items against the order's
+// (takeable), naming the request's items[i].item_no.
 func deliverable(o Order, in []DeliveryItemInput) error {
+	return takeable(o, in, "A delivery", "item_no")
+}
+
+// takeable checks the items a delivery or an outbound delivery takes of
+// the order, read under its lock (taking): each names an item of the
+// order, once, with a quantity more than zero in the item's unit that is
+// at most the item's open quantity, what was ordered less what is
+// delivered and what outbound deliveries hold (ADR-0083 §4); a removed
+// item (T78e) takes none. Every refusal names the request's own field
+// (items[i].noField or .quantity), and the last the item with what is
+// open of it.
+func takeable(o Order, in []ItemQuantity, document, noField string) error {
 	ordered := make(map[int32]OrderItem, len(o.Items))
 	for _, it := range o.Items {
 		ordered[it.ItemNo] = it
 	}
 	for i, d := range in {
 		if it, ok := ordered[d.ItemNo]; ok && it.RemovedInChange != nil {
-			return itemRemoved(fmt.Sprintf("items[%d].item_no", i), o, it)
+			return itemRemoved(fmt.Sprintf("items[%d].%s", i, noField), o, it)
 		}
 	}
-	short, err := taking{document: "A delivery", noField: "item_no",
+	short, err := taking{document: document, noField: noField,
 		find: func(no int32) (string, *big.Rat, bool) {
 			it, ok := ordered[no]
 			if !ok {
 				return "", nil, false
 			}
-			return it.Unit, new(big.Rat).Sub(money.ParseRat(it.Quantity), money.ParseRat(it.Delivered)), true
+			return it.Unit, it.open(), true
 		},
 		otherUnit: func(no int32, unit string) string {
-			return fmt.Sprintf("Item %d of sales order %s is in %s; its delivery is confirmed in that unit.", no, o.DocumentNumber, unit)
+			return fmt.Sprintf("Item %d of sales order %s is in %s; its delivery is in that unit.", no, o.DocumentNumber, unit)
 		}}.check(in)
 	switch {
 	case err != nil || short == nil:
@@ -208,9 +215,13 @@ func deliverable(o Order, in []DeliveryItemInput) error {
 		return problem.Invalid("sales.unknown_order_item", short.noField, fmt.Sprintf("Sales order %s has no item %d.", o.DocumentNumber, short.no))
 	}
 	it := ordered[short.no]
+	held := ""
+	if money.ParseRat(it.InDelivery).Sign() != 0 {
+		held = ", " + it.InDelivery + " in outbound deliveries"
+	}
 	return problem.Invalid("sales.exceeds_open_quantity", short.quantityField, fmt.Sprintf(
-		"Item %d of sales order %s has %s %s open for delivery (%s ordered, %s delivered); %s is more.",
-		short.no, o.DocumentNumber, money.PlainQuantity(short.open), it.Unit, it.Quantity, it.Delivered, short.quantity))
+		"Item %d of sales order %s has %s %s open for delivery (%s ordered, %s delivered%s); %s is more.",
+		short.no, o.DocumentNumber, money.PlainQuantity(short.open), it.Unit, it.Quantity, it.Delivered, held, short.quantity))
 }
 
 // deliveries are the tables a delivery is written to.

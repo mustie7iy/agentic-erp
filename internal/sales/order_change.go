@@ -4,8 +4,10 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"math/big"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -282,9 +284,8 @@ func (e *Endpoints) changeItems(ctx context.Context, tx pgx.Tx, o Order, le tena
 		if err != nil {
 			return nil, nil, err
 		}
-		if money.ParseRat(after.Quantity).Cmp(money.ParseRat(plan.item.Delivered)) < 0 {
-			return nil, nil, problem.Invalid("sales.quantity_below_delivered", fmt.Sprintf("items[%d].quantity.value", plan.i), fmt.Sprintf(
-				"Item %d of sales order %s has %s %s delivered; its quantity is not below that.", plan.item.ItemNo, o.DocumentNumber, plan.item.Delivered, plan.item.Unit))
+		if err := notBelowDelivered(o, plan.item, after.Quantity, fmt.Sprintf("items[%d].quantity.value", plan.i)); err != nil {
+			return nil, nil, err
 		}
 		after.ItemNo = plan.item.ItemNo
 		if samePricing(plan.item.Item, after) {
@@ -447,7 +448,8 @@ func updateItems(ctx context.Context, tx pgx.Tx, o Order, c changed) error {
 // read under its row lock at the version the caller read; one already
 // cancelled is refused (409 sales.invalid_status), as is one with a
 // quantity delivered (409 sales.order_delivered): only what is delivered
-// is billed, so nothing of it is billed either. Its reason, who cancelled
+// is billed, so nothing of it is billed either; an order an outbound
+// delivery holds is refused alike (ADR-0083 §4). Its reason, who cancelled
 // it and when, its audit record and SalesOrderChanged are written in the
 // request's transaction. Nothing is posted.
 func (e *Endpoints) CancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, reason string) (Order, error) {
@@ -463,9 +465,10 @@ func (e *Endpoints) CancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 		return Order{}, err
 	}
 	for _, it := range o.Items {
-		if money.ParseRat(it.Delivered).Sign() != 0 {
+		if taken := it.taken(); taken != "" {
 			return Order{}, problem.Conflict("sales.order_delivered", fmt.Sprintf(
-				"Item %d of sales order %s has %s %s delivered; an order is cancelled while nothing of it is delivered.", it.ItemNo, o.DocumentNumber, it.Delivered, it.Unit))
+				"Item %d of sales order %s has %s; an order is cancelled while nothing of it is delivered or in an outbound delivery.", it.ItemNo,
+				o.DocumentNumber, taken))
 		}
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, o.LegalEntityID) // a stored order's legal entity exists
@@ -491,4 +494,30 @@ func (e *Endpoints) CancelOrder(ctx context.Context, id uuid.UUID, ifMatch func(
 	}
 	return cancelled, recordOrder(ctx, "sales.sales_order.cancel", cancelled, le, names[o.CustomerID].Number, &o.Status, nil,
 		map[string]any{"reason": reason})
+}
+
+// notBelowDelivered refuses an item's new quantity below what is
+// delivered of it and what outbound deliveries hold (422
+// sales.quantity_below_delivered naming field; ADR-0083 §4).
+func notBelowDelivered(o Order, it OrderItem, quantity, field string) error {
+	taken := new(big.Rat).Add(money.ParseRat(it.Delivered), money.ParseRat(it.InDelivery))
+	if money.ParseRat(quantity).Cmp(taken) >= 0 {
+		return nil
+	}
+	return problem.Invalid("sales.quantity_below_delivered", field, fmt.Sprintf("Item %d of sales order %s has %s; its quantity is not below that.",
+		it.ItemNo, o.DocumentNumber, it.taken()))
+}
+
+// taken words what is delivered of the item and what outbound deliveries
+// hold of it ("5 EA delivered", "5 EA delivered and 3 EA in outbound
+// deliveries"), "" when there is neither.
+func (it OrderItem) taken() string {
+	var parts []string
+	if money.ParseRat(it.Delivered).Sign() != 0 {
+		parts = append(parts, it.Delivered+" "+it.Unit+" delivered")
+	}
+	if money.ParseRat(it.InDelivery).Sign() != 0 {
+		parts = append(parts, it.InDelivery+" "+it.Unit+" in outbound deliveries")
+	}
+	return strings.Join(parts, " and ")
 }

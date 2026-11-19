@@ -1752,6 +1752,7 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "expense_report", "fiscal_year": @YEAR@, "prefix": "ER", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
     {"company": "@CC@", "document_type": "material_document", "fiscal_year": @YEAR@, "prefix": "MD", "first": 1, "last": 9999999},
+    {"company": "@CC@", "document_type": "outbound_delivery", "fiscal_year": @YEAR@, "prefix": "OD", "first": 1, "last": 9999999},
     {"company": "@CC@", "document_type": "journal_wa", "fiscal_year": @YEAR@, "prefix": "WA", "first": 1, "last": 9999999},
     {"company": "@CC@", "document_type": "journal_pr", "fiscal_year": @YEAR@, "prefix": "PR", "first": 1, "last": 9999999}]'
 
@@ -14654,6 +14655,75 @@ step_dispute_resolution() {
   passed
 }
 
+# step_outbound_delivery is S2a (ADR-0083, plan-supply-chain.md): Sally
+# sells Northwind 6 boxes of the bracket and a day's installation; Wade,
+# the warehouse clerk, creates an outbound delivery from Toronto's main
+# store, which takes the bracket's 6 boxes alone (installation is no
+# stock) and holds them on the order, so Sally can no longer change the
+# order below them; a second delivery finds nothing open and the
+# installation is refused naming its field. Wade picks 4 boxes, then all
+# 6: more than the delivery quantity is refused. DELIVERY is the
+# delivery, ORDER_SHIPPED its order, for step_goods_issue.
+step_outbound_delivery() {
+  heading "Step 141 — Outbound delivery and picking: a delivery from the main store takes what is open of an order's stock items and holds it on the order; a second finds nothing open, a service item is not shipped, the order is not changed below it; picking up to the delivery quantity, partly and in full"
+  local order delivery tag sales
+  [ -n "$MATERIAL" ] && [ -n "$MAIN_STORE" ] || fail "step 122's material and storage locations are not there"
+  as sally
+  accounts
+  sales=$(account 4000)
+  say "Sally sells Northwind 6 boxes of the bracket by its material and a day's installation, and confirms the order:"
+  api 201 '"sales order \(.document_number)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit)")' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"items\": [
+      {\"material_id\": \"$MATERIAL\", \"quantity\": {\"value\": \"6\", \"unit\": \"BOX\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"},
+      {\"description\": \"Installation, one day\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"400.00\", \"currency\": \"CAD\"},
+       \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  order=$(field .id)
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  QUIET=1 api 200 '' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    tag=$ETAG
+    as ruth
+    say "Northwind is over its credit limit; Ruth releases the block:"
+    api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+  fi
+  as wade
+  say "Wade creates an outbound delivery of the order from the Toronto plant's main store (SAP VL01N). Without items it"
+  say "takes what is open of every item of a material kept in stock there: the bracket's 6 boxes; the installation is"
+  say "confirmed as delivered by hand (T78c):"
+  api 201 '"outbound delivery \(.number) of \(.sales_order_number) for \(.customer_number) from \(.plant_code)/\(.storage_location_code): \(.status), \(.picking_status)", (.items[] | "  item \(.item_no) (order item \(.order_item_no)) \(.material_number) \(.description): \(.quantity.value) \(.quantity.unit), picked \(.picked_quantity.value)")' \
+    createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  delivery=$(field .id)
+  case "$(field .number)" in OD*) ;; *) fail "the delivery's number: got $(field .number), want one of the OD range" ;; esac
+  expect "the delivery's items" "$(field '[.items[] | "\(.order_item_no) \(.quantity.value) \(.quantity.unit)"] | join(", ")')" "1 6 BOX"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  expect "what the order holds in delivery" "$(field '[.items[] | "\(.in_delivery_quantity.value) \(.in_delivery_quantity.unit)"] | join(", ")')" "6 BOX, 0 EA"
+  say "A second delivery finds nothing open; the installation is no stock item:"
+  refused 422 sales.nothing_to_deliver createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  refused 422 shipping.item_not_stocked createOutboundDelivery -body "{\"sales_order_id\": \"$order\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"items\": [{\"order_item_no\": 2, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].order_item_no"
+  as sally
+  say "Northwind asks for 5 boxes only; the delivery holds 6, so Sally's change is refused:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  refused 422 sales.quantity_below_delivered changeSalesOrder -p "id=$order" -if-match "$ETAG" \
+    -body '{"reason": "Northwind takes 5 boxes", "items": [{"item_no": 1, "quantity": {"value": "5", "unit": "BOX"}}]}'
+  as wade
+  say "Wade picks 4 boxes, then all 6; 7 is more than the delivery's quantity:"
+  QUIET=1 api 200 '' getOutboundDelivery -p "id=$delivery"
+  api 200 '"\(.number): \(.picking_status), \(.items[0].picked_quantity.value) of \(.items[0].quantity.value) \(.items[0].quantity.unit) picked"' \
+    pickOutboundDelivery -p "id=$delivery" -if-match "$ETAG" -body '{"items": [{"item_no": 1, "quantity": {"value": "4", "unit": "BOX"}}]}'
+  expect "the picking status" "$(field .picking_status)" partly_picked
+  tag=$ETAG
+  refused 422 shipping.exceeds_delivery_quantity pickOutboundDelivery -p "id=$delivery" -if-match "$tag" \
+    -body '{"items": [{"item_no": 1, "quantity": {"value": "7", "unit": "BOX"}}]}'
+  api 200 '"\(.number): \(.picking_status), \(.items[0].picked_quantity.value) of \(.items[0].quantity.value) \(.items[0].quantity.unit) picked, version \(.version)"' \
+    pickOutboundDelivery -p "id=$delivery" -if-match "$tag" -body '{"items": [{"item_no": 1, "quantity": {"value": "6", "unit": "BOX"}}]}'
+  expect "the picking status" "$(field .picking_status)" picked
+  api 200 '.items[] | "  \(.number) \(.sales_order_number): \(.status), \(.picking_status)"' listOutboundDeliveries -p "sales_order_id=$order"
+  DELIVERY=$delivery ORDER_SHIPPED=$order
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -16684,7 +16754,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_outbound_delivery step_close'
 
 main() {
   stop_unseen
