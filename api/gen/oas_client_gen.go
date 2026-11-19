@@ -2257,6 +2257,39 @@ type Invoker interface {
 	//
 	// POST /v1/outbound-deliveries
 	CreateOutboundDelivery(ctx context.Context, request *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error)
+	// CreateOutgoingEInvoice invokes createOutgoingEInvoice operation.
+	//
+	// Renders a posted customer document of a UAE company as its e-invoice in PINT AE, UBL 2.1 (ADR-0061
+	// §9, As built E2; SAP Document and Reporting Compliance's outgoing e-document): a customer invoice
+	// as a tax invoice (type code 380, a UBL `Invoice`) and a customer credit memo as a tax credit note
+	// (381, a UBL `CreditNote`) naming the invoice it credits and the reason the caller gives
+	// (`credit_note_reason`, BTAE-03, required for a credit memo and refused for an invoice). A billing
+	// document's e-invoice is that of the customer invoice it posted as (`source_document_id`), and a
+	// credit memo request's that of its customer credit memo. The document carries the seller (the
+	// company: its name, postal address with its emirate, its FTA registration's TRN and the endpoint
+	// `0235:` and the TRN's first ten digits) and the buyer (the customer: its legal address on the
+	// invoice date with its emirate, its UAE TRN, scheme `AE_TRN`, and the endpoint from it), each item as
+	// a line of quantity 1 at its net amount with its tax code's category (S, Z, E, O or AE) and rate on
+	// the tax date, the VAT per category and the totals, the VAT total in AED as the posting converted it
+	// when the document is not in AED, and the transaction type flags BTAE-02 all unset (none of the
+	// special cases is rendered). Before anything is kept the document is checked against the mandatory
+	// fields (`problems`): one that fails any is recorded `invalid`, its problems listed and no XML kept,
+	// and may be rendered again once the master data is corrected; one that passes is `valid`, its XML
+	// kept write-once in object storage under its SHA-256 (ADR-0016) with the customer document as the
+	// legal original, final: a second render answers it unchanged. Each render that records or changes the
+	// e-invoice is audited (`einvoicing.outgoing.rendered`) and publishes OutgoingEInvoiceRendered;
+	// nothing is sent (sending is E3's). 201 when the e-invoice is first recorded and 200 when it existed
+	// (rendered again, or valid and answered unchanged), whatever the outcome: the problems are the
+	// document's state, not the request's. A debit memo is not rendered (422
+	// `einvoicing.unsupported_document`: PINT AE has no debit note type, a question for the tax
+	// specialist). A customer document of a company the caller may not act in, or none, is refused as not
+	// found (422 `request.reference_not_found`); one not posted is refused (409
+	// `einvoicing.document_not_posted`); one of a company that is not in the UAE or not in AED (422
+	// `einvoicing.not_a_uae_company`); 503 while the server has no object storage. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/outgoing-e-invoices
+	CreateOutgoingEInvoice(ctx context.Context, request *OutgoingEInvoiceRender, params CreateOutgoingEInvoiceParams) (CreateOutgoingEInvoiceRes, error)
 	// CreatePartnerChange invokes createPartnerChange operation.
 	//
 	// Opens a pending partner change of kind `update`. At most one pending change of each kind per partner
@@ -4490,6 +4523,29 @@ type Invoker interface {
 	//
 	// GET /v1/outbound-deliveries/{id}
 	GetOutboundDelivery(ctx context.Context, params GetOutboundDeliveryParams) (GetOutboundDeliveryRes, error)
+	// GetOutgoingEInvoice invokes getOutgoingEInvoice operation.
+	//
+	// One outgoing e-invoice as `createOutgoingEInvoice` answers it (ADR-0061 §9, As built E2): the
+	// customer document it renders by id and number, its company and customer by id, code or number and
+	// name, its type code, issue date, currency and amounts, its status (`valid` or `invalid`) with the
+	// problems of its last render, its bytes' SHA-256 and size once valid, and the PINT AE specification
+	// it follows. One of a company the caller may not act in is not found (404), as one that does not
+	// exist, so ids of other companies cannot be probed.
+	//
+	// GET /v1/outgoing-e-invoices/{id}
+	GetOutgoingEInvoice(ctx context.Context, params GetOutgoingEInvoiceParams) (GetOutgoingEInvoiceRes, error)
+	// GetOutgoingEInvoiceContent invokes getOutgoingEInvoiceContent operation.
+	//
+	// A valid outgoing e-invoice's PINT AE XML (ADR-0061 §8, §9, As built E2), byte for byte as
+	// rendered: kept write-once in object storage under its SHA-256, which every read compares with the
+	// `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ from it). An
+	// invalid one has no XML (409 `einvoicing.document_invalid`). Visible as `getOutgoingEInvoice` is; 503
+	// while the server has no object storage. Reading it is not audited, as other downloads are not.
+	// Human-only (`x-agent: false`): the document carries the parties' TRNs in clear, as a tax invoice
+	// must.
+	//
+	// GET /v1/outgoing-e-invoices/{id}/content
+	GetOutgoingEInvoiceContent(ctx context.Context, params GetOutgoingEInvoiceContentParams) (GetOutgoingEInvoiceContentRes, error)
 	// GetParkedJournalEntry invokes getParkedJournalEntry operation.
 	//
 	// Returns one parked journal entry with its lines. Expandable: `partners`, the business partners its
@@ -27547,6 +27603,163 @@ func (c *Client) sendCreateOutboundDelivery(ctx context.Context, request *Outbou
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateOutboundDeliveryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateOutgoingEInvoice invokes createOutgoingEInvoice operation.
+//
+// Renders a posted customer document of a UAE company as its e-invoice in PINT AE, UBL 2.1 (ADR-0061
+// §9, As built E2; SAP Document and Reporting Compliance's outgoing e-document): a customer invoice
+// as a tax invoice (type code 380, a UBL `Invoice`) and a customer credit memo as a tax credit note
+// (381, a UBL `CreditNote`) naming the invoice it credits and the reason the caller gives
+// (`credit_note_reason`, BTAE-03, required for a credit memo and refused for an invoice). A billing
+// document's e-invoice is that of the customer invoice it posted as (`source_document_id`), and a
+// credit memo request's that of its customer credit memo. The document carries the seller (the
+// company: its name, postal address with its emirate, its FTA registration's TRN and the endpoint
+// `0235:` and the TRN's first ten digits) and the buyer (the customer: its legal address on the
+// invoice date with its emirate, its UAE TRN, scheme `AE_TRN`, and the endpoint from it), each item as
+// a line of quantity 1 at its net amount with its tax code's category (S, Z, E, O or AE) and rate on
+// the tax date, the VAT per category and the totals, the VAT total in AED as the posting converted it
+// when the document is not in AED, and the transaction type flags BTAE-02 all unset (none of the
+// special cases is rendered). Before anything is kept the document is checked against the mandatory
+// fields (`problems`): one that fails any is recorded `invalid`, its problems listed and no XML kept,
+// and may be rendered again once the master data is corrected; one that passes is `valid`, its XML
+// kept write-once in object storage under its SHA-256 (ADR-0016) with the customer document as the
+// legal original, final: a second render answers it unchanged. Each render that records or changes the
+// e-invoice is audited (`einvoicing.outgoing.rendered`) and publishes OutgoingEInvoiceRendered;
+// nothing is sent (sending is E3's). 201 when the e-invoice is first recorded and 200 when it existed
+// (rendered again, or valid and answered unchanged), whatever the outcome: the problems are the
+// document's state, not the request's. A debit memo is not rendered (422
+// `einvoicing.unsupported_document`: PINT AE has no debit note type, a question for the tax
+// specialist). A customer document of a company the caller may not act in, or none, is refused as not
+// found (422 `request.reference_not_found`); one not posted is refused (409
+// `einvoicing.document_not_posted`); one of a company that is not in the UAE or not in AED (422
+// `einvoicing.not_a_uae_company`); 503 while the server has no object storage. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/outgoing-e-invoices
+func (c *Client) CreateOutgoingEInvoice(ctx context.Context, request *OutgoingEInvoiceRender, params CreateOutgoingEInvoiceParams) (CreateOutgoingEInvoiceRes, error) {
+	res, err := c.sendCreateOutgoingEInvoice(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateOutgoingEInvoice(ctx context.Context, request *OutgoingEInvoiceRender, params CreateOutgoingEInvoiceParams) (res CreateOutgoingEInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createOutgoingEInvoice"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/outgoing-e-invoices"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateOutgoingEInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/outgoing-e-invoices"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateOutgoingEInvoiceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateOutgoingEInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateOutgoingEInvoiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -51440,6 +51653,280 @@ func (c *Client) sendGetOutboundDelivery(ctx context.Context, params GetOutbound
 
 	stage = "DecodeResponse"
 	result, err := decodeGetOutboundDeliveryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetOutgoingEInvoice invokes getOutgoingEInvoice operation.
+//
+// One outgoing e-invoice as `createOutgoingEInvoice` answers it (ADR-0061 §9, As built E2): the
+// customer document it renders by id and number, its company and customer by id, code or number and
+// name, its type code, issue date, currency and amounts, its status (`valid` or `invalid`) with the
+// problems of its last render, its bytes' SHA-256 and size once valid, and the PINT AE specification
+// it follows. One of a company the caller may not act in is not found (404), as one that does not
+// exist, so ids of other companies cannot be probed.
+//
+// GET /v1/outgoing-e-invoices/{id}
+func (c *Client) GetOutgoingEInvoice(ctx context.Context, params GetOutgoingEInvoiceParams) (GetOutgoingEInvoiceRes, error) {
+	res, err := c.sendGetOutgoingEInvoice(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetOutgoingEInvoice(ctx context.Context, params GetOutgoingEInvoiceParams) (res GetOutgoingEInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getOutgoingEInvoice"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/outgoing-e-invoices/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetOutgoingEInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/outgoing-e-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetOutgoingEInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetOutgoingEInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetOutgoingEInvoiceContent invokes getOutgoingEInvoiceContent operation.
+//
+// A valid outgoing e-invoice's PINT AE XML (ADR-0061 §8, §9, As built E2), byte for byte as
+// rendered: kept write-once in object storage under its SHA-256, which every read compares with the
+// `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ from it). An
+// invalid one has no XML (409 `einvoicing.document_invalid`). Visible as `getOutgoingEInvoice` is; 503
+// while the server has no object storage. Reading it is not audited, as other downloads are not.
+// Human-only (`x-agent: false`): the document carries the parties' TRNs in clear, as a tax invoice
+// must.
+//
+// GET /v1/outgoing-e-invoices/{id}/content
+func (c *Client) GetOutgoingEInvoiceContent(ctx context.Context, params GetOutgoingEInvoiceContentParams) (GetOutgoingEInvoiceContentRes, error) {
+	res, err := c.sendGetOutgoingEInvoiceContent(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetOutgoingEInvoiceContent(ctx context.Context, params GetOutgoingEInvoiceContentParams) (res GetOutgoingEInvoiceContentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getOutgoingEInvoiceContent"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/outgoing-e-invoices/{id}/content"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetOutgoingEInvoiceContentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/outgoing-e-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/content"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetOutgoingEInvoiceContentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetOutgoingEInvoiceContentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

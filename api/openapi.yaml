@@ -27594,6 +27594,152 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/outgoing-e-invoices:
+    post:
+      operationId: createOutgoingEInvoice
+      tags:
+        - einvoicing
+      summary: Render a posted customer invoice or credit memo as a PINT AE e-invoice
+      description: "Renders a posted customer document of a UAE company as its e-invoice in PINT AE, UBL 2.1 (ADR-0061 §9, As built E2; SAP Document and Reporting Compliance's outgoing e-document): a customer invoice as a tax invoice (type code 380, a UBL `Invoice`) and a customer credit memo as a tax credit note (381, a UBL `CreditNote`) naming the invoice it credits and the reason the caller gives (`credit_note_reason`, BTAE-03, required for a credit memo and refused for an invoice). A billing document's e-invoice is that of the customer invoice it posted as (`source_document_id`), and a credit memo request's that of its customer credit memo. The document carries the seller (the company: its name, postal address with its emirate, its FTA registration's TRN and the endpoint `0235:` and the TRN's first ten digits) and the buyer (the customer: its legal address on the invoice date with its emirate, its UAE TRN, scheme `AE_TRN`, and the endpoint from it), each item as a line of quantity 1 at its net amount with its tax code's category (S, Z, E, O or AE) and rate on the tax date, the VAT per category and the totals, the VAT total in AED as the posting converted it when the document is not in AED, and the transaction type flags BTAE-02 all unset (none of the special cases is rendered). Before anything is kept the document is checked against the mandatory fields (`problems`): one that fails any is recorded `invalid`, its problems listed and no XML kept, and may be rendered again once the master data is corrected; one that passes is `valid`, its XML kept write-once in object storage under its SHA-256 (ADR-0016) with the customer document as the legal original, final: a second render answers it unchanged. Each render that records or changes the e-invoice is audited (`einvoicing.outgoing.rendered`) and publishes OutgoingEInvoiceRendered; nothing is sent (sending is E3's). 201 when the e-invoice is first recorded and 200 when it existed (rendered again, or valid and answered unchanged), whatever the outcome: the problems are the document's state, not the request's. A debit memo is not rendered (422 `einvoicing.unsupported_document`: PINT AE has no debit note type, a question for the tax specialist). A customer document of a company the caller may not act in, or none, is refused as not found (422 `request.reference_not_found`); one not posted is refused (409 `einvoicing.document_not_posted`); one of a company that is not in the UAE or not in AED (422 `einvoicing.not_a_uae_company`); 503 while the server has no object storage. Human-only (`x-agent: false`)."
+      x-permission: einvoicing.outgoing.render
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - einvoicing.credit_note_reason
+        - einvoicing.document_not_posted
+        - einvoicing.not_a_uae_company
+        - einvoicing.unsupported_document
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The posted customer invoice or credit memo to render, and a credit memo's reason.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutgoingEInvoiceRender"
+            examples:
+              invoice:
+                summary: A tax invoice from a posted customer invoice
+                value:
+                  customer_invoice_id: 0192a000-0000-7000-8000-000000000f01
+              creditNote:
+                summary: A tax credit note from a posted customer credit memo
+                value:
+                  customer_invoice_id: 0192a000-0000-7000-8000-000000000f02
+                  credit_note_reason:
+                    code: CR-01
+                    text: Price reduced after delivery
+      responses:
+        "200":
+          description: The e-invoice existed; as rendered again, or valid and unchanged.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutgoingEInvoice"
+        "201":
+          description: Created; the e-invoice as first rendered, valid or invalid with its problems.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutgoingEInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/outgoing-e-invoices/{id}":
+    get:
+      operationId: getOutgoingEInvoice
+      tags:
+        - einvoicing
+      summary: Get an outgoing e-invoice
+      description: "One outgoing e-invoice as `createOutgoingEInvoice` answers it (ADR-0061 §9, As built E2): the customer document it renders by id and number, its company and customer by id, code or number and name, its type code, issue date, currency and amounts, its status (`valid` or `invalid`) with the problems of its last render, its bytes' SHA-256 and size once valid, and the PINT AE specification it follows. One of a company the caller may not act in is not found (404), as one that does not exist, so ids of other companies cannot be probed."
+      x-permission: einvoicing.outgoing.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The outgoing e-invoice.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutgoingEInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/outgoing-e-invoices/{id}/content":
+    get:
+      operationId: getOutgoingEInvoiceContent
+      tags:
+        - einvoicing
+      summary: Download an outgoing e-invoice's XML
+      description: "A valid outgoing e-invoice's PINT AE XML (ADR-0061 §8, §9, As built E2), byte for byte as rendered: kept write-once in object storage under its SHA-256, which every read compares with the `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ from it). An invalid one has no XML (409 `einvoicing.document_invalid`). Visible as `getOutgoingEInvoice` is; 503 while the server has no object storage. Reading it is not audited, as other downloads are not. Human-only (`x-agent: false`): the document carries the parties' TRNs in clear, as a tax invoice must."
+      x-permission: einvoicing.outgoing.read
+      x-agent: false
+      x-problem-codes:
+        - einvoicing.document_changed
+        - einvoicing.document_invalid
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The e-invoice's XML as rendered.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: The document bytes.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/consolidation-runs/{id}/statements/{statement}":
     get:
       operationId: getConsolidatedStatement
@@ -65281,6 +65427,100 @@ components:
         changed_at: {type: [string, 'null'], format: date-time, description: "When a fetch found those bytes; null with `changed_sha256`."}
         changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those bytes: its Operation's id, which lists the document under `fetch_operation_id` too; null with `changed_sha256`."}
         version: {type: integer, format: int32}
+    OutgoingEInvoiceRender:
+      type: object
+      description: "A posted customer document to render as an e-invoice (ADR-0061 §9, As built E2)."
+      required: [customer_invoice_id]
+      additionalProperties: false
+      properties:
+        customer_invoice_id: {type: string, format: uuid, description: "The posted customer invoice or customer credit memo (`getCustomerInvoice`)."}
+        credit_note_reason: {$ref: "#/components/schemas/CreditNoteReason"}
+    CreditNoteReason:
+      type: object
+      description: "Why a tax credit note is issued (PINT AE BTAE-03, compulsory on a credit note): required for a customer credit memo and refused for an invoice. The code is rendered as given; PINT AE's code list for it is to confirm with the tax specialist, so it is not checked against one yet."
+      required: [code, text]
+      additionalProperties: false
+      properties:
+        code: {type: string, pattern: "^[A-Za-z0-9._-]{1,20}$", description: "The reason's code."}
+        text: {type: string, minLength: 1, maxLength: 500, description: "The reason in words, printed on the credit note."}
+    OutgoingEInvoiceProblem:
+      type: object
+      description: "A mandatory field of PINT AE that a render found missing or malformed: the rule, the business term it checks and what is wrong."
+      required: [rule, term, message]
+      properties:
+        rule: {type: string, description: "The ERP's rule (`einvoicing.pint_ae.*`). Open enumeration: rules may be added within /v1."}
+        term: {type: string, description: "The PINT AE business term it checks (IBT-031, BTAE-03, ...)."}
+        message: {type: string, description: "What is missing or wrong, and what to correct."}
+    OutgoingEInvoice:
+      type: object
+      description: "A posted customer document rendered as a PINT AE e-invoice (ADR-0061 §9, As built E2): once per customer document, valid with its XML kept or invalid with the problems of its last render."
+      required: [id, customer_invoice_id, customer_invoice_number, source_document_id, source_document_number, legal_entity_id, company_code, company_name,
+        customer_id, customer_number, customer_name, kind, type_code, issue_date, currency, net_amount, tax_amount, gross_amount, reference_invoice_number,
+        specification, status, problems, sha256, size, rendered_at, version]
+      properties:
+        id: {type: string, format: uuid}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer invoice or credit memo it renders."}
+        customer_invoice_number: {type: string, description: "Its document number, the e-invoice's number (IBT-001)."}
+        source_document_id: {type: [string, 'null'], format: uuid, description: "The document of another context the customer document posted from (a billing document, `getBillingDocument`); null for one entered in receivables."}
+        source_document_number: {type: [string, 'null'], description: "That document's number; null with `source_document_id`."}
+        legal_entity_id: {type: string, format: uuid, description: "The company that issues it, the seller."}
+        company_code: {type: string, description: "The company's code."}
+        company_name: {type: string, description: "The company's name."}
+        customer_id: {type: string, format: uuid, description: "The customer, the buyer."}
+        customer_number: {type: string, description: "The customer's number."}
+        customer_name: {type: string, description: "The customer's name."}
+        kind:
+          type: string
+          x-extensible-enum: [invoice, credit_note]
+          description: "invoice (a tax invoice, from a customer invoice) or credit_note (a tax credit note, from a customer credit memo). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        type_code: {type: string, description: "Its PINT AE type code (IBT-003): 380 for a tax invoice, 381 for a tax credit note."}
+        issue_date: {type: string, format: date, description: "Its issue date (IBT-002), the customer document's date."}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "Its currency (IBT-005)."}
+        net_amount: {$ref: "#/components/schemas/Money"}
+        tax_amount: {$ref: "#/components/schemas/Money"}
+        gross_amount: {$ref: "#/components/schemas/Money"}
+        reference_invoice_number: {type: [string, 'null'], description: "The invoice a credit note credits (IBT-025); null on an invoice and on a credit memo crediting none (which is invalid)."}
+        credit_note_reason: {$ref: "#/components/schemas/CreditNoteReason"}
+        specification: {type: string, description: "The specification it follows (IBT-024, CustomizationID): urn:peppol:pint:billing-1@ae-1."}
+        status:
+          type: string
+          x-extensible-enum: [valid, invalid]
+          description: "valid (every mandatory field checked, its XML kept: final) or invalid (`problems` lists what is missing; rendered again once corrected). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1 (sending adds its statuses, E3)."
+        problems:
+          type: array
+          items: {$ref: "#/components/schemas/OutgoingEInvoiceProblem"}
+          description: "What its last render found missing or wrong, in the rules' order; empty when valid."
+        sha256: {type: [string, 'null'], pattern: "^[0-9a-f]{64}$", description: "The SHA-256 of its XML, hex; null while invalid."}
+        size: {type: [integer, 'null'], format: int64, description: "The size of its XML in bytes; null while invalid."}
+        rendered_at: {type: string, format: date-time, description: "When it was last rendered."}
+        version: {type: integer, format: int32}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f11
+          customer_invoice_id: 0192a000-0000-7000-8000-000000000f01
+          customer_invoice_number: "1800000007"
+          source_document_id: null
+          source_document_number: null
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "5000"
+          company_name: Maple Gulf Trading
+          customer_id: 0192a000-0000-7000-8000-000000000301
+          customer_number: "100045"
+          customer_name: Desert Rose Retail
+          kind: invoice
+          type_code: "380"
+          issue_date: "2026-11-19"
+          currency: AED
+          net_amount: {amount: "10000.00", currency: AED}
+          tax_amount: {amount: "500.00", currency: AED}
+          gross_amount: {amount: "10500.00", currency: AED}
+          reference_invoice_number: null
+          specification: "urn:peppol:pint:billing-1@ae-1"
+          status: valid
+          problems: []
+          sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+          size: 4096
+          rendered_at: "2026-11-19T10:00:00Z"
+          version: 1
     ConsolidationRunPage:
       type: object
       description: One page of consolidation runs, newest first.

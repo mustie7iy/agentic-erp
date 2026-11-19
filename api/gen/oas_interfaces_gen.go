@@ -453,6 +453,10 @@ type CreateOutboundDeliveryRes interface {
 	createOutboundDeliveryRes()
 }
 
+type CreateOutgoingEInvoiceRes interface {
+	createOutgoingEInvoiceRes()
+}
+
 type CreatePartnerChangeRes interface {
 	createPartnerChangeRes()
 }
@@ -1091,6 +1095,14 @@ type GetOrgUnitRes interface {
 
 type GetOutboundDeliveryRes interface {
 	getOutboundDeliveryRes()
+}
+
+type GetOutgoingEInvoiceContentRes interface {
+	getOutgoingEInvoiceContentRes()
+}
+
+type GetOutgoingEInvoiceRes interface {
+	getOutgoingEInvoiceRes()
 }
 
 type GetParkedJournalEntryRes interface {

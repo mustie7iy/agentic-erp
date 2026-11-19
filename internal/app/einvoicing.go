@@ -21,7 +21,7 @@ func EInvoicing(cfg Config) *einvoicing.Endpoints {
 	return &einvoicing.Endpoints{
 		Connectors: einvoiceConnectors{integration.EInvoiceProviders{Secrets: resolver(cfg.Secrets), RefuseStandIn: cfg.RefuseEBICS}},
 		Companies:  einvoiceCompanies{}, Runs: runOperations{kind: einvoicing.KindFetch}, Objects: cfg.Objects,
-		Adapter: einvoicing.Adapters(cfg.Providers), Pages: cfg.Pages, Now: cfg.Now}
+		Adapter: einvoicing.Adapters(cfg.Providers), Pages: cfg.Pages, Now: cfg.Now, Sales: einvoiceSales{keys: cfg.FieldKeys}}
 }
 
 // einvoiceConnectors gives the einvoicing context the einvoice_provider

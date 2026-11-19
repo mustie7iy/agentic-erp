@@ -2580,6 +2580,42 @@ func (UnimplementedHandler) CreateOutboundDelivery(ctx context.Context, req *Out
 	return r, ht.ErrNotImplemented
 }
 
+// CreateOutgoingEInvoice implements createOutgoingEInvoice operation.
+//
+// Renders a posted customer document of a UAE company as its e-invoice in PINT AE, UBL 2.1 (ADR-0061
+// §9, As built E2; SAP Document and Reporting Compliance's outgoing e-document): a customer invoice
+// as a tax invoice (type code 380, a UBL `Invoice`) and a customer credit memo as a tax credit note
+// (381, a UBL `CreditNote`) naming the invoice it credits and the reason the caller gives
+// (`credit_note_reason`, BTAE-03, required for a credit memo and refused for an invoice). A billing
+// document's e-invoice is that of the customer invoice it posted as (`source_document_id`), and a
+// credit memo request's that of its customer credit memo. The document carries the seller (the
+// company: its name, postal address with its emirate, its FTA registration's TRN and the endpoint
+// `0235:` and the TRN's first ten digits) and the buyer (the customer: its legal address on the
+// invoice date with its emirate, its UAE TRN, scheme `AE_TRN`, and the endpoint from it), each item as
+// a line of quantity 1 at its net amount with its tax code's category (S, Z, E, O or AE) and rate on
+// the tax date, the VAT per category and the totals, the VAT total in AED as the posting converted it
+// when the document is not in AED, and the transaction type flags BTAE-02 all unset (none of the
+// special cases is rendered). Before anything is kept the document is checked against the mandatory
+// fields (`problems`): one that fails any is recorded `invalid`, its problems listed and no XML kept,
+// and may be rendered again once the master data is corrected; one that passes is `valid`, its XML
+// kept write-once in object storage under its SHA-256 (ADR-0016) with the customer document as the
+// legal original, final: a second render answers it unchanged. Each render that records or changes the
+// e-invoice is audited (`einvoicing.outgoing.rendered`) and publishes OutgoingEInvoiceRendered;
+// nothing is sent (sending is E3's). 201 when the e-invoice is first recorded and 200 when it existed
+// (rendered again, or valid and answered unchanged), whatever the outcome: the problems are the
+// document's state, not the request's. A debit memo is not rendered (422
+// `einvoicing.unsupported_document`: PINT AE has no debit note type, a question for the tax
+// specialist). A customer document of a company the caller may not act in, or none, is refused as not
+// found (422 `request.reference_not_found`); one not posted is refused (409
+// `einvoicing.document_not_posted`); one of a company that is not in the UAE or not in AED (422
+// `einvoicing.not_a_uae_company`); 503 while the server has no object storage. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/outgoing-e-invoices
+func (UnimplementedHandler) CreateOutgoingEInvoice(ctx context.Context, req *OutgoingEInvoiceRender, params CreateOutgoingEInvoiceParams) (r CreateOutgoingEInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreatePartnerChange implements createPartnerChange operation.
 //
 // Opens a pending partner change of kind `update`. At most one pending change of each kind per partner
@@ -5290,6 +5326,35 @@ func (UnimplementedHandler) GetOrgUnit(ctx context.Context, params GetOrgUnitPar
 //
 // GET /v1/outbound-deliveries/{id}
 func (UnimplementedHandler) GetOutboundDelivery(ctx context.Context, params GetOutboundDeliveryParams) (r GetOutboundDeliveryRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetOutgoingEInvoice implements getOutgoingEInvoice operation.
+//
+// One outgoing e-invoice as `createOutgoingEInvoice` answers it (ADR-0061 §9, As built E2): the
+// customer document it renders by id and number, its company and customer by id, code or number and
+// name, its type code, issue date, currency and amounts, its status (`valid` or `invalid`) with the
+// problems of its last render, its bytes' SHA-256 and size once valid, and the PINT AE specification
+// it follows. One of a company the caller may not act in is not found (404), as one that does not
+// exist, so ids of other companies cannot be probed.
+//
+// GET /v1/outgoing-e-invoices/{id}
+func (UnimplementedHandler) GetOutgoingEInvoice(ctx context.Context, params GetOutgoingEInvoiceParams) (r GetOutgoingEInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetOutgoingEInvoiceContent implements getOutgoingEInvoiceContent operation.
+//
+// A valid outgoing e-invoice's PINT AE XML (ADR-0061 §8, §9, As built E2), byte for byte as
+// rendered: kept write-once in object storage under its SHA-256, which every read compares with the
+// `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ from it). An
+// invalid one has no XML (409 `einvoicing.document_invalid`). Visible as `getOutgoingEInvoice` is; 503
+// while the server has no object storage. Reading it is not audited, as other downloads are not.
+// Human-only (`x-agent: false`): the document carries the parties' TRNs in clear, as a tax invoice
+// must.
+//
+// GET /v1/outgoing-e-invoices/{id}/content
+func (UnimplementedHandler) GetOutgoingEInvoiceContent(ctx context.Context, params GetOutgoingEInvoiceContentParams) (r GetOutgoingEInvoiceContentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

@@ -129,6 +129,9 @@ type Endpoints struct {
 	Adapter func(Connector) (Provider, error)
 	Pages   *pagination.Codec
 	Now     func() time.Time
+	// Sales reads the posted customer documents that outgoing e-invoices
+	// render (ADR-0061 §9, As built E2).
+	Sales Sales
 }
 
 // Within runs fn in a transaction of the fetch's tenant, as Fetcher: the
