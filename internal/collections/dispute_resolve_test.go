@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/collections"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -391,4 +392,47 @@ type failingInvoices struct{ collections.Invoices }
 
 func (failingInvoices) Invoice(context.Context, uuid.UUID) (receivables.Invoice, error) {
 	return receivables.Invoice{}, fmt.Errorf("invoices unavailable")
+}
+
+// TestCreditMemosInParts: an invoice of two taxed items with odd amounts
+// credited in full by five cases' credit memos, one after the other: each
+// memo's gross is exactly what its case accepted, together the invoice's
+// gross, and the tax they give back, rounded once per memo (ADR-0049 §8),
+// is within a minor unit per memo of the tax the invoice bore (ADR-0065
+// As built T86d).
+func TestCreditMemosInParts(t *testing.T) {
+	e := setupResolving(t)
+	inv := e.invoiceFor(t, "10.03 A1", "7.77 A1")
+	if g := amount(t, inv, "gross_amount"); g != "21.18 EUR" {
+		t.Fatalf("the invoice: got %s, want 21.18 EUR", g)
+	}
+	entry := apitest.String(t, inv, "journal_entry_id")
+	var gross, tax money.Minor
+	parts := []string{"2.11", "2.11", "2.11", "2.11", "12.74"}
+	for _, part := range parts {
+		id, tag := e.caseOn(t, entry+" "+part)
+		got, _ := e.Must(200, "POST", "/v1/dispute-cases/"+id+":resolve", `{"resolution": "credit_memo", "reason": "x", "posting_date": "2026-06-30"}`, tag)
+		memo, _ := e.Must(200, "GET", "/v1/customer-invoices/"+apitest.String(t, objects(t, got, "items")[0], "credit_memo_id"), "", "")
+		if g := amount(t, memo, "gross_amount"); g != part+" EUR" {
+			t.Errorf("the memo of %s: got gross %s, want exactly what was accepted", part, g)
+		}
+		gross += minor(t, memo, "gross_amount")
+		tax += minor(t, memo, "tax_amount")
+	}
+	if want := minor(t, inv, "gross_amount"); gross != want {
+		t.Errorf("the memos' gross together: got %d, want the invoice's %d", gross, want)
+	}
+	if bore, d := minor(t, inv, "tax_amount"), money.Minor(len(parts)); tax < bore-d || tax > bore+d {
+		t.Errorf("the memos' tax together: got %d, want within %d of the %d the invoice bore", tax, d, bore)
+	}
+}
+
+// minor is an amount field in minor units of a currency of two digits.
+func minor(t *testing.T, m map[string]any, field string) money.Minor {
+	t.Helper()
+	v, err := money.ParseDecimal(fmt.Sprint(apitest.Object(t, m, field)["amount"]), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
 }

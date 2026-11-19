@@ -334,13 +334,13 @@ func (e *Endpoints) creditMemo(ctx context.Context, c Case, it CaseItem, inv rec
 // accepted part of its gross amount: the accepted amount shared out over
 // the items by their gross amounts, and each item's share over its net
 // amount and its tax by theirs (money.Allocate, so each level adds up
-// exactly), the tax given as the share of what the item bore, as sales'
-// credit memos give theirs (ADR-0063 As built T85d). An item whose share
+// exactly), the tax given as the share of what the item bore, rounded
+// once per memo (ADR-0049 §8; ADR-0065 As built T86d). An item whose share
 // is zero is left out.
 func creditedItems(inv receivables.Invoice, accepted money.Minor) []receivables.ItemInput {
 	grosses := make([]*big.Rat, len(inv.Items))
 	for i, it := range inv.Items {
-		grosses[i] = new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(it.Net+it.Tax)), big.NewInt(int64(accepted))), big.NewInt(int64(inv.Gross)))
+		grosses[i] = ratio(it.Net+it.Tax, accepted, inv.Gross)
 	}
 	shares, _ := money.Allocate(grosses) // the shares add up to the accepted amount, at most the invoice's gross: in range
 	var out []receivables.ItemInput
@@ -348,10 +348,8 @@ func creditedItems(inv receivables.Invoice, accepted money.Minor) []receivables.
 		if shares[i] == 0 {
 			continue
 		}
-		gross := big.NewInt(int64(it.Net + it.Tax))
-		parts, _ := money.Allocate([]*big.Rat{new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(it.Net)), big.NewInt(int64(shares[i]))), gross),
-			// They add up to the item's share: in range.
-			new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(it.Tax)), big.NewInt(int64(shares[i]))), gross)})
+		// The parts add up to the item's share: in range.
+		parts, _ := money.Allocate([]*big.Rat{ratio(it.Net, shares[i], it.Net+it.Tax), ratio(it.Tax, shares[i], it.Net+it.Tax)})
 		tax := parts[1]
 		out = append(out, receivables.ItemInput{Description: it.Description, AccountID: it.AccountID,
 			Net: receivables.Amount{Value: parts[0].Plain(inv.Exponent), Currency: inv.Currency}, TaxCode: it.TaxCode, TaxJurisdiction: it.TaxJurisdiction,

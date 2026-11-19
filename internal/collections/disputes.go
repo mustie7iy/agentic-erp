@@ -210,9 +210,13 @@ func share(it ledger.ReceivableItem, amount money.Minor) money.Minor {
 // shareOf is part of whole's share of lc: lc × part ÷ whole, rounded half
 // away from zero; part is from zero to whole, which is above zero.
 func shareOf(lc, part, whole money.Minor) money.Minor {
-	r := new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(lc)), big.NewInt(int64(part))), big.NewInt(int64(whole)))
-	out, _ := money.Round(r, 0) // never out of range: at most lc, as part is at most whole
+	out, _ := money.Round(ratio(lc, part, whole), 0) // never out of range: at most lc, as part is at most whole
 	return out
+}
+
+// ratio is a × b ÷ c exactly; c is above zero.
+func ratio(a, b, c money.Minor) *big.Rat {
+	return new(big.Rat).SetFrac(new(big.Int).Mul(big.NewInt(int64(a)), big.NewInt(int64(b))), big.NewInt(int64(c)))
 }
 
 // customerNumber is the business partner number of the item's customer.

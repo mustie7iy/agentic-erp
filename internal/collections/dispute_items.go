@@ -70,8 +70,8 @@ func caseItems(ctx context.Context, tx pgx.Tx, cases []Case) error {
 		FROM collections.dispute_case_item WHERE dispute_case_id = ANY($1) ORDER BY dispute_case_id, item_no`, ids)
 	var id uuid.UUID
 	var it CaseItem
-	_, err := pgx.ForEachRow(rows, []any{&id, &it.ItemNo, &it.ID, &it.FiscalYear, &it.EntryID, &it.LineNo, &it.AccountID, &it.DocumentNumber,
-		&it.Reference,
+	_, err := pgx.ForEachRow(rows, []any{&id, &it.ItemNo, &it.ID, &it.FiscalYear, &it.EntryID, &it.LineNo, &it.AccountID,
+		&it.DocumentNumber, &it.Reference,
 		&it.Amount, &it.AmountLC, &it.Accepted, &it.AcceptedLC, &it.CreditMemoID, &it.CreditMemoNumber}, func() error {
 		c := &cases[at[id]]
 		c.Items = append(c.Items, it)
