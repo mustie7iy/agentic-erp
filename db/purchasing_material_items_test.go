@@ -1,6 +1,7 @@
 package db
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -44,6 +45,45 @@ func TestCatalogItemMaterialRule(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			tenant, item := id(), id()
 			err := asApp(t, tenant, func(tx pgx.Tx) error { return all(tx, c.run(tenant, item)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestRequisitionItemMaterialNumber (S1f2, migration 000397): a
+// requisition item keeps a number only beside the material it names, of
+// 1 to 40 characters; an item may name a material without one (entered
+// before S1f2).
+func TestRequisitionItemMaterialNumber(t *testing.T) {
+	need(t)
+	const requisition = `INSERT INTO procurement.requisition (tenant_id, id, document_number, legal_entity_id, requester_id, currency, requisition_date,
+		status, created_by, updated_by) VALUES ($1, $2, 'PR1', gen_random_uuid(), $1, 'EUR', '2026-06-15', 'draft', $1, $1)`
+	const item = `INSERT INTO procurement.requisition_item (tenant_id, requisition_id, item_no, description, quantity, uom_code, unit_price, account_id,
+		material_id, material_number) VALUES ($1, $2, 1, 'Bracket', 2, 'EA', 100, gen_random_uuid(), $3, $4)`
+	for _, c := range []struct {
+		name     string
+		material any
+		number   any
+		want     string
+	}{
+		{"a material with its number", id(), "100000001", ""},
+		{"a material without a number", id(), nil, ""},
+		{"neither", nil, nil, ""},
+		{"a number without a material", nil, "100000001", "requisition_item_material_number"},
+		{"an empty number", id(), "", "requisition_item_material_number"},
+		{"a number of 41 characters", id(), strings.Repeat("9", 41), "requisition_item_material_number"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, req := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				return all(tx, step(requisition, tenant, req), step(item, tenant, req, c.material, c.number))
+			})
 			if c.want != "" {
 				failsWith(t, err, c.want)
 				return

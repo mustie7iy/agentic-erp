@@ -661,9 +661,14 @@ catalog's keys mapped), plan-supply-chain.md §S1f.
   `procurement.catalog_item.material_id` (expand: nullable); the
   application may update a catalog item's `material_id`, which
   `catalog_item_material_fixed` lets it set once and never change or clear,
-  for the tables' owner too (schema test
-  `db/purchasing_material_items_test.go`). A requisition item's
-  `material_id` (000006, unchecked until now) is checked as it is entered.
+  for the tables' owner too; `procurement.requisition_item.material_number`,
+  the material's number kept beside its id as SAP's item keeps MATNR
+  (`requisition_item_material_number`: only with a material, 1 to 40
+  characters; schema tests `db/purchasing_material_items_test.go`). A
+  requisition item's `material_id` (000006, unchecked until now) is checked
+  as it is entered, and the item answers the number as its `item_key` when
+  it has no catalog item's (review round 1: an id with the number a
+  consumer needs).
 - **Purchasing items** are checked as a sales item is (422
   `request.reference_not_found`, `procurement.material_not_usable`,
   `procurement.key_not_material` naming the RFQ item's `material_key` or the
@@ -678,11 +683,13 @@ catalog's keys mapped), plan-supply-chain.md §S1f.
   taken from it (which may send that material or none, 422
   `procurement.catalog_item_override` otherwise), from a requisition item
   to the RFQ item created from it, and from an RFQ item to its award's
-  contract item and to the purchase order an award creates. An RFQ names a
-  material once (its keys are unique): a requisition whose items name one
-  material more than once gives those items RFQ keys of the requisition's
-  number and their item number, without the material (decided by default;
-  merging them is not the RFQ's to decide). A purchase order's item keeps
+  contract item and to the purchase order an award creates. An RFQ's keys
+  are unique: a requisition item is asked for by its key (its catalog
+  item's, or its material's number), and items sharing a key (one material
+  twice, or a material whose number an unmapped catalog item's key is)
+  are each asked for by the requisition's number and their item number,
+  without the material, rather than refused (decided by default; review
+  round 1: such a requisition could otherwise never be sourced). A purchase order's item keeps
   answering `material_id` only for a stock item (S1e).
 - **The mapping** (`POST /v1/catalog-material-mappings`,
   `procurement.catalog.manage`) maps a company's catalog, the master data
@@ -691,9 +698,11 @@ catalog's keys mapped), plan-supply-chain.md §S1f.
   takes it, its version raised, audited and published
   (`CatalogItemChanged` gains `material_id` within v1). The items are locked
   in key and id order, so two runs of a company wait for each other; a
-  second run maps nothing twice. The report lists every key still without
-  a material before the run, `mapped`, `no_material` or `not_mappable`
-  with its reason, and its items' count. It answers 200 with its report, a
+  second run maps nothing twice (a test holds the first run's transaction
+  and sees the second wait). The report lists every key still without a
+  material before the run, `mapped`, `no_material` or `not_mappable` with
+  its reason (the status, or every unit that is none of the material's),
+  and its items' count, with the items of each outcome totalled. It answers 200 with its report, a
   run as `/v1/accrual-proposals` is, not a collection custom method (those
   answer 202 with an Operation).
 - **Documents are not re-keyed** (decided by default): a quotation, sales

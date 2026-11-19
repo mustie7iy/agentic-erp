@@ -2048,7 +2048,9 @@ against GR/IR on the valuation class's accounts (§3.35).
 
 A requisition item, an RFQ item and a catalog item may name a material
 (migration 000397, S1f2, ADR-0082 As built S1f): `requisition_item.material_id`
-(000006, checked as it is entered from S1f2), `rfq_item.material_id` and
+(000006, checked as it is entered from S1f2) with its number
+(`requisition_item.material_number`, `requisition_item_material_number`),
+`rfq_item.material_id` and
 `catalog_item.material_id`, the materials context's by id, the item's key
 (`material_key`, `item_key`) its number. A catalog item's material is set
 when it is loaded or once by a mapping of the company's keys, and never

@@ -2,9 +2,12 @@ package procurement_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -12,7 +15,10 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 )
 
@@ -72,8 +78,8 @@ func TestMaterialRequisitionItems(t *testing.T) {
 	r := e.requisition(t, items(e.ofMaterial(bracket, "2 BOX", ""), e.ofMaterial(bracket, "3 EA", `, "description": "Loose brackets"`)), "")
 	for i, want := range []string{"Machined bracket M10", "Loose brackets"} {
 		it := apitest.List(t, r, "items")[i].(map[string]any)
-		if it["material_id"] != bracket || it["description"] != want {
-			t.Errorf("requisition item %d: got %v %v, want %s %s", i+1, it["material_id"], it["description"], bracket, want)
+		if got := fmt.Sprintf("%v %v %v", it["material_id"], it["item_key"], it["description"]); got != bracket+" 100000001 "+want {
+			t.Errorf("requisition item %d: got %s, want %s 100000001 %s", i+1, got, bracket, want)
 		}
 	}
 
@@ -129,6 +135,29 @@ func TestMaterialSourced(t *testing.T) {
 		it := v.(map[string]any)
 		if got := fmt.Sprintf("%v %v", it["material_key"], it["material_id"]); got != want[i] {
 			t.Errorf("RFQ item %d: got %s, want %s", i+1, got, want[i])
+		}
+	}
+}
+
+// TestMaterialSourcedKeyShared: a material whose number is also an
+// unmapped catalog item's key on the same requisition is asked for by
+// the requisition's number and item number, both items without the
+// material, rather than refused: the RFQ's keys are once each.
+func TestMaterialSourcedKeyShared(t *testing.T) {
+	e := setupIn2026(t)
+	bracket := e.material(t, "100000001", "active")
+	c := e.catalogItem(t, e.Supplier, "100000001", "Brackets", "2.00", "")
+	pgtest.Exec(t, `UPDATE procurement.catalog_item SET uom_code = 'M', version = version + 1 WHERE id = $1`, id(c)) // left unmapped
+	req := e.requisition(t, items(fmt.Sprintf(`{"catalog_item_id": %q, "quantity": {"value": "1", "unit": "M"}, "account_id": %q}`, id(c), e.office),
+		e.ofMaterial(bracket, "2 EA", "")), `, "needed_by": "2026-07-20"`)
+	e.act(t, "/v1/requisitions/"+id(req), "submit", "")
+	e.Approve(t, id(req))
+	r, _ := e.Must(201, "POST", "/v1/rfqs", e.sourcingBody(id(req), "", e.Supplier), "")
+	number := fmt.Sprint(req["document_number"])
+	for i, v := range apitest.List(t, r, "items") {
+		it := v.(map[string]any)
+		if got, want := fmt.Sprintf("%v %v", it["material_key"], it["material_id"]), fmt.Sprintf("%s/%d <nil>", number, i+1); got != want {
+			t.Errorf("RFQ item %d: got %s, want %s", i+1, got, want)
 		}
 	}
 }
@@ -192,8 +221,10 @@ func TestCatalogMapping(t *testing.T) {
 	e.act(t, "/v1/catalog-items/"+id(retired), "retire", "")
 	body := fmt.Sprintf(`{"legal_entity_id": %q}`, e.DE)
 	got, _ := e.Must(200, "POST", "/v1/catalog-material-mappings", body, "")
-	if got["mapped_items"] != float64(1) || got["company_code"] != "2000" {
-		t.Errorf("mapped: got %v items of %v, want 1 of 2000", got["mapped_items"], got["company_code"])
+	for field, want := range map[string]any{"company_code": "2000", "mapped_items": float64(1), "no_material_items": float64(1), "not_mappable_items": float64(2)} {
+		if got[field] != want {
+			t.Errorf("%s: got %v, want %v", field, got[field], want)
+		}
 	}
 	want := []string{"100000001 mapped " + bracket + " 1", "100000001 not_mappable " + bracket + " 1", "100000002 not_mappable " + blocked + " 1",
 		"CHAIR-01 no_material <nil> 1"}
@@ -210,7 +241,7 @@ func TestCatalogMapping(t *testing.T) {
 	if r := keys[2].(map[string]any)["reason"]; r != "material 100000002 is blocked" {
 		t.Errorf("the blocked material's reason: got %v", r)
 	}
-	if r := keys[1].(map[string]any)["reason"]; r != "M is no unit of material 100000001 (its base unit EA or an alternative unit)." {
+	if r := keys[1].(map[string]any)["reason"]; r != "ordered in M, none of material 100000001's units (its base unit EA or an alternative unit)" {
 		t.Errorf("the other unit's reason: got %v", r)
 	}
 	mapped, tag := e.Must(200, "GET", "/v1/catalog-items/"+id(box), "", "")
@@ -230,8 +261,11 @@ func TestCatalogMapping(t *testing.T) {
 		t.Errorf("CatalogItemChanged with the material: got %d, want 1", published)
 	}
 	again, _ := e.Must(200, "POST", "/v1/catalog-material-mappings", body, "")
-	if again["mapped_items"] != float64(0) || len(apitest.List(t, again, "keys")) != 3 {
-		t.Errorf("a second run: got %v mapped and keys %v, want none mapped and the three left", again["mapped_items"], again["keys"])
+	if again["mapped_items"] != float64(0) {
+		t.Errorf("a second run: got %v mapped, want none", again["mapped_items"])
+	}
+	if n := len(apitest.List(t, again, "keys")); n != 3 {
+		t.Errorf("a second run's keys: got %d, want the three left", n)
 	}
 }
 
@@ -284,3 +318,60 @@ func TestMaterialReadFails(t *testing.T) {
 }
 
 var _ procurement.Materials = failingMaterials{}
+
+// TestCatalogMappingsWait: a mapping of a company's catalog waits for
+// another one holding its unmapped items, and then finds them mapped and
+// maps nothing twice.
+func TestCatalogMappingsWait(t *testing.T) {
+	e := setupIn2026(t)
+	e.material(t, "100000001", "active")
+	e.catalogItem(t, e.Supplier, "100000001", "Brackets", "2.00", "")
+	ctx := context.Background()
+	first, err := pgtest.Pool(t).Begin(ctx, database.Scope{Role: "erp_app", TenantID: e.Tenant.ID})
+	if err != nil {
+		t.Fatalf("begin the first mapping: %v", err)
+	}
+	second := make(chan map[string]any, 1)
+	drained := false
+	defer func() { // release the second mapping, then wait for it, however the test ends
+		_ = first.Rollback(context.WithoutCancel(ctx)) // after a commit there is nothing to roll back
+		if !drained {
+			<-second
+		}
+	}()
+	if err := database.SetActor(ctx, first, e.Tenant.Human.ID); err != nil {
+		t.Fatalf("first mapping's actor: %v", err)
+	}
+	fctx := reqctx.WithPrincipal(reqctx.WithTx(ctx, first), reqctx.Principal{ID: e.Tenant.Human.ID, Kind: e.Tenant.Human.Kind, TenantID: e.Tenant.ID})
+	fctx, _ = audit.WithBuffer(fctx)
+	got, err := endpoints().MapCatalogItemMaterials(fctx, &gen.CatalogMaterialMapping{LegalEntityID: e.DE}, gen.MapCatalogItemMaterialsParams{})
+	if err != nil {
+		t.Fatalf("the first mapping: %v", err)
+	}
+	if n := got.(*gen.CatalogMaterialMappingReportHeaders).Response.MappedItems; n != 1 {
+		t.Fatalf("the first mapping: got %d mapped, want 1", n)
+	}
+	auth := http.Header{"Authorization": {"Bearer " + e.API.Issuer.Token(t, e.Tenant.ID, e.Tenant.Human.Subject, nil)}}
+	go func() {
+		r := e.API.Do(apitest.Req{Method: "POST", Path: "/v1/catalog-material-mappings", Key: apitest.NewKey(), Header: auth,
+			Body: fmt.Sprintf(`{"legal_entity_id": %q}`, e.DE)})
+		var m map[string]any
+		_ = json.Unmarshal(r.Body.Bytes(), &m) // a body that is no JSON leaves m nil, which the check below reports
+		second <- m
+	}()
+	admin := pgtest.Admin(t)
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		var waiting bool
+		err := admin.QueryRow(ctx, `SELECT EXISTS (SELECT FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+			AND query LIKE '%procurement.catalog_item%FOR UPDATE%')`).Scan(&waiting)
+		return err == nil && waiting
+	}, "the second mapping never waited for the first")
+	if err := first.Commit(ctx); err != nil {
+		t.Fatalf("commit the first mapping: %v", err)
+	}
+	m := <-second
+	drained = true
+	if m["mapped_items"] != float64(0) {
+		t.Errorf("the second mapping: got %v mapped, want none (the first mapped the item)", m["mapped_items"])
+	}
+}

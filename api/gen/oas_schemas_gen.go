@@ -22779,7 +22779,8 @@ type CatalogKeyMapping struct {
 	MaterialNumber OptString `json:"material_number"`
 	// Its description; absent for `no_material`.
 	MaterialDescription OptString `json:"material_description"`
-	// Why the key's items were not mapped, for `not_mappable`.
+	// Why the key's items were not mapped, for `not_mappable`: the material's status, or the units its
+	// items are ordered in that are none of the material's.
 	Reason OptString `json:"reason"`
 	// The key's catalog items: those mapped, or those left without a material.
 	Items int32 `json:"items"`
@@ -22881,10 +22882,16 @@ type CatalogMaterialMappingReport struct {
 	CompanyCode string `json:"company_code"`
 	// The company's name.
 	CompanyName string `json:"company_name"`
-	// The catalog items this run gave a material.
+	// The catalog items this run gave a material: the sum of the `mapped` keys' `items`.
 	MappedItems int32 `json:"mapped_items"`
+	// The active catalog items left without a material because no material has their key as its number:
+	// the sum of the `no_material` keys' `items`.
+	NoMaterialItems int32 `json:"no_material_items"`
+	// The active catalog items left without a material because the material of their key's number is not
+	// active or they are ordered in none of its units: the sum of the `not_mappable` keys' `items`.
+	NotMappableItems int32 `json:"not_mappable_items"`
 	// Every item key of the company's active catalog items that named no material before the run, in the
-	// order of the keys.
+	// order of the keys; a key whose items were partly mapped is listed once per outcome.
 	Keys []CatalogKeyMapping `json:"keys"`
 }
 
@@ -22906,6 +22913,16 @@ func (s *CatalogMaterialMappingReport) GetCompanyName() string {
 // GetMappedItems returns the value of MappedItems.
 func (s *CatalogMaterialMappingReport) GetMappedItems() int32 {
 	return s.MappedItems
+}
+
+// GetNoMaterialItems returns the value of NoMaterialItems.
+func (s *CatalogMaterialMappingReport) GetNoMaterialItems() int32 {
+	return s.NoMaterialItems
+}
+
+// GetNotMappableItems returns the value of NotMappableItems.
+func (s *CatalogMaterialMappingReport) GetNotMappableItems() int32 {
+	return s.NotMappableItems
 }
 
 // GetKeys returns the value of Keys.
@@ -22931,6 +22948,16 @@ func (s *CatalogMaterialMappingReport) SetCompanyName(val string) {
 // SetMappedItems sets the value of MappedItems.
 func (s *CatalogMaterialMappingReport) SetMappedItems(val int32) {
 	s.MappedItems = val
+}
+
+// SetNoMaterialItems sets the value of NoMaterialItems.
+func (s *CatalogMaterialMappingReport) SetNoMaterialItems(val int32) {
+	s.NoMaterialItems = val
+}
+
+// SetNotMappableItems sets the value of NotMappableItems.
+func (s *CatalogMaterialMappingReport) SetNotMappableItems(val int32) {
+	s.NotMappableItems = val
 }
 
 // SetKeys sets the value of Keys.
@@ -96574,7 +96601,8 @@ type RequisitionItem struct {
 	// The catalog item the item was taken from (`GET /v1/catalog-items/{id}`), whose description, unit and
 	// price it took (ADR-0071 §6); absent for an item the requester described.
 	CatalogItemID OptUUID `json:"catalog_item_id"`
-	// That catalog item's key; absent for an item the requester described.
+	// That catalog item's key, or, for an item of a material without one, the material's number (S1f2);
+	// absent for an item the requester described without a material.
 	ItemKey OptString `json:"item_key"`
 }
 
@@ -102077,9 +102105,10 @@ type RfqItem struct {
 	// contract's item name it by; the material's number for an item of a material.
 	MaterialKey string `json:"material_key"`
 	// The material asked for (S1f2, `GET /v1/materials/{id}`), whose number is `material_key`; absent for
-	// an item without one. An RFQ from a requisition takes its item's material, unless another of the
-	// requisition's items names the same material: then the item is asked for by the requisition's number
-	// and its item number, without the material.
+	// an item without one. An RFQ from a requisition takes its item's material, keyed by its number,
+	// unless another of the requisition's items has the same key (the same material, or a catalog item
+	// keyed by that number): then each of them is asked for by the requisition's number and its item
+	// number, without the material.
 	MaterialID OptUUID `json:"material_id"`
 	// Description.
 	Description string `json:"description"`

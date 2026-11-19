@@ -3,6 +3,8 @@ package procurement
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -39,12 +41,12 @@ type KeyMapping struct {
 	Items    int32
 }
 
-// CatalogMapping is a mapping's report: the company, the items it gave a
-// material, and its keys in order.
+// CatalogMapping is a mapping's report: the company, its keys in order,
+// and the items of each outcome.
 type CatalogMapping struct {
 	Company tenancy.Entity
-	Mapped  int32
 	Keys    []KeyMapping
+	Items   map[string]int32 // by outcome
 }
 
 // mapCatalogMaterials maps a company's catalog keys onto materials. The
@@ -78,17 +80,20 @@ func (e *Endpoints) mapCatalogMaterials(ctx context.Context, company uuid.UUID) 
 	if err != nil {
 		return CatalogMapping{}, fmt.Errorf("procurement: materials of %d catalog keys: %w", len(keys), err)
 	}
-	out := CatalogMapping{Company: le}
+	out := CatalogMapping{Company: le, Items: map[string]int32{}}
 	for start := 0; start < len(items); {
 		end := start + 1
 		for end < len(items) && items[end].ItemKey == items[start].ItemKey {
 			end++
 		}
-		got, mapped, err := e.mapKey(ctx, tx, p, items[start:end], ms)
+		got, err := e.mapKey(ctx, tx, p, items[start:end], ms)
 		if err != nil {
 			return CatalogMapping{}, err
 		}
-		out.Keys, out.Mapped, start = append(out.Keys, got...), out.Mapped+mapped, end
+		for _, k := range got {
+			out.Items[k.Outcome] += k.Items
+		}
+		out.Keys, start = append(out.Keys, got...), end
 	}
 	return out, nil
 }
@@ -96,26 +101,28 @@ func (e *Endpoints) mapCatalogMaterials(ctx context.Context, company uuid.UUID) 
 // mapKey maps the items of one key onto the material of that number: an
 // active material's, each item ordered in one of its units. It reports
 // the key's mapped items and those left, with why, in that order.
-func (e *Endpoints) mapKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal, items []CatalogItem, ms map[string]materials.Material) ([]KeyMapping, int32, error) {
+func (e *Endpoints) mapKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal, items []CatalogItem, ms map[string]materials.Material) ([]KeyMapping, error) {
 	key := items[0].ItemKey
 	m, ok := ms[key]
 	switch {
 	case !ok:
-		return []KeyMapping{{Key: key, Outcome: KeyNoMaterial, Items: int32(len(items))}}, 0, nil
+		return []KeyMapping{{Key: key, Outcome: KeyNoMaterial, Items: int32(len(items))}}, nil
 	case m.Status != materials.Active:
 		return []KeyMapping{{Key: key, Outcome: KeyNotMappable, Material: &m, Reason: "material " + m.Number + " is " + m.Status,
-			Items: int32(len(items))}}, 0, nil
+			Items: int32(len(items))}}, nil
 	}
 	var mapped, left int32
 	var units []string
 	for _, c := range items {
 		if _, err := m.Factor(c.Unit); err != nil {
 			left++
-			units = append(units, c.Unit)
+			if !slices.Contains(units, c.Unit) {
+				units = append(units, c.Unit)
+			}
 			continue
 		}
 		if err := e.mapItem(ctx, tx, p, c, m.ID); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		mapped++
 	}
@@ -125,9 +132,10 @@ func (e *Endpoints) mapKey(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 	}
 	if left > 0 {
 		out = append(out, KeyMapping{Key: key, Outcome: KeyNotMappable, Material: &m, Items: left,
-			Reason: m.UnitRefusal("", units[0], materials.ErrUnknownUnit)})
+			Reason: "ordered in " + strings.Join(units, ", ") + ", none of material " + m.Number + "'s units (its base unit " + m.BaseUnit +
+				" or an alternative unit)"})
 	}
-	return out, mapped, nil
+	return out, nil
 }
 
 // mapItem gives a locked catalog item its material, raising its version,
@@ -151,7 +159,7 @@ func (e *Endpoints) MapCatalogItemMaterials(ctx context.Context, req *gen.Catalo
 		return nil, err
 	}
 	out := gen.CatalogMaterialMappingReport{LegalEntityID: got.Company.ID, CompanyCode: got.Company.Code, CompanyName: got.Company.Name,
-		MappedItems: got.Mapped, Keys: make([]gen.CatalogKeyMapping, len(got.Keys))}
+		MappedItems: got.Items[KeyMapped], NoMaterialItems: got.Items[KeyNoMaterial], NotMappableItems: got.Items[KeyNotMappable], Keys: make([]gen.CatalogKeyMapping, len(got.Keys))}
 	for i, k := range got.Keys {
 		out.Keys[i] = gen.CatalogKeyMapping{ItemKey: k.Key, Outcome: k.Outcome, Reason: apitypes.OptText(k.Reason), Items: k.Items}
 		if k.Material != nil {

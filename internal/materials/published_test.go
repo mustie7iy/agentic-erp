@@ -88,7 +88,7 @@ func mustRat(t *testing.T, s string) *big.Rat {
 }
 
 // TestByNumber: the published API reads materials by number, keyed by
-// it; a number of no material has no entry.
+// it; a number of no material has no entry; by no ids it reads none.
 func TestByNumber(t *testing.T) {
 	e := setup(t)
 	m := e.create(t, nil)
@@ -101,8 +101,22 @@ func TestByNumber(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[number].ID.String() != m["id"] {
-		t.Errorf("got %v, want material %s alone", got, number)
+	if len(got) != 1 {
+		t.Errorf("materials read: got %d, want material %s alone", len(got), number)
+	}
+	if id := got[number].ID.String(); id != m["id"] {
+		t.Errorf("material %s: got id %s, want %v", number, id, m["id"])
+	}
+	var none map[uuid.UUID]materials.Material
+	if err := e.inRequest(t, func(ctx context.Context) error {
+		var err error
+		none, err = materials.Materials{}.Materials(ctx, nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(none) != 0 {
+		t.Errorf("no ids: got %v, want none", none)
 	}
 }
 

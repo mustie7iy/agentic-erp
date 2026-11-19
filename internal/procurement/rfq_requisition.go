@@ -56,31 +56,24 @@ func (e *Endpoints) sourced(ctx context.Context, tx pgx.Tx, le uuid.UUID, in New
 	return req.Currency, items, &req, nil
 }
 
-// sourcedInputs are the requisition's items as an RFQ's: an item of a
-// material named by no other item asks for that material, keyed by its
-// number (S1f2); any other item is keyed by its catalog key, or by the
+// sourcedInputs are the requisition's items as an RFQ's: each keyed by
+// its key, its catalog item's or its material's number (S1f2), or by the
 // requisition's number and its item number when it has none or shares it
 // with another item, so that every key is once in the RFQ (ADR-0069 §2).
-// An item whose material another item names too is asked for by that
-// key alone, without its material: an RFQ names a material once.
+// An item of a material keeps it while it keeps the material's number as
+// its key: an RFQ item of a material is keyed by its number, and names a
+// material once.
 func sourcedInputs(r Requisition) []ItemInput {
-	keys, materials := map[string]int{}, map[uuid.UUID]int{}
+	keys := map[string]int{}
 	for _, it := range r.Items {
 		keys[it.MaterialKey]++
-		if it.MaterialID != nil {
-			materials[*it.MaterialID]++
-		}
 	}
 	in := make([]ItemInput, len(r.Items))
 	for i, it := range r.Items {
-		in[i] = ItemInput{Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, AccountID: it.AccountID}
-		switch {
-		case it.MaterialID != nil && materials[*it.MaterialID] == 1:
-			in[i].MaterialID = it.MaterialID // keyed by the material's number (materialItem)
-		case it.MaterialKey == "" || keys[it.MaterialKey] > 1 || it.MaterialID != nil:
-			in[i].MaterialKey = fmt.Sprintf("%s/%d", r.DocumentNumber, it.No)
-		default:
-			in[i].MaterialKey = it.MaterialKey
+		in[i] = ItemInput{MaterialID: it.MaterialID, MaterialKey: it.MaterialKey, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
+			AccountID: it.AccountID}
+		if it.MaterialKey == "" || keys[it.MaterialKey] > 1 {
+			in[i].MaterialID, in[i].MaterialKey = nil, fmt.Sprintf("%s/%d", r.DocumentNumber, it.No)
 		}
 	}
 	return in

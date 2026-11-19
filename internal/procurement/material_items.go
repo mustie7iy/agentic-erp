@@ -37,19 +37,13 @@ func itemFields(field, keyField string) materialFields {
 	return materialFields{material: field + ".material_id", key: key, unit: field + ".quantity.unit"}
 }
 
-// materialsOf reads the materials the ids name, once each; none when no
-// id is given.
+// materialsOf reads the materials the ids name; a nil id names none.
 func (e *Endpoints) materialsOf(ctx context.Context, ids []*uuid.UUID) (map[uuid.UUID]materials.Material, error) {
 	var named []uuid.UUID
-	seen := map[uuid.UUID]bool{}
 	for _, id := range ids {
-		if id != nil && !seen[*id] {
-			seen[*id] = true
+		if id != nil {
 			named = append(named, *id)
 		}
-	}
-	if len(named) == 0 {
-		return nil, nil
 	}
 	ms, err := e.Materials.Materials(ctx, named)
 	if err != nil {
@@ -97,9 +91,11 @@ func materialText(ms map[uuid.UUID]materials.Material, f materialFields, id *uui
 }
 
 // materialItem completes item i of a requisition or an RFQ from the
-// material it names (materialText): its description, and, for an item
-// keyed by keyField (an RFQ's material_key), its key. An item that names
-// no material is returned as it is.
+// material it names (materialText): its description and its key, the
+// material's number, which a requisition's item keeps beside the
+// material and an RFQ's sends as material_key (keyField; "" for a
+// requisition's, which sends none). An item that names no material is
+// returned as it is.
 func materialItem(ms map[uuid.UUID]materials.Material, i int, keyField string, it ItemInput) (ItemInput, error) {
 	var key *string
 	if keyField != "" && it.MaterialKey != "" {
@@ -109,10 +105,7 @@ func materialItem(ms map[uuid.UUID]materials.Material, i int, keyField string, i
 	if err != nil || !ok {
 		return it, err
 	}
-	it.Description = text.Description
-	if keyField != "" {
-		it.MaterialKey = text.Key
-	}
+	it.Description, it.MaterialKey = text.Description, text.Key
 	return it, nil
 }
 

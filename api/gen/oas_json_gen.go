@@ -53660,6 +53660,14 @@ func (s *CatalogMaterialMappingReport) encodeFields(e *jx.Encoder) {
 		e.Int32(s.MappedItems)
 	}
 	{
+		e.FieldStart("no_material_items")
+		e.Int32(s.NoMaterialItems)
+	}
+	{
+		e.FieldStart("not_mappable_items")
+		e.Int32(s.NotMappableItems)
+	}
+	{
 		e.FieldStart("keys")
 		e.ArrStart()
 		for _, elem := range s.Keys {
@@ -53669,12 +53677,14 @@ func (s *CatalogMaterialMappingReport) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCatalogMaterialMappingReport = [5]string{
+var jsonFieldsNameOfCatalogMaterialMappingReport = [7]string{
 	0: "legal_entity_id",
 	1: "company_code",
 	2: "company_name",
 	3: "mapped_items",
-	4: "keys",
+	4: "no_material_items",
+	5: "not_mappable_items",
+	6: "keys",
 }
 
 // Decode decodes CatalogMaterialMappingReport from json.
@@ -53734,8 +53744,32 @@ func (s *CatalogMaterialMappingReport) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"mapped_items\"")
 			}
-		case "keys":
+		case "no_material_items":
 			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Int32()
+				s.NoMaterialItems = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"no_material_items\"")
+			}
+		case "not_mappable_items":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int32()
+				s.NotMappableItems = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"not_mappable_items\"")
+			}
+		case "keys":
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				s.Keys = make([]CatalogKeyMapping, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -53762,7 +53796,7 @@ func (s *CatalogMaterialMappingReport) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00011111,
+		0b01111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

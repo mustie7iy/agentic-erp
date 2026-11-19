@@ -29,19 +29,13 @@ type Materials interface {
 	Materials(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]materials.Material, error)
 }
 
-// itemMaterials reads the materials the items name, once each; none when
-// no item names one.
+// itemMaterials reads the materials the items name.
 func (e *Endpoints) itemMaterials(ctx context.Context, in []ItemInput) (map[uuid.UUID]materials.Material, error) {
 	var ids []uuid.UUID
-	seen := map[uuid.UUID]bool{}
 	for _, it := range in {
-		if it.MaterialID != nil && !seen[*it.MaterialID] {
-			seen[*it.MaterialID] = true
+		if it.MaterialID != nil {
 			ids = append(ids, *it.MaterialID)
 		}
-	}
-	if len(ids) == 0 {
-		return nil, nil
 	}
 	ms, err := e.Materials.Materials(ctx, ids)
 	if err != nil {
