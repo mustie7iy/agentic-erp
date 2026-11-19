@@ -10,9 +10,13 @@
 // <id>.receiver the participant it is addressed to, and <id>.acknowledged
 // a line per acknowledgement, which takes it off the pending list. It
 // answers requests bearing the token in the token file and runs until it
-// is stopped.
+// is stopped. With -evatra it also emulates Evatra's API under /evatra
+// (einvoicetest.Evatra, ADR-0061 As built E1) for the account the file
+// holds as JSON ({"apiKey", "email", "companyId"}), over the same inbox:
+// the walkthrough's Evatra connector reads from there, as the server
+// replaces Evatra's hosts with the stand-in in the walkthrough alone.
 //
-//	providerstub -addr 127.0.0.1:18444 -ca provider.pem -token token -inbox inbox
+//	providerstub -addr 127.0.0.1:18444 -ca provider.pem -token token -inbox inbox [-evatra evatra.json]
 package main
 
 import (
@@ -23,6 +27,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"flag"
@@ -49,9 +54,10 @@ func main() {
 	ca := flag.String("ca", "", "where to write the stand-in's certificate, PEM")
 	token := flag.String("token", "", "the file holding the bearer token requests must bear")
 	inbox := flag.String("inbox", "", "the directory of the messages")
+	evatra := flag.String("evatra", "", "the file holding the Evatra account to emulate, JSON; empty: none")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := run(ctx, *addr, *ca, *token, *inbox)
+	err := run(ctx, *addr, *ca, *token, *inbox, *evatra)
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "providerstub:", err)
@@ -59,7 +65,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, addr, ca, tokenFile, inbox string) error {
+func run(ctx context.Context, addr, ca, tokenFile, inbox, evatraFile string) error {
 	ap, err := netip.ParseAddrPort(addr)
 	if err != nil || !ap.Addr().IsLoopback() {
 		return errors.New("addr: the walkthrough's provider listens on a loopback address and port only")
@@ -67,6 +73,10 @@ func run(ctx context.Context, addr, ca, tokenFile, inbox string) error {
 	token, err := os.ReadFile(tokenFile) // #nosec G304 G703 -- the walkthrough names its own file
 	if err != nil {
 		return fmt.Errorf("token: %w", err)
+	}
+	handler, err := handler(dir(inbox), strings.TrimSpace(string(token)), evatraFile)
+	if err != nil {
+		return err
 	}
 	cert, certPEM, err := selfSigned(ap.Addr())
 	if err != nil {
@@ -76,7 +86,7 @@ func run(ctx context.Context, addr, ca, tokenFile, inbox string) error {
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
-	srv := &http.Server{Handler: einvoicetest.Handler(dir(inbox), strings.TrimSpace(string(token))), ReadHeaderTimeout: 10 * time.Second,
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second,
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ServeTLS(ln, "", "") }()
@@ -93,6 +103,32 @@ func run(ctx context.Context, addr, ca, tokenFile, inbox string) error {
 	case err := <-errc:
 		return fmt.Errorf("serve: %w", err)
 	}
+}
+
+// handler serves the stand-in's protocol at the root and, with an Evatra
+// account file, Evatra's API under /evatra.
+func handler(store dir, token, evatraFile string) (http.Handler, error) {
+	standIn := einvoicetest.Handler(store, token)
+	if evatraFile == "" {
+		return standIn, nil
+	}
+	raw, err := os.ReadFile(evatraFile) // #nosec G304 G703 -- the walkthrough names its own file
+	if err != nil {
+		return nil, fmt.Errorf("evatra: %w", err)
+	}
+	var account struct {
+		APIKey    string `json:"apiKey"`
+		Email     string `json:"email"`
+		CompanyID string `json:"companyId"`
+	}
+	if err := json.Unmarshal(raw, &account); err != nil || account.APIKey == "" || account.Email == "" || account.CompanyID == "" {
+		return nil, errors.New("evatra: the file holds no account: a JSON object with apiKey, email and companyId")
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/", standIn)
+	mux.Handle("/evatra/", http.StripPrefix("/evatra", (&einvoicetest.Evatra{Store: store,
+		Account: einvoicetest.EvatraAccount{APIKey: account.APIKey, Email: account.Email, CompanyID: account.CompanyID}}).Handler()))
+	return mux, nil
 }
 
 // selfSigned is a certificate for ip, a day long, and its PEM.

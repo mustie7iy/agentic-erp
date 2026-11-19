@@ -14,9 +14,13 @@ import (
 )
 
 // The provider client's bounds (ADR-0061 §3): a document of up to 10 MiB,
-// 60 s per call; the connection's 5 s are the egress client's.
+// 60 s per call; the connection's 5 s are the egress client's. An answer
+// may be up to MaxAnswer: a document of MaxDocument in Base64 (Evatra's
+// form) with room for the JSON around it; each adapter holds the document
+// itself to MaxDocument.
 const (
 	MaxDocument = 10 << 20
+	MaxAnswer   = (MaxDocument+2)/3*4 + 4<<10
 	CallTimeout = 60 * time.Second
 )
 
@@ -29,8 +33,9 @@ type Message struct {
 }
 
 // Provider is an accredited e-invoicing provider as one tenant's access
-// point (ADR-0061 §3). Implementations: the stand-in (tests, walkthrough)
-// and, once chosen, one adapter per provider (Q1).
+// point (ADR-0061 §3). Implementations: Evatra's adapter (Evatra, the first
+// provider, po:2026-11-19) and the stand-in (tests, walkthrough); a second
+// provider is one more adapter. Sending (Send, Status) is E3's.
 type Provider interface {
 	// Pending lists the documents received and not yet acknowledged.
 	Pending(ctx context.Context) ([]Message, error)
@@ -46,27 +51,48 @@ type Provider interface {
 // addresses only, no redirects, the system roots (ADR-0031), with the
 // provider's bounds; opts add the walkthrough's stand-in.
 func NewClient(opts ...egress.Option) (*egress.Client, error) {
-	return egress.New(append([]egress.Option{egress.ResponseLimit(MaxDocument), egress.CallTimeout(CallTimeout)}, opts...)...)
+	return egress.New(append([]egress.Option{egress.ResponseLimit(MaxAnswer), egress.CallTimeout(CallTimeout)}, opts...)...)
+}
+
+// LocalAcknowledgement is a provider that keeps no acknowledgement
+// (Evatra): its Acknowledge does nothing and its Pending lists documents
+// already kept, so a fetch leaves out those recorded and acknowledged
+// (ADR-0061 As built E1).
+type LocalAcknowledgement interface {
+	AcknowledgesLocally()
 }
 
 // Adapters gives the provider of a connector's adapter, called through
-// client: the stand-in, the only one until a provider is chosen.
-func Adapters(client *egress.Client) func(Connector) (Provider, error) {
+// client: Evatra's, at the host of the connector's environment among
+// evatra (nil: EvatraHosts), its tokens kept for every connector of the
+// server, or the stand-in's.
+func Adapters(client *egress.Client, evatra map[string]string, now func() time.Time) func(Connector) (Provider, error) {
+	if evatra == nil {
+		evatra = EvatraHosts
+	}
+	if now == nil {
+		now = time.Now
+	}
+	sessions := &EvatraSessions{}
 	return func(c Connector) (Provider, error) {
 		if client == nil {
 			return nil, problem.Unavailable("This server has no client for e-invoicing providers.", 0)
 		}
-		if c.Adapter != "standin" {
-			return nil, problem.Unprocessable("integration.invalid_settings", "Connector "+c.Name+" names the adapter "+c.Adapter+", which this server does not have.")
+		switch c.Adapter {
+		case "evatra":
+			return newEvatra(client, evatra, sessions, now, c)
+		case "standin":
+			return &StandIn{Client: client, BaseURL: strings.TrimSuffix(c.BaseURL, "/"), Token: c.Secret}, nil
 		}
-		return &StandIn{Client: client, BaseURL: strings.TrimSuffix(c.BaseURL, "/"), Token: c.Secret}, nil
+		return nil, problem.Unprocessable("integration.invalid_settings", "Connector "+c.Name+" names the adapter "+c.Adapter+", which this server does not have.")
 	}
 }
 
 // StandIn is the provider's stand-in (ADR-0061 §3): an HTTP server for
 // tests and the walkthrough (einvoicetest), called through the egress
 // client as a real provider would be, with its credentials as a bearer
-// token. Its protocol is its own, no provider's:
+// token. Its protocol is its own, no provider's (einvoicetest emulates
+// Evatra's API besides, for the Evatra adapter):
 //
 //	GET  {base}/messages                   {"messages": [{"id": ..., "receiver": ...}]}
 //	GET  {base}/messages/{id}              the document's bytes
@@ -111,7 +137,7 @@ func (s *StandIn) Fetch(ctx context.Context, id string) ([]byte, error) {
 		return nil, fmt.Errorf("einvoicing: fetch message %s: %w", id, err)
 	case resp.Status != http.StatusOK:
 		return nil, fmt.Errorf("einvoicing: fetch message %s: answered %d", id, resp.Status)
-	case resp.Truncated:
+	case resp.Truncated || len(resp.Body) > MaxDocument:
 		return nil, tooLarge(id)
 	}
 	return resp.Body, nil

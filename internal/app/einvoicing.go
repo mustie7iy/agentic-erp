@@ -16,12 +16,13 @@ import (
 // EInvoicing is the einvoicing context as the API wires it (ADR-0061 §2):
 // a leaf that reads the integration, tenancy and operations contexts
 // through the adapters below, so none of them imports it and it imports
-// none of them. Its providers are called through cfg.Providers.
+// none of them. Its providers are called through cfg.Providers, Evatra at
+// cfg.EvatraHosts (nil: Evatra's own hosts).
 func EInvoicing(cfg Config) *einvoicing.Endpoints {
 	return &einvoicing.Endpoints{
 		Connectors: einvoiceConnectors{integration.EInvoiceProviders{Secrets: resolver(cfg.Secrets), RefuseStandIn: cfg.RefuseEBICS}},
 		Companies:  einvoiceCompanies{}, Runs: runOperations{kind: einvoicing.KindFetch}, Objects: cfg.Objects,
-		Adapter: einvoicing.Adapters(cfg.Providers), Pages: cfg.Pages, Now: cfg.Now}
+		Adapter: einvoicing.Adapters(cfg.Providers, cfg.EvatraHosts, cfg.Now), Pages: cfg.Pages, Now: cfg.Now}
 }
 
 // einvoiceConnectors gives the einvoicing context the einvoice_provider
@@ -30,8 +31,8 @@ type einvoiceConnectors struct{ p integration.EInvoiceProviders }
 
 func (c einvoiceConnectors) Provider(ctx context.Context, id uuid.UUID) (einvoicing.Connector, error) {
 	p, err := c.p.Provider(ctx, id)
-	return einvoicing.Connector{ID: p.ID, Name: p.Name, Adapter: p.Adapter, BaseURL: p.BaseURL, Participants: p.Participants, Format: p.Format,
-		Secret: p.Secret}, err
+	return einvoicing.Connector{ID: p.ID, Name: p.Name, Adapter: p.Adapter, BaseURL: p.BaseURL, Environment: p.Environment, CompanyID: p.CompanyID,
+		Participants: p.Participants, Format: p.Format, Secret: p.Secret}, err
 }
 
 func (c einvoiceConnectors) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {

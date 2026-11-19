@@ -2623,7 +2623,8 @@ func TestWebhookClient(t *testing.T) {
 // addresses only, and with the walkthrough's provider stand-in (which
 // config.Load reads in development alone) at it too; a stand-in the
 // egress client refuses stops the server before it serves (ADR-0061 As
-// built).
+// built). Evatra's hosts are its own, replaced by the stand-in in the
+// walkthrough alone (ADR-0061 As built E1).
 func TestProviderClient(t *testing.T) {
 	roots := x509.NewCertPool()
 	if c, err := providerClient(config.Config{}); c == nil || err != nil {
@@ -2636,6 +2637,12 @@ func TestProviderClient(t *testing.T) {
 	refused := config.Config{Walkthrough: config.Walkthrough{Provider: netip.MustParseAddrPort("10.0.0.1:18444"), ProviderRoots: roots}}
 	if err := (&server{cfg: refused}).newAPI(); err == nil || !strings.Contains(err.Error(), "the walkthrough's e-invoicing provider") {
 		t.Errorf("a stand-in off the machine: got %v, want the server refused", err)
+	}
+	if got := evatraHosts(config.Config{}); got != nil {
+		t.Errorf("Evatra's hosts without a stand-in: got %v, want its own (nil)", got)
+	}
+	if got := evatraHosts(walk); got["stage"] != "https://127.0.0.1:18444/evatra" || got["prod"] != got["stage"] {
+		t.Errorf("Evatra's hosts in the walkthrough: got %v, want the stand-in's for both", got)
 	}
 }
 

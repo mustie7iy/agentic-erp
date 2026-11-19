@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -42,8 +43,9 @@ func (e *Endpoints) QueueEInvoiceFetch(ctx context.Context, operation, connector
 }
 
 // FetchEInvoices implements POST /v1/e-invoices:fetch (ADR-0061 §4): the
-// connector is resolved as a fetch would resolve it, so one that cannot
-// be fetched from is refused now, and the fetch is queued as its
+// connector is resolved, into its adapter, as a fetch would resolve it,
+// without calling the provider, so one that cannot be fetched from is
+// refused now, and the fetch is queued as its
 // Operation, which the workflows dispatcher (or the in-process runner)
 // carries out. The request is audited in the caller's name
 // (einvoicing.fetch.request, on the Operation; ADR-0011), since what the
@@ -52,7 +54,11 @@ func (e *Endpoints) FetchEInvoices(ctx context.Context, req *gen.EInvoiceFetch, 
 	if e.Objects == nil {
 		return nil, noStore()
 	}
-	if _, err := e.Connectors.Provider(ctx, req.ConnectorID); err != nil {
+	c, err := e.Connectors.Provider(ctx, req.ConnectorID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := e.Adapter(c); err != nil { // the adapter's own refusals (Evatra's credentials not its form), with no call made
 		return nil, err
 	}
 	op, err := e.Runs.Start(ctx, connectorPath(req.ConnectorID), req)
@@ -103,7 +109,11 @@ func (e *Endpoints) provider(ctx context.Context, connector uuid.UUID, in Within
 //
 // A server without object storage refuses it before the provider is asked,
 // as FetchEInvoices refuses to queue a fetch there: a scheduled fetch
-// reaches this step without that request.
+// reaches this step without that request. A provider that keeps no
+// acknowledgement (LocalAcknowledgement: Evatra) lists documents already
+// kept: those recorded and acknowledged are left out, in a transaction
+// of their own after the provider answered, so the fetch takes only the
+// new ones and those whose acknowledgement was lost.
 func (e *Endpoints) PendingEInvoices(ctx context.Context, connector uuid.UUID, in Within) ([]Message, error) {
 	if e.Objects == nil {
 		return nil, noStore()
@@ -112,7 +122,32 @@ func (e *Endpoints) PendingEInvoices(ctx context.Context, connector uuid.UUID, i
 	if err != nil {
 		return nil, err
 	}
-	return p.Pending(ctx)
+	ms, err := p.Pending(ctx)
+	if _, local := p.(LocalAcknowledgement); err != nil || !local || len(ms) == 0 {
+		return ms, err
+	}
+	var out []Message
+	return out, inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, _ reqctx.Principal) error {
+		out, err = unacknowledged(ctx, tx, connector, ms)
+		return err
+	})
+}
+
+// unacknowledged are the messages of ms that the connector's documents do
+// not hold as recorded and acknowledged, in ms's order.
+func unacknowledged(ctx context.Context, tx pgx.Tx, connector uuid.UUID, ms []Message) ([]Message, error) {
+	ids := make([]string, len(ms))
+	for i, m := range ms {
+		ids[i] = m.ID
+	}
+	rows, _ := tx.Query(ctx, `SELECT message_id FROM einvoicing.einvoice
+		WHERE connector_id = $1 AND message_id = ANY($2) AND acknowledged_at IS NOT NULL`, connector, ids)
+	kept := map[string]bool{}
+	var id string
+	if _, err := pgx.ForEachRow(rows, []any{&id}, func() error { kept[id] = true; return nil }); err != nil {
+		return nil, fmt.Errorf("einvoicing: the documents of connector %s kept already: %w", connector, err)
+	}
+	return slices.DeleteFunc(ms, func(m Message) bool { return kept[m.ID] }), nil
 }
 
 // RecordEInvoice records one message of the connector's provider for the

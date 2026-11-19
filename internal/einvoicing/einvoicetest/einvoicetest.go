@@ -1,8 +1,11 @@
 // Package einvoicetest is the e-invoicing provider's stand-in (ADR-0061
 // §3): an HTTPS server speaking the stand-in adapter's protocol
-// (einvoicing.StandIn), for tests (Server, on loopback with its own
-// certificate) and for the walkthrough (providerstub, over a directory).
-// It answers 401 to a request without the bearer token it was given.
+// (einvoicing.StandIn) and emulating Evatra's API (Evatra, for the Evatra
+// adapter, ADR-0061 As built E1), for tests (Server, on loopback with its
+// own certificate) and for the walkthrough (providerstub, over a
+// directory). The stand-in's protocol answers 401 to a request without
+// the bearer token it was given; Evatra's to one without a token its
+// login issued.
 package einvoicetest
 
 import (
@@ -89,8 +92,12 @@ func Handler(store Store, token string) http.Handler {
 // Server is the stand-in for a test: messages held in memory, its
 // acknowledgements counted, and answers it can be told to fail.
 type Server struct {
-	URL   string         // the base URL, https on loopback
-	Roots *x509.CertPool // its certificate, for egress.LoopbackForTests
+	URL       string         // the stand-in protocol's base URL, https on loopback
+	EvatraURL string         // Evatra's API's, the same server
+	Roots     *x509.CertPool // its certificate, for egress.LoopbackForTests
+	// Evatra is Evatra's API over the same messages, for the account
+	// {token, EvatraEmail, EvatraCompany}.
+	Evatra *Evatra
 
 	mu       sync.Mutex
 	messages []Message
@@ -103,9 +110,13 @@ type Server struct {
 func NewServer(t *testing.T, token string) *Server {
 	t.Helper()
 	s := &Server{acked: map[string]int{}, fail: map[string]int{}}
-	srv := httptest.NewTLSServer(s.failing(Handler(s, token)))
+	s.Evatra = &Evatra{Store: s, Account: EvatraAccount{APIKey: token, Email: EvatraEmail, CompanyID: EvatraCompany}}
+	mux := http.NewServeMux()
+	mux.Handle("/provider/", http.StripPrefix("/provider", Handler(s, token)))
+	mux.Handle("/evatra/", http.StripPrefix("/evatra", s.Evatra.Handler()))
+	srv := httptest.NewTLSServer(s.failing(mux))
 	t.Cleanup(srv.Close)
-	s.URL = srv.URL + "/provider"
+	s.URL, s.EvatraURL = srv.URL+"/provider", srv.URL+"/evatra"
 	s.Roots = x509.NewCertPool()
 	s.Roots.AddCert(srv.Certificate())
 	return s
@@ -113,9 +124,9 @@ func NewServer(t *testing.T, token string) *Server {
 
 // failing answers 503 to a path while Fail says to, then serves next.
 func (s *Server) failing(next http.Handler) http.Handler {
-	return http.StripPrefix("/provider", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
-		key := r.Method + " " + r.URL.Path
+		key := r.Method + " " + strings.TrimPrefix(r.URL.Path, "/provider")
 		fail := s.fail[key] > 0
 		if fail {
 			s.fail[key]--
@@ -126,7 +137,7 @@ func (s *Server) failing(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
-	}))
+	})
 }
 
 // Deliver makes a message pending at the stand-in.
@@ -150,7 +161,8 @@ func (s *Server) Redeliver(id string, body []byte) {
 }
 
 // Fail makes the next times answers to the method and path (below the
-// base URL, such as "GET /messages") fail with 503.
+// stand-in protocol's base URL, such as "GET /messages", or Evatra's
+// below the server, such as "POST /evatra/auth/login") fail with 503.
 func (s *Server) Fail(methodPath string, times int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -486,7 +486,7 @@ func TestStandIn(t *testing.T) {
 		"another adapter": {client, "acme", "integration.invalid_settings"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := einvoicing.Adapters(c.client)(einvoicing.Connector{Name: "P", Adapter: c.adapter}); problem.From(err).Code != c.code {
+			if _, err := einvoicing.Adapters(c.client, nil, nil)(einvoicing.Connector{Name: "P", Adapter: c.adapter}); problem.From(err).Code != c.code {
 				t.Errorf("got %v, want %s", err, c.code)
 			}
 		})
