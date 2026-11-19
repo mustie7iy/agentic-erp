@@ -107,7 +107,7 @@ lock the order `FOR UPDATE` as T78c's confirmation does.
   now (inventory's stock). Picking reserves nothing (SAP without WM or
   EWM, from memory); the goods issue checks the stock again under
   inventory's locks.
-- **Goods issue** (`:post-goods-issue`, `If-Match`) posts movement type
+- **Goods issue** (`:postGoodsIssue`, `If-Match`) posts movement type
   601 (goods issue for a delivery) for each item's picked quantity as one
   material document, through `inventory.Endpoints.IssueForDelivery`, on
   the company's date today, with the delivery's number as the document's
@@ -226,6 +226,9 @@ deliveries and partial goods issue: all Later in the plan.
   change's refusals (`sales.quantity_below_delivered`,
   `sales.order_item_delivered`, `sales.order_delivered`) name what is in
   outbound deliveries beside what is delivered.
+- **The range.** The walkthrough's pilot settings added Maple's
+  `outbound_delivery` range (`OD`); since batch 84 Canada 2026.12 and UAE
+  2026.9 bring it (ADR-0048 As built, count documents and deliveries).
 
 **S2b1** (migrations 000410, 000411; walkthrough step 143,
 `step_goods_issue`, and step 135, which now ships its stock item):

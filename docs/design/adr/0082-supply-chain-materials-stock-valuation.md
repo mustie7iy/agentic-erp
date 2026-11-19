@@ -808,7 +808,8 @@ migration: the external references are `integration.external_ref`'s.
   (`db/physical_inventory_test.go`, the triggers also as the owner); the
   permission `inventory.count.write` (reads under `inventory.stock.read`).
   Fixture companies number count documents `PI`; the walkthrough's pilot
-  settings add Maple's `PI` range (`physical_inventory`; no pack ships it).
+  settings add Maple's `PI` range (`physical_inventory`; since batch 84
+  Canada 2026.12 and UAE 2026.9 bring it, ADR-0048 As built).
 - `POST /v1/physical-inventory-documents` (SAP MI01), `GET` (plant,
   storage location, material, status; the latest first) and `/{id}`,
   `:enterCount` (MI04, `If-Match`). Writes are human-only

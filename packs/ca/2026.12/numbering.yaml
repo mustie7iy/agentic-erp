@@ -1,0 +1,63 @@
+# Number ranges for every document type the ERP numbers, created for the
+# fiscal year of application. Supplier invoices are gapless; journal
+# ranges cover the entries the documents post (KR, KG, WE, ZP, AB) and
+# manual entries (SA). From here on, added by 2026.9 (product
+# owner, 2026-11-12): requests for quotation, the sales documents
+# (quotations, sales orders, billing documents) and the receivables
+# documents (customer invoices, whose range numbers customer credit memos
+# too, and incoming payments) with the journal ranges of their entries
+# (DR customer invoices, DG customer credit memos, DZ incoming payments).
+# None is gapless: no source recorded in the pack says a customer
+# invoice's accounting number must be (it is not the legal tax invoice,
+# ADR-0063 §2). Added by 2026.10 (product owner, 2026-11-18): the journal
+# range of customer debit memos (DD, T75j), not gapless either.
+# Added by 2026.11 (product owner, 2026-11-19): the ranges the pilot's
+# settings added themselves until this version, none gapless:
+# returns orders (RO, T85a), credit memo requests (CR, T85c), lease
+# contracts (LC, T88a), expense reports (ER, T87a) and material documents
+# (MD, ADR-0082), with the journal ranges of the valued goods movements'
+# entries (WA issues and transfers, PR price changes; ADR-0082 §8).
+# Their prefixes and limits are the pilot's, so a company's numbers do
+# not change with the version. PR is the requisitions' prefix too: the
+# two number different records (journal entries, requisitions), as the
+# pilot's settings had them. The material range is not here: material
+# numbers are unique in the tenant (config.NumberedPerTenant, ADR-0082
+# §6), so one prefix for every company would have a second company's
+# adoption refused (config.RangeRepeats); each company sets its own.
+# Added by 2026.12 (product owner, 2026-11-19): the ranges of physical
+# inventory documents (PI, S2c) and outbound deliveries (OD, S2a), which
+# the pilot's settings added themselves until this version, 1 to 9999999,
+# neither gapless, the pilot's prefixes and limits.
+number_ranges:
+  - {document_type: requisition, prefix: PR, first: 1, last: 9999999}
+  - {document_type: purchase_order, prefix: PO, first: 1, last: 9999999}
+  - {document_type: contract, prefix: CT, first: 1, last: 999999}
+  - {document_type: goods_receipt, prefix: GR, first: 1, last: 9999999}
+  - {document_type: supplier_invoice, prefix: SI, first: 1, last: 9999999, gapless: true}
+  - {document_type: down_payment_request, prefix: DP, first: 1, last: 999999}
+  - {document_type: payment_run, prefix: PY, first: 1, last: 999999}
+  - {document_type: journal_sa, prefix: SA, first: 1, last: 9999999}
+  - {document_type: journal_kr, prefix: KR, first: 1, last: 9999999}
+  - {document_type: journal_kg, prefix: KG, first: 1, last: 9999999}
+  - {document_type: journal_we, prefix: WE, first: 1, last: 9999999}
+  - {document_type: journal_zp, prefix: ZP, first: 1, last: 9999999}
+  - {document_type: journal_ab, prefix: AB, first: 1, last: 9999999}
+  - {document_type: rfq, prefix: RQ, first: 1, last: 9999999}
+  - {document_type: quotation, prefix: QT, first: 1, last: 9999999}
+  - {document_type: sales_order, prefix: SO, first: 1, last: 9999999}
+  - {document_type: billing_document, prefix: BD, first: 1, last: 9999999}
+  - {document_type: customer_invoice, prefix: CI, first: 1, last: 9999999}
+  - {document_type: incoming_payment, prefix: IP, first: 1, last: 9999999}
+  - {document_type: journal_dr, prefix: DR, first: 1, last: 9999999}
+  - {document_type: journal_dg, prefix: DG, first: 1, last: 9999999}
+  - {document_type: journal_dz, prefix: DZ, first: 1, last: 9999999}
+  - {document_type: journal_dd, prefix: DD, first: 1, last: 9999999}
+  - {document_type: returns_order, prefix: RO, first: 1, last: 999999}
+  - {document_type: credit_memo_request, prefix: CR, first: 1, last: 999999}
+  - {document_type: lease_contract, prefix: LC, first: 1, last: 999999}
+  - {document_type: expense_report, prefix: ER, first: 1, last: 999999}
+  - {document_type: material_document, prefix: MD, first: 1, last: 9999999}
+  - {document_type: journal_wa, prefix: WA, first: 1, last: 9999999}
+  - {document_type: journal_pr, prefix: PR, first: 1, last: 9999999}
+  - {document_type: physical_inventory, prefix: PI, first: 1, last: 9999999}
+  - {document_type: outbound_delivery, prefix: OD, first: 1, last: 9999999}

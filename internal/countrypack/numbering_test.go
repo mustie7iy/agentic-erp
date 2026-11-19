@@ -51,6 +51,15 @@ var pilotRanges = []NumberRange{
 	{DocumentType: "journal_pr", Prefix: "PR", First: 1, Last: 9999999},
 }
 
+// stockRanges are what the fourth numbering-only versions add (Canada
+// 2026.12, UAE 2026.9; the product owner's rule of 2026-11-18): the
+// ranges of physical inventory documents (PI, S2c) and outbound
+// deliveries (OD, S2a), with the pilot's prefixes and limits.
+var stockRanges = []NumberRange{
+	{DocumentType: "physical_inventory", Prefix: "PI", First: 1, Last: 9999999},
+	{DocumentType: "outbound_delivery", Prefix: "OD", First: 1, Last: 9999999},
+}
+
 // numberingOnly fails unless next is prev with only number ranges added:
 // every file but pack.yaml and numbering.yaml is prev's byte for byte
 // (tax.yaml and returns.yaml among them), the parsed tax codes, tax
@@ -180,11 +189,18 @@ func TestCanadaPack2026_10(t *testing.T) {
 }
 
 // Canada 2026.11 is 2026.10 plus the ranges the pilot's settings added
-// themselves (product owner, 2026-11-19), under the same sign-off. It is
-// the latest Canada pack.
+// themselves (product owner, 2026-11-19), under the same sign-off.
 func TestCanadaPack2026_11(t *testing.T) {
 	lib, prev, next := numberingOnly(t, "CA", "2026.10", "2026.11", pilotRanges)
 	adoptsAddedRanges(t, lib, prev, next, "CAD", pilotRanges)
+}
+
+// Canada 2026.12 is 2026.11 plus the ranges of count documents and
+// outbound deliveries, under the same sign-off. It is the latest Canada
+// pack, after 2026.11 and 2026.2 by number, not by text.
+func TestCanadaPack2026_12(t *testing.T) {
+	lib, prev, next := numberingOnly(t, "CA", "2026.11", "2026.12", stockRanges)
+	adoptsAddedRanges(t, lib, prev, next, "CAD", stockRanges)
 	if got := lib.Latest("CA"); got != next {
 		t.Errorf("Latest(CA): got %s, want %s", got.Dir(), next.Dir())
 	}
@@ -206,11 +222,17 @@ func TestUAEPack2026_7(t *testing.T) {
 }
 
 // UAE 2026.8 is 2026.7 plus the ranges the pilot's settings added
-// themselves (product owner, 2026-11-19), under the same sign-off. It is
-// the latest UAE pack.
+// themselves (product owner, 2026-11-19), under the same sign-off.
 func TestUAEPack2026_8(t *testing.T) {
 	lib, prev, next := numberingOnly(t, "AE", "2026.7", "2026.8", pilotRanges)
 	adoptsAddedRanges(t, lib, prev, next, "AED", pilotRanges)
+}
+
+// UAE 2026.9 is 2026.8 plus the ranges of count documents and outbound
+// deliveries, under the same sign-off. It is the latest UAE pack.
+func TestUAEPack2026_9(t *testing.T) {
+	lib, prev, next := numberingOnly(t, "AE", "2026.8", "2026.9", stockRanges)
+	adoptsAddedRanges(t, lib, prev, next, "AED", stockRanges)
 	if got := lib.Latest("AE"); got != next {
 		t.Errorf("Latest(AE): got %s, want %s", got.Dir(), next.Dir())
 	}
