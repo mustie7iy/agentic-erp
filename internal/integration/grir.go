@@ -366,8 +366,8 @@ func (q *qualityCheck) grirReceipts(orders map[string]bool, positions map[string
 // reported as the record's refusal.
 //
 // It posts under the GR/IR locks lockGRIR took of every order, after the
-// goods_receipt and material_document ranges (the receipts, the stock
-// take-over) and before the journal's other ranges, the order in which a
+// goods_receipt and material_document ranges (the receipts, lockStock)
+// and before the journal's other ranges, the order in which a
 // goods movement, an invoice's posting and a GR/IR clearing take them, so
 // it never waits for an order's lock while holding a range another
 // posting on the order waits for.
@@ -418,12 +418,10 @@ type grirLock struct {
 
 // lockGRIR takes the GR/IR locks of every order takeOverGRIR posts on
 // (takenOver) and reads what it needs under them. It runs after the
-// receipts and before the stock take-over (S2p), so the run takes the
-// order items, goods_receipt, the GR/IR locks, material_document and
-// journal_we in that order: a GR/IR clearing takes an order's GR/IR lock
-// and then journal_we, and a goods receipt into stock its order item,
-// goods_receipt, material_document and then the GR/IR lock, whose items
-// the run locked first (lockOrderItems).
+// material_document ranges (lockStock) and before anything posts, so the
+// run takes them in a goods receipt into stock's order (material_document,
+// then the order's GR/IR lock) and a GR/IR clearing's (the GR/IR lock,
+// then journal_we).
 func (l *loader) lockGRIR(ctx context.Context) error {
 	orders, err := l.grirValued(ctx)
 	if err != nil {

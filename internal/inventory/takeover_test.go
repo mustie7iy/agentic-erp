@@ -8,6 +8,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/inventory"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -126,6 +127,7 @@ func TestTakeOverDatabaseFailures(t *testing.T) {
 			_, _, err := h.TakenOver(ctx, []uuid.UUID{taken.Valuation.ID}, []uuid.UUID{taken.Document.ID})
 			return err
 		},
+		"lock numbers": func(ctx context.Context) error { return h.LockNumbers(ctx, e.DE) },
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
@@ -134,5 +136,28 @@ func TestTakeOverDatabaseFailures(t *testing.T) {
 			}
 			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
 		})
+	}
+}
+
+// TestLockNumbers: LockNumbers takes the company's material_document
+// range of its year today and draws no number from it; a company that is
+// none is refused.
+func TestLockNumbers(t *testing.T) {
+	e := setup(t)
+	h := endpoints(t)
+	next := func() (n int64) {
+		pgtest.Scan(t, `SELECT next_value FROM config.number_range WHERE tenant_id = $1 AND legal_entity_id = $2 AND document_type = 'material_document'
+			ORDER BY fiscal_year DESC LIMIT 1`, []any{e.Tenant.ID, e.DE}, &n)
+		return n
+	}
+	before := next()
+	if err := e.inRequest(t, func(ctx context.Context) error { return h.LockNumbers(ctx, e.DE) }); err != nil {
+		t.Fatalf("lock the range: %v", err)
+	}
+	if after := next(); after != before {
+		t.Errorf("next number after the lock: got %d, want %d", after, before)
+	}
+	if err := e.inRequest(t, func(ctx context.Context) error { return h.LockNumbers(ctx, uuid.New()) }); err == nil {
+		t.Error("a company that is none: got nil error, want an error")
 	}
 }

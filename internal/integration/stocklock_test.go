@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -140,7 +142,7 @@ func TestStockLoadAndGRIRClearingDoNotDeadlock(t *testing.T) {
 	run := e.run(t, e.connector(t, "delta.json"), "documents", false, e.DE.String())
 	_, tag := e.Must(200, "GET", "/v1/migration-runs/"+run["id"].(string), "", "")
 
-	gate, letGo := e.holdGRIR(t, order)
+	gate, letGo := e.holdThen(t, "the GR/IR lock of order "+order, e.grirLock(order), e.rangeLock("journal_we"))
 	defer letGo()
 	load := e.async(apitest.Req{Method: "POST", Path: "/v1/migration-runs/" + run["id"].(string) + ":start", IfMatch: tag})
 	var loaded *httptest.ResponseRecorder
@@ -152,6 +154,49 @@ func TestStockLoadAndGRIRClearingDoNotDeadlock(t *testing.T) {
 			return blockedBy(t, gate) != 0
 		}
 	}, "the run neither finished nor waited for the order's GR/IR lock")
+	letGo()
+	if loaded == nil {
+		loaded = <-load
+	}
+	if loaded.Code != 202 {
+		t.Errorf("the run: got %d, want 202: %s", loaded.Code, loaded.Body)
+	}
+	got, _ := e.Must(200, "GET", "/v1/migration-runs/"+run["id"].(string), "", "")
+	if got["status"] != "loaded" {
+		t.Fatalf("delta run: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	expectFields(t, "the delta run's load", report(got)["loaded"].(map[string]any), map[string]any{"material_valuations": 3.0, "initial_entries": 3.0})
+}
+
+// TestStockLoadAndGoodsReceiptIntoStockDoNotDeadlock runs the same delta
+// load against a goods receipt into stock on an item of the migrated
+// order the run does not lock (one added on the platform, not in the
+// extract; sapstk's review round 3): such a receipt takes company 2000's
+// material_document range and then the order's GR/IR lock, which a
+// transaction standing for it holds in that order. The run takes the
+// material_document range (lockStock) before the GR/IR locks (lockGRIR),
+// so it waits for the receipt holding no GR/IR lock; a run that took the
+// GR/IR locks first would hold the order's while it waits for the range,
+// and deadlock here.
+func TestStockLoadAndGoodsReceiptIntoStockDoNotDeadlock(t *testing.T) {
+	e := stockGRIRSetup(t)
+	order := e.migratedGRIROrder(t)
+	write(t, e.dir, "delta.json", withStockOf(halfReceived()))
+	run := e.run(t, e.connector(t, "delta.json"), "documents", false, e.DE.String())
+	_, tag := e.Must(200, "GET", "/v1/migration-runs/"+run["id"].(string), "", "")
+
+	gate, letGo := e.holdThen(t, "the material_document range", e.rangeLock("material_document"), e.grirLock(order))
+	defer letGo()
+	load := e.async(apitest.Req{Method: "POST", Path: "/v1/migration-runs/" + run["id"].(string) + ":start", IfMatch: tag})
+	var loaded *httptest.ResponseRecorder
+	pgtest.Eventually(t, 10*time.Second, func() bool {
+		select {
+		case loaded = <-load:
+			return true
+		default:
+			return blockedBy(t, gate) != 0
+		}
+	}, "the run neither finished nor waited for the material_document range")
 	letGo()
 	if loaded == nil {
 		loaded = <-load
@@ -190,12 +235,26 @@ func withStockOf(x *sap.Extract) *sap.Extract {
 	return x
 }
 
-// holdGRIR takes the order's GR/IR lock in a transaction of the tenant's
-// own (Postings.TakenOverGRIR, as a posting on the order takes it) and
-// holds it until letGo, which then takes company 2000's journal_we range
-// of 2026, as the clearing's WE posting does, before it rolls back. It
-// returns that transaction's backend.
-func (e env) holdGRIR(t *testing.T, order string) (int32, func()) {
+// grirLock takes the order's GR/IR lock as a posting on it does
+// (Postings.TakenOverGRIR).
+func (e env) grirLock(order string) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		_, err := (ledger.Postings{}).TakenOverGRIR(ctx, e.DE, []uuid.UUID{uuid.MustParse(order)})
+		return err
+	}
+}
+
+// rangeLock takes company 2000's range of the document type in 2026 as
+// drawing a number does (Numbers.Lock).
+func (e env) rangeLock(documentType string) func(ctx context.Context) error {
+	return func(ctx context.Context) error { return (configuration.Numbers{}).Lock(ctx, e.DE, documentType, 2026) }
+}
+
+// holdThen runs first in a transaction of the tenant's own and holds what
+// it locked until letGo, which then runs then, as the posting it stands
+// for takes its next lock, and commits. It returns that transaction's
+// backend.
+func (e env) holdThen(t *testing.T, what string, first, then func(ctx context.Context) error) (int32, func()) {
 	t.Helper()
 	var pid atomic.Int32
 	held, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
@@ -212,25 +271,36 @@ func (e env) holdGRIR(t *testing.T, order string) (int32, func()) {
 				return err
 			}
 			pid.Store(n)
-			if _, err := (ledger.Postings{}).TakenOverGRIR(ctx, e.DE, []uuid.UUID{uuid.MustParse(order)}); err != nil {
+			if err := first(ctx); err != nil {
 				return err
 			}
 			close(held)
 			<-release
-			_, err = tx.Exec(ctx, `SELECT FROM config.number_range WHERE legal_entity_id = $1 AND document_type = 'journal_we' AND fiscal_year = 2026
-				FOR UPDATE`, e.DE)
-			return err
+			return then(ctx)
 		})
 	}()
 	select {
 	case <-held:
 	case err := <-done:
-		t.Fatalf("hold the GR/IR lock of order %s: %v", order, err)
+		t.Fatalf("hold %s: %v", what, err)
 	}
 	return pid.Load(), sync.OnceFunc(func() {
 		close(release)
 		if err := <-done; err != nil {
-			t.Errorf("the transaction holding the GR/IR lock of order %s: %v", order, err)
+			t.Errorf("the transaction holding %s: %v", what, err)
 		}
 	})
+}
+
+// TestStockWithoutMaterialDocumentRange: a company without a
+// material_document range has its range locked by nothing (lockStock),
+// and each of its take-overs is a load refusal naming the missing range.
+func TestStockWithoutMaterialDocumentRange(t *testing.T) {
+	e := stockSetup(t)
+	pgtest.Exec(t, `DELETE FROM config.number_range WHERE tenant_id = $1 AND legal_entity_id = $2 AND document_type = 'material_document'`, e.Tenant.ID, e.DE)
+	write(t, e.dir, "stock.json", withStock())
+	_, got := e.act(t, e.run(t, e.connector(t, "stock.json"), "documents", false, e.DE.String()), "start")
+	if issues := fmt.Sprint(loadIssues(got)); !strings.Contains(issues, "MBEW") || !strings.Contains(issues, "config.no_number_range") {
+		t.Errorf("load refusals: got %s, want each take-over refused for the missing material_document range", issues)
+	}
 }

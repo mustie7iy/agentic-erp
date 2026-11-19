@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/inventory"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // Stock values materials in plants and takes their stock over, and reads
@@ -14,29 +15,50 @@ import (
 // S2p).
 type Stock interface {
 	TakeOver(ctx context.Context, in inventory.StockTakeOver) (inventory.TakenOverStock, error)
+	LockNumbers(ctx context.Context, company uuid.UUID) error
 	TakenOver(ctx context.Context, valuations, documents []uuid.UUID) (map[uuid.UUID]inventory.HeldStock, map[uuid.UUID]uuid.UUID, error)
 }
 
-// stock takes over the valuations and stock of the materials the run
-// loads (stocksOf), each once: a valuation an earlier run took over is
-// kept as it is, as SAP's stock is taken over at the cutover. It runs
-// after the order item locks, the receipts and the GR/IR locks
-// (lockGRIR) and before anything posts to the ledger, so the run takes
-// the order items, goods_receipt, the GR/IR locks, material_document and
-// journal_we in the order every posting takes them (ADR-0008, ADR-0082
-// As built S2p, Locks). The receipts before it post no entry
-// (PostLoadedReceipt; SAP's is in the journal), so the run holds no
-// journal range until its first initial entry: a goods movement
-// (material_document, then journal_we) and a GR/IR clearing (the order's
-// GR/IR lock, then journal_we) wait for nothing the run takes after them.
-func (l *loader) stock(ctx context.Context) error {
+// lockStock plans the stock take-over of the materials the run loads
+// (stocksOf), each once: a valuation an earlier run took over is kept as
+// it is, as SAP's stock is taken over at the cutover. It then takes the
+// material_document range of every company whose stock it posts
+// (Stock.LockNumbers, in company code order), before the GR/IR locks
+// (lockGRIR) and anything that posts to the ledger, so the run takes the
+// order items, goods_receipt, material_document, the GR/IR locks and
+// journal_we in the order a goods receipt into stock takes them
+// (ADR-0008, ADR-0082 As built S2p, Locks).
+func (l *loader) lockStock(ctx context.Context) error {
 	plants, _ := plantsOf(l.ext)                     // the quality gate refused their errors
 	mats, _ := materialsOf(l.ext, l.t.units, plants) // and reported the materials held back
 	stocks, _ := stocksOf(l.ext, l.t, plants, mats)  // and refused the stock it cannot take over
+	posts := map[string]bool{}
+	l.stocks = nil
 	for _, s := range stocks {
 		if _, ok := l.refs["MBEW/"+s.key()]; ok {
 			continue
 		}
+		l.stocks = append(l.stocks, s)
+		if len(s.locations) > 0 {
+			posts[s.company] = true
+		}
+	}
+	for _, company := range sortedKeys(posts) {
+		// A refusal (the company has no material_document range) locks
+		// nothing: each of its take-overs is refused for it (takeOver).
+		if err := l.e.Stock.LockNumbers(ctx, l.t.entities[company].ID); err != nil && problem.From(err).Status >= 500 {
+			return err
+		}
+	}
+	return nil
+}
+
+// stock takes over what lockStock planned, under the locks it and lockGRIR
+// took. The receipts before it post no entry (PostLoadedReceipt; SAP's is
+// in the journal), so the run holds no journal range until its first
+// initial entry.
+func (l *loader) stock(ctx context.Context) error {
+	for _, s := range l.stocks {
 		if err := l.takeOver(ctx, s); err != nil {
 			return err
 		}

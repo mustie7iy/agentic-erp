@@ -896,26 +896,32 @@ references are `integration.external_ref`'s.
   plant has already, no `material_document` range) are load refusals, and
   so is a take-over whose entry falls in another fiscal year than the
   run's.
-- **Locks** (ADR-0008, review rounds 1 and 2): the run locks the order
-  items it moves and every item of the orders whose GR/IR positions it
-  takes over (`lockOrderItems`), loads the receipts (`goods_receipt`; a
-  loaded receipt posts no entry, `PostLoadedReceipt`, and the invoiced
-  take-over none), takes those orders' GR/IR locks (`lockGRIR`, split out
-  of `takeOverGRIR`), and only then takes the stock over
-  (`material_document`, `journal_we`) and posts the GR/IR take-overs. So it
-  takes order items, `goods_receipt`, GR/IR, `material_document` and
-  `journal_we` in the order of every posting that takes them: a goods
-  receipt (`POST /v1/goods-receipts`; into stock it takes
-  `material_document` before the GR/IR lock, but on an item the run locked
-  first), a GR/IR clearing (GR/IR, then `journal_we`, no item), a goods
-  movement (`material_document`, then `journal_we`) and an invoice (items,
-  GR/IR, the journal). `TestStockLoadAndGoodsReceiptDoNotDeadlock` forces a
-  user's receipt on a migrated order to hold its order item while the run
-  starts, and `TestStockLoadAndGRIRClearingDoNotDeadlock` a transaction
-  holding an order's GR/IR lock that then takes `journal_we`, as a
-  clearing's posting does: the run waits for each, and both finish. The
-  valuations and stock rows it writes are of materials no one else sees
-  before it commits.
+- **Locks** (ADR-0008, review rounds 1 to 3; coordinator's decision of
+  19 Nov after round 3). One global order, which every posting's order is a
+  part of: order items, `goods_receipt`, `material_document`, an order's
+  GR/IR lock, then the journal's ranges (`journal_we` first). It is a goods
+  receipt into stock's order (`POST /v1/goods-receipts`: item,
+  `goods_receipt`, valuations, `material_document`, GR/IR, `journal_we`); a
+  GR/IR clearing takes GR/IR then `journal_we`, a goods movement or count
+  `material_document` then the journal, an invoice items, GR/IR, the
+  journal. The run follows it: it locks the order items it moves
+  (`lockOrderItems`), loads the receipts (`goods_receipt`; a loaded receipt
+  posts no entry, `PostLoadedReceipt`, and the invoiced take-over none),
+  takes the `material_document` range of each company whose stock it posts
+  without drawing a number (`lockStock`: `Stock.LockNumbers`, inventory's
+  port over `configuration.Numbers.Lock`, in company code order), then the
+  GR/IR locks of the orders it posts GR/IR lines on (`lockGRIR`, split out
+  of `takeOverGRIR`), and only then posts (`stock`, `takeOverGRIR`, the
+  invoices, the journal). Taking the range before the GR/IR locks, rather
+  than locking every item of the GR/IR orders, also covers an item added on
+  the platform and not in the extract. Tests in
+  `internal/integration/stocklock_test.go` force each opposite posting to
+  hold its first lock while the run starts (a goods receipt on a migrated
+  order; a GR/IR clearing; a goods receipt into stock, holding
+  `material_document` and then taking the GR/IR lock): the run waits, and
+  both finish; each fails on the order it replaced. The valuations and
+  stock rows the run writes are new; a valuation the plant has already is
+  refused.
 - **Mock:** company 3000's steel sheet (moving, 1,200 KG worth 3,000.00 at
   3100/0001), shelving (standard 85.00 at both plants) and hex bolts
   (moving 12.00 per 100, 6,500 PC worth 780.00 at 3200/0001 and 0003), all

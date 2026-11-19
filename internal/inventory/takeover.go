@@ -3,6 +3,7 @@ package inventory
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -95,6 +96,27 @@ func (e *Endpoints) TakeOver(ctx context.Context, in StockTakeOver) (TakenOverSt
 		return TakenOverStock{}, err
 	}
 	return TakenOverStock{Valuation: v, Document: &d}, nil
+}
+
+// LockNumbers takes the company's material_document range of the fiscal
+// year of its date today, the range TakeOver draws from, without drawing
+// a number (ADR-0082 As built S2p, Locks): a migration run takes it
+// before the GR/IR locks it posts under, as a goods receipt into stock
+// takes its material document number before its order's GR/IR lock, so
+// the two never wait on each other in a cycle.
+func (e *Endpoints) LockNumbers(ctx context.Context, company uuid.UUID) error {
+	c, err := e.companyOf(ctx, company)
+	if err != nil {
+		return err
+	}
+	year, err := e.Calendar.FiscalYear(ctx, company, c.day.Date)
+	if err != nil {
+		return fmt.Errorf("inventory: fiscal year of %s in company %s: %w", c.day.Date.Format(time.DateOnly), c.le.Code, err)
+	}
+	if err := e.Numbers.Lock(ctx, company, NumberRange, year); err != nil {
+		return fmt.Errorf("inventory: lock the material document range of company %s: %w", c.le.Code, err)
+	}
+	return nil
 }
 
 // HeldStock is a valuation as it is now with the stock of its material

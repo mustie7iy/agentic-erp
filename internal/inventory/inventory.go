@@ -142,6 +142,7 @@ type CostCenters interface {
 // Numbers issues document numbers (configuration context).
 type Numbers interface {
 	Next(ctx context.Context, legalEntity uuid.UUID, documentType string, fiscalYear int16) (string, error)
+	Lock(ctx context.Context, legalEntity uuid.UUID, documentType string, fiscalYear int16) error
 }
 
 // Calendar maps a company's date to its fiscal year (ledger context).
