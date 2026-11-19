@@ -8119,6 +8119,28 @@ func (UnimplementedHandler) LockProfitCenter(ctx context.Context, req *ProfitCen
 	return r, ht.ErrNotImplemented
 }
 
+// MapCatalogItemMaterials implements mapCatalogItemMaterials operation.
+//
+// Maps the item keys of a company's catalog onto the material master once (S1f2, ADR-0082 As built
+// S1f): each `active` catalog item of the company that names no material and whose `item_key` is the
+// number of an `active` material of the tenant, in whose base unit or one of whose alternative units
+// it is ordered, is given that material (`material_id`), its key and everything else unchanged; a
+// catalog item's material, once set, never changes. A requisition item taken from it afterwards names
+// the material too; requisitions, RFQs, contracts and orders already made keep their items as they
+// are, and nothing is posted. The answer reports, by item key in order, every key of the company's
+// active catalog items still without a material before the run: `mapped` (its items were given the
+// material), `no_material` (no material has that number: the key stays a free-text key) or
+// `not_mappable` (the material is not active, or an item is ordered in a unit that is none of the
+// material's: `reason` says which, and those items keep no material), with the count of its items. A
+// second run maps nothing twice and reports the keys still unmapped. Each item mapped is audited and
+// published as `CatalogItemChanged`, its version raised. The items are locked in the order of their
+// keys and ids, so two runs of one company wait for each other.
+//
+// POST /v1/catalog-material-mappings
+func (UnimplementedHandler) MapCatalogItemMaterials(ctx context.Context, req *CatalogMaterialMapping, params MapCatalogItemMaterialsParams) (r MapCatalogItemMaterialsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // MatchBankStatement implements matchBankStatement operation.
 //
 // Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the

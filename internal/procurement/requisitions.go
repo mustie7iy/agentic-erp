@@ -185,6 +185,10 @@ func GetRequisition(ctx context.Context, id uuid.UUID) (Requisition, error) {
 
 // requisitionItems validates requisition items and returns them as rows.
 func (e *Endpoints) requisitionItems(ctx context.Context, le uuid.UUID, currency string, exp int, in []ItemInput) ([]Item, error) {
+	in, err := e.materialItems(ctx, in, "")
+	if err != nil {
+		return nil, err
+	}
 	items := make([]Item, len(in))
 	for i, it := range in {
 		field := fmt.Sprintf("items[%d]", i)

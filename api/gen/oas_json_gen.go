@@ -52605,6 +52605,12 @@ func (s *CatalogItem) encodeFields(e *jx.Encoder) {
 		e.Str(s.ItemKey)
 	}
 	{
+		if s.MaterialID.Set {
+			e.FieldStart("material_id")
+			s.MaterialID.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("description")
 		e.Str(s.Description)
 	}
@@ -52644,7 +52650,7 @@ func (s *CatalogItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCatalogItem = [19]string{
+var jsonFieldsNameOfCatalogItem = [20]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -52656,14 +52662,15 @@ var jsonFieldsNameOfCatalogItem = [19]string{
 	8:  "supplier_number",
 	9:  "supplier_name",
 	10: "item_key",
-	11: "description",
-	12: "unit",
-	13: "unit_price",
-	14: "price_unit",
-	15: "contract_id",
-	16: "contract_number",
-	17: "contract_item_no",
-	18: "status",
+	11: "material_id",
+	12: "description",
+	13: "unit",
+	14: "unit_price",
+	15: "price_unit",
+	16: "contract_id",
+	17: "contract_number",
+	18: "contract_item_no",
+	19: "status",
 }
 
 // Decode decodes CatalogItem from json.
@@ -52805,8 +52812,18 @@ func (s *CatalogItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"item_key\"")
 			}
+		case "material_id":
+			if err := func() error {
+				s.MaterialID.Reset()
+				if err := s.MaterialID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_id\"")
+			}
 		case "description":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Description = string(v)
@@ -52818,7 +52835,7 @@ func (s *CatalogItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"description\"")
 			}
 		case "unit":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.Unit = string(v)
@@ -52830,7 +52847,7 @@ func (s *CatalogItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"unit\"")
 			}
 		case "unit_price":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				if err := s.UnitPrice.Decode(d); err != nil {
 					return err
@@ -52840,7 +52857,7 @@ func (s *CatalogItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"unit_price\"")
 			}
 		case "price_unit":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.PriceUnit = int32(v)
@@ -52882,7 +52899,7 @@ func (s *CatalogItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"contract_item_no\"")
 			}
 		case "status":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -52904,8 +52921,8 @@ func (s *CatalogItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11011111,
-		0b01111111,
-		0b00000100,
+		0b11110111,
+		0b00001000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -52969,12 +52986,22 @@ func (s *CatalogItemCreate) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.SupplierID)
 	}
 	{
-		e.FieldStart("item_key")
-		e.Str(s.ItemKey)
+		if s.ItemKey.Set {
+			e.FieldStart("item_key")
+			s.ItemKey.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("description")
-		e.Str(s.Description)
+		if s.MaterialID.Set {
+			e.FieldStart("material_id")
+			s.MaterialID.Encode(e)
+		}
+	}
+	{
+		if s.Description.Set {
+			e.FieldStart("description")
+			s.Description.Encode(e)
+		}
 	}
 	{
 		e.FieldStart("unit")
@@ -53004,16 +53031,17 @@ func (s *CatalogItemCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCatalogItemCreate = [9]string{
+var jsonFieldsNameOfCatalogItemCreate = [10]string{
 	0: "legal_entity_id",
 	1: "supplier_id",
 	2: "item_key",
-	3: "description",
-	4: "unit",
-	5: "unit_price",
-	6: "price_unit",
-	7: "contract_id",
-	8: "contract_item_no",
+	3: "material_id",
+	4: "description",
+	5: "unit",
+	6: "unit_price",
+	7: "price_unit",
+	8: "contract_id",
+	9: "contract_item_no",
 }
 
 // Decode decodes CatalogItemCreate from json.
@@ -53051,23 +53079,29 @@ func (s *CatalogItemCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"supplier_id\"")
 			}
 		case "item_key":
-			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				v, err := d.Str()
-				s.ItemKey = string(v)
-				if err != nil {
+				s.ItemKey.Reset()
+				if err := s.ItemKey.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"item_key\"")
 			}
-		case "description":
-			requiredBitSet[0] |= 1 << 3
+		case "material_id":
 			if err := func() error {
-				v, err := d.Str()
-				s.Description = string(v)
-				if err != nil {
+				s.MaterialID.Reset()
+				if err := s.MaterialID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_id\"")
+			}
+		case "description":
+			if err := func() error {
+				s.Description.Reset()
+				if err := s.Description.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -53075,7 +53109,7 @@ func (s *CatalogItemCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"description\"")
 			}
 		case "unit":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.Unit = string(v)
@@ -53087,7 +53121,7 @@ func (s *CatalogItemCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"unit\"")
 			}
 		case "unit_price":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				if err := s.UnitPrice.Decode(d); err != nil {
 					return err
@@ -53136,7 +53170,7 @@ func (s *CatalogItemCreate) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b00111111,
+		0b01100011,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -53302,6 +53336,474 @@ func (s *CatalogItemPage) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *CatalogItemPage) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *CatalogKeyMapping) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CatalogKeyMapping) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("item_key")
+		e.Str(s.ItemKey)
+	}
+	{
+		e.FieldStart("outcome")
+		e.Str(s.Outcome)
+	}
+	{
+		if s.MaterialID.Set {
+			e.FieldStart("material_id")
+			s.MaterialID.Encode(e)
+		}
+	}
+	{
+		if s.MaterialNumber.Set {
+			e.FieldStart("material_number")
+			s.MaterialNumber.Encode(e)
+		}
+	}
+	{
+		if s.MaterialDescription.Set {
+			e.FieldStart("material_description")
+			s.MaterialDescription.Encode(e)
+		}
+	}
+	{
+		if s.Reason.Set {
+			e.FieldStart("reason")
+			s.Reason.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("items")
+		e.Int32(s.Items)
+	}
+}
+
+var jsonFieldsNameOfCatalogKeyMapping = [7]string{
+	0: "item_key",
+	1: "outcome",
+	2: "material_id",
+	3: "material_number",
+	4: "material_description",
+	5: "reason",
+	6: "items",
+}
+
+// Decode decodes CatalogKeyMapping from json.
+func (s *CatalogKeyMapping) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CatalogKeyMapping to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "item_key":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.ItemKey = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"item_key\"")
+			}
+		case "outcome":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Outcome = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"outcome\"")
+			}
+		case "material_id":
+			if err := func() error {
+				s.MaterialID.Reset()
+				if err := s.MaterialID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_id\"")
+			}
+		case "material_number":
+			if err := func() error {
+				s.MaterialNumber.Reset()
+				if err := s.MaterialNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_number\"")
+			}
+		case "material_description":
+			if err := func() error {
+				s.MaterialDescription.Reset()
+				if err := s.MaterialDescription.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_description\"")
+			}
+		case "reason":
+			if err := func() error {
+				s.Reason.Reset()
+				if err := s.Reason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
+			}
+		case "items":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Int32()
+				s.Items = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"items\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CatalogKeyMapping")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b01000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCatalogKeyMapping) {
+					name = jsonFieldsNameOfCatalogKeyMapping[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CatalogKeyMapping) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CatalogKeyMapping) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *CatalogMaterialMapping) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CatalogMaterialMapping) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+}
+
+var jsonFieldsNameOfCatalogMaterialMapping = [1]string{
+	0: "legal_entity_id",
+}
+
+// Decode decodes CatalogMaterialMapping from json.
+func (s *CatalogMaterialMapping) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CatalogMaterialMapping to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CatalogMaterialMapping")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000001,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCatalogMaterialMapping) {
+					name = jsonFieldsNameOfCatalogMaterialMapping[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CatalogMaterialMapping) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CatalogMaterialMapping) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *CatalogMaterialMappingReport) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CatalogMaterialMappingReport) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("company_code")
+		e.Str(s.CompanyCode)
+	}
+	{
+		e.FieldStart("company_name")
+		e.Str(s.CompanyName)
+	}
+	{
+		e.FieldStart("mapped_items")
+		e.Int32(s.MappedItems)
+	}
+	{
+		e.FieldStart("keys")
+		e.ArrStart()
+		for _, elem := range s.Keys {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+}
+
+var jsonFieldsNameOfCatalogMaterialMappingReport = [5]string{
+	0: "legal_entity_id",
+	1: "company_code",
+	2: "company_name",
+	3: "mapped_items",
+	4: "keys",
+}
+
+// Decode decodes CatalogMaterialMappingReport from json.
+func (s *CatalogMaterialMappingReport) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CatalogMaterialMappingReport to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "company_code":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "company_name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_name\"")
+			}
+		case "mapped_items":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Int32()
+				s.MappedItems = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"mapped_items\"")
+			}
+		case "keys":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				s.Keys = make([]CatalogKeyMapping, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem CatalogKeyMapping
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Keys = append(s.Keys, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"keys\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CatalogMaterialMappingReport")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00011111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCatalogMaterialMappingReport) {
+					name = jsonFieldsNameOfCatalogMaterialMappingReport[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CatalogMaterialMappingReport) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CatalogMaterialMappingReport) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -177398,6 +177900,158 @@ func (s *LockProfitCenterUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes MapCatalogItemMaterialsBadRequest as json.
+func (s *MapCatalogItemMaterialsBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes MapCatalogItemMaterialsBadRequest from json.
+func (s *MapCatalogItemMaterialsBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MapCatalogItemMaterialsBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = MapCatalogItemMaterialsBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MapCatalogItemMaterialsBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MapCatalogItemMaterialsBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes MapCatalogItemMaterialsForbidden as json.
+func (s *MapCatalogItemMaterialsForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes MapCatalogItemMaterialsForbidden from json.
+func (s *MapCatalogItemMaterialsForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MapCatalogItemMaterialsForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = MapCatalogItemMaterialsForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MapCatalogItemMaterialsForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MapCatalogItemMaterialsForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes MapCatalogItemMaterialsPreconditionRequired as json.
+func (s *MapCatalogItemMaterialsPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes MapCatalogItemMaterialsPreconditionRequired from json.
+func (s *MapCatalogItemMaterialsPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MapCatalogItemMaterialsPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = MapCatalogItemMaterialsPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MapCatalogItemMaterialsPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MapCatalogItemMaterialsPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes MapCatalogItemMaterialsUnprocessableEntity as json.
+func (s *MapCatalogItemMaterialsUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes MapCatalogItemMaterialsUnprocessableEntity from json.
+func (s *MapCatalogItemMaterialsUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode MapCatalogItemMaterialsUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = MapCatalogItemMaterialsUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *MapCatalogItemMaterialsUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *MapCatalogItemMaterialsUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode implements json.Marshaler.
 func (s *MarginReport) Encode(e *jx.Encoder) {
 	e.ObjStart()
@@ -252560,6 +253214,12 @@ func (s *RfqItem) encodeFields(e *jx.Encoder) {
 		e.Str(s.MaterialKey)
 	}
 	{
+		if s.MaterialID.Set {
+			e.FieldStart("material_id")
+			s.MaterialID.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("description")
 		e.Str(s.Description)
 	}
@@ -252593,16 +253253,17 @@ func (s *RfqItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfRfqItem = [9]string{
+var jsonFieldsNameOfRfqItem = [10]string{
 	0: "item_no",
 	1: "material_key",
-	2: "description",
-	3: "quantity",
-	4: "account_id",
-	5: "account_number",
-	6: "account_name",
-	7: "delivery_date",
-	8: "requisition_item_no",
+	2: "material_id",
+	3: "description",
+	4: "quantity",
+	5: "account_id",
+	6: "account_number",
+	7: "account_name",
+	8: "delivery_date",
+	9: "requisition_item_no",
 }
 
 // Decode decodes RfqItem from json.
@@ -252636,8 +253297,18 @@ func (s *RfqItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"material_key\"")
 			}
+		case "material_id":
+			if err := func() error {
+				s.MaterialID.Reset()
+				if err := s.MaterialID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_id\"")
+			}
 		case "description":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.Description = string(v)
@@ -252649,7 +253320,7 @@ func (s *RfqItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"description\"")
 			}
 		case "quantity":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				if err := s.Quantity.Decode(d); err != nil {
 					return err
@@ -252659,7 +253330,7 @@ func (s *RfqItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"quantity\"")
 			}
 		case "account_id":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.AccountID = v
@@ -252671,7 +253342,7 @@ func (s *RfqItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
 		case "account_number":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.AccountNumber = string(v)
@@ -252683,7 +253354,7 @@ func (s *RfqItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_number\"")
 			}
 		case "account_name":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.AccountName = string(v)
@@ -252724,7 +253395,7 @@ func (s *RfqItem) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b01111110,
+		0b11111010,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -252787,12 +253458,22 @@ func (s *RfqItemInput) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
-		e.FieldStart("material_key")
-		e.Str(s.MaterialKey)
+		if s.MaterialKey.Set {
+			e.FieldStart("material_key")
+			s.MaterialKey.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("description")
-		e.Str(s.Description)
+		if s.MaterialID.Set {
+			e.FieldStart("material_id")
+			s.MaterialID.Encode(e)
+		}
+	}
+	{
+		if s.Description.Set {
+			e.FieldStart("description")
+			s.Description.Encode(e)
+		}
 	}
 	{
 		e.FieldStart("quantity")
@@ -252810,13 +253491,14 @@ func (s *RfqItemInput) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfRfqItemInput = [6]string{
+var jsonFieldsNameOfRfqItemInput = [7]string{
 	0: "item_no",
 	1: "material_key",
-	2: "description",
-	3: "quantity",
-	4: "account_id",
-	5: "delivery_date",
+	2: "material_id",
+	3: "description",
+	4: "quantity",
+	5: "account_id",
+	6: "delivery_date",
 }
 
 // Decode decodes RfqItemInput from json.
@@ -252839,23 +253521,29 @@ func (s *RfqItemInput) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"item_no\"")
 			}
 		case "material_key":
-			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
-				v, err := d.Str()
-				s.MaterialKey = string(v)
-				if err != nil {
+				s.MaterialKey.Reset()
+				if err := s.MaterialKey.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"material_key\"")
 			}
-		case "description":
-			requiredBitSet[0] |= 1 << 2
+		case "material_id":
 			if err := func() error {
-				v, err := d.Str()
-				s.Description = string(v)
-				if err != nil {
+				s.MaterialID.Reset()
+				if err := s.MaterialID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_id\"")
+			}
+		case "description":
+			if err := func() error {
+				s.Description.Reset()
+				if err := s.Description.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -252863,7 +253551,7 @@ func (s *RfqItemInput) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"description\"")
 			}
 		case "quantity":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				if err := s.Quantity.Decode(d); err != nil {
 					return err
@@ -252873,7 +253561,7 @@ func (s *RfqItemInput) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"quantity\"")
 			}
 		case "account_id":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.AccountID = v
@@ -252904,7 +253592,7 @@ func (s *RfqItemInput) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00011110,
+		0b00110000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

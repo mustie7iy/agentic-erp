@@ -5375,9 +5375,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Requisition, RFQ and catalog items may name a material with the sales item's rules, the material carried from catalog to requisition to RFQ to contract; a company's catalog items keyed by a material's number are mapped onto it once, with a report of the keys that match none",
-      "r": "S1f2 · docs/design/plan-supply-chain.md §S1f2 · ADR-0082",
+      "r": "S1f2 · docs/design/plan-supply-chain.md §S1f2 · ADR-0082 As built S1f · ADR-0071 As built S1f2 · db/migrations/000397 · procurement.rfq_item.material_id, procurement.catalog_item.material_id, requisition_item.material_id checked · catalog_item_material_fixed · materials.Material.ForItem, Materials.ByNumber · POST /v1/catalog-material-mappings · CatalogItemChanged.material_id · procurement.material_not_usable, procurement.key_not_material, procurement.invalid_material_quantity · walkthrough step_material_items",
       "src": "po:2026-11-17",
       "c": []
      },

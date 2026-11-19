@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/materials"
-	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -52,15 +51,16 @@ func (e *Endpoints) itemMaterials(ctx context.Context, in []ItemInput) (map[uuid
 }
 
 // material completes an item that names a material from it, before the
-// item is checked as any other: a material of the tenant (422
-// request.reference_not_found naming items[i].material_id), active when
-// the item is new (422 sales.material_not_usable; an item an order change
-// keeps keeps its material, whatever its status since), the item key its
-// number (422 sales.item_key_not_material for another), the description
-// its own when the item gives none, and the quantity in one of its units
-// that converts exactly to its base unit (422
-// sales.invalid_material_quantity naming items[i].quantity.unit). An
-// item that names no material is returned as it is.
+// item is checked as any other (materials.Material.ForItem): a material
+// of the tenant (422 request.reference_not_found naming
+// items[i].material_id), active when the item is new (422
+// sales.material_not_usable; an item an order change keeps keeps its
+// material, whatever its status since), the item key its number (422
+// sales.item_key_not_material for another), the description its own when
+// the item gives none, and the quantity in one of its units that
+// converts exactly to its base unit (422 sales.invalid_material_quantity
+// naming items[i].quantity.unit). An item that names no material is
+// returned as it is.
 func (c itemCheck) material(field string, it ItemInput) (ItemInput, error) {
 	if it.MaterialID == nil {
 		return it, nil
@@ -69,32 +69,17 @@ func (c itemCheck) material(field string, it ItemInput) (ItemInput, error) {
 	if !ok {
 		return ItemInput{}, problem.ReferenceNotFound(field+".material_id", "material", "no material with this id")
 	}
-	if !it.Kept && m.Status != materials.Active {
+	text, err := m.ForItem(it.ItemKey, it.Description, it.Quantity, it.Unit, !it.Kept)
+	switch {
+	case errors.Is(err, materials.ErrNotUsable):
 		return ItemInput{}, problem.Invalid("sales.material_not_usable", field+".material_id", "Material "+m.Number+" is "+m.Status+
 			"; a new item is of an active material.")
-	}
-	if it.ItemKey != nil && *it.ItemKey != m.Number {
+	case errors.Is(err, materials.ErrOtherKey):
 		return ItemInput{}, problem.Invalid("sales.item_key_not_material", field+".item_key", "An item of material "+m.Number+
 			" has its number as its item key; send that or none.")
+	case err != nil:
+		return ItemInput{}, problem.Invalid("sales.invalid_material_quantity", field+".quantity.unit", m.UnitRefusal(it.Quantity, it.Unit, err))
 	}
-	number := m.Number
-	it.ItemKey = &number
-	if it.Description == "" {
-		it.Description = m.Description
-	}
-	if !validQuantity(it.Quantity) {
-		return it, nil // refused as any item's quantity, by itemCheck.item
-	}
-	if _, err := m.Convert(money.ParseRat(it.Quantity), it.Unit); err != nil {
-		why := " is no unit of material " + m.Number + " (its base unit " + m.BaseUnit + " or an alternative unit)"
-		if errors.Is(err, materials.ErrInexact) {
-			why = " does not convert exactly to material " + m.Number + "'s base unit " + m.BaseUnit + " in six decimals"
-		}
-		return ItemInput{}, problem.Invalid("sales.invalid_material_quantity", field+".quantity.unit", it.Quantity+" "+it.Unit+why+".")
-	}
+	it.ItemKey, it.Description = &text.Key, text.Description
 	return it, nil
 }
-
-// validQuantity says whether a quantity is a plain decimal more than zero
-// that can be converted; any other is refused by itemCheck.item.
-func validQuantity(q string) bool { return money.PositiveQuantity(q) == nil }

@@ -22319,8 +22319,13 @@ type CatalogItem struct {
 	SupplierNumber string `json:"supplier_number"`
 	// The supplier's name, as it is now.
 	SupplierName string `json:"supplier_name"`
-	// The item's key, the supplier's once among the company's active items.
+	// The item's key, the supplier's once among the company's active items; the material's number for an
+	// item of a material.
 	ItemKey string `json:"item_key"`
+	// The material the item is of (S1f2, `GET /v1/materials/{id}`), whose number is `item_key`; absent for
+	// an item known by its key alone. Set once, at creation or by a mapping (`mapCatalogItemMaterials`),
+	// and never changed.
+	MaterialID OptUUID `json:"material_id"`
 	// What the item is.
 	Description string `json:"description"`
 	// Unit of measure code the item is ordered in.
@@ -22394,6 +22399,11 @@ func (s *CatalogItem) GetSupplierName() string {
 // GetItemKey returns the value of ItemKey.
 func (s *CatalogItem) GetItemKey() string {
 	return s.ItemKey
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *CatalogItem) GetMaterialID() OptUUID {
+	return s.MaterialID
 }
 
 // GetDescription returns the value of Description.
@@ -22491,6 +22501,11 @@ func (s *CatalogItem) SetItemKey(val string) {
 	s.ItemKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *CatalogItem) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
 func (s *CatalogItem) SetDescription(val string) {
 	s.Description = val
@@ -22539,10 +22554,19 @@ type CatalogItemCreate struct {
 	// The supplier (business partner id): one that can be ordered from in the company.
 	SupplierID uuid.UUID `json:"supplier_id"`
 	// The supplier's or the company's key of the item, without leading or trailing white space; the
-	// supplier's once among the company's active items.
-	ItemKey string `json:"item_key"`
-	// What the item is; a requisition item from it takes this description.
-	Description string `json:"description"`
+	// supplier's once among the company's active items. Required for an item without `material_id` (422
+	// `procurement.invalid_item_key`); the material's number for an item of a material: absent, it is
+	// taken, another is refused (422 `procurement.key_not_material`).
+	ItemKey OptString `json:"item_key"`
+	// The material the item is of (S1f2, `GET /v1/materials/{id}`): an `active` material of the tenant
+	// (422 `request.reference_not_found`, `procurement.material_not_usable`) of which `unit` is the base
+	// unit or an alternative unit (422 `procurement.invalid_material_quantity` naming `unit`). A
+	// requisition item taken from the catalog item names it too. Absent: the item is known by its
+	// `item_key` alone, until a mapping (`mapCatalogItemMaterials`) finds a material of that number.
+	MaterialID OptUUID `json:"material_id"`
+	// What the item is; a requisition item from it takes this description. Required for an item without
+	// `material_id` (422 `request.validation_failed`); the material's when absent.
+	Description OptString `json:"description"`
 	// Unit of measure code (reference data) the item is ordered in.
 	Unit string `json:"unit"`
 	// The price per `price_unit`, in its own currency; positive.
@@ -22568,12 +22592,17 @@ func (s *CatalogItemCreate) GetSupplierID() uuid.UUID {
 }
 
 // GetItemKey returns the value of ItemKey.
-func (s *CatalogItemCreate) GetItemKey() string {
+func (s *CatalogItemCreate) GetItemKey() OptString {
 	return s.ItemKey
 }
 
+// GetMaterialID returns the value of MaterialID.
+func (s *CatalogItemCreate) GetMaterialID() OptUUID {
+	return s.MaterialID
+}
+
 // GetDescription returns the value of Description.
-func (s *CatalogItemCreate) GetDescription() string {
+func (s *CatalogItemCreate) GetDescription() OptString {
 	return s.Description
 }
 
@@ -22613,12 +22642,17 @@ func (s *CatalogItemCreate) SetSupplierID(val uuid.UUID) {
 }
 
 // SetItemKey sets the value of ItemKey.
-func (s *CatalogItemCreate) SetItemKey(val string) {
+func (s *CatalogItemCreate) SetItemKey(val OptString) {
 	s.ItemKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *CatalogItemCreate) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
-func (s *CatalogItemCreate) SetDescription(val string) {
+func (s *CatalogItemCreate) SetDescription(val OptString) {
 	s.Description = val
 }
 
@@ -22727,6 +22761,210 @@ func (s *CatalogItemPage) SetNextPageToken(val OptString) {
 }
 
 func (*CatalogItemPage) listCatalogItemsRes() {}
+
+// One item key of a catalog mapping: whether its items were given a material.
+// Ref: #/components/schemas/CatalogKeyMapping
+type CatalogKeyMapping struct {
+	// The item key.
+	ItemKey string `json:"item_key"`
+	// `mapped`: the key's items were given the material of that number; `no_material`: no material has
+	// that number, so the key stays a free-text key; `not_mappable`: a material has that number but is not
+	// active, or the key's items are ordered in a unit that is none of its units (`reason`). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Outcome string `json:"outcome"`
+	// The material of that number (`GET /v1/materials/{id}`); absent for `no_material`.
+	MaterialID OptUUID `json:"material_id"`
+	// Its number, the item key; absent for `no_material`.
+	MaterialNumber OptString `json:"material_number"`
+	// Its description; absent for `no_material`.
+	MaterialDescription OptString `json:"material_description"`
+	// Why the key's items were not mapped, for `not_mappable`.
+	Reason OptString `json:"reason"`
+	// The key's catalog items: those mapped, or those left without a material.
+	Items int32 `json:"items"`
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *CatalogKeyMapping) GetItemKey() string {
+	return s.ItemKey
+}
+
+// GetOutcome returns the value of Outcome.
+func (s *CatalogKeyMapping) GetOutcome() string {
+	return s.Outcome
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *CatalogKeyMapping) GetMaterialID() OptUUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *CatalogKeyMapping) GetMaterialNumber() OptString {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *CatalogKeyMapping) GetMaterialDescription() OptString {
+	return s.MaterialDescription
+}
+
+// GetReason returns the value of Reason.
+func (s *CatalogKeyMapping) GetReason() OptString {
+	return s.Reason
+}
+
+// GetItems returns the value of Items.
+func (s *CatalogKeyMapping) GetItems() int32 {
+	return s.Items
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *CatalogKeyMapping) SetItemKey(val string) {
+	s.ItemKey = val
+}
+
+// SetOutcome sets the value of Outcome.
+func (s *CatalogKeyMapping) SetOutcome(val string) {
+	s.Outcome = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *CatalogKeyMapping) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *CatalogKeyMapping) SetMaterialNumber(val OptString) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *CatalogKeyMapping) SetMaterialDescription(val OptString) {
+	s.MaterialDescription = val
+}
+
+// SetReason sets the value of Reason.
+func (s *CatalogKeyMapping) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetItems sets the value of Items.
+func (s *CatalogKeyMapping) SetItems(val int32) {
+	s.Items = val
+}
+
+// A mapping of a company's catalog item keys onto materials (`mapCatalogItemMaterials`).
+// Ref: #/components/schemas/CatalogMaterialMapping
+type CatalogMaterialMapping struct {
+	// The company whose catalog is mapped: an active legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CatalogMaterialMapping) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CatalogMaterialMapping) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// What a mapping of a company's catalog item keys onto materials did, by item key.
+// Ref: #/components/schemas/CatalogMaterialMappingReport
+type CatalogMaterialMappingReport struct {
+	// The company whose catalog was mapped.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The catalog items this run gave a material.
+	MappedItems int32 `json:"mapped_items"`
+	// Every item key of the company's active catalog items that named no material before the run, in the
+	// order of the keys.
+	Keys []CatalogKeyMapping `json:"keys"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CatalogMaterialMappingReport) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CatalogMaterialMappingReport) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CatalogMaterialMappingReport) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetMappedItems returns the value of MappedItems.
+func (s *CatalogMaterialMappingReport) GetMappedItems() int32 {
+	return s.MappedItems
+}
+
+// GetKeys returns the value of Keys.
+func (s *CatalogMaterialMappingReport) GetKeys() []CatalogKeyMapping {
+	return s.Keys
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CatalogMaterialMappingReport) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CatalogMaterialMappingReport) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CatalogMaterialMappingReport) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetMappedItems sets the value of MappedItems.
+func (s *CatalogMaterialMappingReport) SetMappedItems(val int32) {
+	s.MappedItems = val
+}
+
+// SetKeys sets the value of Keys.
+func (s *CatalogMaterialMappingReport) SetKeys(val []CatalogKeyMapping) {
+	s.Keys = val
+}
+
+// CatalogMaterialMappingReportHeaders wraps CatalogMaterialMappingReport with response headers.
+type CatalogMaterialMappingReportHeaders struct {
+	IdempotentReplayed OptBool
+	Response           CatalogMaterialMappingReport
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CatalogMaterialMappingReportHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CatalogMaterialMappingReportHeaders) GetResponse() CatalogMaterialMappingReport {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CatalogMaterialMappingReportHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CatalogMaterialMappingReportHeaders) SetResponse(val CatalogMaterialMappingReport) {
+	s.Response = val
+}
+
+func (*CatalogMaterialMappingReportHeaders) mapCatalogItemMaterialsRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/CenterChange
@@ -27669,6 +27907,7 @@ func (*ConflictHeaders) lockCostCenterRes()                        {}
 func (*ConflictHeaders) lockFiscalPeriodRes()                      {}
 func (*ConflictHeaders) lockPlanCategoryRes()                      {}
 func (*ConflictHeaders) lockProfitCenterRes()                      {}
+func (*ConflictHeaders) mapCatalogItemMaterialsRes()               {}
 func (*ConflictHeaders) matchBankStatementLineRes()                {}
 func (*ConflictHeaders) matchBankStatementRes()                    {}
 func (*ConflictHeaders) matchSupplierInvoiceRes()                  {}
@@ -66254,6 +66493,22 @@ type LockProfitCenterUnprocessableEntity Problem
 
 func (*LockProfitCenterUnprocessableEntity) lockProfitCenterRes() {}
 
+type MapCatalogItemMaterialsBadRequest Problem
+
+func (*MapCatalogItemMaterialsBadRequest) mapCatalogItemMaterialsRes() {}
+
+type MapCatalogItemMaterialsForbidden Problem
+
+func (*MapCatalogItemMaterialsForbidden) mapCatalogItemMaterialsRes() {}
+
+type MapCatalogItemMaterialsPreconditionRequired Problem
+
+func (*MapCatalogItemMaterialsPreconditionRequired) mapCatalogItemMaterialsRes() {}
+
+type MapCatalogItemMaterialsUnprocessableEntity Problem
+
+func (*MapCatalogItemMaterialsUnprocessableEntity) mapCatalogItemMaterialsRes() {}
+
 // One page of a legal entity's margin report by profit center (ADR-0075), with the selection, the
 // accounts counted as cost of sales and the totals on every page.
 // Ref: #/components/schemas/MarginReport
@@ -96291,7 +96546,8 @@ func (*RequisitionHeaders) createRequisitionRes() {}
 type RequisitionItem struct {
 	// Item number; assigned by the server when omitted.
 	ItemNo OptInt32 `json:"item_no"`
-	// Material (product context, later phases).
+	// The material needed (S1f2, `GET /v1/materials/{id}`); absent for an item described by the requester
+	// alone. An RFQ or a purchase order from the requisition names it too.
 	MaterialID OptUUID `json:"material_id"`
 	// What is needed.
 	Description string `json:"description"`
@@ -96453,10 +96709,16 @@ type RequisitionItemInput struct {
 	// `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`). The requester needs
 	// `procurement.catalog.read`.
 	CatalogItemID OptUUID `json:"catalog_item_id"`
-	// Material (product context, later phases).
+	// The material needed (S1f2, `GET /v1/materials/{id}`): an `active` material of the tenant (422
+	// `request.reference_not_found`, `procurement.material_not_usable`), the quantity in its base unit or
+	// one of its alternative units, converting to the base unit exactly (422
+	// `procurement.invalid_material_quantity` naming `items[i].quantity.unit`); its description is the
+	// item's when it sends none. An item from the catalog takes the catalog item's material: sent with
+	// one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise).
 	MaterialID OptUUID `json:"material_id"`
-	// What is needed. Required unless the item names a catalog item, whose description it then takes; sent
-	// with one, it is the catalog item's (422 `procurement.catalog_item_override` otherwise).
+	// What is needed. Required unless the item names a catalog item, whose description it then takes, or a
+	// material, whose description it then takes when it sends none; sent with a catalog item, it is the
+	// catalog item's (422 `procurement.catalog_item_override` otherwise).
 	Description OptString `json:"description"`
 	// Quantity; positive. For an item from the catalog, in the catalog item's unit.
 	Quantity Quantity `json:"quantity"`
@@ -101812,8 +102074,13 @@ type RfqItem struct {
 	// Item number; assigned by the server when omitted.
 	ItemNo OptInt32 `json:"item_no"`
 	// Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded
-	// contract's item name it by.
+	// contract's item name it by; the material's number for an item of a material.
 	MaterialKey string `json:"material_key"`
+	// The material asked for (S1f2, `GET /v1/materials/{id}`), whose number is `material_key`; absent for
+	// an item without one. An RFQ from a requisition takes its item's material, unless another of the
+	// requisition's items names the same material: then the item is asked for by the requisition's number
+	// and its item number, without the material.
+	MaterialID OptUUID `json:"material_id"`
 	// Description.
 	Description string `json:"description"`
 	// The quantity asked for and its unit of measure; positive.
@@ -101840,6 +102107,11 @@ func (s *RfqItem) GetItemNo() OptInt32 {
 // GetMaterialKey returns the value of MaterialKey.
 func (s *RfqItem) GetMaterialKey() string {
 	return s.MaterialKey
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *RfqItem) GetMaterialID() OptUUID {
+	return s.MaterialID
 }
 
 // GetDescription returns the value of Description.
@@ -101887,6 +102159,11 @@ func (s *RfqItem) SetMaterialKey(val string) {
 	s.MaterialKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *RfqItem) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
 func (s *RfqItem) SetDescription(val string) {
 	s.Description = val
@@ -101922,16 +102199,27 @@ func (s *RfqItem) SetRequisitionItemNo(val OptInt32) {
 	s.RequisitionItemNo = val
 }
 
-// An item of a request for quotation as it is created: what is asked for, without a price.
+// An item of a request for quotation as it is created: what is asked for, without a price. It names
+// what is asked for by `material_key` and `description`, or by `material_id` (S1f2): a material of the
+// tenant (422 `request.reference_not_found`) that is `active` (422 `procurement.material_not_usable`),
+// whose number is its `material_key` (another is refused, 422 `procurement.key_not_material`) and
+// whose description is its own when it sends none, its quantity in the material's base unit or one of
+// its alternative units, converting to the base unit exactly (422
+// `procurement.invalid_material_quantity` naming `items[i].quantity.unit`).
 // Ref: #/components/schemas/RfqItemInput
 type RfqItemInput struct {
 	// Item number; assigned by the server when omitted.
 	ItemNo OptInt32 `json:"item_no"`
 	// Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded
-	// contract's item name it by.
-	MaterialKey string `json:"material_key"`
-	// Description.
-	Description string `json:"description"`
+	// contract's item name it by. Required for an item without `material_id` (422
+	// `request.validation_failed`); the material's number for an item of a material.
+	MaterialKey OptString `json:"material_key"`
+	// The material asked for (S1f2, `GET /v1/materials/{id}`); its award's contract item, and the order an
+	// award creates, name it too. Absent: the item is described by `material_key` and `description` alone.
+	MaterialID OptUUID `json:"material_id"`
+	// Description. Required for an item without `material_id` (422 `request.validation_failed`); the
+	// material's when absent for an item of a material.
+	Description OptString `json:"description"`
 	// The quantity asked for and its unit of measure; positive.
 	Quantity Quantity `json:"quantity"`
 	// General ledger account the item is bought on.
@@ -101947,12 +102235,17 @@ func (s *RfqItemInput) GetItemNo() OptInt32 {
 }
 
 // GetMaterialKey returns the value of MaterialKey.
-func (s *RfqItemInput) GetMaterialKey() string {
+func (s *RfqItemInput) GetMaterialKey() OptString {
 	return s.MaterialKey
 }
 
+// GetMaterialID returns the value of MaterialID.
+func (s *RfqItemInput) GetMaterialID() OptUUID {
+	return s.MaterialID
+}
+
 // GetDescription returns the value of Description.
-func (s *RfqItemInput) GetDescription() string {
+func (s *RfqItemInput) GetDescription() OptString {
 	return s.Description
 }
 
@@ -101977,12 +102270,17 @@ func (s *RfqItemInput) SetItemNo(val OptInt32) {
 }
 
 // SetMaterialKey sets the value of MaterialKey.
-func (s *RfqItemInput) SetMaterialKey(val string) {
+func (s *RfqItemInput) SetMaterialKey(val OptString) {
 	s.MaterialKey = val
 }
 
+// SetMaterialID sets the value of MaterialID.
+func (s *RfqItemInput) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
 // SetDescription sets the value of Description.
-func (s *RfqItemInput) SetDescription(val string) {
+func (s *RfqItemInput) SetDescription(val OptString) {
 	s.Description = val
 }
 
@@ -107680,6 +107978,7 @@ func (*ServiceUnavailableHeaders) lockCostCenterRes()                        {}
 func (*ServiceUnavailableHeaders) lockFiscalPeriodRes()                      {}
 func (*ServiceUnavailableHeaders) lockPlanCategoryRes()                      {}
 func (*ServiceUnavailableHeaders) lockProfitCenterRes()                      {}
+func (*ServiceUnavailableHeaders) mapCatalogItemMaterialsRes()               {}
 func (*ServiceUnavailableHeaders) matchBankStatementLineRes()                {}
 func (*ServiceUnavailableHeaders) matchBankStatementRes()                    {}
 func (*ServiceUnavailableHeaders) matchSupplierInvoiceRes()                  {}
@@ -114017,6 +114316,7 @@ func (*TooManyRequestsHeaders) lockCostCenterRes()                        {}
 func (*TooManyRequestsHeaders) lockFiscalPeriodRes()                      {}
 func (*TooManyRequestsHeaders) lockPlanCategoryRes()                      {}
 func (*TooManyRequestsHeaders) lockProfitCenterRes()                      {}
+func (*TooManyRequestsHeaders) mapCatalogItemMaterialsRes()               {}
 func (*TooManyRequestsHeaders) matchBankStatementLineRes()                {}
 func (*TooManyRequestsHeaders) matchBankStatementRes()                    {}
 func (*TooManyRequestsHeaders) matchSupplierInvoiceRes()                  {}
@@ -114956,6 +115256,7 @@ func (*UnauthorizedHeaders) lockCostCenterRes()                        {}
 func (*UnauthorizedHeaders) lockFiscalPeriodRes()                      {}
 func (*UnauthorizedHeaders) lockPlanCategoryRes()                      {}
 func (*UnauthorizedHeaders) lockProfitCenterRes()                      {}
+func (*UnauthorizedHeaders) mapCatalogItemMaterialsRes()               {}
 func (*UnauthorizedHeaders) matchBankStatementLineRes()                {}
 func (*UnauthorizedHeaders) matchBankStatementRes()                    {}
 func (*UnauthorizedHeaders) matchSupplierInvoiceRes()                  {}

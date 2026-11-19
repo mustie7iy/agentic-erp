@@ -1736,7 +1736,8 @@ erDiagram
   catalog_item { uuid id PK
     uuid legal_entity_id
     uuid supplier_id
-    text item_key
+    text item_key "the material's number for an item of one"
+    uuid material_id "materials, optional; set once, never changed (S1f2)"
     text description
     text uom_code
     char currency
@@ -1800,7 +1801,8 @@ erDiagram
     int version }
   rfq_item { uuid rfq_id PK
     int item_no PK
-    text material_key
+    text material_key "the material's number for an item of one"
+    uuid material_id "materials, optional (S1f2)"
     text description
     numeric quantity
     text uom_code
@@ -2043,6 +2045,15 @@ the inventory context too, which `goods_movement.material_document_id` and
 `.material_document_number` name, together
 (`goods_movement_material_document`); its WE entry posts the stock's value
 against GR/IR on the valuation class's accounts (§3.35).
+
+A requisition item, an RFQ item and a catalog item may name a material
+(migration 000397, S1f2, ADR-0082 As built S1f): `requisition_item.material_id`
+(000006, checked as it is entered from S1f2), `rfq_item.material_id` and
+`catalog_item.material_id`, the materials context's by id, the item's key
+(`material_key`, `item_key`) its number. A catalog item's material is set
+when it is loaded or once by a mapping of the company's keys, and never
+changed or cleared (`catalog_item_material_fixed`, for the tables' owner
+too); the application may update the column beside 000287's.
 
 A request for quotation (migration 000285, T82a, ADR-0069) asks the
 suppliers invited for prices of items a company wants to buy, without a

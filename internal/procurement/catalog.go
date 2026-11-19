@@ -34,10 +34,13 @@ func init() {
 // contract whose item ContractItemNo prices an order of it, if it names
 // one.
 type CatalogItem struct {
-	ID             uuid.UUID
-	LegalEntityID  uuid.UUID
-	SupplierID     uuid.UUID
-	ItemKey        string
+	ID            uuid.UUID
+	LegalEntityID uuid.UUID
+	SupplierID    uuid.UUID
+	ItemKey       string
+	// MaterialID is the material the item is of (S1f2), whose number is
+	// its key; nil for an item of a free-text key.
+	MaterialID     *uuid.UUID
 	Description    string
 	Unit           string
 	Currency       string
@@ -57,7 +60,7 @@ type CatalogItem struct {
 
 // catalogSelect reads catalog items under the alias ci; its columns are
 // unqualified in the result, so a list wraps it for the keyset's id.
-const catalogSelect = `SELECT ci.id, ci.legal_entity_id, ci.supplier_id, ci.item_key, ci.description, ci.uom_code, ci.currency, cu.exponent,
+const catalogSelect = `SELECT ci.id, ci.legal_entity_id, ci.supplier_id, ci.item_key, ci.material_id, ci.description, ci.uom_code, ci.currency, cu.exponent,
 		ci.unit_price, ci.price_unit, ci.contract_id,
 		(SELECT c.document_number FROM procurement.contract c WHERE c.tenant_id = ci.tenant_id AND c.id = ci.contract_id) AS contract_number,
 		ci.contract_item_no, ci.status, ci.version, ci.created_at, ci.created_by, ci.updated_at, ci.updated_by
@@ -65,7 +68,7 @@ const catalogSelect = `SELECT ci.id, ci.legal_entity_id, ci.supplier_id, ci.item
 
 func scanCatalogItem(row pgx.Row) (CatalogItem, error) {
 	var c CatalogItem
-	if err := row.Scan(&c.ID, &c.LegalEntityID, &c.SupplierID, &c.ItemKey, &c.Description, &c.Unit, &c.Currency, &c.Exponent, &c.UnitPrice,
+	if err := row.Scan(&c.ID, &c.LegalEntityID, &c.SupplierID, &c.ItemKey, &c.MaterialID, &c.Description, &c.Unit, &c.Currency, &c.Exponent, &c.UnitPrice,
 		&c.PriceUnit, &c.ContractID, &c.ContractNumber, &c.ContractItemNo, &c.Status, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy); err != nil {
 		return CatalogItem{}, fmt.Errorf("scan catalog item: %w", err)
 	}
@@ -103,9 +106,12 @@ func GetCatalogItem(ctx context.Context, id uuid.UUID) (CatalogItem, error) {
 // amount of Currency per PriceUnit; ContractID and ContractItemNo name the
 // contract item that prices an order of it, both or neither.
 type NewCatalogItem struct {
-	LegalEntityID  uuid.UUID
-	SupplierID     uuid.UUID
-	ItemKey        string
+	LegalEntityID uuid.UUID
+	SupplierID    uuid.UUID
+	ItemKey       string
+	// MaterialID is the material the item is of (S1f2): its number is
+	// the key and its description the item's when none is given.
+	MaterialID     *uuid.UUID
 	Description    string
 	Unit           string
 	Price          string
@@ -129,6 +135,9 @@ func (e *Endpoints) createCatalogItem(ctx context.Context, in NewCatalogItem) (C
 	if err != nil {
 		return CatalogItem{}, err
 	}
+	if in, err = e.catalogMaterial(ctx, in); err != nil {
+		return CatalogItem{}, err
+	}
 	if err := catalogTexts(in); err != nil {
 		return CatalogItem{}, err
 	}
@@ -148,10 +157,10 @@ func (e *Endpoints) createCatalogItem(ctx context.Context, in NewCatalogItem) (C
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.catalog_item (tenant_id, id, legal_entity_id, supplier_id, item_key, description, uom_code,
-			currency, unit_price, price_unit, contract_id, contract_item_no, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'active', $13, $13)`,
+			currency, unit_price, price_unit, contract_id, contract_item_no, status, created_by, updated_by, material_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'active', $13, $13, $14)`,
 		p.TenantID, id, le.ID, in.SupplierID, in.ItemKey, in.Description, in.Unit, in.Currency, price, max(in.PriceUnit, 1), in.ContractID,
-		in.ContractItemNo, p.ID); err != nil {
+		in.ContractItemNo, p.ID, in.MaterialID); err != nil {
 		return CatalogItem{}, fmt.Errorf("procurement: create catalog item %s of supplier %s: %w", in.ItemKey, in.SupplierID, err)
 	}
 	c, err := getCatalogItem(ctx, tx, id, false)
@@ -265,8 +274,8 @@ func (e *Endpoints) catalogChanged(ctx context.Context, c CatalogItem, action st
 	payload := map[string]any{"catalog_item_id": c.ID, "legal_entity_id": c.LegalEntityID, "supplier_id": c.SupplierID,
 		"supplier_number": names[c.SupplierID].Number, "item_key": c.ItemKey, "unit": c.Unit,
 		"unit_price": money.EventAmount(c.UnitPrice, c.Currency, c.Exponent), "price_unit": c.PriceUnit, "contract_id": c.ContractID,
-		"contract_item_no": c.ContractItemNo, "status": c.Status, "status_before": before, "version": c.Version}
+		"contract_item_no": c.ContractItemNo, "status": c.Status, "status_before": before, "version": c.Version, "material_id": c.MaterialID}
 	return e.record(ctx, "procurement.catalog_item."+action, "procurement.catalog_item", c.ID,
-		map[string]any{"item_key": c.ItemKey, "supplier_id": c.SupplierID, "status": c.Status},
+		map[string]any{"item_key": c.ItemKey, "supplier_id": c.SupplierID, "status": c.Status, "material_id": c.MaterialID},
 		event("catalog_item_changed", "catalog_item", c.ID, payload))
 }

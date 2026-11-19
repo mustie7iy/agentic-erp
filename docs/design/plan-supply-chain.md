@@ -378,7 +378,7 @@ report of the keys that match none.
   RFQ's `material_key` and a catalog item's `item_key` then optional; the
   material carried from a catalog item to a requisition item, from a
   requisition item to an RFQ item and from an RFQ item to its award's
-  contract item; `POST /v1/catalog-items:mapMaterials` (permission
+  contract item; `POST /v1/catalog-material-mappings` (permission
   `procurement.catalog.manage`) and its report; a catalog item's material
   set once and never changed (a database rule).
 - **Decided by default:** the mapping maps the catalog, the master data
@@ -403,13 +403,15 @@ report of the keys that match none.
   a key that names no material stays a free-text item, reported; a mapped
   catalog item keeps its material; nothing already billed or received
   changes.
+- **As built** (2026-11-19): ADR-0082 As built S1f, walkthrough step 135.
 
 **Later for mapping item keys:** customer-material info records (SAP
 KNMT), purchasing info records and source lists (EINA/EINE, EORD), the
 material's sales and purchasing texts, substitution of materials, sales
 views per sales organisation (MVKE), mapping by a table of key and
 material pairs rather than the number alone, mapping open documents'
-items and contracts' items.
+items and contracts' items, checking the material a purchase order's or a
+contract's own item names (still unchecked unless it is a stock item, S1e).
 
 ## S2 Flows (parallel once S1 is on main)
 

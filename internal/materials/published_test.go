@@ -86,3 +86,74 @@ func mustRat(t *testing.T, s string) *big.Rat {
 	}
 	return r
 }
+
+// TestByNumber: the published API reads materials by number, keyed by
+// it; a number of no material has no entry.
+func TestByNumber(t *testing.T) {
+	e := setup(t)
+	m := e.create(t, nil)
+	number := m["number"].(string)
+	var got map[string]materials.Material
+	if err := e.inRequest(t, func(ctx context.Context) error {
+		var err error
+		got, err = materials.Materials{}.ByNumber(ctx, []string{number, "NONE"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[number].ID.String() != m["id"] {
+		t.Errorf("got %v, want material %s alone", got, number)
+	}
+}
+
+// TestForItem: an item naming a material is keyed by its number, takes
+// its description when it gives none, and is in one of its units, a
+// quantity converting exactly; a material not active is refused on a new
+// item, not on a kept one.
+func TestForItem(t *testing.T) {
+	m := materials.Material{Number: "MA1", Description: "Bracket", Status: materials.Active, BaseUnit: "EA",
+		Units: []materials.Unit{{Code: "KG", Numerator: 1, Denominator: 3}}}
+	blocked := m
+	blocked.Status = materials.Blocked
+	other, own := "OTHER", "MA1"
+	for _, c := range []struct {
+		name                 string
+		m                    materials.Material
+		key                  *string
+		description, q, unit string
+		added                bool
+		want                 materials.ItemText
+		err                  error
+	}{
+		{"by its material alone", m, nil, "", "3", "KG", true, materials.ItemText{Key: "MA1", Description: "Bracket"}, nil},
+		{"with its own key and text", m, &own, "Loose", "1", "EA", true, materials.ItemText{Key: "MA1", Description: "Loose"}, nil},
+		{"a unit alone", m, nil, "", "", "KG", true, materials.ItemText{Key: "MA1", Description: "Bracket"}, nil},
+		{"a quantity no decimal", m, nil, "", "x", "KG", true, materials.ItemText{Key: "MA1", Description: "Bracket"}, nil},
+		{"another key", m, &other, "", "1", "EA", true, materials.ItemText{}, materials.ErrOtherKey},
+		{"blocked, new", blocked, nil, "", "1", "EA", true, materials.ItemText{}, materials.ErrNotUsable},
+		{"blocked, kept", blocked, nil, "", "1", "EA", false, materials.ItemText{Key: "MA1", Description: "Bracket"}, nil},
+		{"inexact", m, nil, "", "1", "KG", true, materials.ItemText{}, materials.ErrInexact},
+		{"a unit it has not", m, nil, "", "", "M", true, materials.ItemText{}, materials.ErrUnknownUnit},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := c.m.ForItem(c.key, c.description, c.q, c.unit, c.added)
+			if !errors.Is(err, c.err) {
+				t.Fatalf("error: got %v, want %v", err, c.err)
+			}
+			if got != c.want {
+				t.Errorf("got %+v, want %+v", got, c.want)
+			}
+		})
+	}
+	for _, c := range []struct{ name, q, unit, want string }{
+		{"inexact", "1", "KG", "1 KG does not convert exactly to material MA1's base unit EA in six decimals."},
+		{"a unit it has not", "", "M", "M is no unit of material MA1 (its base unit EA or an alternative unit)."},
+	} {
+		t.Run("why "+c.name, func(t *testing.T) {
+			_, err := m.ForItem(nil, "", c.q, c.unit, true)
+			if got := m.UnitRefusal(c.q, c.unit, err); got != c.want {
+				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}

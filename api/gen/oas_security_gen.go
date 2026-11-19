@@ -542,6 +542,7 @@ var operationRolesOidc = map[string][]string{
 	LockFiscalPeriodOperation:                      []string{},
 	LockPlanCategoryOperation:                      []string{},
 	LockProfitCenterOperation:                      []string{},
+	MapCatalogItemMaterialsOperation:               []string{},
 	MatchBankStatementOperation:                    []string{},
 	MatchBankStatementLineOperation:                []string{},
 	MatchSupplierInvoiceOperation:                  []string{},

@@ -375,3 +375,21 @@ sent again as they were read.
   Ben sends the requisition's item back as he read it, accepted at the
   catalog's price; the same item at a price of his own is refused, as
   it is on creation.
+
+### S1f2 Catalog items by material, and the keys mapped (migration 000397)
+
+ADR-0082 As built S1f decides it; here what it changes of the catalog. A
+catalog item may name a material (`material_id`): its `item_key` is then
+the material's number (taken when absent, another refused), its
+description the material's when it gives none, its unit one of the
+material's. A requisition item taken from it names the material too, and
+may send that material or none (§6's no-override, extended). The
+company's keys are mapped onto materials once by `POST
+/v1/catalog-material-mappings` (`procurement.catalog.manage`): each active
+item without a material whose key is an active material's number, in one
+of its units, takes it, audited (`procurement.catalog_item.map_material`)
+and published as `CatalogItemChanged` (`status_before` its unchanged
+status, `material_id` added within v1); the report names every key still
+without a material and why. A catalog item's material is never changed
+after (`catalog_item_material_fixed`): a new material is a new item, as a
+new price is.

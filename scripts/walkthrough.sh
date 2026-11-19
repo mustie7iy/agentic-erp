@@ -14137,14 +14137,18 @@ step_aging_by_center() {
 # records for that number prices it, in boxes of 20; the order's billing
 # document names the material. A pending material, a key other than the
 # number and a unit that is none of the bracket's are refused naming
-# their fields.
+# their fields. Ben asks for the bracket by its material on a requisition
+# (S1f2), and Priya maps Maple's catalog keys onto materials once: the
+# brackets loaded under the bracket's number take the material, a key of
+# no material is reported and stays free text, and a second run maps
+# nothing.
 step_material_items() {
-  heading "Step 135 — Items by material: a sales order item by its material, its description and number taken from it and priced by that number in boxes; the billing document naming the material; a pending material, another key and a unit not the material's refused"
-  local material=$MATERIAL number pending sales order day item doc tag
+  heading "Step 135 — Items by material: a sales order item by its material, its description and number taken from it and priced by that number in boxes; the billing document naming the material; a pending material, another key and a unit not the material's refused; a requisition item by its material; the catalog's keys mapped onto materials once"
+  local material=$MATERIAL number description pending sales order day item doc tag
   [ -n "$material" ] || fail "step 122's material is not there"
   as mira
   QUIET=1 api 200 '' getMaterial -p "id=$material"
-  number=$(field .number)
+  number=$(field .number) description=$(field .description)
   expect "the bracket" "$(field .status)" active
   QUIET=1 api 200 '' listMaterials -p status=pending
   pending=$(field '.items[0].id')
@@ -14190,6 +14194,35 @@ step_material_items() {
   doc=$(field .id)
   expect "the billed material" "$(field '.items[0] | "\(.material_id) \(.item_key)"')" "$material $number"
   [ -n "$doc" ] || fail "no billing document"
+  as ben
+  accounts
+  say "Ben asks for 2 boxes of the bracket by its material (S1f2): the requisition item takes its description; a"
+  say "pending material is refused:"
+  api 201 '"requisition \(.document_number): \(.status)", (.items[] | "  item \(.item_no) \(.description), material \(.material_id): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount)")' \
+    createRequisition -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"material_id\": \"$material\", \"quantity\": {\"value\": \"2\", \"unit\": \"BOX\"},
+      \"unit_price\": {\"amount\": \"50.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\"}]}"
+  expect "the requisition's item" "$(field '.items[0] | "\(.material_id) \(.description)"')" "$material $description"
+  refused 422 procurement.material_not_usable createRequisition -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"material_id\": \"$pending\",
+      \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 6000)\"}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].material_id"
+  as priya
+  say "Maple's catalog was loaded before the material master, by free-text keys. Priya loads Tyrell's brackets by the"
+  say "box under the bracket's number, and its hinges by a key of their own; then she maps the catalog's keys onto the"
+  say "materials once: the brackets' key is the bracket's number, the hinges' and the furniture's are no material's:"
+  QUIET=1 api 201 '' createCatalogItem -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"$number\",
+      \"description\": \"Machined brackets M10, box of 20\", \"unit\": \"BOX\", \"unit_price\": {\"amount\": \"46.00\", \"currency\": \"CAD\"}}"
+  item=$(field .id)
+  QUIET=1 api 201 '' createCatalogItem -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"HINGE-01\",
+      \"description\": \"Cabinet hinge\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"3.00\", \"currency\": \"CAD\"}}"
+  api 200 '"catalog of \(.company_code): \(.mapped_items) items mapped", (.keys[] | "  \(.item_key): \(.outcome)\(if .material_number then " \(.material_number) \(.material_description)" else "" end)\(if .reason then " (\(.reason))" else "" end), \(.items) items")' \
+    mapCatalogItemMaterials -body "{\"legal_entity_id\": \"$LE\"}"
+  expect "the mapping" "$(jq -r --arg n "$number" '"\(.mapped_items) " + ([.keys[] | select(.item_key == $n or .item_key == "HINGE-01") | "\(.item_key):\(.outcome)"] | join(" "))' "$WORK/last.json")" \
+    "1 $number:mapped HINGE-01:no_material"
+  QUIET=1 api 200 '' getCatalogItem -p "id=$item"
+  expect "the mapped catalog item" "$(field '"\(.material_id) \(.version)"')" "$material 2"
+  say "A second run maps nothing twice:"
+  api 200 '"catalog of \(.company_code): \(.mapped_items) items mapped, \(.keys | length) keys without a material"' mapCatalogItemMaterials -body "{\"legal_entity_id\": \"$LE\"}"
+  expect "the second run" "$(field .mapped_items)" 0
   passed
 }
 

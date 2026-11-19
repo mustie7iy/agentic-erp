@@ -40,6 +40,26 @@ func (Materials) Materials(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]
 	return out, nil
 }
 
+// ByNumber reads the materials with the numbers, as Materials does,
+// keyed by number; a number that is no material's has no entry. A
+// mapping of free-text keys onto materials finds them so (S1f2).
+func (Materials) ByNumber(ctx context.Context, numbers []string) (map[string]Material, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, materialSelect+` WHERE m.number = ANY($1) ORDER BY m.number`, numbers)
+	ms, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Material, error) { return scanMaterial(r) })
+	if err != nil {
+		return nil, fmt.Errorf("materials: read %d materials by number: %w", len(numbers), err)
+	}
+	out := make(map[string]Material, len(ms))
+	for _, m := range ms {
+		out[m.Number] = m
+	}
+	return out, nil
+}
+
 // stocked are the material types kept in stock: SAP's non-stock material
 // (NLAG) and service (DIEN) have no quantity in stock (from memory).
 var stocked = map[string]bool{"raw_material": true, "semi_finished": true, "finished_good": true, "trading_good": true}

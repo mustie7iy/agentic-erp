@@ -6665,6 +6665,25 @@ type Invoker interface {
 	//
 	// POST /v1/profit-centers/{id}:lock
 	LockProfitCenter(ctx context.Context, request *ProfitCenterLock, params LockProfitCenterParams) (LockProfitCenterRes, error)
+	// MapCatalogItemMaterials invokes mapCatalogItemMaterials operation.
+	//
+	// Maps the item keys of a company's catalog onto the material master once (S1f2, ADR-0082 As built
+	// S1f): each `active` catalog item of the company that names no material and whose `item_key` is the
+	// number of an `active` material of the tenant, in whose base unit or one of whose alternative units
+	// it is ordered, is given that material (`material_id`), its key and everything else unchanged; a
+	// catalog item's material, once set, never changes. A requisition item taken from it afterwards names
+	// the material too; requisitions, RFQs, contracts and orders already made keep their items as they
+	// are, and nothing is posted. The answer reports, by item key in order, every key of the company's
+	// active catalog items still without a material before the run: `mapped` (its items were given the
+	// material), `no_material` (no material has that number: the key stays a free-text key) or
+	// `not_mappable` (the material is not active, or an item is ordered in a unit that is none of the
+	// material's: `reason` says which, and those items keep no material), with the count of its items. A
+	// second run maps nothing twice and reports the keys still unmapped. Each item mapped is audited and
+	// published as `CatalogItemChanged`, its version raised. The items are locked in the order of their
+	// keys and ids, so two runs of one company wait for each other.
+	//
+	// POST /v1/catalog-material-mappings
+	MapCatalogItemMaterials(ctx context.Context, request *CatalogMaterialMapping, params MapCatalogItemMaterialsParams) (MapCatalogItemMaterialsRes, error)
 	// MatchBankStatement invokes matchBankStatement operation.
 	//
 	// Runs the company's matching rules (`companies[].bank_statements.matching_rules`, ADR-0047) on the
@@ -97521,6 +97540,149 @@ func (c *Client) sendLockProfitCenter(ctx context.Context, request *ProfitCenter
 
 	stage = "DecodeResponse"
 	result, err := decodeLockProfitCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// MapCatalogItemMaterials invokes mapCatalogItemMaterials operation.
+//
+// Maps the item keys of a company's catalog onto the material master once (S1f2, ADR-0082 As built
+// S1f): each `active` catalog item of the company that names no material and whose `item_key` is the
+// number of an `active` material of the tenant, in whose base unit or one of whose alternative units
+// it is ordered, is given that material (`material_id`), its key and everything else unchanged; a
+// catalog item's material, once set, never changes. A requisition item taken from it afterwards names
+// the material too; requisitions, RFQs, contracts and orders already made keep their items as they
+// are, and nothing is posted. The answer reports, by item key in order, every key of the company's
+// active catalog items still without a material before the run: `mapped` (its items were given the
+// material), `no_material` (no material has that number: the key stays a free-text key) or
+// `not_mappable` (the material is not active, or an item is ordered in a unit that is none of the
+// material's: `reason` says which, and those items keep no material), with the count of its items. A
+// second run maps nothing twice and reports the keys still unmapped. Each item mapped is audited and
+// published as `CatalogItemChanged`, its version raised. The items are locked in the order of their
+// keys and ids, so two runs of one company wait for each other.
+//
+// POST /v1/catalog-material-mappings
+func (c *Client) MapCatalogItemMaterials(ctx context.Context, request *CatalogMaterialMapping, params MapCatalogItemMaterialsParams) (MapCatalogItemMaterialsRes, error) {
+	res, err := c.sendMapCatalogItemMaterials(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendMapCatalogItemMaterials(ctx context.Context, request *CatalogMaterialMapping, params MapCatalogItemMaterialsParams) (res MapCatalogItemMaterialsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("mapCatalogItemMaterials"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/catalog-material-mappings"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, MapCatalogItemMaterialsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/catalog-material-mappings"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeMapCatalogItemMaterialsRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, MapCatalogItemMaterialsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeMapCatalogItemMaterialsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

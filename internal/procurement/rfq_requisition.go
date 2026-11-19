@@ -56,22 +56,32 @@ func (e *Endpoints) sourced(ctx context.Context, tx pgx.Tx, le uuid.UUID, in New
 	return req.Currency, items, &req, nil
 }
 
-// sourcedInputs are the requisition's items as an RFQ's: each keyed by
-// its catalog key, or by the requisition's number and its item number
-// when it has none or shares it with another item, so that every key is
-// once in the RFQ (ADR-0069 §2).
+// sourcedInputs are the requisition's items as an RFQ's: an item of a
+// material named by no other item asks for that material, keyed by its
+// number (S1f2); any other item is keyed by its catalog key, or by the
+// requisition's number and its item number when it has none or shares it
+// with another item, so that every key is once in the RFQ (ADR-0069 §2).
+// An item whose material another item names too is asked for by that
+// key alone, without its material: an RFQ names a material once.
 func sourcedInputs(r Requisition) []ItemInput {
-	keys := map[string]int{}
+	keys, materials := map[string]int{}, map[uuid.UUID]int{}
 	for _, it := range r.Items {
 		keys[it.MaterialKey]++
+		if it.MaterialID != nil {
+			materials[*it.MaterialID]++
+		}
 	}
 	in := make([]ItemInput, len(r.Items))
 	for i, it := range r.Items {
-		key := it.MaterialKey
-		if key == "" || keys[key] > 1 {
-			key = fmt.Sprintf("%s/%d", r.DocumentNumber, it.No)
+		in[i] = ItemInput{Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, AccountID: it.AccountID}
+		switch {
+		case it.MaterialID != nil && materials[*it.MaterialID] == 1:
+			in[i].MaterialID = it.MaterialID // keyed by the material's number (materialItem)
+		case it.MaterialKey == "" || keys[it.MaterialKey] > 1 || it.MaterialID != nil:
+			in[i].MaterialKey = fmt.Sprintf("%s/%d", r.DocumentNumber, it.No)
+		default:
+			in[i].MaterialKey = it.MaterialKey
 		}
-		in[i] = ItemInput{MaterialKey: key, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, AccountID: it.AccountID}
 	}
 	return in
 }
