@@ -51,13 +51,13 @@ type TakenOverStock struct {
 
 // TakeOver values the material in the plant (CreateValuation) and posts
 // its stock as a 561 material document in the request's transaction,
-// dated in.Day (the company's date today when zero) and numbered from its material_document
-// range, each item checked as an initial entry's is (an active material
-// kept at an active storage location of the plant), valued at what it is
-// worth or at the standard price, its value posted on the class's stock
-// account against its initial entry account (the migration clearing
-// account at a cutover, ADR-0082 §8), audited and published
-// (MaterialDocumentPosted). The valuation is created first and has no
+// dated in.Day (the company's date today when zero) and numbered from
+// its material_document range, each item checked as an initial entry's
+// is (an active material kept at an active storage location of the
+// plant), valued at what it is worth or at the standard price, its value
+// posted on the class's stock account against its initial entry account
+// (the migration clearing account at a cutover, ADR-0082 §8), audited and
+// published (MaterialDocumentPosted). The valuation is created first and has no
 // stock, so it is locked by no one else; the document takes its stock
 // rows and then the company's range, as every posting does (ADR-0008).
 func (e *Endpoints) TakeOver(ctx context.Context, in StockTakeOver) (TakenOverStock, error) {

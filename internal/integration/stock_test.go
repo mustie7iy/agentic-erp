@@ -226,7 +226,7 @@ func TestStockInAnotherYearRefused(t *testing.T) {
 	if got["status"] != "failed" || report(got)["load"] == nil {
 		t.Fatalf("status: got %v (%s), want the load failed", got["status"], quality(got))
 	}
-	if load := loadIssues(got); !slices.Contains(load, "MBEW P1/M-1: the stock is taken over on the company's date today, in fiscal year 2026; take it over in a run of that fiscal year") {
+	if load := loadIssues(got); !slices.Contains(load, "MBEW P1/M-1: the stock is taken over on the day the run locked the company's range (its date today then), in fiscal year 2026; take it over in a run of that fiscal year") {
 		t.Errorf("load: got %v (%s), want the take-over refused for its fiscal year", load, quality(got))
 	}
 }

@@ -1,12 +1,18 @@
 package integration
 
 import (
+	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -149,5 +155,64 @@ func TestStockSharesOutOfRange(t *testing.T) {
 		locations: []sapStockAt{{lgort: "S1", quantity: "4"}, {lgort: "S2", quantity: "4"}}}
 	if reasons := (&stockPlan{}).shares(&s); len(reasons) != 1 {
 		t.Errorf("reasons: got %v, want the shares refused", reasons)
+	}
+}
+
+// lockedStock is a Stock that answers LockNumbers with day, or with
+// refused, and records what TakeOver is given.
+type lockedStock struct {
+	Stock
+	day     time.Time
+	refused error
+	locked  []uuid.UUID
+}
+
+func (f *lockedStock) LockNumbers(_ context.Context, company uuid.UUID) (time.Time, error) {
+	f.locked = append(f.locked, company)
+	return f.day, f.refused
+}
+
+// TestTakeOverOnTheLockedDay (batch 84 integration): the run dates each
+// take-over the day lockStock locked its company's material_document
+// range for, so a run that locks on the last day of a fiscal year and
+// posts after the company's midnight draws from the range it holds; a
+// company whose lock was refused (it has no range) gets no day, and its
+// take-over is refused for it as before.
+func TestTakeOverOnTheLockedDay(t *testing.T) {
+	company, m, p1, p2 := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	x := stockExtract(map[string]string{"P1/S1": "60", "P1/S2": "40", "P2/S3": "0", "NL": "0"}, moving("P1", "100", "250.01"))
+	refs := refs{"MARA/M-1": m, "T001W/P1": p1, "T001W/P2": p2, "T001L/P1/S1": uuid.New(), "T001L/P1/S2": uuid.New()}
+	lastDay := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	for name, c := range map[string]struct {
+		stock *lockedStock
+		want  time.Time
+	}{
+		"locked":  {&lockedStock{day: lastDay}, lastDay},
+		"refused": {&lockedStock{refused: problem.Invalid("config.no_number_range", "", "no range")}, time.Time{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tg := stockTarget()
+			tg.units = map[string]bool{"KG": true}
+			e := tg.entities["2000"]
+			e.ID = company
+			tg.entities["2000"] = e
+			l := &loader{e: &Endpoints{Stock: c.stock}, ext: x, t: tg, refs: refs}
+			if err := l.lockStock(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if got := fmt.Sprint(c.stock.locked); got != fmt.Sprint([]uuid.UUID{company}) {
+				t.Errorf("locked: got %s, want company 2000 once", got)
+			}
+			if len(l.stocks) != 1 {
+				t.Fatalf("stocks planned: got %d, want 1", len(l.stocks))
+			}
+			in, ok := l.takeOverInput(l.stocks[0])
+			if !ok {
+				t.Fatalf("the take-over's input: got none, issues %v", l.issues)
+			}
+			if !in.Day.Equal(c.want) {
+				t.Errorf("the take-over's day: got %v, want %v", in.Day, c.want)
+			}
+		})
 	}
 }
