@@ -313,7 +313,8 @@ without them, or without the lease liability, runs no lease accounting
   5,000.00 CAD a month in advance at 6 percent, read back with its 36
   payments; a foreign currency and a term the frequency does not divide
   refused; nothing posted. The pilot's settings add the company's
-  `lease_contract` range, which no country pack ships.
+  `lease_contract` range, which no country pack ships (since batch 83
+  Canada 2026.11 and UAE 2026.8 bring it; ADR-0048 As built).
 
 ### T88b (2026-11-13)
 

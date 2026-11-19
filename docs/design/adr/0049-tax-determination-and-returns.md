@@ -1565,7 +1565,7 @@ companies (all in the tenant, under RLS). A registration change is financial
     (`TestUAEPack2026_5`; ADR-0048 As built, UAE 2026.5). Every box 1
     label already named its emirate's confirmed ISO code, so none was
     corrected.
-  - **Walkthrough.** Step 41 applies 2026.2 (2026.4 since the sign-off, 2026.5 since the labels, 2026.6 since the number ranges, 2026.7 since `journal_dd`) to Maple Gulf Trading, whose
+  - **Walkthrough.** Step 41 applies 2026.2 (2026.4 since the sign-off, 2026.5 since the labels, 2026.6 since the number ranges, 2026.7 since `journal_dd`, 2026.8 since the pilot's ranges) to Maple Gulf Trading, whose
     proposed company carries its FTA registration (quarterly, from the
     latest quarter ended in Dubai); Carla posts the quarter's sales by
     emirate, an export, an exempt supply and a customs declaration's

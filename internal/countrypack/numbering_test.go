@@ -36,6 +36,21 @@ var addedRanges = []NumberRange{
 // customer debit memos (DD, T75j).
 var debitMemoRange = []NumberRange{{DocumentType: "journal_dd", Prefix: "DD", First: 1, Last: 9999999}}
 
+// pilotRanges are what the third numbering-only versions add (Canada
+// 2026.11, UAE 2026.8; product owner, 2026-11-19): the ranges the pilot's
+// settings added themselves, with the pilot's prefixes and limits, but
+// the material range, which is unique in the tenant: one prefix shipped
+// for every company would repeat across them (config.RangeRepeats).
+var pilotRanges = []NumberRange{
+	{DocumentType: "returns_order", Prefix: "RO", First: 1, Last: 999999},
+	{DocumentType: "credit_memo_request", Prefix: "CR", First: 1, Last: 999999},
+	{DocumentType: "lease_contract", Prefix: "LC", First: 1, Last: 999999},
+	{DocumentType: "expense_report", Prefix: "ER", First: 1, Last: 999999},
+	{DocumentType: "material_document", Prefix: "MD", First: 1, Last: 9999999},
+	{DocumentType: "journal_wa", Prefix: "WA", First: 1, Last: 9999999},
+	{DocumentType: "journal_pr", Prefix: "PR", First: 1, Last: 9999999},
+}
+
 // numberingOnly fails unless next is prev with only number ranges added:
 // every file but pack.yaml and numbering.yaml is prev's byte for byte
 // (tax.yaml and returns.yaml among them), the parsed tax codes, tax
@@ -157,11 +172,19 @@ func TestCanadaPack2026_9(t *testing.T) {
 }
 
 // Canada 2026.10 is 2026.9 plus the debit memos' journal range (product
-// owner, 2026-11-18), under the same sign-off. It is the latest Canada
-// pack, after 2026.9 by number, not by text.
+// owner, 2026-11-18), under the same sign-off, after 2026.9 by number,
+// not by text.
 func TestCanadaPack2026_10(t *testing.T) {
 	lib, prev, next := numberingOnly(t, "CA", "2026.9", "2026.10", debitMemoRange)
 	adoptsAddedRanges(t, lib, prev, next, "CAD", debitMemoRange)
+}
+
+// Canada 2026.11 is 2026.10 plus the ranges the pilot's settings added
+// themselves (product owner, 2026-11-19), under the same sign-off. It is
+// the latest Canada pack.
+func TestCanadaPack2026_11(t *testing.T) {
+	lib, prev, next := numberingOnly(t, "CA", "2026.10", "2026.11", pilotRanges)
+	adoptsAddedRanges(t, lib, prev, next, "CAD", pilotRanges)
 	if got := lib.Latest("CA"); got != next {
 		t.Errorf("Latest(CA): got %s, want %s", got.Dir(), next.Dir())
 	}
@@ -176,10 +199,18 @@ func TestUAEPack2026_6(t *testing.T) {
 }
 
 // UAE 2026.7 is 2026.6 plus the debit memos' journal range (product
-// owner, 2026-11-18), under the same sign-off. It is the latest UAE pack.
+// owner, 2026-11-18), under the same sign-off.
 func TestUAEPack2026_7(t *testing.T) {
 	lib, prev, next := numberingOnly(t, "AE", "2026.6", "2026.7", debitMemoRange)
 	adoptsAddedRanges(t, lib, prev, next, "AED", debitMemoRange)
+}
+
+// UAE 2026.8 is 2026.7 plus the ranges the pilot's settings added
+// themselves (product owner, 2026-11-19), under the same sign-off. It is
+// the latest UAE pack.
+func TestUAEPack2026_8(t *testing.T) {
+	lib, prev, next := numberingOnly(t, "AE", "2026.7", "2026.8", pilotRanges)
+	adoptsAddedRanges(t, lib, prev, next, "AED", pilotRanges)
 	if got := lib.Latest("AE"); got != next {
 		t.Errorf("Latest(AE): got %s, want %s", got.Dir(), next.Dir())
 	}

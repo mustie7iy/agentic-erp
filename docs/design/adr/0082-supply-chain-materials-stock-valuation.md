@@ -259,7 +259,9 @@ follow by type.
   another company's or year's material numbers. The fixture gives each
   company a prefix of its own (`MA1000-`, `MA2000-`); the walkthrough's
   pilot settings add Maple's `MA` range, and step 40's copy of Maple's
-  ranges to company 1000 leaves it out.
+  ranges to company 1000 leaves it out. No country pack ships a
+  `material` range: one prefix for every company would repeat across
+  the tenant's companies (ADR-0048 As built, the pilot's ranges).
 - **Base unit and type** are absent from the change's contract (400) and
   fixed by `material_fixed` as well. A change that would leave the
   material as it is is 422 `materials.nothing_to_change`.
@@ -409,7 +411,8 @@ follow by type.
 - Walkthrough step 125, `step_goods_movements` (numbered after S1d's
   step 124, which values its materials first); the pilot's settings add
   Maple's `MD` range (`material_document`), as the fixture's companies
-  have theirs.
+  have theirs (since batch 83 Canada 2026.11 and UAE 2026.8 bring it;
+  ADR-0048 As built).
 - **The ledger's refusal** (review of batch 80, batch 81): the ledger's
   `reverseJournalEntry` refuses an inventory entry (409
   `ledger.entry_owned_elsewhere`, `requireOwnEntry`) naming where it is
@@ -511,7 +514,8 @@ follow by type.
   `amount` and `price_difference`, not required (ADR-0041).
 - Walkthrough step 124, `step_valuation`, before step 125; the pilot's
   settings add valuation class 3100 with accounts 1416, 2196, 3996, 5116,
-  5126, 5196 and 5197 and the `WA` and `PR` journal ranges.
+  5126, 5196 and 5197 and the `WA` and `PR` journal ranges (the ranges
+  from Canada 2026.11 since batch 83; ADR-0048 As built).
 - **Not built** (Later): the material ledger and actual costing, split
   valuation, future and previous period prices, revaluation into a past
   period, below-zero moving prices, small-difference tolerances. Totals

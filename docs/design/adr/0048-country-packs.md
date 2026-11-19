@@ -395,6 +395,29 @@ settings cannot simply overwrite their document.
   (`returns_order`, `credit_memo_request`, `lease_contract`,
   `expense_report`, `material`, `material_document`, `journal_wa`,
   `journal_pr`) stay out of the packs: no decision names them.
+- **As built (the pilot's ranges, po:2026-11-19): Canada 2026.11 and UAE
+  2026.8** are 2026.10 and 2026.7 plus seven of the ranges the pilot's
+  settings added themselves: `returns_order` (RO), `credit_memo_request`
+  (CR), `lease_contract` (LC), `expense_report` (ER), each 1 to 999999,
+  and `material_document` (MD), `journal_wa` (WA), `journal_pr` (PR),
+  each 1 to 9999999, none gapless, the pilot's prefixes and limits kept
+  so a company's numbers do not change with the version (PR is the
+  requisitions' prefix too, as in the pilot's settings: the two number
+  different records). Only `numbering.yaml` and `pack.yaml` differ
+  (`TestCanadaPack2026_11`, `TestUAEPack2026_8`, `pilotRanges`), and both
+  carry the sign-off of 2026-11-09 (product owner, 2026-11-19, under the
+  rule of 2026-11-18). The walkthrough's step 2 applies Canada 2026.11
+  (30 ranges, signed off) and step 41 UAE 2026.8; the pilot's settings
+  no longer add those seven. **Decided by default:** the eighth range the
+  decision names, `material`, stays out of the packs. Material numbers
+  are unique in the tenant (`config.NumberedPerTenant`, ADR-0082 §6), so
+  a pack's one prefix for every company would repeat across them: the
+  second company of a tenant to adopt the pack, as the walkthrough's UAE
+  company does in step 41, would have its change refused
+  (`config.RangeRepeats`). Each company sets its own material range, with
+  a prefix of its own (the pilot's settings keep Maple's `MA`); a pack
+  that templates the prefix by company is not built (listed for the
+  digest).
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

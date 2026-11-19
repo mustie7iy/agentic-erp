@@ -478,7 +478,7 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the FPZ-500 for a Quebec registrant (the GST34's lines are signed off in Canada $CA_PACK, the UAE VAT 201"
-  say "    in UAE pack 2026.7, which step 41 files): step 11 prepares,"
+  say "    in UAE pack 2026.8, which step 41 files): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -1656,12 +1656,14 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
-# number ranges for the returns orders of step 74 (T85a), the lease
-# contracts of step 96 (T88a) and the expense reports of step 97 (T87a), which
-# no pack ships (the ranges of
+# Maple's material number range (MA, ADR-0082 §6), which no pack ships:
+# material numbers are unique in the tenant, so each company sets its own
+# prefix (the ranges of
 # customer invoices, incoming payments, quotations, sales orders, billing
 # documents and RFQs come from the pack since Canada 2026.9, the debit
-# memos' journal range journal_dd since Canada 2026.10), the
+# memos' journal range journal_dd since Canada 2026.10, and those of
+# returns orders, credit memo requests, lease contracts, expense reports,
+# material documents and the WA and PR journals since Canada 2026.11), the
 # right-of-use asset (1660) and lease liability (2650) accounts a lease's
 # activation posts to (T88b, ADR-0073 §7; no pack ships them), the
 # customer payment tolerance and its accounts 6850 and 4850 (T75f, SAP
@@ -1669,9 +1671,8 @@ migrated_down_payment() {
 # CAD 1.00 and 0.5% kept; no pack ships them), valuation class 3100 of
 # trading goods with its inventory accounts (S1d, ADR-0082 §8; 1416 stock,
 # 2196 receipts without an order, 3996 initial entries, 5116 consumption,
-# 5126 scrapping, 5196 price differences, 5197 revaluation) and the WA
-# and PR journal ranges its postings need (no pack ships them),
-# and two codes of tax alone for the return's adjustments (kind adjustment,
+# 5126 scrapping, 5196 price differences, 5197 revaluation; no pack ships
+# them), and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
 # instalment paid (line 110) on 2300.
@@ -1746,14 +1747,7 @@ PILOT_SETTINGS='
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
-| .number_ranges += [{"company": "@CC@", "document_type": "returns_order", "fiscal_year": @YEAR@, "prefix": "RO", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "credit_memo_request", "fiscal_year": @YEAR@, "prefix": "CR", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "lease_contract", "fiscal_year": @YEAR@, "prefix": "LC", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "expense_report", "fiscal_year": @YEAR@, "prefix": "ER", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "material_document", "fiscal_year": @YEAR@, "prefix": "MD", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "journal_wa", "fiscal_year": @YEAR@, "prefix": "WA", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "journal_pr", "fiscal_year": @YEAR@, "prefix": "PR", "first": 1, "last": 9999999}]'
+| .number_ranges += [{"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -1768,11 +1762,17 @@ step_pack() {
   say "2026.9 is 2026.8 plus the number ranges of customer invoices, incoming payments, sales documents and RFQs"
   say "(product owner, 2026-11-12), its tax content unchanged; the sign-off of 2026-11-09 covers it (product owner,"
   say "2026-11-13), so the pilot takes those ranges from the pack. 2026.10 is 2026.9 plus the journal range of customer"
-  say "debit memos, journal_dd (step 126), under the same sign-off (product owner, 2026-11-18): the latest signed-off version."
+  say "debit memos, journal_dd (step 126), under the same sign-off (product owner, 2026-11-18). 2026.11 is 2026.10 plus the"
+  say "ranges the pilot's settings added themselves: returns orders, credit memo requests, lease contracts, expense reports,"
+  say "material documents and the WA and PR journals of valued goods movements, under the same sign-off (product"
+  say "owner, 2026-11-19): the latest signed-off version. The pilot's settings add only Maple's material range: material"
+  say "numbers are unique in the tenant, so no pack ships one prefix for every company."
   expect "Canada 2026.9" "$(field '.items[] | select(.country == "CA" and .version == "2026.9") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
     "22 number ranges, signed off: true"
   expect "Canada 2026.10" "$(field '.items[] | select(.country == "CA" and .version == "2026.10") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
     "23 number ranges, signed off: true"
+  expect "Canada 2026.11" "$(field '.items[] | select(.country == "CA" and .version == "2026.11") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
+    "30 number ranges, signed off: true"
   expect "the latest signed-off Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-09"
   say "Ada applies the latest signed-off Canada pack, $version, to company $CC. The merge keeps what the company"
@@ -4885,9 +4885,9 @@ governed() {
 
 # step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
 # Ada creates the UAE pilot company, proposes it in the configuration and
-# applies the UAE pack to it, 2026.7 (2026.4, signed off by the tax
-# specialist, with the box labels' markers dropped in 2026.5, the number ranges added in 2026.6 and journal_dd in
-# 2026.7), so without a note
+# applies the UAE pack to it, 2026.8 (2026.4, signed off by the tax
+# specialist, with the box labels' markers dropped in 2026.5, the number ranges added in 2026.6, journal_dd in
+# 2026.7 and the ranges the pilot's settings added in 2026.8), so without a note
 # (2026.3 brought the emirate guard: S5 accepts the seven
 # emirates alone); Alex posts a UAE supplier's invoice above AED 10,000
 # and one below: the supplier has no TRN on file, so the first carries the
@@ -4909,10 +4909,12 @@ step_uae() {
   say "2026.5 is 2026.4 with the VAT 201's box labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
   say "2026.6 is 2026.5 plus the number ranges of customer invoices, incoming payments, sales documents and RFQs (product"
   say "owner, 2026-11-12), its tax content unchanged, under the same sign-off (product owner, 2026-11-13); 2026.7 adds the"
-  say "journal range of customer debit memos, journal_dd, under it too (product owner, 2026-11-18)."
+  say "journal range of customer debit memos, journal_dd, under it too (product owner, 2026-11-18), and 2026.8 the ranges"
+  say "of returns orders, credit memo requests, lease contracts, expense reports, material documents and the WA and PR"
+  say "journals (product owner, 2026-11-19)."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true"
-  expect "UAE 2026.7's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.7") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true, 2026.8 9 true"
+  expect "UAE 2026.8's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.8") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "Musto Ibrahim 2026-11-09"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
   QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
@@ -4932,10 +4934,10 @@ step_uae() {
     proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the latest signed-off UAE pack, 2026.7, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "Ada applies the latest signed-off UAE pack, 2026.8, to $AE for $YEAR. The merge keeps the company's accounts, which are"
   say "the pack's, and adds the rest; signed off, the pack brings no note saying otherwise:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"AE\", \"version\": \"2026.7\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"AE\", \"version\": \"2026.8\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   cr=$(field .id)
   excerpt '.notes[] | "note \(.path): \(.message)"'
   expect "notes that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 0
@@ -5078,7 +5080,7 @@ uae_return() {
   vat=$(field '.items[] | select(.number == "2300") | .id')
   input=$(field '.items[] | select(.number == "1300") | .id')
   say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
-  say "that UAE pack 2026.7 defines; its first period is the latest quarter ended, the one it files now:"
+  say "that UAE pack 2026.8 defines; its first period is the latest quarter ended, the one it files now:"
   api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
     listTaxRegistrations -p "legal_entity_id=$ae"
   expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
@@ -5130,10 +5132,10 @@ uae_return() {
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
   say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
-  say "(packs/ae/TAX-PENDING-T61k.md); 2026.7's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
+  say "(packs/ae/TAX-PENDING-T61k.md); 2026.8's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
-  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.7"
+  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.8"
   expect "boxes 1b and 8's VAT labels, without a marker" "$(field '[.boxes[] | select(.code == "1b_vat" or .code == "8_vat") | .label] | join(" / ")')" \
     "1b Standard-rated supplies in Dubai (AE-DU): VAT / 8 Totals: VAT, boxes 1a-1g, 2, 3, 6 and 7"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
