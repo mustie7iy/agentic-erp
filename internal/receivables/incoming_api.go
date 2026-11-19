@@ -40,6 +40,18 @@ type paymentReferences struct {
 	parts map[uuid.UUID][]CustomerPart
 }
 
+// itemIDs appends what the payment's items name by id: their entries,
+// their customers and the accounts their reasons wrote off to (T75o).
+func (v IncomingPayment) itemIDs(entries, customers, accounts []uuid.UUID) (e, c, a []uuid.UUID) {
+	for _, it := range v.Items {
+		entries, customers = append(entries, it.EntryID), append(customers, it.CustomerID)
+		if it.WriteOffAccount != nil {
+			accounts = append(accounts, *it.WriteOffAccount)
+		}
+	}
+	return entries, customers, accounts
+}
+
 // paymentReferences reads what the payments name by id, once for all of
 // them.
 func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPayment) (paymentReferences, error) {
@@ -58,12 +70,7 @@ func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPa
 		if credit, _, ok := v.credit(); ok {
 			credits = append(credits, credit)
 		}
-		for _, it := range v.Items {
-			items, partners = append(items, it.EntryID), append(partners, it.CustomerID)
-			if it.WriteOffAccount != nil {
-				accounts = append(accounts, *it.WriteOffAccount)
-			}
-		}
+		items, partners, accounts = v.itemIDs(items, partners, accounts)
 		refs.parts[v.ID] = v.Parts()
 		if _, ok := refs.companies[v.LegalEntityID]; ok {
 			continue
