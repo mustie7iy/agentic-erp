@@ -275,18 +275,47 @@ func (Reports) Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int
 		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 		LEFT JOIN takeover t ON t.journal_entry_id = l.journal_entry_id
 		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2 GROUP BY a.number`, legalEntity, fiscalYear)
+	t, err := totalsOf(rows)
+	if err != nil {
+		return t, fmt.Errorf("ledger: totals of %s %d: %w", legalEntity, fiscalYear, err)
+	}
+	return t, nil
+}
+
+// totalsOf reads rows of an account number, its balance and its debits.
+func totalsOf(rows pgx.Rows) (Totals, error) {
 	t := Totals{ByAccount: map[string]money.Minor{}}
 	var number string
 	var balance, debits money.Minor
-	_, err = pgx.ForEachRow(rows, []any{&number, &balance, &debits}, func() error {
+	_, err := pgx.ForEachRow(rows, []any{&number, &balance, &debits}, func() error {
 		t.ByAccount[number] = balance
 		// Summed exactly: debits out of range fail the totals rather than wrap.
 		total, err := money.Sum(t.Debits, debits)
 		t.Debits = total
 		return err
 	})
+	return t, err
+}
+
+// EntryTotals sums the lines of the journal entries with the ids that the
+// legal entity posted in the fiscal year, in the leading ledger, as Totals
+// sums them: the balance per account number and the sum of debits. A
+// migration run takes it off Totals for entries that have no document in
+// the source system, such as its stock take-over's initial entries
+// (S2p), which its stock controls reconcile instead. An id of no such
+// entry adds nothing.
+func (Reports) EntryTotals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, ids []uuid.UUID) (Totals, error) {
+	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
-		return t, fmt.Errorf("ledger: totals of %s %d: %w", legalEntity, fiscalYear, err)
+		return Totals{}, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT a.number, sum(l.amount_lc), sum(greatest(l.amount_lc, 0))::bigint FROM ledger.journal_line l
+		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
+		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
+		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2 AND l.journal_entry_id = ANY($3) GROUP BY a.number ORDER BY a.number`, legalEntity, fiscalYear, ids)
+	t, err := totalsOf(rows)
+	if err != nil {
+		return t, fmt.Errorf("ledger: totals of %d entries of %s %d: %w", len(ids), legalEntity, fiscalYear, err)
 	}
 	return t, nil
 }

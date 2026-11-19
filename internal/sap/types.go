@@ -861,6 +861,7 @@ type Extract struct {
 	MARM  []MARM  `json:"MARM,omitempty"`
 	MARC  []MARC  `json:"MARC,omitempty"`
 	MARD  []MARD  `json:"MARD,omitempty"`
+	MBEW  []MBEW  `json:"MBEW,omitempty"`
 	T001W []T001W `json:"T001W,omitempty"`
 	T001L []T001L `json:"T001L,omitempty"`
 
@@ -922,7 +923,7 @@ type Extract struct {
 // TKA3P) and the currencies' decimals (TCURX), which the quality gate
 // reads to convert amounts. The material master's tables and the plants
 // and storage locations (MARA, MAKT, MARM, MARC, MARD, T001W, T001L) are
-// counted as the run reads them (S2o).
+// counted as the run reads them (S2o), and the valuations (MBEW, S2p).
 func (e *Extract) Counts() map[string]int {
 	return map[string]int{
 		"T001": len(e.T001), "SKB1": len(e.SKB1), "LFA1": len(e.LFA1), "ADRC": len(e.ADRC), "LFB1": len(e.LFB1),
@@ -933,6 +934,6 @@ func (e *Extract) Counts() map[string]int {
 		"CSKS": len(e.CSKS), "CSKT": len(e.CSKT), "CEPC": len(e.CEPC), "CEPCT": len(e.CEPCT), "CEPC_BUKRS": len(e.CEPC_BUKRS),
 		"FAGL_SEGM": len(e.FAGL_SEGM), "FAGL_SEGMT": len(e.FAGL_SEGMT), "TKA01": len(e.TKA01), "SETHEADER": len(e.SETHEADER),
 		"SETHEADERT": len(e.SETHEADERT), "SETNODE": len(e.SETNODE), "SETLEAF": len(e.SETLEAF),
-		"MARA": len(e.MARA), "MAKT": len(e.MAKT), "MARM": len(e.MARM), "MARC": len(e.MARC), "MARD": len(e.MARD), "T001W": len(e.T001W), "T001L": len(e.T001L),
+		"MARA": len(e.MARA), "MAKT": len(e.MAKT), "MARM": len(e.MARM), "MARC": len(e.MARC), "MARD": len(e.MARD), "MBEW": len(e.MBEW), "T001W": len(e.T001W), "T001L": len(e.T001L),
 	}
 }

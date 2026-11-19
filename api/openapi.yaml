@@ -36993,11 +36993,15 @@ paths:
         - integration.legal_entity_not_active
         - integration.migration_failed
         - integration.secret_unavailable
+        - inventory.amount_not_allowed
         - inventory.amount_too_large
         - inventory.cost_center_not_allowed
         - inventory.cost_center_required
+        - inventory.currency_mismatch
         - inventory.inexact_quantity
         - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.invalid_price
         - inventory.invalid_quantity
         - inventory.material_invalid
         - inventory.material_not_stocked
@@ -37011,11 +37015,15 @@ paths:
         - inventory.posting_blocked
         - inventory.quantity_too_large
         - inventory.same_location
+        - inventory.stock_without_valuation
         - inventory.storage_location_invalid
         - inventory.storage_location_not_extended
         - inventory.transfer_not_allowed
         - inventory.transfer_target_required
+        - inventory.unknown_price_control
         - inventory.unknown_unit
+        - inventory.unknown_valuation_class
+        - inventory.valuation_exists
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -72171,6 +72179,7 @@ components:
         - marm
         - marc
         - mard
+        - mbew
         - t001w
         - t001l
       properties:
@@ -72325,7 +72334,11 @@ components:
         mard:
           type: integer
           minimum: 0
-          description: "Rows of SAP table MARD (the materials' storage location data at the scope's plants, the assignment only; S2o)."
+          description: "Rows of SAP table MARD (the materials' storage location data at the scope's plants: the assignment, S2o, and the unrestricted stock, S2p)."
+        mbew:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table MBEW (the materials' valuations in the valuation areas of the scope's plants: price control, price, valuation class, stock and value; S2p)."
         t001w:
           type: integer
           minimum: 0
@@ -72430,6 +72443,14 @@ components:
           type: integer
           minimum: 1
           description: "Materials an earlier run created that this run extended to more plants or storage locations, each by an update change applied at once (S2o)."
+        material_valuations:
+          type: integer
+          minimum: 1
+          description: "Materials valued at a plant as SAP values them (MBEW: price control, price per price unit, valuation class), each once: a valuation an earlier run took over is kept (S2p)."
+        initial_entries:
+          type: integer
+          minimum: 1
+          description: "Initial entries of stock (movement type 561) posting SAP's unrestricted stock of a material at its plant's storage locations (MARD) at SAP's value, on the valuation class's stock account against its initial entry account, the migration clearing account (S2p)."
     MigrationIssue:
       type: object
       description: A finding of the quality gate, the load or the reconciliation on a row of the extract.

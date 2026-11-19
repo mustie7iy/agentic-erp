@@ -43,11 +43,12 @@ var materialTypes = map[string]string{sap.MaterialTypeRaw: "raw_material", sap.M
 // platform keeps (materials.unit_conversion, ADR-0082 §4).
 const maxFactor = 1_000_000
 
-// sapPlant is a plant of the extract (T001W) with its company code and
-// its storage locations (T001L), in code order.
+// sapPlant is a plant of the extract (T001W) with its company code, its
+// valuation area (BWKEY; the plant's own code when the extract leaves it
+// out) and its storage locations (T001L), in code order.
 type sapPlant struct {
-	werks, name, company string
-	locations            []sapLocation
+	werks, name, company, area string
+	locations                  []sapLocation
 }
 
 // sapLocation is a storage location of a plant (T001L).
@@ -102,7 +103,7 @@ func plantsOf(e *sap.Extract) ([]sapPlant, []Issue) {
 			continue
 		}
 		orgUnitIssues("T001W", r.WERKS, r.WERKS, r.NAME1, "plant", add)
-		plants = append(plants, sapPlant{werks: r.WERKS, name: r.NAME1, company: r.BUKRS})
+		plants = append(plants, sapPlant{werks: r.WERKS, name: r.NAME1, company: r.BUKRS, area: cmp.Or(r.BWKEY, r.WERKS)})
 		byCode[r.WERKS] = nil
 	}
 	for i := range plants {

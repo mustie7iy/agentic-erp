@@ -51,6 +51,8 @@ type LoadedCounts struct {
 	StorageLocations       int `json:"storage_locations,omitempty"`
 	Materials              int `json:"materials,omitempty"`
 	MaterialsExtended      int `json:"materials_extended,omitempty"`
+	MaterialValuations     int `json:"material_valuations,omitempty"`
+	InitialEntries         int `json:"initial_entries,omitempty"`
 }
 
 // reportToAPI is the report as the contract declares it. The lists of a
@@ -92,7 +94,7 @@ func extractToAPI(c map[string]int) gen.MigrationExtractCounts {
 		AgrUsers: c["AGR_USERS"], Csks: c["CSKS"], Cskt: c["CSKT"], Cepc: c["CEPC"], Cepct: c["CEPCT"], CepcBukrs: c["CEPC_BUKRS"],
 		FaglSegm: c["FAGL_SEGM"], FaglSegmt: c["FAGL_SEGMT"], Tka01: c["TKA01"], Setheader: c["SETHEADER"], Setheadert: c["SETHEADERT"],
 		Setnode: c["SETNODE"], Setleaf: c["SETLEAF"], Mara: c["MARA"], Makt: c["MAKT"], Marm: c["MARM"], Marc: c["MARC"], Mard: c["MARD"],
-		T001w: c["T001W"], T001l: c["T001L"]}
+		Mbew: c["MBEW"], T001w: c["T001W"], T001l: c["T001L"]}
 }
 
 func loadedToAPI(l LoadedCounts) gen.MigrationLoadedCounts {
@@ -103,7 +105,8 @@ func loadedToAPI(l LoadedCounts) gen.MigrationLoadedCounts {
 		GrIrPositions: count(l.GRIRPositions), GrIrTopUps: count(l.GRIRTopUps), Segments: count(l.Segments), ProfitCenters: count(l.ProfitCenters),
 		ProfitCentersExtended: count(l.ProfitCentersExtended), CostCenters: count(l.CostCenters), Hierarchies: count(l.Hierarchies),
 		HierarchyNodes: count(l.HierarchyNodes), HierarchyPlaces: count(l.HierarchyPlaces), Plants: count(l.Plants), StorageLocations: count(l.StorageLocations),
-		Materials: count(l.Materials), MaterialsExtended: count(l.MaterialsExtended)}
+		Materials: count(l.Materials), MaterialsExtended: count(l.MaterialsExtended), MaterialValuations: count(l.MaterialValuations),
+		InitialEntries: count(l.InitialEntries)}
 }
 
 // count is a loaded count as the contract has it: absent when nothing of

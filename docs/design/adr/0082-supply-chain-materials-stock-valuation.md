@@ -826,6 +826,86 @@ legal entity and kind.
   mock's Laval plant 3200 has a raw materials store 0001, as Mississauga's
   3100 has (`migrated_materials`, step 3).
 
+### S2p (2026-11-19)
+
+The SAP migration run takes the stock over at the cutover (plan-supply-chain.md
+§S2p; docs/migration.md "Stock and values"). No migration: the external
+references are `integration.external_ref`'s.
+
+- **A new dependency direction, `integration → inventory`**, through
+  `inventory.Endpoints.TakeOver` and `TakenOver` (`internal/inventory/takeover.go`,
+  the context's published API; integration declares the port `Stock`).
+  Inventory imports nothing new, so there is no cycle; the `internal/layout`
+  row names this section.
+- **What is taken over.** SAP's valuation of a material that loads at one
+  of its plants (MBEW: VPRSV S or V as `standard` or `moving_average`, the
+  price STPRS or VERPR per price unit PEINH, the valuation class BKLAS,
+  which must be one of the company's `companies[].account_determination.inventory`)
+  becomes inventory's valuation, created as `POST /v1/material-valuations`
+  creates one; its unrestricted stock at the plant's storage locations
+  (MARD LABST) one initial entry (561) dated the company's date today, its
+  header text "Migration run <id>: SAP stock of material <MATNR> at plant
+  <WERKS>" (a 561 takes no reference, `material_document_reference`). At a
+  moving price each storage location is worth its share of SALK3 by
+  quantity (`money.Allocate`, so the shares add up to SAP's value); at a
+  standard price the stock is worth its quantity at the price, as every
+  standard-priced receipt is. The valuation is kept as `MBEW/<BWKEY>/<MATNR>`,
+  the document as `MKPF/<BWKEY>/<MATNR>`; a later run keeps both as they
+  are (the stock is taken over once, at the cutover). Report counts
+  `material_valuations` and `initial_entries`, extract count `mbew`.
+- **The migration clearing account.** The entry posts the stock on the
+  class's stock account against its `initial_entry` account (GBB BSA, §8),
+  which a tenant names its migration clearing account for the cutover
+  (SAP's practice, from memory). SAP's journal brings SAP's G/L balance of
+  its stock accounts with it, so the books are right when that balance is
+  on the clearing account too: SAP's stock account (as the journal loads
+  it) is the class's `initial_entry` account and the class's `stock`
+  account another, which the take-over fills; the clearing then nets to
+  zero. Decided by default, the safer of the two: the take-over never
+  redirects SAP's journal, and a setup that holds the stock twice (the
+  class's stock account also SAP's G/L stock account) fails the control
+  "Stock accounts" below instead of loading silently.
+- **Reconciliation** per company code: `Stock` and `Stock: valuations
+  with differences` (each valuation by `stock <BWKEY>/<MATNR>`: class,
+  price control, stock, value and stock per storage location), `Stock
+  value total` and `Stock accounts: accounts with differences` (per stock
+  account of the classes, SAP's values against the account's balance on
+  the platform in the run's fiscal year). The trial balance and the total
+  debits leave the initial entries out (`ledger.Reports.EntryTotals`
+  taken off `Totals`), as SAP's journal has no document of them: the
+  stock controls reconcile them.
+- **Refused, an error** (a stock left out would pass a reconciliation that
+  leaves it out too): a valuation twice, a valuation area that is not one
+  plant's (valuation at company code level), split valuation (BWTAR), a
+  price control other than S and V, a class the company lacks, a price
+  unit outside 1 to 10,000, a price or value that is no amount, a standard
+  price of zero, a stock (LBKUM) that is not the sum of the storage
+  locations' LABST (stock in quality inspection, blocked or in transfer is
+  not taken over: SAP's INSME, SPEME, UMLME are not extracted), stock at a
+  storage location flagged for deletion, a value without stock, MARD stock
+  without a valuation, and stock of a material type that keeps none. The
+  stock of a material that does not load (held back, flagged for deletion
+  or not extended to the plant) is a warning naming what is not taken
+  over. The services' refusals (no initial entry account, a valuation the
+  plant has already, no `material_document` range) are load refusals, and
+  so is a take-over whose entry falls in another fiscal year than the
+  run's.
+- **Locks** (ADR-0008): the stock is taken over after the material master
+  and before anything posts to the ledger (GR/IR take-overs, the journal),
+  so the run takes the `material_document` range before the `journal_we`
+  one, as every goods movement does. The valuations and stock rows it
+  writes are of materials no one else sees before it commits.
+- **Mock:** company 3000's steel sheet (moving, 1,200 KG worth 3,000.00 at
+  3100/0001), shelving (standard 85.00 at both plants) and hex bolts
+  (moving 12.00 per 100, 6,500 PC worth 780.00 at 3200/0001 and 0003), all
+  of class 3100; the held-back washer's 300 pieces are a warning.
+  Walkthrough `migrated_stock` in step 3.
+- **Not built** (Later, plan §S2p): split valuation, valuation at company
+  code level, SAP's other stock types (quality inspection, blocked,
+  returns, in transfer), special stocks (consignment, sales order and
+  project stock), batches and serial numbers, the stock over OData, and
+  topping a taken-over stock up to SAP's in a later run.
+
 ### S2c (2026-11-19)
 
 - Migration 000406: `inventory.count_document` (SAP IKPF) and

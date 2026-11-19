@@ -170,7 +170,7 @@ func (l *loader) load(ctx context.Context) error {
 	l.foreign, _ = foreignDocuments(l.ext, l.t) // the quality gate refused the conflicts
 	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
 	l.lines = lineCentersOf(l.ext)
-	for _, fn := range []func(context.Context) error{l.centers, l.partners, l.materialMaster, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
+	for _, fn := range []func(context.Context) error{l.centers, l.partners, l.materialMaster, l.stock, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
 		l.blocked} {
 		if err := fn(ctx); err != nil {
 			return err

@@ -105,6 +105,8 @@ type reconciler struct {
 	// materials are the material master's two sides, read once
 	// (readMaterials).
 	materials *materialStates
+	// stock is the stock's two sides, read once (readStock).
+	stock *stockStates
 	// partnerOf is each vendor's trading partner, the company ID its master
 	// names (LFA1-VBUND, sap.CompanyID), "" for none.
 	partnerOf map[string]string
@@ -193,6 +195,9 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	if err := rc.materialMaster(ctx, s); err != nil {
 		return err
 	}
+	if err := rc.stockControls(ctx, s); err != nil {
+		return err
+	}
 	if err := rc.bankAccounts(ctx, s); err != nil {
 		return err
 	}
@@ -278,6 +283,9 @@ func (rc *reconciler) trialBalance(ctx context.Context, s companyScope) (sapJour
 	sapTB, sapDebits, documents := j.tb, j.debits, j.documents
 	totals, err := rc.e.Reports.Totals(ctx, s.le, int16(rc.t.year))
 	if err != nil {
+		return j, err
+	}
+	if totals, err = rc.withoutTakeOver(ctx, s, totals); err != nil {
 		return j, err
 	}
 	tb := diffs(s.cc, sapTB, totals.ByAccount, s.format)

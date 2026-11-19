@@ -62307,6 +62307,27 @@ func (s *MigrationExtractCounts) Validate() error {
 			MultipleOfSet: false,
 			MultipleOf:    0,
 			Pattern:       nil,
+		}).Validate(int64(s.Mbew)); err != nil {
+			return errors.Wrap(err, "int")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "mbew",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := (validate.Int{
+			MinSet:        true,
+			Min:           0,
+			MaxSet:        false,
+			Max:           0,
+			MinExclusive:  false,
+			MaxExclusive:  false,
+			MultipleOfSet: false,
+			MultipleOf:    0,
+			Pattern:       nil,
 		}).Validate(int64(s.T001w)); err != nil {
 			return errors.Wrap(err, "int")
 		}
@@ -62991,6 +63012,62 @@ func (s *MigrationLoadedCounts) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "materials_extended",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.MaterialValuations.Get(); ok {
+			if err := func() error {
+				if err := (validate.Int{
+					MinSet:        true,
+					Min:           1,
+					MaxSet:        false,
+					Max:           0,
+					MinExclusive:  false,
+					MaxExclusive:  false,
+					MultipleOfSet: false,
+					MultipleOf:    0,
+					Pattern:       nil,
+				}).Validate(int64(value)); err != nil {
+					return errors.Wrap(err, "int")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "material_valuations",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.InitialEntries.Get(); ok {
+			if err := func() error {
+				if err := (validate.Int{
+					MinSet:        true,
+					Min:           1,
+					MaxSet:        false,
+					Max:           0,
+					MinExclusive:  false,
+					MaxExclusive:  false,
+					MultipleOfSet: false,
+					MultipleOf:    0,
+					Pattern:       nil,
+				}).Validate(int64(value)); err != nil {
+					return errors.Wrap(err, "int")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "initial_entries",
 			Error: err,
 		})
 	}

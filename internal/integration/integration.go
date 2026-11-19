@@ -146,6 +146,7 @@ type Reports interface {
 	OpenForeignItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]map[string]money.Minor, error)
 	OpenItemsByMethod(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]map[string]ledger.FixedMethodItems, error)
 	OpenGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]map[int32]ledger.OpenGRIR, error)
+	EntryTotals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, ids []uuid.UUID) (ledger.Totals, error)
 }
 
 // Secrets resolves a connector's secret reference: the server's resolver
@@ -205,6 +206,7 @@ type Endpoints struct {
 	Centers       Centers
 	Materials     Materials
 	OrgUnits      OrgUnits
+	Stock         Stock
 	Actuals       CenterActuals
 	Secrets       Secrets
 	Requesters    Requesters       // the workflow's Execute refuses a requester no longer active

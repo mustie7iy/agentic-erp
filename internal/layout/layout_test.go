@@ -119,7 +119,7 @@ var allowed = map[string][]string{
 	"drverify":                {"audit", "controlplane", "directory", "offboarding", "tenancy"},
 	"eval":                    {"apitools", "llm"},
 	"globalplane":             {"directory", "offboarding"},
-	"integration":             {"bankfile", "config", "ledger", "materials", "operations", "partner", "payables", "procurement", "sap", "tenancy"}, // materials' published Migration for the SAP migration of the material master (ADR-0082 As built S2o)
+	"integration":             {"bankfile", "config", "inventory", "ledger", "materials", "operations", "partner", "payables", "procurement", "sap", "tenancy"}, // materials' published Migration for the SAP migration of the material master (ADR-0082 As built S2o); inventory's published TakeOver for its stock (As built S2p)
 	"ledger":                  {"approvals", "config", "configuration", "tenancy"},
 	"nfr":                     {"analytics", "app", "ledger"},
 	"offboarding":             {"tenancy"},

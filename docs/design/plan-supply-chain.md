@@ -762,6 +762,27 @@ posting against the migration clearing account, reconciled to SAP's
 stock account balances. **Acceptance:** quantity and value per material
 and plant equal SAP's at the cutover date.
 
+- **Reuses:** the migration run (S2o's plants, storage locations and
+  materials, its quality gate, external references and reconciliation),
+  inventory's valuation and initial entry (S1c, S1d), the ledger's totals.
+- **Adds:** MBEW and MARD's LABST in the extract; `inventory.TakeOver`
+  and `TakenOver` (the published API, `integration → inventory`); the
+  quality findings and checks `Stock`, `Stock: valuations with
+  differences`, `Stock value total`, `Stock accounts: accounts with
+  differences`; report counts `material_valuations`, `initial_entries`;
+  ADR-0082 As built S2p.
+- **Walkthrough:** `migrated_stock` in step 3, `step_migrate`.
+- **Acceptance (as built):** each valuation's stock per storage location
+  and value equal SAP's per material and plant (`Stock`), the stock
+  accounts hold SAP's values (`Stock accounts`), the trial balance agrees
+  without the take-over; what the platform cannot hold of a material that
+  loads refuses the run.
+
+**Later for the stock's migration:** split valuation and valuation at
+company code level; SAP's other stock types and special stocks; batches
+and serial numbers; the stock over OData; topping a taken-over stock up in
+a later run.
+
 ### S2q WMS connector
 
 **Capability.** An external warehouse system receives deliveries and
@@ -797,6 +818,14 @@ S2a–S2d, S2o and S2p (twelve).
   status KOSTK (A, B, C), the account modifier VAX of GBB for a goods
   issue's cost of goods sold, and SAP changing the delivery quantity to
   the picked one before goods issue, which ADR-0083 does not follow.
+- For S2p: MBEW's BWKEY (the valuation area, a plant's T001W-BWKEY when
+  valuation is at plant level), BWTAR (split valuation), LBKUM and SALK3
+  (the valuated stock and its value), STPRS and VERPR per PEINH; MARD's
+  LABST (unrestricted stock) beside INSME, SPEME, EINME, UMLME and RETME
+  (the stock types not taken over), and that LBKUM is the sum of those
+  over a plant's storage locations; GBB BSA as the offset of a 561, set
+  to a migration clearing account at a cutover, and SAP's G/L stock
+  balance loaded against the same clearing account — all from memory.
 - SAP's account determination for inventory (transaction keys BSX, WRX,
   PRD, GBB with its account modifiers, UMB) is from memory; ADR-0082 §8
   maps it onto this ERP's account determination keys and is confirmed by
