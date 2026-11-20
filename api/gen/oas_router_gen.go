@@ -1067,7 +1067,7 @@ var (
 		"GET": "Authorization",
 	}
 	rn801AllowedHeaders = map[string]string{
-		"POST": "Authorization,Content-Type,Idempotency-Key",
+		"POST": "Authorization,Content-Type,Idempotency-Key,If-Match",
 	}
 	rn636AllowedHeaders = map[string]string{
 		"GET":  "Authorization",

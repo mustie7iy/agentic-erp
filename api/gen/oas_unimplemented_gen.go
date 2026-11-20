@@ -10459,8 +10459,11 @@ func (UnimplementedHandler) ScheduleReport(ctx context.Context, req *ReportSched
 // `einvoicing.status_unconfirmed`. Every change of the submission's status or of the provider's is
 // audited (`einvoicing.outgoing.transmission`) and publishes OutgoingEInvoiceTransmissionChanged; the
 // failed ones are the worklist `listOutgoingEInvoices?transmission_status=failed`, which a person
-// sends again with this operation once corrected (the row queued again, a new Operation). Refused: an
-// e-invoice that is invalid (409 `einvoicing.document_invalid`); one queued, sending or submitted (409
+// sends again with this operation once corrected (the row queued again, a new Operation). The caller
+// sends the e-invoice at the ETag it read (`If-Match`; the ETag moves with its transmission, so a send
+// asked twice on one reading is refused 412). Refused: a business type other than B2B and B2G (422
+// `einvoicing.unknown_business_type`); an e-invoice that is invalid (409
+// `einvoicing.document_invalid`); one queued, sending or submitted (409
 // `einvoicing.transmission_in_progress`) or completed (409 `einvoicing.already_transmitted`); a
 // connector that is not an active `einvoice_provider` connector with credentials that resolve, as
 // `fetchEInvoices` refuses one; one whose adapter does not send (the stand-in's own protocol: 422

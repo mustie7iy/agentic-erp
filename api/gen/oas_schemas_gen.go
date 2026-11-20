@@ -6,7 +6,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/go-faster/errors"
 	"github.com/go-faster/jx"
 	"github.com/google/uuid"
 )
@@ -67269,75 +67268,6 @@ type ListOutgoingEInvoicesForbidden Problem
 
 func (*ListOutgoingEInvoicesForbidden) listOutgoingEInvoicesRes() {}
 
-type ListOutgoingEInvoicesTransmissionStatus string
-
-const (
-	ListOutgoingEInvoicesTransmissionStatusNone      ListOutgoingEInvoicesTransmissionStatus = "none"
-	ListOutgoingEInvoicesTransmissionStatusQueued    ListOutgoingEInvoicesTransmissionStatus = "queued"
-	ListOutgoingEInvoicesTransmissionStatusSending   ListOutgoingEInvoicesTransmissionStatus = "sending"
-	ListOutgoingEInvoicesTransmissionStatusSubmitted ListOutgoingEInvoicesTransmissionStatus = "submitted"
-	ListOutgoingEInvoicesTransmissionStatusCompleted ListOutgoingEInvoicesTransmissionStatus = "completed"
-	ListOutgoingEInvoicesTransmissionStatusFailed    ListOutgoingEInvoicesTransmissionStatus = "failed"
-)
-
-// AllValues returns all ListOutgoingEInvoicesTransmissionStatus values.
-func (ListOutgoingEInvoicesTransmissionStatus) AllValues() []ListOutgoingEInvoicesTransmissionStatus {
-	return []ListOutgoingEInvoicesTransmissionStatus{
-		ListOutgoingEInvoicesTransmissionStatusNone,
-		ListOutgoingEInvoicesTransmissionStatusQueued,
-		ListOutgoingEInvoicesTransmissionStatusSending,
-		ListOutgoingEInvoicesTransmissionStatusSubmitted,
-		ListOutgoingEInvoicesTransmissionStatusCompleted,
-		ListOutgoingEInvoicesTransmissionStatusFailed,
-	}
-}
-
-// MarshalText implements encoding.TextMarshaler.
-func (s ListOutgoingEInvoicesTransmissionStatus) MarshalText() ([]byte, error) {
-	switch s {
-	case ListOutgoingEInvoicesTransmissionStatusNone:
-		return []byte(s), nil
-	case ListOutgoingEInvoicesTransmissionStatusQueued:
-		return []byte(s), nil
-	case ListOutgoingEInvoicesTransmissionStatusSending:
-		return []byte(s), nil
-	case ListOutgoingEInvoicesTransmissionStatusSubmitted:
-		return []byte(s), nil
-	case ListOutgoingEInvoicesTransmissionStatusCompleted:
-		return []byte(s), nil
-	case ListOutgoingEInvoicesTransmissionStatusFailed:
-		return []byte(s), nil
-	default:
-		return nil, errors.Errorf("invalid value: %q", s)
-	}
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (s *ListOutgoingEInvoicesTransmissionStatus) UnmarshalText(data []byte) error {
-	switch ListOutgoingEInvoicesTransmissionStatus(data) {
-	case ListOutgoingEInvoicesTransmissionStatusNone:
-		*s = ListOutgoingEInvoicesTransmissionStatusNone
-		return nil
-	case ListOutgoingEInvoicesTransmissionStatusQueued:
-		*s = ListOutgoingEInvoicesTransmissionStatusQueued
-		return nil
-	case ListOutgoingEInvoicesTransmissionStatusSending:
-		*s = ListOutgoingEInvoicesTransmissionStatusSending
-		return nil
-	case ListOutgoingEInvoicesTransmissionStatusSubmitted:
-		*s = ListOutgoingEInvoicesTransmissionStatusSubmitted
-		return nil
-	case ListOutgoingEInvoicesTransmissionStatusCompleted:
-		*s = ListOutgoingEInvoicesTransmissionStatusCompleted
-		return nil
-	case ListOutgoingEInvoicesTransmissionStatusFailed:
-		*s = ListOutgoingEInvoicesTransmissionStatusFailed
-		return nil
-	default:
-		return errors.Errorf("invalid value: %q", data)
-	}
-}
-
 type ListParkedJournalEntriesBadRequest Problem
 
 func (*ListParkedJournalEntriesBadRequest) listParkedJournalEntriesRes() {}
@@ -79866,52 +79796,6 @@ func (o OptLiquidityForecastVariancePeriod) Or(d LiquidityForecastVariancePeriod
 	return d
 }
 
-// NewOptListOutgoingEInvoicesTransmissionStatus returns new OptListOutgoingEInvoicesTransmissionStatus with value set to v.
-func NewOptListOutgoingEInvoicesTransmissionStatus(v ListOutgoingEInvoicesTransmissionStatus) OptListOutgoingEInvoicesTransmissionStatus {
-	return OptListOutgoingEInvoicesTransmissionStatus{
-		Value: v,
-		Set:   true,
-	}
-}
-
-// OptListOutgoingEInvoicesTransmissionStatus is optional ListOutgoingEInvoicesTransmissionStatus.
-type OptListOutgoingEInvoicesTransmissionStatus struct {
-	Value ListOutgoingEInvoicesTransmissionStatus
-	Set   bool
-}
-
-// IsSet returns true if OptListOutgoingEInvoicesTransmissionStatus was set.
-func (o OptListOutgoingEInvoicesTransmissionStatus) IsSet() bool { return o.Set }
-
-// Reset unsets value.
-func (o *OptListOutgoingEInvoicesTransmissionStatus) Reset() {
-	var v ListOutgoingEInvoicesTransmissionStatus
-	o.Value = v
-	o.Set = false
-}
-
-// SetTo sets value to v.
-func (o *OptListOutgoingEInvoicesTransmissionStatus) SetTo(v ListOutgoingEInvoicesTransmissionStatus) {
-	o.Set = true
-	o.Value = v
-}
-
-// Get returns value and boolean that denotes whether value was set.
-func (o OptListOutgoingEInvoicesTransmissionStatus) Get() (v ListOutgoingEInvoicesTransmissionStatus, ok bool) {
-	if !o.Set {
-		return v, false
-	}
-	return o.Value, true
-}
-
-// Or returns value if set, or given parameter if does not.
-func (o OptListOutgoingEInvoicesTransmissionStatus) Or(d ListOutgoingEInvoicesTransmissionStatus) ListOutgoingEInvoicesTransmissionStatus {
-	if v, ok := o.Get(); ok {
-		return v
-	}
-	return d
-}
-
 // NewOptMatchDecision returns new OptMatchDecision with value set to v.
 func NewOptMatchDecision(v MatchDecision) OptMatchDecision {
 	return OptMatchDecision{
@@ -83811,8 +83695,9 @@ type OutgoingEInvoiceSend struct {
 	// The `einvoice_provider` connector naming the company's participant at the provider.
 	ConnectorID uuid.UUID `json:"connector_id"`
 	// The transaction's business type at the provider: B2B (to a business) or B2G (to a government
-	// entity). B2C is outside the UAE mandate.
-	BusinessType OutgoingEInvoiceSendBusinessType `json:"business_type"`
+	// entity); another is refused (422 `einvoicing.unknown_business_type`): B2C is outside the UAE
+	// mandate. Open enumeration: values may be added within /v1.
+	BusinessType string `json:"business_type"`
 }
 
 // GetConnectorID returns the value of ConnectorID.
@@ -83821,7 +83706,7 @@ func (s *OutgoingEInvoiceSend) GetConnectorID() uuid.UUID {
 }
 
 // GetBusinessType returns the value of BusinessType.
-func (s *OutgoingEInvoiceSend) GetBusinessType() OutgoingEInvoiceSendBusinessType {
+func (s *OutgoingEInvoiceSend) GetBusinessType() string {
 	return s.BusinessType
 }
 
@@ -83831,51 +83716,8 @@ func (s *OutgoingEInvoiceSend) SetConnectorID(val uuid.UUID) {
 }
 
 // SetBusinessType sets the value of BusinessType.
-func (s *OutgoingEInvoiceSend) SetBusinessType(val OutgoingEInvoiceSendBusinessType) {
+func (s *OutgoingEInvoiceSend) SetBusinessType(val string) {
 	s.BusinessType = val
-}
-
-// The transaction's business type at the provider: B2B (to a business) or B2G (to a government
-// entity). B2C is outside the UAE mandate.
-type OutgoingEInvoiceSendBusinessType string
-
-const (
-	OutgoingEInvoiceSendBusinessTypeB2B OutgoingEInvoiceSendBusinessType = "B2B"
-	OutgoingEInvoiceSendBusinessTypeB2G OutgoingEInvoiceSendBusinessType = "B2G"
-)
-
-// AllValues returns all OutgoingEInvoiceSendBusinessType values.
-func (OutgoingEInvoiceSendBusinessType) AllValues() []OutgoingEInvoiceSendBusinessType {
-	return []OutgoingEInvoiceSendBusinessType{
-		OutgoingEInvoiceSendBusinessTypeB2B,
-		OutgoingEInvoiceSendBusinessTypeB2G,
-	}
-}
-
-// MarshalText implements encoding.TextMarshaler.
-func (s OutgoingEInvoiceSendBusinessType) MarshalText() ([]byte, error) {
-	switch s {
-	case OutgoingEInvoiceSendBusinessTypeB2B:
-		return []byte(s), nil
-	case OutgoingEInvoiceSendBusinessTypeB2G:
-		return []byte(s), nil
-	default:
-		return nil, errors.Errorf("invalid value: %q", s)
-	}
-}
-
-// UnmarshalText implements encoding.TextUnmarshaler.
-func (s *OutgoingEInvoiceSendBusinessType) UnmarshalText(data []byte) error {
-	switch OutgoingEInvoiceSendBusinessType(data) {
-	case OutgoingEInvoiceSendBusinessTypeB2B:
-		*s = OutgoingEInvoiceSendBusinessTypeB2B
-		return nil
-	case OutgoingEInvoiceSendBusinessTypeB2G:
-		*s = OutgoingEInvoiceSendBusinessTypeB2G
-		return nil
-	default:
-		return errors.Errorf("invalid value: %q", data)
-	}
 }
 
 // An e-invoice's submission to the accredited provider (ADR-0061 As built E3): the outbox of its

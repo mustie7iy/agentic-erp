@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -116,13 +117,14 @@ func submissionOf(ctx context.Context, tx pgx.Tx, outgoing uuid.UUID, lock bool)
 func outgoingPath(id uuid.UUID) string { return "/v1/outgoing-e-invoices/" + id.String() }
 
 // SendOutgoingEInvoice implements POST /v1/outgoing-e-invoices/{id}:send
-// (As built E3): the valid e-invoice, read FOR UPDATE so two sends of it
-// wait for each other, is queued for its provider: its submission written
-// (or a failed one queued again in its row) with the Operation the send
-// workflow carries out, audited and published, before any call. The
-// connector is resolved into its adapter now, without a call, so one that
-// cannot send for the e-invoice's company is refused before anything is
-// queued.
+// (As built E3): the connector is resolved into its adapter first, with
+// no row locked (its secret may be read from the vault) and without a
+// call, so one that cannot send for the e-invoice's company is refused
+// before anything is queued; then the valid e-invoice, read FOR UPDATE so
+// two sends of it wait for each other, is queued for its provider: its
+// submission written (or a failed one queued again in its row) with the
+// Operation the send workflow carries out, audited and published, before
+// any call.
 func (e *Endpoints) SendOutgoingEInvoice(ctx context.Context, req *gen.OutgoingEInvoiceSend, params gen.SendOutgoingEInvoiceParams) (gen.SendOutgoingEInvoiceRes, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -131,15 +133,21 @@ func (e *Endpoints) SendOutgoingEInvoice(ctx context.Context, req *gen.OutgoingE
 	if e.Objects == nil {
 		return nil, noStore()
 	}
+	if req.BusinessType != "B2B" && req.BusinessType != "B2G" {
+		return nil, problem.Invalid("einvoicing.unknown_business_type", "business_type", "B2B or B2G: B2C is outside the UAE mandate")
+	}
 	o, err := outgoing(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	company, err := e.sender(ctx, o, req.ConnectorID)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `SELECT FROM einvoicing.outgoing_einvoice WHERE id = $1 FOR UPDATE`, o.ID); err != nil {
 		return nil, fmt.Errorf("einvoicing: lock outgoing e-invoice %s: %w", o.ID, err)
 	}
-	company, err := e.sendable(ctx, tx, o, req.ConnectorID)
-	if err != nil {
+	if err := sendable(ctx, tx, o, params.IfMatch); err != nil {
 		return nil, err
 	}
 	op, err := e.Sends.Start(ctx, outgoingPath(o.ID), req)
@@ -161,25 +169,36 @@ func (e *Endpoints) now() time.Time {
 	return e.Now()
 }
 
-// sendable refuses an e-invoice that cannot be sent through the
-// connector: invalid, queued or sent already, or a connector that cannot
-// send for its company. It answers the company.
-func (e *Endpoints) sendable(ctx context.Context, tx pgx.Tx, o OutgoingEInvoice, connector uuid.UUID) (Company, error) {
-	if o.Status != StatusValid {
-		return Company{}, problem.Conflict("einvoicing.document_invalid", "Outgoing e-invoice "+o.CustomerInvoiceNumber+
-			" is invalid; correct what its problems name and render it again before it is sent.")
-	}
+// sendable refuses an e-invoice, locked, that cannot be sent: read at
+// another ETag than the caller's (its version and its submission's, which
+// moves with its transmission), invalid, or queued or sent already.
+func sendable(ctx context.Context, tx pgx.Tx, o OutgoingEInvoice, ifMatch string) error {
 	s, found, err := submissionOf(ctx, tx, o.ID, true)
+	if err != nil {
+		return err
+	}
+	if err := etag.Check(ifMatch, o.Version+s.Version); err != nil { // s.Version is 0 for none
+		return err
+	}
 	switch {
-	case err != nil:
-		return Company{}, err
+	case o.Status != StatusValid:
+		return problem.Conflict("einvoicing.document_invalid", "Outgoing e-invoice "+o.CustomerInvoiceNumber+
+			" is invalid; correct what its problems name and render it again before it is sent.")
 	case found && s.Status == SubmissionCompleted:
-		return Company{}, problem.Conflict("einvoicing.already_transmitted", "Outgoing e-invoice "+o.CustomerInvoiceNumber+
+		return problem.Conflict("einvoicing.already_transmitted", "Outgoing e-invoice "+o.CustomerInvoiceNumber+
 			" is transmitted already (tracking id "+*s.TrackingID+"); a correction is a credit note.")
 	case found && s.Status != SubmissionFailed:
-		return Company{}, problem.Conflict("einvoicing.transmission_in_progress", "Outgoing e-invoice "+o.CustomerInvoiceNumber+" is "+s.Status+
+		return problem.Conflict("einvoicing.transmission_in_progress", "Outgoing e-invoice "+o.CustomerInvoiceNumber+" is "+s.Status+
 			"; follow operation "+s.OperationID.String()+".")
 	}
+	return nil
+}
+
+// sender refuses a connector that cannot send for the e-invoice's
+// company: not an active einvoice_provider with credentials that resolve,
+// an adapter that sends nothing, or no participant for the company. It
+// answers the company.
+func (e *Endpoints) sender(ctx context.Context, o OutgoingEInvoice, connector uuid.UUID) (Company, error) {
 	c, err := e.Connectors.Provider(ctx, connector)
 	if err != nil {
 		return Company{}, err

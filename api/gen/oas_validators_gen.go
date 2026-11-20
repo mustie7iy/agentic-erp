@@ -56432,25 +56432,6 @@ func (s *ListOutgoingEInvoicesForbidden) Validate() error {
 	return nil
 }
 
-func (s ListOutgoingEInvoicesTransmissionStatus) Validate() error {
-	switch s {
-	case "none":
-		return nil
-	case "queued":
-		return nil
-	case "sending":
-		return nil
-	case "submitted":
-		return nil
-	case "completed":
-		return nil
-	case "failed":
-		return nil
-	default:
-		return errors.Errorf("invalid value: %v", s)
-	}
-}
-
 func (s *ListParkedJournalEntriesBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -65893,40 +65874,6 @@ func (s *OutgoingEInvoiceRender) Validate() error {
 		return &validate.Error{Fields: failures}
 	}
 	return nil
-}
-
-func (s *OutgoingEInvoiceSend) Validate() error {
-	if s == nil {
-		return validate.ErrNilPointer
-	}
-
-	var failures []validate.FieldError
-	if err := func() error {
-		if err := s.BusinessType.Validate(); err != nil {
-			return err
-		}
-		return nil
-	}(); err != nil {
-		failures = append(failures, validate.FieldError{
-			Name:  "business_type",
-			Error: err,
-		})
-	}
-	if len(failures) > 0 {
-		return &validate.Error{Fields: failures}
-	}
-	return nil
-}
-
-func (s OutgoingEInvoiceSendBusinessType) Validate() error {
-	switch s {
-	case "B2B":
-		return nil
-	case "B2G":
-		return nil
-	default:
-		return errors.Errorf("invalid value: %v", s)
-	}
 }
 
 func (s *ParkFromEntryTemplateBadRequest) Validate() error {

@@ -59,7 +59,7 @@ func (e *Endpoints) CreateOutgoingEInvoice(ctx context.Context, req *gen.Outgoin
 	if err != nil {
 		return nil, err
 	}
-	tag := gen.NewOptString(etag.Format(o.Version))
+	tag := gen.NewOptString(tagOf(out))
 	if created {
 		return &gen.CreateOutgoingEInvoiceCreatedHeaders{ETag: tag, Location: gen.NewOptString("/v1/outgoing-e-invoices/" + o.ID.String()),
 			Response: out}, nil
@@ -252,7 +252,7 @@ func (e *Endpoints) GetOutgoingEInvoice(ctx context.Context, params gen.GetOutgo
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetOutgoingEInvoiceOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: out}, nil
+	return &gen.GetOutgoingEInvoiceOKHeaders{ETag: gen.NewOptString(tagOf(out)), Response: out}, nil
 }
 
 // GetOutgoingEInvoiceContent implements GET
@@ -284,6 +284,12 @@ func (e *Endpoints) GetOutgoingEInvoiceContent(ctx context.Context, params gen.G
 			" does not match the SHA-256 recorded when it was rendered.")
 	}
 	return &gen.GetOutgoingEInvoiceContentOK{Data: bytes.NewReader(content)}, nil
+}
+
+// tagOf is an e-invoice's ETag: its version and its submission's, so it
+// moves with its transmission (As built E3); both only grow.
+func tagOf(o gen.OutgoingEInvoice) string {
+	return etag.Format(o.Version + o.Transmission.Value.Version)
 }
 
 // outgoingNames are the companies and customers of a page of e-invoices,

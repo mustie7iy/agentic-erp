@@ -91507,7 +91507,7 @@ type ListOutgoingEInvoicesParams struct {
 	Status OptString `json:",omitempty,omitzero"`
 	// Only e-invoices whose submission is in this status (`transmission.status`), or none for those not
 	// sent: failed is the worklist of submissions to correct and send again (As built E3).
-	TransmissionStatus OptListOutgoingEInvoicesTransmissionStatus `json:",omitempty,omitzero"`
+	TransmissionStatus OptString `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -91549,7 +91549,7 @@ func unpackListOutgoingEInvoicesParams(packed middleware.Parameters) (params Lis
 			In:   "query",
 		}
 		if v, ok := packed[key]; ok {
-			params.TransmissionStatus = v.(OptListOutgoingEInvoicesTransmissionStatus)
+			params.TransmissionStatus = v.(OptString)
 		}
 	}
 	{
@@ -91708,7 +91708,7 @@ func decodeListOutgoingEInvoicesParams(args [0]string, argsEscaped bool, r *http
 
 		if err := q.HasParam(cfg); err == nil {
 			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
-				var paramsDotTransmissionStatusVal ListOutgoingEInvoicesTransmissionStatus
+				var paramsDotTransmissionStatusVal string
 				if err := func() error {
 					val, err := d.DecodeValue()
 					if err != nil {
@@ -91720,7 +91720,7 @@ func decodeListOutgoingEInvoicesParams(args [0]string, argsEscaped bool, r *http
 						return err
 					}
 
-					paramsDotTransmissionStatusVal = ListOutgoingEInvoicesTransmissionStatus(c)
+					paramsDotTransmissionStatusVal = c
 					return nil
 				}(); err != nil {
 					return err
@@ -91728,21 +91728,6 @@ func decodeListOutgoingEInvoicesParams(args [0]string, argsEscaped bool, r *http
 				params.TransmissionStatus.SetTo(paramsDotTransmissionStatusVal)
 				return nil
 			}); err != nil {
-				return err
-			}
-			if err := func() error {
-				if value, ok := params.TransmissionStatus.Get(); ok {
-					if err := func() error {
-						if err := value.Validate(); err != nil {
-							return err
-						}
-						return nil
-					}(); err != nil {
-						return err
-					}
-				}
-				return nil
-			}(); err != nil {
 				return err
 			}
 		}
@@ -136455,6 +136440,9 @@ func decodeScheduleReportParams(args [1]string, argsEscaped bool, r *http.Reques
 type SendOutgoingEInvoiceParams struct {
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
+	// The ETag (version) the client last read. A mismatch returns 412 and changes nothing; a missing
+	// header returns 428 (ADR-0008).
+	IfMatch string
 	// Client-chosen key, unique per logical request (a UUID is recommended), kept for 7 days per tenant. A
 	// repeat with the same body returns the original status and body with `Idempotent-Replayed: true`; a
 	// different body returns 422; a repeat while the first is still running returns 409 with
@@ -136470,6 +136458,13 @@ func unpackSendOutgoingEInvoiceParams(packed middleware.Parameters) (params Send
 			In:   "path",
 		}
 		params.ID = packed[key].(uuid.UUID)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "If-Match",
+			In:   "header",
+		}
+		params.IfMatch = packed[key].(string)
 	}
 	{
 		key := middleware.ParameterKey{
@@ -136525,6 +136520,60 @@ func decodeSendOutgoingEInvoiceParams(args [1]string, argsEscaped bool, r *http.
 		return params, &ogenerrors.DecodeParamError{
 			Name: "id",
 			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode header: If-Match.
+	if err := func() error {
+		cfg := uri.HeaderParameterDecodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.HasParam(cfg); err == nil {
+			if err := h.DecodeParam(cfg, func(d uri.Decoder) error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.IfMatch = c
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     1,
+					MinLengthSet:  true,
+					MaxLength:     64,
+					MaxLengthSet:  true,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.IfMatch)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "If-Match",
+			In:   "header",
 			Err:  err,
 		}
 	}

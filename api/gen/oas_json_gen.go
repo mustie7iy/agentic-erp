@@ -206259,7 +206259,7 @@ func (s *OutgoingEInvoiceSend) encodeFields(e *jx.Encoder) {
 	}
 	{
 		e.FieldStart("business_type")
-		s.BusinessType.Encode(e)
+		e.Str(s.BusinessType)
 	}
 }
 
@@ -206292,7 +206292,9 @@ func (s *OutgoingEInvoiceSend) Decode(d *jx.Decoder) error {
 		case "business_type":
 			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
-				if err := s.BusinessType.Decode(d); err != nil {
+				v, err := d.Str()
+				s.BusinessType = string(v)
+				if err != nil {
 					return err
 				}
 				return nil
@@ -206351,46 +206353,6 @@ func (s *OutgoingEInvoiceSend) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OutgoingEInvoiceSend) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
-// Encode encodes OutgoingEInvoiceSendBusinessType as json.
-func (s OutgoingEInvoiceSendBusinessType) Encode(e *jx.Encoder) {
-	e.Str(string(s))
-}
-
-// Decode decodes OutgoingEInvoiceSendBusinessType from json.
-func (s *OutgoingEInvoiceSendBusinessType) Decode(d *jx.Decoder) error {
-	if s == nil {
-		return errors.New("invalid: unable to decode OutgoingEInvoiceSendBusinessType to nil")
-	}
-	v, err := d.StrBytes()
-	if err != nil {
-		return err
-	}
-	// Try to use constant string.
-	switch OutgoingEInvoiceSendBusinessType(v) {
-	case OutgoingEInvoiceSendBusinessTypeB2B:
-		*s = OutgoingEInvoiceSendBusinessTypeB2B
-	case OutgoingEInvoiceSendBusinessTypeB2G:
-		*s = OutgoingEInvoiceSendBusinessTypeB2G
-	default:
-		*s = OutgoingEInvoiceSendBusinessType(v)
-	}
-
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s OutgoingEInvoiceSendBusinessType) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *OutgoingEInvoiceSendBusinessType) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

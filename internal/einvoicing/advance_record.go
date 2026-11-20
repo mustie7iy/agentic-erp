@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -113,8 +114,10 @@ func clip(text string, n int) string {
 	if len(text) <= n {
 		return text
 	}
-	r := []rune(text[:n])
-	return string(r[:len(r)-1])
+	for n > 0 && !utf8.RuneStart(text[n]) {
+		n--
+	}
+	return text[:n]
 }
 
 // move updates the submission by set (whose own arguments start at $3),
@@ -139,15 +142,6 @@ func (e *Endpoints) move(ctx context.Context, tx pgx.Tx, s submission, co Compan
 }
 
 func samePtr(a, b *string) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }
-
-// ended ends the Operation of a finished submission, again: a step that
-// ended it already but whose answer was lost.
-func (e *Endpoints) ended(ctx context.Context, s submission) error {
-	if s.Status == SubmissionCompleted {
-		return e.endOperation(ctx, s.OperationID, s.OutgoingID, nil)
-	}
-	return e.endOperation(ctx, s.OperationID, uuid.Nil, problem.Unprocessable(*s.ProblemCode, *s.ProblemDetail))
-}
 
 // endOperation succeeds the send's Operation with the e-invoice as its
 // resource, or fails it with why; one already finished is left as it is.
