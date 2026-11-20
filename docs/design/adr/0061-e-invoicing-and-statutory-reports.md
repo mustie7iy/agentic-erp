@@ -1468,7 +1468,15 @@ emulation answers the four calls below, scripted per filename
   that the connector or the provider refuses, records nothing but the
   count. Each change of either status is audited
   (`einvoicing.outgoing.transmission`) and published; a read that finds
-  nothing new writes neither. The detail is shown on the e-invoice, not
+  nothing new writes neither. In a cell without a workflow engine the
+  in-process sender finds the tenants to follow through
+  `einvoicing.FollowedTenants` (the worker role reads `tenant_id` and
+  `follow_check_at` of the submissions across tenants, as the e-invoice
+  gauge reads the documents) besides the tenants of send Operations,
+  since a completed send's Operation has finished and a request's is of
+  another kind (review round 1). Each read moves the transmission's
+  version, and so the ETag (said in the contract). The detail is shown
+  on the e-invoice, not
   carried in the event or the audit record (it is the provider's free
   text).
 - **Which response.** Of the message level responses Evatra lists, the
@@ -1485,7 +1493,9 @@ emulation answers the four calls below, scripted per filename
   transmitted (completed); undelivered for DELIVERY_FAILURE (not the
   document's fault, so not on the correction worklist); accepted for
   ACCEPTANCE and BUSINESS_RULE_WARNING; pending otherwise. The worklist is
-  `listOutgoingEInvoices?delivery_outcome=rejected`.
+  `listOutgoingEInvoices?delivery_outcome=rejected`; the tax data
+  documents to send again are
+  `listOutgoingEInvoices?tax_data_status=TDD_FAILED` (review round 1).
 - **Retry and withdrawal, people only.** A person asks for a failed tax
   data document (TDD_FAILED) to be sent again, or for one reported
   (TDD_SEND, TDD_APPROVED, TDD_ACKNOWLEDGED, or WITHDRAW_FAILED to ask
@@ -1501,7 +1511,12 @@ emulation answers the four calls below, scripted per filename
   data document first and calls only if it does not show the request made
   (a retry once no longer TDD_FAILED, a withdrawal once WITHDRAW_SEND), so
   a step run twice, or one whose claim lapsed after the call, asks once
-  (Evatra has no idempotency key). A call that fails is tried again after
+  (Evatra has no idempotency key); a retry of a document Evatra shows
+  none of is not taken as made (review round 1). After a call it made,
+  the step keeps the status it found as awaited (`tax_data_awaited`) and
+  goes on reading until the status moves from it, bounded by the 500
+  reads, so an outcome Evatra shows only later (a TDD_REJECTED after the
+  retry) is still read (review round 1). A call that fails is tried again after
   1, 5, 15 and 60 minutes; a 4xx other than 401 and 429 refuses it
   (`einvoicing.tax_data_refused`), the fifth failure fails it
   (`einvoicing.provider_unavailable`), a connector refused since fails it

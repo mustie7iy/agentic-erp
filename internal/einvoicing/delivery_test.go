@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing/einvoicetest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -159,6 +162,8 @@ func TestTaxDataRetryAndWithdraw(t *testing.T) {
 		t.Errorf("TDD_FAILED is final: got %+v, want done", step)
 	}
 	check(t, "failed at the authority's corner", s.delivery(t, id), "ACCEPTANCE accepted TDD_FAILED <nil>")
+	failed, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices?tax_data_status=TDD_FAILED", "", "")
+	check(t, "found by its tax data document's status", len(failed["items"].([]any)), 1)
 	s.f.Problem(409, "einvoicing.tax_data_not_withdrawable", "POST", "/v1/outgoing-e-invoices/"+id+":withdrawTaxData", "", s.tag(t, id))
 	retry := s.request(t, id, "retry")
 	check(t, "the request written", s.delivery(t, id), "ACCEPTANCE accepted TDD_FAILED retry")
@@ -207,4 +212,44 @@ func tracking(t *testing.T, s *sender, id string) string {
 	t.Helper()
 	got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
 	return got["transmission"].(map[string]any)["tracking_id"].(string)
+}
+
+// TestTaxDataOutcomeLater: when the provider still shows the status the
+// call found after a request was made, the delivery is read on until it
+// moves (As built E4), not taken as final; the in-process sender finds the
+// tenant though its Operations have finished.
+func TestTaxDataOutcomeLater(t *testing.T) {
+	s := senderSetup(t)
+	id, number := s.invoice["id"].(string), s.invoice["customer_invoice_number"].(string)
+	s.srv.Evatra.ScriptDelivery(number, einvoicetest.DeliveryScript{Responses: []einvoicetest.Response{{Status: "ACCEPTANCE"}},
+		TaxData: map[string][]string{"report": {"TDD_FAILED"}, "retry": {"TDD_FAILED", "TDD_FAILED", "TDD_REJECTED"}}})
+	send := s.completed(t, id)
+	s.later(30 * time.Second)
+	s.advance(t, id, send)
+	retry := s.request(t, id, "retry")
+	s.advance(t, id, retry) // made: the status before the call kept, awaited
+	if step := s.advance(t, id, retry); step.Done || step.Wait != time.Minute {
+		t.Errorf("still TDD_FAILED after the call: got %+v, want a read again in a minute", step)
+	}
+	check(t, "made, awaited", words(operation(t, retry), s.delivery(t, id)), "succeeded /v1/outgoing-e-invoices/"+id+" - ACCEPTANCE accepted TDD_FAILED <nil>")
+	var tenants []uuid.UUID
+	err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_worker", ReadOnly: true}, func(_ context.Context, tx pgx.Tx) error {
+		var err error
+		tenants, err = einvoicing.FollowedTenants(context.Background(), tx, s.clock().Add(time.Minute))
+		return err
+	})
+	check(t, "its tenant followed", words(err, slices.Contains(tenants, s.f.Tenant.ID)), "<nil> true")
+	s.later(time.Minute)
+	s.advance(t, id, retry)
+	s.later(2 * time.Minute)
+	if step := s.advance(t, id, retry); !step.Done {
+		t.Errorf("moved to TDD_REJECTED: got %+v, want done", step)
+	}
+	check(t, "rejected by the authority", s.delivery(t, id), "ACCEPTANCE rejected TDD_REJECTED <nil>")
+	if err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_worker", ReadOnly: true}, func(_ context.Context, tx pgx.Tx) error {
+		_, err := einvoicing.FollowedTenants(context.Background(), &pgtest.FailingTx{Tx: tx, FailAt: 1}, s.clock())
+		return err
+	}); !errors.Is(err, pgtest.ErrInjected) {
+		t.Errorf("its statement failing: got %v, want the injected failure", err)
+	}
 }

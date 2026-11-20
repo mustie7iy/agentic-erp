@@ -23,7 +23,7 @@ func (e *Endpoints) answered(ctx context.Context, tx pgx.Tx, c *call, got answer
 		return Step{}, err
 	}
 	if c.follow {
-		return e.followed(ctx, tx, s, c.company, got.delivery, callErr)
+		return e.followed(ctx, tx, s, c.company, got, callErr)
 	}
 	cancelled, err := e.Sends.Cancelled(ctx, s.OperationID, true)
 	switch {

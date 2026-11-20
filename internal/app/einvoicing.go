@@ -138,6 +138,10 @@ func (s einvoiceSends) UnfinishedEInvoiceSends(ctx context.Context, tx pgx.Tx, n
 	return s.e.UnfinishedSends(ctx, tx, now)
 }
 
+func (s einvoiceSends) FollowedEInvoiceTenants(ctx context.Context, tx pgx.Tx, now time.Time) ([]uuid.UUID, error) {
+	return einvoicing.FollowedTenants(ctx, tx, now)
+}
+
 func (s einvoiceSends) AdvanceEInvoiceSubmission(ctx context.Context, outgoing, operation uuid.UUID, in workflows.Within) (workflows.EInvoiceSendStep, error) {
 	step, err := s.e.AdvanceSubmission(ctx, outgoing, operation, in)
 	return workflows.EInvoiceSendStep{Done: step.Done, Wait: step.Wait}, err

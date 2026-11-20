@@ -189,6 +189,11 @@ func TestEInvoiceDeliveryRules(t *testing.T) {
 		{"a tax data status before completion", func(s outgoingScene) []stmt {
 			return queued(s, update(`status = 'sending', attempts = 1, tax_data_status = 'TDD_SEND', tax_data_at = now()`))
 		}, "outgoing_submission_followed"},
+		{"an awaited status before completion", func(s outgoingScene) []stmt {
+			return queued(s, update(`status = 'sending', attempts = 1, tax_data_awaited = 'TDD_FAILED'`))
+		}, "outgoing_submission_followed"},
+		{"an awaited status of another form", func(s outgoingScene) []stmt { return completed(s, update(`tax_data_awaited = 'failed'`)) },
+			"outgoing_submission_tax_data_awaited_check"},
 		{"a request not due", func(s outgoingScene) []stmt {
 			return completed(s, update(`tax_data_request = 'withdraw', follow_check_at = NULL`))
 		}, "outgoing_submission_request_due"},

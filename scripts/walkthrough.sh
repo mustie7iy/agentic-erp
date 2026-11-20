@@ -15325,6 +15325,9 @@ step_einvoice_send() {
   say "so it stays there:"
   api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number): \(.transmission.delivery_status), \(.transmission.delivery_outcome)"' listOutgoingEInvoices -p "legal_entity_id=$ae" -p delivery_outcome=rejected
   expect "the worklist of rejected e-invoices" "$(field '[.items[].id] | join(" ")')" "$invoice"
+  say "The tax data documents the authority's corner failed, to send again:"
+  api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number): \(.transmission.tax_data_status)"' listOutgoingEInvoices -p "legal_entity_id=$ae" -p tax_data_status=TDD_FAILED
+  expect "the failed tax data documents" "$(field '[.items[].id] | join(" ")')" "$invoice"
   say "A failed tax data document is not withdrawn; Ruth has it sent again, a request the sender makes after it commits:"
   QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
   refused 409 einvoicing.tax_data_not_withdrawable withdrawOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"

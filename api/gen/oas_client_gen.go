@@ -6383,7 +6383,8 @@ type Invoker interface {
 	// by company, by the customer document it renders (at most one), by status, so the invalid ones to
 	// correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
 	// the failed submissions to correct and send again are found, and by the outcome of its delivery
-	// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found.
+	// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found, and
+	// by its tax data document's status (`tax_data_status`), so the failed ones to send again are found.
 	//
 	// GET /v1/outgoing-e-invoices
 	ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (ListOutgoingEInvoicesRes, error)
@@ -86357,7 +86358,8 @@ func (c *Client) sendListOutboundDeliveries(ctx context.Context, params ListOutb
 // by company, by the customer document it renders (at most one), by status, so the invalid ones to
 // correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
 // the failed submissions to correct and send again are found, and by the outcome of its delivery
-// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found.
+// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found, and
+// by its tax data document's status (`tax_data_status`), so the failed ones to send again are found.
 //
 // GET /v1/outgoing-e-invoices
 func (c *Client) ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (ListOutgoingEInvoicesRes, error) {
@@ -86486,6 +86488,23 @@ func (c *Client) sendListOutgoingEInvoices(ctx context.Context, params ListOutgo
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.DeliveryOutcome.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "tax_data_status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "tax_data_status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.TaxDataStatus.Get(); ok {
 				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil

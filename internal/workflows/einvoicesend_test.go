@@ -40,6 +40,14 @@ type scriptedSends struct {
 	unfinished map[uuid.UUID]uuid.UUID
 	listErr    error
 	asked      time.Time
+	followed   []uuid.UUID // the tenants with completed sends to follow (As built E4)
+	followErr  error
+}
+
+func (s *scriptedSends) FollowedEInvoiceTenants(context.Context, pgx.Tx, time.Time) ([]uuid.UUID, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.followed, s.followErr
 }
 
 func (s *scriptedSends) UnfinishedEInvoiceSends(ctx context.Context, tx pgx.Tx, now time.Time) (map[uuid.UUID]uuid.UUID, error) {
@@ -216,6 +224,23 @@ func TestEInvoiceSender(t *testing.T) {
 			t.Errorf("the queue's statement failing: got %v, want the injected failure", err)
 		}
 		a.Begin = nil
+	})
+	t.Run("a completed send followed, its Operation finished", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE platform.operation SET status = 'succeeded', version = version + 1 WHERE tenant_id = $1 AND kind = $2`,
+			f.Tenant.ID, workflows.EInvoiceSendKind)
+		before := mine()
+		if n, err := w.RunOnce(ctx); err != nil || n != 0 || mine() != before {
+			t.Errorf("not followed: got %v after %d steps, want none", err, mine()-before)
+		}
+		port.followed = []uuid.UUID{f.Tenant.ID, f.Tenant.ID}
+		if n, err := w.RunOnce(ctx); err != nil || n != 1 || mine() != before+1 {
+			t.Errorf("followed: got %v after %d steps, want one step", err, mine()-before)
+		}
+		port.followErr = errors.New("follow down")
+		if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "follow down") {
+			t.Errorf("the followed tenants unreadable: got %v, want it reported", err)
+		}
+		port.followed, port.followErr = nil, nil
 	})
 	t.Run("Run logs its rounds and stops with the context", func(t *testing.T) {
 		queueSend(t, f)

@@ -13,6 +13,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -87,6 +88,7 @@ type submission struct {
 	Version                                                 int32
 	// What Peppol and the authority reported once completed (As built E4).
 	DeliveryStatus, DeliveryDetail, TaxDataStatus, TaxDataRequest *string
+	TaxDataAwaited                                                *string
 	DeliveredAt, TaxDataAt, FollowCheckAt                         *time.Time
 	TaxDataAttempts                                               int16
 	FollowPolls                                                   int32
@@ -96,13 +98,13 @@ type submission struct {
 const submissionColumns = `s.id, s.outgoing_einvoice_id, s.legal_entity_id, s.connector_id, s.operation_id, s.filename, s.business_type, s.status,
 	s.provider_status, s.tracking_id, s.failed_tracking_ids, s.attempts, s.resends, s.polls, s.look_up, s.next_check_at, s.submitted_at, s.completed_at,
 	s.problem_code, s.problem_detail, s.version, s.delivery_status, s.delivery_detail, s.tax_data_status, s.tax_data_request, s.delivered_at, s.tax_data_at,
-	s.follow_check_at, s.tax_data_attempts, s.follow_polls`
+	s.follow_check_at, s.tax_data_attempts, s.follow_polls, s.tax_data_awaited`
 
 func (s *submission) fields() []any {
 	return []any{&s.ID, &s.OutgoingID, &s.LegalEntityID, &s.ConnectorID, &s.OperationID, &s.Filename, &s.BusinessType, &s.Status, &s.ProviderStatus,
 		&s.TrackingID, &s.Failed, &s.Attempts, &s.Resends, &s.Polls, &s.LookUp, &s.NextCheckAt, &s.SubmittedAt, &s.CompletedAt, &s.ProblemCode,
 		&s.ProblemDetail, &s.Version, &s.DeliveryStatus, &s.DeliveryDetail, &s.TaxDataStatus, &s.TaxDataRequest, &s.DeliveredAt, &s.TaxDataAt,
-		&s.FollowCheckAt, &s.TaxDataAttempts, &s.FollowPolls}
+		&s.FollowCheckAt, &s.TaxDataAttempts, &s.FollowPolls, &s.TaxDataAwaited}
 }
 
 // submissionOf reads the e-invoice's submission, FOR UPDATE when lock;
@@ -142,6 +144,20 @@ func (e *Endpoints) UnfinishedSends(ctx context.Context, tx pgx.Tx, now time.Tim
 		return nil, fmt.Errorf("einvoicing: the sends to advance: %w", err)
 	}
 	return out, nil
+}
+
+// FollowedTenants lists, as the worker role across tenants, the active
+// tenants with a completed submission whose delivery read or tax data
+// request is due at now (As built E4), which the in-process sender
+// advances although its send's Operation has finished.
+func FollowedTenants(ctx context.Context, tx pgx.Tx, now time.Time) ([]uuid.UUID, error) {
+	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM einvoicing.outgoing_submission WHERE follow_check_at <= $1
+		AND tenant_id IN `+database.ActiveTenants+` ORDER BY tenant_id`, now)
+	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return nil, fmt.Errorf("einvoicing: the tenants with e-invoice deliveries to read: %w", err)
+	}
+	return tenants, nil
 }
 
 // outgoingPath is an e-invoice's resource path: a send's Operation names it.

@@ -84061,8 +84061,10 @@ type OutgoingEInvoiceTransmission struct {
 	// /v1.
 	TaxDataRequest NilString `json:"tax_data_request"`
 	// When what Peppol and the authority report of it is next read once completed (from 30 seconds after
-	// completion, doubling to an hour); null before completion and once both statuses are final or 500
-	// reads were made.
+	// completion, doubling to an hour; after a request made, until the tax data document's status moves
+	// from the one the call found); null before completion and once both statuses are final or 500 reads
+	// were made. Each read moves the transmission's `version`, and so the e-invoice's ETag, whether or not
+	// it found something new.
 	FollowCheckAt NilDateTime `json:"follow_check_at"`
 	// The submission's version.
 	Version int32 `json:"version"`

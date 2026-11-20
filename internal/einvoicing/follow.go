@@ -58,7 +58,7 @@ func (e *Endpoints) claimFollow(ctx context.Context, tx pgx.Tx, s submission, op
 	}
 	switch {
 	case prep.refused != nil && s.TaxDataRequest != nil:
-		step, err := e.endRequest(ctx, tx, s, prep.company, now, "", prep.refused)
+		step, err := e.endRequest(ctx, tx, s, prep.company, now, "", false, prep.refused)
 		return nil, step, err
 	case prep.refused != nil: // the connector disabled since, its credentials refused: the provider holds the document still
 		step, err := e.delivered(ctx, tx, s, prep.company, Delivery{}, prep.refused)
@@ -66,7 +66,7 @@ func (e *Endpoints) claimFollow(ctx context.Context, tx pgx.Tx, s submission, op
 	case s.TaxDataRequest == nil:
 		return prep, Step{}, nil
 	case s.TaxDataAttempts >= maxAttempts: // its last call's claim lapsed
-		step, err := e.endRequest(ctx, tx, s, prep.company, now, "", requestUnavailable(s))
+		step, err := e.endRequest(ctx, tx, s, prep.company, now, "", false, requestUnavailable(s))
 		return nil, step, err
 	}
 	if err := tx.QueryRow(ctx, `UPDATE einvoicing.outgoing_submission s SET tax_data_attempts = tax_data_attempts + 1, follow_check_at = $2,
@@ -83,31 +83,35 @@ func (c *call) askFollow(ctx context.Context) (answer, error) {
 	if err != nil || c.s.TaxDataRequest == nil || requestMade(*c.s.TaxDataRequest, d.TaxData) {
 		return answer{delivery: d}, err
 	}
-	return answer{delivery: d}, c.prov.TaxData(ctx, *c.s.TrackingID, *c.s.TaxDataRequest)
+	if err := c.prov.TaxData(ctx, *c.s.TrackingID, *c.s.TaxDataRequest); err != nil {
+		return answer{delivery: d}, err
+	}
+	return answer{delivery: d, acted: true}, nil
 }
 
 // requestMade reports whether the tax data document's status shows the
-// request made: a retry once it is no longer TDD_FAILED, a withdrawal once
-// it is WITHDRAW_SEND.
+// request made: a retry once it is reported and no longer TDD_FAILED, a
+// withdrawal once it is WITHDRAW_SEND; a document not reported (none) is
+// not taken as one made.
 func requestMade(request, status string) bool {
 	if request == TaxDataRetry {
-		return status != TaxDataFailed
+		return status != "" && status != TaxDataFailed
 	}
 	return status == TaxDataWithdrawSent
 }
 
 // followed records the answer of a completed submission's call, the row
 // at the version the claim left it.
-func (e *Endpoints) followed(ctx context.Context, tx pgx.Tx, s submission, co Company, d Delivery, callErr error) (Step, error) {
+func (e *Endpoints) followed(ctx context.Context, tx pgx.Tx, s submission, co Company, got answer, callErr error) (Step, error) {
 	if s.TaxDataRequest == nil {
-		return e.delivered(ctx, tx, s, co, d, callErr)
+		return e.delivered(ctx, tx, s, co, got.delivery, callErr)
 	}
 	now := clock.Now(e.Now)
 	if callErr == nil { // made, or found made (its status kept): final, whatever the Operation says since
-		return e.endRequest(ctx, tx, s, co, now, d.TaxData, nil)
+		return e.endRequest(ctx, tx, s, co, now, got.delivery.TaxData, got.acted, nil)
 	}
 	if p, refused := refusal(callErr); refused { // final too
-		return e.endRequest(ctx, tx, s, co, now, "", p)
+		return e.endRequest(ctx, tx, s, co, now, "", false, p)
 	}
 	cancelled, err := e.TaxData.Cancelled(ctx, s.OperationID, true)
 	switch {
@@ -117,7 +121,7 @@ func (e *Endpoints) followed(ctx context.Context, tx pgx.Tx, s submission, co Co
 		_, step, err := e.dropRequest(ctx, tx, s, now)
 		return step, err
 	case s.TaxDataAttempts >= maxAttempts:
-		return e.endRequest(ctx, tx, s, co, now, "", requestUnavailable(s))
+		return e.endRequest(ctx, tx, s, co, now, "", false, requestUnavailable(s))
 	}
 	return e.move(ctx, tx, s, co, `follow_check_at = $3`, now.Add(sendBackoff[s.TaxDataAttempts-1]))
 }
@@ -125,8 +129,10 @@ func (e *Endpoints) followed(ctx context.Context, tx pgx.Tx, s submission, co Co
 // delivered records a delivery read: what it reports (a status not
 // reported keeps the one recorded), the reads counted, and the next read
 // after the backoff, none once both statuses are final or after maxPolls
-// reads. A read that failed, or that the connector or the provider
-// refused, records nothing but the count.
+// reads; after a request made, not before the tax data document's status
+// moves from the one the call left (tax_data_awaited: the provider may
+// show the outcome later). A read that failed, or that the connector or
+// the provider refused, records nothing but the count.
 func (e *Endpoints) delivered(ctx context.Context, tx pgx.Tx, s submission, co Company, d Delivery, callErr error) (Step, error) {
 	now := clock.Now(e.Now)
 	response, detail, taxData := s.DeliveryStatus, s.DeliveryDetail, s.TaxDataStatus
@@ -137,24 +143,27 @@ func (e *Endpoints) delivered(ctx context.Context, tx pgx.Tx, s submission, co C
 		taxData = &d.TaxData
 	}
 	var next *time.Time
-	if final := responseFinal(deref(response)) && taxDataFinal(deref(taxData)); !final && s.FollowPolls+1 < maxPolls {
+	awaiting := s.TaxDataAwaited != nil && deref(taxData) == *s.TaxDataAwaited
+	if final := responseFinal(deref(response)) && taxDataFinal(deref(taxData)) && !awaiting; !final && s.FollowPolls+1 < maxPolls {
 		at := now.Add(pollWait(s.FollowPolls + 1))
 		next = &at
 	}
 	return e.move(ctx, tx, s, co, `delivery_status = $3, delivery_detail = $4,
 		delivered_at = CASE WHEN (delivery_status, delivery_detail) IS DISTINCT FROM ($3, $4) THEN $5 ELSE delivered_at END, tax_data_status = $6,
-		tax_data_at = CASE WHEN tax_data_status IS DISTINCT FROM $6 THEN $5 ELSE tax_data_at END, follow_polls = follow_polls + 1, follow_check_at = $7`,
-		response, detail, now, taxData, next)
+		tax_data_at = CASE WHEN tax_data_status IS DISTINCT FROM $6 THEN $5 ELSE tax_data_at END, follow_polls = follow_polls + 1, follow_check_at = $7,
+		tax_data_awaited = CASE WHEN $8 THEN tax_data_awaited END`, response, detail, now, taxData, next, awaiting)
 }
 
 // endRequest ends a person's request of the tax data document: cleared,
 // the tax data document's status as the step read it kept (none: the one
 // recorded), the delivery status read again at once and its reads counted
-// afresh, and its Operation succeeded (why nil) or failed with why.
-func (e *Endpoints) endRequest(ctx context.Context, tx pgx.Tx, s submission, co Company, now time.Time, taxData string, why *problem.Problem) (Step, error) {
+// afresh, and its Operation succeeded (why nil) or failed with why. A
+// request this step made (acted) awaits a move of the status it found.
+func (e *Endpoints) endRequest(ctx context.Context, tx pgx.Tx, s submission, co Company, now time.Time, taxData string, acted bool, why *problem.Problem) (
+	Step, error) {
 	step, err := e.move(ctx, tx, s, co, `tax_data_request = NULL, tax_data_attempts = 0, follow_polls = 0, follow_check_at = $3,
 		tax_data_status = coalesce($4, tax_data_status), tax_data_at = CASE WHEN tax_data_status IS DISTINCT FROM coalesce($4, tax_data_status) THEN $3
-		ELSE tax_data_at END`, now, nonEmpty(taxData))
+		ELSE tax_data_at END, tax_data_awaited = CASE WHEN $5 THEN coalesce($4, tax_data_status) END`, now, nonEmpty(taxData), acted)
 	if err != nil {
 		return Step{}, err
 	}

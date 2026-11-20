@@ -31,3 +31,22 @@ func TestSendBounds(t *testing.T) {
 		t.Error("submissions outside a request: got nil error, want an error")
 	}
 }
+
+// TestRequestMade: a retry is made once the tax data document is reported
+// and no longer TDD_FAILED, never on none reported; a withdrawal once it
+// is WITHDRAW_SEND (As built E4).
+func TestRequestMade(t *testing.T) {
+	for _, c := range []struct {
+		request, status string
+		want            bool
+	}{
+		{TaxDataRetry, TaxDataFailed, false}, {TaxDataRetry, "", false}, {TaxDataRetry, TaxDataSent, true},
+		{TaxDataWithdraw, TaxDataApproved, false}, {TaxDataWithdraw, "", false}, {TaxDataWithdraw, TaxDataWithdrawSent, true},
+	} {
+		t.Run(c.request+" "+c.status, func(t *testing.T) {
+			if got := requestMade(c.request, c.status); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}

@@ -444,8 +444,8 @@ func (e *Endpoints) ListOutgoingEInvoices(ctx context.Context, params gen.ListOu
 	if err != nil {
 		return nil, err
 	}
-	scope := fmt.Sprintf("listOutgoingEInvoices|%s|%s|%s|%s|%s", optUUID(params.LegalEntityID), optUUID(params.CustomerInvoiceID), params.Status.Value,
-		params.TransmissionStatus.Value, params.DeliveryOutcome.Value)
+	scope := fmt.Sprintf("listOutgoingEInvoices|%s|%s|%s|%s|%s|%s", optUUID(params.LegalEntityID), optUUID(params.CustomerInvoiceID), params.Status.Value,
+		params.TransmissionStatus.Value, params.DeliveryOutcome.Value, params.TaxDataStatus.Value)
 	ks, err := e.Pages.Keyset(outgoingSort, scope, apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -456,9 +456,11 @@ func (e *Endpoints) ListOutgoingEInvoices(ctx context.Context, params gen.ListOu
 		  AND ($6 = '' OR coalesce((SELECT s.status FROM einvoicing.outgoing_submission s WHERE s.tenant_id = o.tenant_id AND s.outgoing_einvoice_id = o.id),
 		    'none') = $6)
 		  AND ($7 = '' OR (SELECT `+deliveryOutcome+` FROM einvoicing.outgoing_submission s, einvoicing.outgoing_einvoice x
-		    WHERE s.tenant_id = o.tenant_id AND s.outgoing_einvoice_id = o.id AND x.tenant_id = o.tenant_id AND x.id = o.id) = $7)`,
+		    WHERE s.tenant_id = o.tenant_id AND s.outgoing_einvoice_id = o.id AND x.tenant_id = o.tenant_id AND x.id = o.id) = $7)
+		  AND ($8 = '' OR EXISTS (SELECT FROM einvoicing.outgoing_submission s WHERE s.tenant_id = o.tenant_id AND s.outgoing_einvoice_id = o.id
+		    AND s.tax_data_status = $8))`,
 		[]any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerInvoiceID), params.Status.Value, access.All, access.IDs,
-			string(params.TransmissionStatus.Value), params.DeliveryOutcome.Value})
+			string(params.TransmissionStatus.Value), params.DeliveryOutcome.Value, params.TaxDataStatus.Value})
 	rows, _ := tx.Query(ctx, q, args...)
 	docs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OutgoingEInvoice, error) {
 		var o OutgoingEInvoice

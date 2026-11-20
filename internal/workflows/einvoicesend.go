@@ -1,10 +1,12 @@
 package workflows
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +14,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -60,6 +63,12 @@ type EInvoiceSends interface {
 	// no workflow carries out whose step is due at now or whose Operation
 	// was cancelled, by e-invoice with its Operation.
 	UnfinishedEInvoiceSends(ctx context.Context, tx pgx.Tx, now time.Time) (map[uuid.UUID]uuid.UUID, error)
+	// FollowedEInvoiceTenants lists, across tenants (the worker role's
+	// transaction), the active tenants with a completed send whose
+	// delivery read or tax data request is due at now (As built E4): its
+	// send's Operation has finished, so the tenants of send Operations do
+	// not name them.
+	FollowedEInvoiceTenants(ctx context.Context, tx pgx.Tx, now time.Time) ([]uuid.UUID, error)
 }
 
 // EInvoiceSendInput names the send a SendEInvoice workflow carries out.
@@ -169,7 +178,17 @@ type EInvoiceSender struct {
 func (w *EInvoiceSender) RunOnce(ctx context.Context) (int, error) {
 	s := w.Senders
 	now := clock.Now(s.Now)
-	sends, err := unfinishedRuns(ctx, s.begin, s.AppRole, s.WorkerRole, EInvoiceSendKind, func(ctx context.Context, tx pgx.Tx) (map[uuid.UUID]uuid.UUID, error) {
+	tenants := func(ctx context.Context, tx pgx.Tx) ([]uuid.UUID, error) {
+		sending, err := operations.TenantsOf(ctx, tx, EInvoiceSendKind)
+		if err != nil {
+			return nil, err
+		}
+		followed, err := s.Sends.FollowedEInvoiceTenants(ctx, tx, now)
+		all := slices.Concat(sending, followed)
+		slices.SortFunc(all, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+		return slices.Compact(all), err
+	}
+	sends, err := unfinishedRunsOf(ctx, s.begin, s.AppRole, s.WorkerRole, EInvoiceSendKind, tenants, func(ctx context.Context, tx pgx.Tx) (map[uuid.UUID]uuid.UUID, error) {
 		return s.Sends.UnfinishedEInvoiceSends(ctx, tx, now)
 	})
 	failures := []error{err}

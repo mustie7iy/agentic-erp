@@ -91659,6 +91659,10 @@ type ListOutgoingEInvoicesParams struct {
 	// rejected, to correct by a credit note; a rejected e-invoice is corrected once a credit note naming
 	// it is transmitted.
 	DeliveryOutcome OptString `json:",omitempty,omitzero"`
+	// Only e-invoices transmitted whose tax data document is in this status
+	// (`transmission.tax_data_status`, As built E4): TDD_FAILED lists those to send again
+	// (`retryOutgoingEInvoiceTaxData`).
+	TaxDataStatus OptString `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor from `next_page_token` of the previous page. Tokens are signed and encode the sort
@@ -91710,6 +91714,15 @@ func unpackListOutgoingEInvoicesParams(packed middleware.Parameters) (params Lis
 		}
 		if v, ok := packed[key]; ok {
 			params.DeliveryOutcome = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "tax_data_status",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.TaxDataStatus = v.(OptString)
 		}
 	}
 	{
@@ -91936,6 +91949,74 @@ func decodeListOutgoingEInvoicesParams(args [0]string, argsEscaped bool, r *http
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "delivery_outcome",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: tax_data_status.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "tax_data_status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotTaxDataStatusVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotTaxDataStatusVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.TaxDataStatus.SetTo(paramsDotTaxDataStatusVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.TaxDataStatus.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     0,
+							MinLengthSet:  false,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         regexMap["^[A-Z_]{1,40}$"],
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "tax_data_status",
 			In:   "query",
 			Err:  err,
 		}

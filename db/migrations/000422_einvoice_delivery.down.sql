@@ -25,6 +25,7 @@ BEGIN
   RETURN NEW;
 END $$;
 ALTER FUNCTION einvoicing.check_outgoing_submission() OWNER TO erp_owner;
+REVOKE SELECT (tenant_id, follow_check_at) ON einvoicing.outgoing_submission FROM erp_worker;
 DROP INDEX einvoicing.outgoing_einvoice_by_reference;
 DROP INDEX einvoicing.outgoing_submission_followed_due;
 ALTER TABLE einvoicing.outgoing_submission
@@ -34,6 +35,7 @@ ALTER TABLE einvoicing.outgoing_submission
   DROP CONSTRAINT outgoing_submission_followed,
   DROP COLUMN follow_check_at,
   DROP COLUMN follow_polls,
+  DROP COLUMN tax_data_awaited,
   DROP COLUMN tax_data_attempts,
   DROP COLUMN tax_data_request,
   DROP COLUMN tax_data_at,

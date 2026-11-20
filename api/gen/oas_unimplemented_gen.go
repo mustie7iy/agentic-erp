@@ -7690,7 +7690,8 @@ func (UnimplementedHandler) ListOutboundDeliveries(ctx context.Context, params L
 // by company, by the customer document it renders (at most one), by status, so the invalid ones to
 // correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
 // the failed submissions to correct and send again are found, and by the outcome of its delivery
-// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found.
+// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found, and
+// by its tax data document's status (`tax_data_status`), so the failed ones to send again are found.
 //
 // GET /v1/outgoing-e-invoices
 func (UnimplementedHandler) ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (r ListOutgoingEInvoicesRes, _ error) {

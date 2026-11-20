@@ -241,6 +241,7 @@ type answer struct {
 	sent     Submission
 	report   Report
 	delivery Delivery
+	acted    bool // a person's request made at the provider by this call
 }
 
 // ask makes the prepared call with no transaction open: the send of the

@@ -91992,7 +91992,8 @@ func (s *Server) handleListOutboundDeliveriesRequest(args [0]string, argsEscaped
 // by company, by the customer document it renders (at most one), by status, so the invalid ones to
 // correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
 // the failed submissions to correct and send again are found, and by the outcome of its delivery
-// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found.
+// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found, and
+// by its tax data document's status (`tax_data_status`), so the failed ones to send again are found.
 //
 // GET /v1/outgoing-e-invoices
 func (s *Server) handleListOutgoingEInvoicesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -92153,6 +92154,10 @@ func (s *Server) handleListOutgoingEInvoicesRequest(args [0]string, argsEscaped 
 					Name: "delivery_outcome",
 					In:   "query",
 				}: params.DeliveryOutcome,
+				{
+					Name: "tax_data_status",
+					In:   "query",
+				}: params.TaxDataStatus,
 				{
 					Name: "page_size",
 					In:   "query",
