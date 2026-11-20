@@ -15328,6 +15328,77 @@ step_stock_transport() {
   passed
 }
 
+# step_batches is S2f (ADR-0082 As built S2f, plan-supply-chain.md): Mira
+# creates a thread sealant managed in batches, which Priya approves and
+# Ines values. Wade creates two of its supplier's lots as batches, with
+# their manufacture and expiry dates (one expiring before it was made is
+# refused), and receives both into the main store (501), each item naming
+# its batch; an item without one is refused. An issue of more than a
+# batch holds is refused though the store holds more; a transfer to the
+# spares store keeps its batch. The stock by batch adds up to each
+# store's stock; a count of the sealant, which counts no batches yet, is
+# refused.
+step_batches() {
+  heading "Step 148 — Batches: a sealant managed in batches, two supplier lots created with their manufacture and expiry dates and received each in its batch; an item without a batch refused, an issue beyond a batch refused though the store holds more, a transfer keeping its batch; the stock by batch adds up to each store's"
+  local sealant early late cc
+  [ -n "$PLANT" ] || fail "step 122's plant is not there"
+  as mira
+  say "Mira creates the thread sealant, a raw material managed in batches, kept in Toronto's main and spares stores; Priya approves it:"
+  api 201 '"material \(.number) \(.description): batch-managed \(.batch_managed)"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Thread sealant 50 ml\", \"base_unit\": \"EA\", \"material_type\": \"raw_material\", \"material_group\": \"SEALANTS\", \"batch_managed\": true,
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\", \"$SPARES_STORE\"]}]}"
+  sealant=$(field .id)
+  approve priya "$(material_request "$sealant")" "Sealant for the assembly line."
+  as ines
+  say "Ines values it in Toronto at a moving price of 4.00 CAD:"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"4.00\", \"currency\": \"CAD\"}}"
+  as wade
+  say "Wade creates the supplier's two lots as batches, each with its manufacture and expiry dates:"
+  api 201 '"batch \(.number) of \(.material_number): made \(.manufacture_date), expires \(.expiry_date)"' createBatch -body "{\"material_id\": \"$sealant\",
+      \"number\": \"L2611A\", \"manufacture_date\": \"2026-11-01\", \"expiry_date\": \"2027-05-01\"}"
+  early=$(field .id)
+  api 201 '"batch \(.number) of \(.material_number): made \(.manufacture_date), expires \(.expiry_date)"' createBatch -body "{\"material_id\": \"$sealant\",
+      \"number\": \"L2611B\", \"manufacture_date\": \"2026-11-10\", \"expiry_date\": \"2027-05-10\"}"
+  late=$(field .id)
+  say "A lot expiring before it was made, and the same lot number twice, are refused:"
+  refused 422 inventory.batch_dates createBatch -body "{\"material_id\": \"$sealant\", \"number\": \"L2611C\", \"manufacture_date\": \"2026-11-10\",
+      \"expiry_date\": \"2026-11-09\"}"
+  refused 409 inventory.batch_exists createBatch -body "{\"material_id\": \"$sealant\", \"number\": \"L2611A\", \"manufacture_date\": \"2026-11-01\"}"
+  say "Both lots arrive without an order (501), 30 tubes of L2611A worth 120.00 CAD and 20 of L2611B worth 80.00, each item naming its batch:"
+  api 201 '"material document \(.number) (\(.movement_type))", (.lines[] | "  line \(.line_no): \(.storage_location_code) batch \(.batch_number) \(.quantity.value) \(.quantity.unit), worth \(.amount.amount)")' \
+    createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"batch_id\": \"$early\", \"quantity\": {\"value\": \"30\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"120.00\", \"currency\": \"CAD\"}},
+      {\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"batch_id\": \"$late\",
+      \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"80.00\", \"currency\": \"CAD\"}}]}"
+  expect "the receipt's batches" "$(field '[.lines[] | "\(.batch_number):\(.quantity.value)"] | join(" ")')" "L2611A:30 L2611B:20"
+  say "A receipt of the sealant without its batch is refused, naming the field:"
+  refused 422 inventory.batch_required createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$sealant\",
+      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  say "Maintenance asks for 25 tubes of L2611B: the store holds 50, but the batch only 20, so the issue is refused:"
+  refused 409 inventory.insufficient_stock createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$sealant\",
+      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"batch_id\": \"$late\", \"quantity\": {\"value\": \"25\", \"unit\": \"EA\"},
+      \"cost_center_id\": \"$cc\"}]}"
+  say "Wade moves 10 tubes of L2611A to the spares store (311); the batch goes with them:"
+  api 201 '"material document \(.number) (\(.movement_type))", (.lines[] | "  line \(.line_no): \(.storage_location_code) batch \(.batch_number) \(.quantity.value) \(.quantity.unit)")' \
+    createMaterialDocument -body "{\"movement_type\": \"311\", \"items\": [{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"batch_id\": \"$early\", \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}, \"to_storage_location_id\": \"$SPARES_STORE\"}]}"
+  expect "the transfer's batches" "$(field '[.lines[] | "\(.batch_number):\(.quantity.value)"] | join(" ")')" "L2611A:-10 L2611A:10"
+  say "The stock by batch adds up to each store's stock:"
+  api 200 '.items[] | "  \(.storage_location_code) batch \(.batch_number) (expires \(.expiry_date)): \(.quantity.value) \(.quantity.unit)"' \
+    listBatchStock -p "material_id=$sealant"
+  expect "the stock by batch" "$(field '[.items[] | "\(.storage_location_code) \(.batch_number) \(.quantity.value)"] | sort | join(", ")')" \
+    "SL01 L2611A 20, SL01 L2611B 20, SL02 L2611A 10"
+  QUIET=1 api 200 '' listStock -p "material_id=$sealant"
+  expect "the stock by store" "$(field '[.items[] | "\(.storage_location_code) \(.quantity.value)"] | sort | join(", ")')" "SL01 40, SL02 10"
+  say "A count of the sealant is refused: counts by batch are not built yet:"
+  refused 422 inventory.batch_not_supported createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$SPARES_STORE\",
+      \"items\": [{\"material_id\": \"$sealant\"}]}"
+  passed
+}
+
 # step_einvoice_billing is the emirate on a sales item (ADR-0067 As built,
 # the emirate on a sales item; review:batch84): the UAE company sells
 # through sales orders and bills them, its standard-rated code S5 levying
@@ -17432,7 +17503,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_stock_transport step_einvoice_billing step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_stock_transport step_einvoice_billing step_batches step_close'
 
 main() {
   stop_unseen

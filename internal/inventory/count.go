@@ -234,6 +234,9 @@ func countLines(in CountInput, r refs) ([]Line, error) {
 		case !m.KeptAt(in.PlantID, in.StorageLocationID):
 			return nil, problem.Invalid("inventory.storage_location_not_extended", field, "Material "+m.Number+" is not kept at storage location "+
 				r.units[in.StorageLocationID].Code+".")
+		case m.BatchManaged:
+			return nil, problem.Invalid("inventory.batch_not_supported", field, "Material "+m.Number+" is managed in batches; a count by batch "+
+				"is not built yet.")
 		case slices.Contains(in.Materials[:i], id):
 			return nil, problem.Invalid("inventory.duplicate_material", field, "Material "+m.Number+" is counted once in a document.")
 		}
@@ -258,7 +261,7 @@ func freeze(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.UUI
 		keys[i] = keyOf(l)
 	}
 	slices.SortFunc(keys, stockKey.compare)
-	stock, err := lockStock(ctx, tx, p, company, keys)
+	stock, err := lockStock(ctx, tx, p, company, keys, r)
 	if err != nil {
 		return nil, err
 	}

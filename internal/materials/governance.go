@@ -82,6 +82,9 @@ type Requested struct {
 	Plants      *[]RequestedPlant `json:"plants,omitempty"`
 	Units       *[]RequestedUnit  `json:"alternative_units,omitempty"`
 	Scope       *Scope            `json:"plant_scope,omitempty"`
+	// BatchManaged is a create's: whether the material is managed in
+	// batches (As built S2f).
+	BatchManaged *bool `json:"batch_managed,omitempty"`
 }
 
 // Duplicate is an existing material a new one may duplicate: by id,
