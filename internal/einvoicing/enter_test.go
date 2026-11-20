@@ -215,9 +215,11 @@ func TestEnterValidatedBefore(t *testing.T) {
 }
 
 // TestEnterEInvoicesFailures: payables failing on the machinery fails the
-// step and leaves the document validated and received, which a later run
-// enters; every statement of processing and entering failing in turn
-// fails the step, and the run after enters the document once.
+// step and leaves the document validated and received, which a later
+// fetch enters; every statement of processing and entering failing in
+// turn fails the step, and the run after enters the document once; the
+// later fetch's documents list what it entered and held, though another
+// fetch recorded them.
 func TestEnterEInvoicesFailures(t *testing.T) {
 	s := enteringScene(t)
 	ctx := context.Background()
@@ -236,13 +238,22 @@ func TestEnterEInvoicesFailures(t *testing.T) {
 	if state != "GOI-1 received false, GOI-2 received false" {
 		t.Errorf("after payables failed: got %s, want both left as they were", state)
 	}
+	later := uuid.Must(uuid.NewV7()) // a later fetch enters what this one recorded
 	process := func(in einvoicing.Within) error {
-		_, err := s.e.ProcessEInvoices(ctx, s.connector, op, in)
+		_, err := s.e.ProcessEInvoices(ctx, s.connector, later, in)
 		return err
 	}
 	everyFailure(t, s.scene, process)
-	if got := s.entered(t, "GOI-1", op) + ", " + s.entered(t, "GOI-2", op); got != "entered - einvoice parked GOI-1 V5 true, held payables.capture_needs_order - true" {
-		t.Errorf("after the failures: got %s, want GOI-1 entered and GOI-2 held", got)
+	if got := s.entered(t, "GOI-1", later) + ", " + s.entered(t, "GOI-2", later); got != "entered - einvoice parked GOI-1 V5 true, held payables.capture_needs_order - true" {
+		t.Errorf("after the failures: got %s, want GOI-1 entered and GOI-2 held by the later fetch", got)
+	}
+	var page *gen.EInvoicePage
+	if err := apitest.InRequest(t, s.f.Tenant, s.f.Tenant.Human, func(ctx context.Context) error {
+		res, err := s.e.ListEInvoices(ctx, gen.ListEInvoicesParams{FetchOperationID: gen.NewOptUUID(later)})
+		page, _ = res.(*gen.EInvoicePage)
+		return err
+	}); err != nil || page == nil || len(page.Items) != 2 {
+		t.Errorf("the later fetch's documents: got %v %v, want GOI-1 and GOI-2, which it entered and held", page, err)
 	}
 	var invoices int
 	pgtest.Scan(t, `SELECT count(*) FROM payables.supplier_invoice WHERE tenant_id = $1 AND source = 'einvoice'`, []any{s.f.Tenant.ID}, &invoices)

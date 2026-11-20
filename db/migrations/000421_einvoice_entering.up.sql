@@ -43,10 +43,10 @@ ALTER TABLE einvoicing.einvoice
 GRANT UPDATE (entry_at, entry_fetch_operation_id, supplier_invoice_id, supplier_id) ON einvoicing.einvoice TO erp_app;
 
 -- As 000416's, and: a processed document moves from received to entered
--- or held (and an unprocessed one alone to refused, as before); what the entering decided (the status, the problem, the
--- invoice and the fetch) is fixed once decided; refused, entered and held
--- documents are final (T65f lets people retry, link or dismiss a held
--- one).
+-- or held (an unprocessed one alone to refused, as before); what the
+-- entering decided (the status, the problem, the invoice and the fetch)
+-- is fixed once decided; refused, entered and held documents are final
+-- (T65f lets people retry, link or dismiss a held one).
 CREATE OR REPLACE FUNCTION einvoicing.check_einvoice() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

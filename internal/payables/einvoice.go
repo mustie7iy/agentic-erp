@@ -80,8 +80,8 @@ func (e *Endpoints) EnterEInvoice(ctx context.Context, d EInvoice) (Invoice, err
 	for i, l := range d.Lines {
 		rates[i] = printedTax{rate: l.Percent, category: l.Category}
 	}
-	// A code proposed for a line is on its item; no one reads its warning
-	// apart, as capture's Operation shows it to the person who captured.
+	// A code proposed for a line is on its item. Its warning has no reader
+	// here: only capture's Operation shows warnings.
 	_, taxHeld, err := e.capturedTax(ctx, tx, &in, rates)
 	if err != nil {
 		return Invoice{}, err
