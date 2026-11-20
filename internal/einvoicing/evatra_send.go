@@ -72,7 +72,7 @@ func (e *Evatra) Send(ctx context.Context, d Outgoing) (Submission, error) {
 	if err != nil {
 		return Submission{}, err
 	}
-	if err := answered(resp.Status, "send-document-async "+d.Filename); err != nil {
+	if err := answered(resp.Status, "einvoicing.send_refused", "send-document-async "+d.Filename); err != nil {
 		return Submission{}, err
 	}
 	var got tracked
@@ -85,15 +85,15 @@ func (e *Evatra) Send(ctx context.Context, d Outgoing) (Submission, error) {
 	return Submission{TrackingID: got.TrackingID, Status: got.Status}, nil
 }
 
-// answered is nil for a 200 (or 201, 202), the refusal for a 4xx other than
-// 401 (the token, retried by call) and 429, and an error to try again for
-// any other status.
-func answered(status int, what string) error {
+// answered is nil for a 200 (or 201, 202), the refusal (the problem code)
+// for a 4xx other than 401 (the token, retried by call) and 429, and an
+// error to try again for any other status.
+func answered(status int, code, what string) error {
 	switch {
 	case status == http.StatusOK || status == http.StatusCreated || status == http.StatusAccepted:
 		return nil
 	case status >= 400 && status < 500 && status != http.StatusUnauthorized && status != http.StatusTooManyRequests:
-		return problem.Unprocessable("einvoicing.send_refused", fmt.Sprintf("Evatra refused %s: answered %d.", what, status))
+		return problem.Unprocessable(code, fmt.Sprintf("Evatra refused %s: answered %d.", what, status))
 	}
 	return fmt.Errorf("einvoicing: evatra %s: answered %d", what, status)
 }

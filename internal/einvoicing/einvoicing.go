@@ -157,6 +157,9 @@ type Endpoints struct {
 	Sales Sales
 	// Sends keeps a send's Operation (As built E3), as Runs a fetch's.
 	Sends Runs
+	// TaxData keeps the Operation of a person's request of a tax data
+	// document (As built E4).
+	TaxData Runs
 	// Settings reads the companies' calendars, which the deadlines of the
 	// worklist of documents not transmitted count business days in.
 	Settings Settings

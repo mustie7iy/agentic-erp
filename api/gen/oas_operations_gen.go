@@ -590,6 +590,7 @@ const (
 	RetireCatalogItemOperation                     OperationName = "RetireCatalogItem"
 	RetireControlOperation                         OperationName = "RetireControl"
 	RetireEntryTemplateOperation                   OperationName = "RetireEntryTemplate"
+	RetryOutgoingEInvoiceTaxDataOperation          OperationName = "RetryOutgoingEInvoiceTaxData"
 	ReverseAllocationRunOperation                  OperationName = "ReverseAllocationRun"
 	ReverseAssetAcquisitionOperation               OperationName = "ReverseAssetAcquisition"
 	ReverseAssetRetirementOperation                OperationName = "ReverseAssetRetirement"
@@ -664,5 +665,6 @@ const (
 	UploadMemoRecordsOperation                     OperationName = "UploadMemoRecords"
 	VerifyAuditChainOperation                      OperationName = "VerifyAuditChain"
 	WithdrawChangeRequestOperation                 OperationName = "WithdrawChangeRequest"
+	WithdrawOutgoingEInvoiceTaxDataOperation       OperationName = "WithdrawOutgoingEInvoiceTaxData"
 	WithdrawTaxReturnOperation                     OperationName = "WithdrawTaxReturn"
 )

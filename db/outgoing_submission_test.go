@@ -149,3 +149,112 @@ func TestOutgoingSubmissionsDownRefused(t *testing.T) {
 	}
 	failsWith(t, exec(tx, down), "e-invoice submissions exist")
 }
+
+// TestEInvoiceDeliveryRules (migration 000422_einvoice_delivery; ADR-0061
+// As built E4): what the database refuses of a submission's delivery
+// status and tax data request, as the application role: followed and
+// reported only once completed; a request only while due; a response with
+// its time and a detail only with a response; a tax data status with its
+// time; a completed one keeps its transmission; the columns' forms.
+func TestEInvoiceDeliveryRules(t *testing.T) {
+	need(t)
+	update := func(set string) stmt {
+		return step(`UPDATE einvoicing.outgoing_submission SET ` + set + `, version = version + 1`)
+	}
+	completed := func(s outgoingScene, more ...stmt) []stmt {
+		return append([]stmt{s.valid(), step(submissionRow, s.tenant, id(), s.doc, "B2B", s.actor), update(`status = 'sending', attempts = 1`),
+			update(`status = 'submitted', tracking_id = 'T-1', provider_status = 'PENDING'`),
+			update(`status = 'completed', provider_status = 'COMPLETED', next_check_at = NULL, completed_at = now(), follow_check_at = now()`)}, more...)
+	}
+	queued := func(s outgoingScene, more ...stmt) []stmt {
+		return append([]stmt{s.valid(), step(submissionRow, s.tenant, id(), s.doc, "B2B", s.actor)}, more...)
+	}
+	const reported = `delivery_status = 'REJECTION', delivery_detail = 'd', delivered_at = now(), tax_data_status = 'TDD_FAILED', tax_data_at = now()`
+	cases := []struct {
+		name  string
+		stmts func(s outgoingScene) []stmt
+		want  string // empty: allowed
+	}{
+		{"reported, asked, made and no longer followed", func(s outgoingScene) []stmt {
+			return completed(s, update(reported+`, follow_polls = 1`), update(`tax_data_request = 'retry', operation_id = gen_random_uuid()`),
+				update(`tax_data_attempts = 1`), update(`tax_data_request = NULL, tax_data_attempts = 0, tax_data_status = 'TDD_SEND'`),
+				update(`follow_check_at = NULL`))
+		}, ""},
+		{"followed before completion", func(s outgoingScene) []stmt { return queued(s, update(`status = 'sending', attempts = 1, follow_check_at = now()`)) }, "outgoing_submission_followed"},
+		{"reported before completion", func(s outgoingScene) []stmt {
+			return queued(s, update(`status = 'sending', attempts = 1, delivery_status = 'ACCEPTANCE', delivered_at = now()`))
+		}, "outgoing_submission_followed"},
+		{"a tax data status before completion", func(s outgoingScene) []stmt {
+			return queued(s, update(`status = 'sending', attempts = 1, tax_data_status = 'TDD_SEND', tax_data_at = now()`))
+		}, "outgoing_submission_followed"},
+		{"a request not due", func(s outgoingScene) []stmt {
+			return completed(s, update(`tax_data_request = 'withdraw', follow_check_at = NULL`))
+		}, "outgoing_submission_request_due"},
+		{"another request", func(s outgoingScene) []stmt { return completed(s, update(`tax_data_request = 'cancel'`)) },
+			"outgoing_submission_tax_data_request_check"},
+		{"a response without its time", func(s outgoingScene) []stmt { return completed(s, update(`delivery_status = 'ACCEPTANCE'`)) },
+			"outgoing_submission_delivery"},
+		{"a detail without a response", func(s outgoingScene) []stmt { return completed(s, update(`delivery_detail = 'd'`)) },
+			"outgoing_submission_delivery"},
+		{"a tax data status without its time", func(s outgoingScene) []stmt { return completed(s, update(`tax_data_status = 'TDD_SEND'`)) },
+			"outgoing_submission_tax_data"},
+		{"a response of another form", func(s outgoingScene) []stmt {
+			return completed(s, update(`delivery_status = 'accepted', delivered_at = now()`))
+		}, "outgoing_submission_delivery_status_check"},
+		{"a tax data status of another form", func(s outgoingScene) []stmt {
+			return completed(s, update(`tax_data_status = 'sent', tax_data_at = now()`))
+		}, "outgoing_submission_tax_data_status_check"},
+		{"a detail over 1000 characters", func(s outgoingScene) []stmt {
+			return completed(s, update(`delivery_status = 'REJECTION', delivered_at = now(), delivery_detail = repeat('d', 1001)`))
+		}, "outgoing_submission_delivery_detail_check"},
+		{"attempts below zero", func(s outgoingScene) []stmt { return completed(s, update(`tax_data_attempts = -1`)) },
+			"outgoing_submission_tax_data_attempts_check"},
+		{"reads below zero", func(s outgoingScene) []stmt { return completed(s, update(`follow_polls = -1`)) }, "outgoing_submission_follow_polls_check"},
+		{"a completed one's tracking id changed", func(s outgoingScene) []stmt { return completed(s, update(`tracking_id = 'T-2'`)) },
+			"keeps its transmission"},
+		{"a completed one's provider status changed", func(s outgoingScene) []stmt { return completed(s, update(`provider_status = 'FAILED'`)) },
+			"keeps its transmission"},
+		{"a completed one's connector changed", func(s outgoingScene) []stmt { return completed(s, update(`connector_id = gen_random_uuid()`)) },
+			"keeps its transmission"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := outgoingScene{tenant: id(), actor: id(), doc: id(), invoice: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.stmts(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestEInvoiceDeliveryDownRefused: 000422's down migration refuses to drop
+// a delivery status (06 §6.4).
+func TestEInvoiceDeliveryDownRefused(t *testing.T) {
+	need(t)
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	s := outgoingScene{tenant: id(), actor: id(), doc: id(), invoice: id()}
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String()), s.valid(), step(submissionRow, s.tenant, id(), s.doc, "B2B", s.actor),
+		step(`UPDATE einvoicing.outgoing_submission SET status = 'sending', attempts = 1, version = version + 1 WHERE outgoing_einvoice_id = $1`, s.doc),
+		step(`UPDATE einvoicing.outgoing_submission SET status = 'submitted', tracking_id = 'T-1', version = version + 1 WHERE outgoing_einvoice_id = $1`, s.doc),
+		step(`UPDATE einvoicing.outgoing_submission SET status = 'completed', next_check_at = NULL, completed_at = now(), follow_check_at = now(),
+			tax_data_status = 'TDD_SEND', tax_data_at = now(), version = version + 1 WHERE outgoing_einvoice_id = $1`, s.doc),
+		step(`SELECT set_config('app.tenant_id', '', true)`), step(`SAVEPOINT owner`), step(`SET LOCAL ROLE erp_owner`)); err != nil {
+		t.Fatal(err)
+	}
+	down := migrationNamed(t, "000422_einvoice_delivery").Down
+	failsWith(t, exec(tx, down), "row-level security")
+	if err := all(tx, step(`ROLLBACK TO SAVEPOINT owner`), step(`RESET ROLE`)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "e-invoice delivery statuses exist")
+}

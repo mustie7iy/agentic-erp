@@ -38,6 +38,10 @@ const (
 //	GET  /invoice/document-status/{trackingId}    {"trackingId": ..., "status": ...}
 //	POST /invoice/document-process/search {companyId, direction OUTGOING, filename, pageNumber (from 0)}
 //	                                              {"content": [{"trackingId", "status", "filename"}], "totalElements": n}
+//	GET  /peppol/invoice-mls-list?companyId&trackingId  {"content": [{"status", "description"}]} (As built E4)
+//	GET  /peppol/get-tdd?companyId&trackingId     {"trackingId": ..., "status": ...}; 404 while none
+//	POST /peppol/tdd/retry-failed {companyId, trackingId}  200 from TDD_FAILED; 400 otherwise
+//	POST /peppol/tdd/withdraw {companyId, trackingId}      200 from TDD_SEND, TDD_APPROVED, TDD_ACKNOWLEDGED, WITHDRAW_FAILED; 400 otherwise
 //
 // Each call but the login needs a token it issued, unexpired, as R-Auth;
 // 401 otherwise. A received document is a message of the store addressed
@@ -46,7 +50,12 @@ const (
 // in Outbox under the number its XML names first (cbc:ID), the filename;
 // each status read of a submission answers the next status the outbox's
 // script gives for that send of the filename (the last one again once
-// read), COMPLETED when it gives none. A token lasts
+// read), COMPLETED when it gives none. What Peppol and the authority
+// report of a sent document is the outbox's delivery script for its
+// filename: its message level responses, all listed; and its tax data
+// document's statuses, read in order (the last one again) in the phase it
+// is in: report from the start, retry after a retry, withdraw after a
+// withdrawal, each starting the phase's statuses over. A token lasts
 // TokenLife; Expire makes the issued ones expire now, as Evatra would after
 // their expirationDate.
 type Evatra struct {
@@ -62,8 +71,10 @@ type Evatra struct {
 	tokens map[string]time.Time
 	logins int
 	sent   []Sent
-	reads  map[string]int // tracking id -> status reads answered
-	lose   int            // sends still to accept and answer 503, as if the answer were lost
+	reads  map[string]int       // tracking id -> status reads answered
+	tdd    map[string]*tddState // tracking id -> its tax data document
+	taken  []string             // the tax data requests taken: "<request> <tracking id>"
+	lose   int                  // sends still to accept and answer 503, as if the answer were lost
 	memory memoryOutbox
 }
 
@@ -80,18 +91,47 @@ type Sent struct {
 
 // Outbox keeps the documents Evatra's stand-in is sent and gives each
 // send's statuses: Keep records one, Statuses the status reads' answers
-// for the send-th send of a filename, in order (none: COMPLETED).
+// for the send-th send of a filename, in order (none: COMPLETED), and
+// Delivery what Peppol and the authority report of the filename's
+// documents (As built E4).
 type Outbox interface {
 	Keep(s Sent) error
 	Statuses(filename string, send int) ([]string, error)
+	Delivery(filename string) (DeliveryScript, error)
 }
 
-// memoryOutbox is the Outbox Script fills.
+// DeliveryScript is what Peppol and the authority report of a filename's
+// documents: the message level responses listed, and the tax data
+// document's statuses by phase (report, retry, withdraw).
+type DeliveryScript struct {
+	Responses []Response          `json:"responses"`
+	TaxData   map[string][]string `json:"tax_data"`
+}
+
+// Response is a message level response as Evatra's list gives it.
+type Response struct {
+	Status      string `json:"status"`
+	Description string `json:"description,omitempty"`
+}
+
+// tddState is where a document's tax data document stands: its phase and
+// the reads answered in it.
+type tddState struct {
+	phase string
+	reads int
+}
+
+// memoryOutbox is the Outbox Script and ScriptDelivery fill.
 type memoryOutbox struct {
-	scripts map[string][][]string
+	scripts    map[string][][]string
+	deliveries map[string]DeliveryScript
 }
 
 func (m *memoryOutbox) Keep(Sent) error { return nil }
+
+func (m *memoryOutbox) Delivery(filename string) (DeliveryScript, error) {
+	return m.deliveries[filename], nil
+}
 
 func (m *memoryOutbox) Statuses(filename string, send int) ([]string, error) {
 	sends := m.scripts[filename]
@@ -142,6 +182,25 @@ func (e *Evatra) Script(filename string, sends ...[]string) {
 	e.memory.scripts[filename] = sends
 }
 
+// ScriptDelivery gives what Peppol and the authority report of the
+// documents of a filename, in memory.
+func (e *Evatra) ScriptDelivery(filename string, d DeliveryScript) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.memory.deliveries == nil {
+		e.memory.deliveries = map[string]DeliveryScript{}
+	}
+	e.memory.deliveries[filename] = d
+}
+
+// TaxDataRequests are the tax data requests taken so far, in order, each
+// "<retry|withdraw> <tracking id>".
+func (e *Evatra) TaxDataRequests() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Clone(e.taken)
+}
+
 // LoseAnswers makes the next n sends be accepted and answered 503, as if
 // their answers were lost on the way.
 func (e *Evatra) LoseAnswers(n int) {
@@ -173,6 +232,10 @@ func (e *Evatra) Handler() http.Handler {
 	mux.Handle("POST /invoice/send-document-async", e.authorized(e.send))
 	mux.Handle("GET /invoice/document-status/{trackingId}", e.authorized(e.status))
 	mux.Handle("POST /invoice/document-process/search", e.authorized(e.processes))
+	mux.Handle("GET /peppol/invoice-mls-list", e.authorized(e.responses))
+	mux.Handle("GET /peppol/get-tdd", e.authorized(e.taxData))
+	mux.Handle("POST /peppol/tdd/retry-failed", e.authorized(e.taxDataRequest("retry", "TDD_FAILED")))
+	mux.Handle("POST /peppol/tdd/withdraw", e.authorized(e.taxDataRequest("withdraw", "TDD_SEND", "TDD_APPROVED", "TDD_ACKNOWLEDGED", "WITHDRAW_FAILED")))
 	return mux
 }
 
@@ -389,4 +452,99 @@ func (e *Evatra) processes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"content": content, "totalElements": len(content)})
+}
+
+// sentOf is the document sent under the tracking id and its delivery
+// script; found false for none. Called with mu held.
+func (e *Evatra) sentOf(trackingID string) (Sent, DeliveryScript, bool, error) {
+	i := slices.IndexFunc(e.sent, func(s Sent) bool { return s.TrackingID == trackingID })
+	if i < 0 {
+		return Sent{}, DeliveryScript{}, false, nil
+	}
+	d, err := e.outbox().Delivery(e.sent[i].Filename)
+	return e.sent[i], d, true, err
+}
+
+// delivered answers a peppol call for the document the query names: 400
+// for another company, 404 for none, 500 when its script cannot be read.
+func (e *Evatra) delivered(w http.ResponseWriter, companyID, trackingID string, answer func(DeliveryScript) (any, int)) {
+	if companyID != e.Account.CompanyID {
+		http.Error(w, `{"message": "bad request"}`, http.StatusBadRequest)
+		return
+	}
+	e.mu.Lock()
+	_, d, found, err := e.sentOf(trackingID)
+	var v any
+	status := http.StatusNotFound
+	if found && err == nil {
+		v, status = answer(d)
+	}
+	e.mu.Unlock()
+	switch {
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	case status != http.StatusOK:
+		http.Error(w, `{"message": "no such document"}`, status)
+	default:
+		writeJSON(w, v)
+	}
+}
+
+func (e *Evatra) responses(w http.ResponseWriter, r *http.Request) {
+	e.delivered(w, r.URL.Query().Get("companyId"), r.URL.Query().Get("trackingId"), func(d DeliveryScript) (any, int) {
+		return map[string]any{"content": append([]Response{}, d.Responses...)}, http.StatusOK
+	})
+}
+
+// currentTaxData is a document's tax data document's status after its
+// state's reads in its phase: the phase's statuses in order, the last
+// again; none (empty) when the phase has none. Called with mu held.
+func (e *Evatra) currentTaxData(trackingID string, d DeliveryScript, read bool) string {
+	if e.tdd == nil {
+		e.tdd = map[string]*tddState{}
+	}
+	st := e.tdd[trackingID]
+	if st == nil {
+		st = &tddState{phase: "report"}
+		e.tdd[trackingID] = st
+	}
+	statuses := d.TaxData[st.phase]
+	if len(statuses) == 0 {
+		return ""
+	}
+	if read {
+		st.reads++
+	}
+	return statuses[min(max(st.reads, 1), len(statuses))-1]
+}
+
+func (e *Evatra) taxData(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("trackingId")
+	e.delivered(w, r.URL.Query().Get("companyId"), id, func(d DeliveryScript) (any, int) {
+		if status := e.currentTaxData(id, d, true); status != "" {
+			return map[string]any{"trackingId": id, "status": status}, http.StatusOK
+		}
+		return nil, http.StatusNotFound
+	})
+}
+
+// taxDataRequest takes a retry or a withdrawal of a document whose tax
+// data document is in one of from: its phase becomes the request's, its
+// statuses read from the start.
+func (e *Evatra) taxDataRequest(phase string, from ...string) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ CompanyID, TrackingID string }
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, `{"message": "bad request"}`, http.StatusBadRequest)
+			return
+		}
+		e.delivered(w, in.CompanyID, in.TrackingID, func(d DeliveryScript) (any, int) {
+			if !slices.Contains(from, e.currentTaxData(in.TrackingID, d, false)) {
+				return nil, http.StatusBadRequest
+			}
+			*e.tdd[in.TrackingID] = tddState{phase: phase}
+			e.taken = append(e.taken, phase+" "+in.TrackingID)
+			return map[string]any{"trackingId": in.TrackingID}, http.StatusOK
+		})
+	}
 }

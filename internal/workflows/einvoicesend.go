@@ -24,15 +24,24 @@ import (
 // e-invoice its resource); the dispatcher starts SendEInvoice for it,
 // which advances the submission one idempotent step at a time (send, read
 // the provider's status, send again after SENDING_FAILED) and sleeps as
-// long as each step says, until it is completed or failed. A cancelled
+// long as each step says, until it is failed, or completed and no longer
+// followed (its delivery status and its tax data document's final, As
+// built E4). A cancelled
 // Operation is ended by the next step, which fails the submission
 // (einvoicing.send_cancelled). The einvoicing context is a leaf, so the
 // workflow reaches it through the EInvoiceSends port, which the
 // composition root wires to it.
 
 // EInvoiceSendKind is the kind of a send's Operation (einvoicing.KindSend,
-// which the composition root's test holds equal).
-const EInvoiceSendKind = "einvoicing.send"
+// which the composition root's test holds equal), and EInvoiceTaxDataKind
+// that of a person's request of a transmitted e-invoice's tax data
+// document (einvoicing.KindTaxData, As built E4), which SendEInvoice
+// carries out too: the request takes over the submission, whose step makes
+// it and goes on reading the delivery status.
+const (
+	EInvoiceSendKind    = "einvoicing.send"
+	EInvoiceTaxDataKind = "einvoicing.tax_data"
+)
 
 // EInvoiceSendStep is where a send stands after a step: finished, or to
 // be advanced again after Wait.

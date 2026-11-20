@@ -21,7 +21,9 @@
 // <trackingId>.xml the document and <trackingId>.json what came with it;
 // <filename>.statuses, which the walkthrough writes, scripts each send of
 // the e-invoice numbered filename, a line per send, its status reads'
-// answers separated by commas (none: COMPLETED).
+// answers separated by commas (none: COMPLETED); <filename>.delivery, in
+// einvoicetest.DeliveryScript's JSON, what Peppol and the authority report
+// of it (As built E4).
 //
 //	providerstub -addr 127.0.0.1:18444 -ca provider.pem -token token -inbox inbox [-evatra evatra.json -evatra-inbox evatra -evatra-outbox sent]
 package main
@@ -263,4 +265,24 @@ func (o outbox) Statuses(filename string, send int) ([]string, error) {
 	}
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
 	return strings.Split(strings.TrimSpace(lines[min(send, len(lines)-1)]), ","), nil
+}
+
+// Delivery reads the filename's delivery script, <filename>.delivery, in
+// einvoicetest.DeliveryScript's JSON (As built E4); none for no file.
+func (o outbox) Delivery(filename string) (einvoicetest.DeliveryScript, error) {
+	var d einvoicetest.DeliveryScript
+	if !messageID.MatchString(filename) {
+		return d, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(string(o), filename+".delivery")) // #nosec G304 -- a filename the pattern above allows, in the walkthrough's directory
+	if errors.Is(err, fs.ErrNotExist) {
+		return d, nil
+	}
+	if err != nil {
+		return d, fmt.Errorf("outbox: %w", err)
+	}
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return d, fmt.Errorf("outbox: %s.delivery: %w", filename, err)
+	}
+	return d, nil
 }

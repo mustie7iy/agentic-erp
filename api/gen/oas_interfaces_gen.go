@@ -2337,6 +2337,10 @@ type RetireEntryTemplateRes interface {
 	retireEntryTemplateRes()
 }
 
+type RetryOutgoingEInvoiceTaxDataRes interface {
+	retryOutgoingEInvoiceTaxDataRes()
+}
+
 type ReverseAllocationRunRes interface {
 	reverseAllocationRunRes()
 }
@@ -2631,6 +2635,10 @@ type VerifyAuditChainRes interface {
 
 type WithdrawChangeRequestRes interface {
 	withdrawChangeRequestRes()
+}
+
+type WithdrawOutgoingEInvoiceTaxDataRes interface {
+	withdrawOutgoingEInvoiceTaxDataRes()
 }
 
 type WithdrawTaxReturnRes interface {

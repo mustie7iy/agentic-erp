@@ -6382,7 +6382,8 @@ type Invoker interface {
 	// (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
 	// by company, by the customer document it renders (at most one), by status, so the invalid ones to
 	// correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
-	// the failed submissions to correct and send again are found.
+	// the failed submissions to correct and send again are found, and by the outcome of its delivery
+	// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found.
 	//
 	// GET /v1/outgoing-e-invoices
 	ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (ListOutgoingEInvoicesRes, error)
@@ -8347,6 +8348,37 @@ type Invoker interface {
 	//
 	// POST /v1/entry-templates/{id}:retire
 	RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error)
+	// RetryOutgoingEInvoiceTaxData invokes retryOutgoingEInvoiceTaxData operation.
+	//
+	// Asks the company's accredited provider to send again the tax data document of a transmitted
+	// e-invoice that the authority's corner failed to take (its `transmission.tax_data_status` TDD_FAILED;
+	// ADR-0061 §9, As built E4; the coordinator plan's default 8; at Evatra
+	// `POST /peppol/tdd/retry-failed`). The request writes, in its transaction, the request on the
+	// e-invoice's `transmission` (`tax_data_request`) and the Operation that carries it out (kind
+	// `einvoicing.tax_data`, its resource the e-invoice), which takes over the transmission's
+	// `operation_id`, audited in the caller's name (`einvoicing.outgoing.tax_data`) with
+	// OutgoingEInvoiceTransmissionChanged: the request is the outbox of the call, which is made only after
+	// that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow engine) as
+	// the einvoicing context's system principal. The step first reads the tax data document's status at
+	// the provider and makes the call only if it does not show the request made already, so a step run
+	// twice asks once; a call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+	// calls). The Operation succeeds once the provider took the request (or showed it made), its resource
+	// the e-invoice; it fails with the provider's refusal (`einvoicing.tax_data_refused`), after the fifth
+	// failed call (`einvoicing.provider_unavailable`), or with the connector's refusal since the request
+	// (disabled, its credentials not resolving: `integration.connector_disabled`,
+	// `integration.secret_unavailable`). Either way the request is cleared and the delivery status read
+	// again at once, then with backoff from 30 seconds, until the tax data document's status is final.
+	// Cancelling the Operation drops a request not yet made (a call under way, or its backoff, is waited
+	// for); it stays `cancelled`. The caller acts at the ETag it read (`If-Match`, the e-invoice's `etag`,
+	// 412 otherwise). Refused: an e-invoice whose transmission is not completed (409
+	// `einvoicing.not_transmitted`) or has a request not yet made (409
+	// `einvoicing.tax_data_request_pending`); a connector that can no longer send for the company, as
+	// `sendOutgoingEInvoice` refuses one. An e-invoice of a company the caller may not act in is not found
+	// (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
+	// §13). Refused besides: a tax data document not failed (409 `einvoicing.tax_data_not_failed`).
+	//
+	// POST /v1/outgoing-e-invoices/{id}:retry-tax-data
+	RetryOutgoingEInvoiceTaxData(ctx context.Context, params RetryOutgoingEInvoiceTaxDataParams) (RetryOutgoingEInvoiceTaxDataRes, error)
 	// ReverseAllocationRun invokes reverseAllocationRun operation.
 	//
 	// Reverses a run of an allocation cycle (ADR-0064 As built T60k; SAP's cycle reversal, from memory):
@@ -9568,6 +9600,40 @@ type Invoker interface {
 	//
 	// POST /v1/change-requests/{id}:withdraw
 	WithdrawChangeRequest(ctx context.Context, request *ReasonInput, params WithdrawChangeRequestParams) (WithdrawChangeRequestRes, error)
+	// WithdrawOutgoingEInvoiceTaxData invokes withdrawOutgoingEInvoiceTaxData operation.
+	//
+	// Asks the company's accredited provider to withdraw the tax data document reported to the authority
+	// for a transmitted e-invoice (its `transmission.tax_data_status` TDD_SEND, TDD_APPROVED,
+	// TDD_ACKNOWLEDGED, or WITHDRAW_FAILED to ask again; ADR-0061 §9, As built E4; the coordinator plan's
+	// default 8; at Evatra `POST /peppol/tdd/withdraw`), after which its status is WITHDRAW_SEND. What a
+	// withdrawal means at the authority, and when it is due, is for the tax specialist; the e-invoice
+	// stays transmitted, and a correction is a credit note. The request writes, in its transaction, the
+	// request on the e-invoice's `transmission` (`tax_data_request`) and the Operation that carries it out
+	// (kind `einvoicing.tax_data`, its resource the e-invoice), which takes over the transmission's
+	// `operation_id`, audited in the caller's name (`einvoicing.outgoing.tax_data`) with
+	// OutgoingEInvoiceTransmissionChanged: the request is the outbox of the call, which is made only after
+	// that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow engine) as
+	// the einvoicing context's system principal. The step first reads the tax data document's status at
+	// the provider and makes the call only if it does not show the request made already, so a step run
+	// twice asks once; a call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+	// calls). The Operation succeeds once the provider took the request (or showed it made), its resource
+	// the e-invoice; it fails with the provider's refusal (`einvoicing.tax_data_refused`), after the fifth
+	// failed call (`einvoicing.provider_unavailable`), or with the connector's refusal since the request
+	// (disabled, its credentials not resolving: `integration.connector_disabled`,
+	// `integration.secret_unavailable`). Either way the request is cleared and the delivery status read
+	// again at once, then with backoff from 30 seconds, until the tax data document's status is final.
+	// Cancelling the Operation drops a request not yet made (a call under way, or its backoff, is waited
+	// for); it stays `cancelled`. The caller acts at the ETag it read (`If-Match`, the e-invoice's `etag`,
+	// 412 otherwise). Refused: an e-invoice whose transmission is not completed (409
+	// `einvoicing.not_transmitted`) or has a request not yet made (409
+	// `einvoicing.tax_data_request_pending`); a connector that can no longer send for the company, as
+	// `sendOutgoingEInvoice` refuses one. An e-invoice of a company the caller may not act in is not found
+	// (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
+	// §13). Refused besides: a tax data document not reported, failed, rejected or being withdrawn (409
+	// `einvoicing.tax_data_not_withdrawable`).
+	//
+	// POST /v1/outgoing-e-invoices/{id}:withdraw-tax-data
+	WithdrawOutgoingEInvoiceTaxData(ctx context.Context, params WithdrawOutgoingEInvoiceTaxDataParams) (WithdrawOutgoingEInvoiceTaxDataRes, error)
 	// WithdrawTaxReturn invokes withdrawTaxReturn operation.
 	//
 	// Withdraws a prepared or approved return that is not filed (ADR-0049 §11): its pending approval
@@ -86290,7 +86356,8 @@ func (c *Client) sendListOutboundDeliveries(ctx context.Context, params ListOutb
 // (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
 // by company, by the customer document it renders (at most one), by status, so the invalid ones to
 // correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
-// the failed submissions to correct and send again are found.
+// the failed submissions to correct and send again are found, and by the outcome of its delivery
+// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found.
 //
 // GET /v1/outgoing-e-invoices
 func (c *Client) ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (ListOutgoingEInvoicesRes, error) {
@@ -86402,6 +86469,23 @@ func (c *Client) sendListOutgoingEInvoices(ctx context.Context, params ListOutgo
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.TransmissionStatus.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "delivery_outcome" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "delivery_outcome",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DeliveryOutcome.Get(); ok {
 				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
@@ -114124,6 +114208,188 @@ func (c *Client) sendRetireEntryTemplate(ctx context.Context, params RetireEntry
 	return result, nil
 }
 
+// RetryOutgoingEInvoiceTaxData invokes retryOutgoingEInvoiceTaxData operation.
+//
+// Asks the company's accredited provider to send again the tax data document of a transmitted
+// e-invoice that the authority's corner failed to take (its `transmission.tax_data_status` TDD_FAILED;
+// ADR-0061 §9, As built E4; the coordinator plan's default 8; at Evatra
+// `POST /peppol/tdd/retry-failed`). The request writes, in its transaction, the request on the
+// e-invoice's `transmission` (`tax_data_request`) and the Operation that carries it out (kind
+// `einvoicing.tax_data`, its resource the e-invoice), which takes over the transmission's
+// `operation_id`, audited in the caller's name (`einvoicing.outgoing.tax_data`) with
+// OutgoingEInvoiceTransmissionChanged: the request is the outbox of the call, which is made only after
+// that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow engine) as
+// the einvoicing context's system principal. The step first reads the tax data document's status at
+// the provider and makes the call only if it does not show the request made already, so a step run
+// twice asks once; a call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+// calls). The Operation succeeds once the provider took the request (or showed it made), its resource
+// the e-invoice; it fails with the provider's refusal (`einvoicing.tax_data_refused`), after the fifth
+// failed call (`einvoicing.provider_unavailable`), or with the connector's refusal since the request
+// (disabled, its credentials not resolving: `integration.connector_disabled`,
+// `integration.secret_unavailable`). Either way the request is cleared and the delivery status read
+// again at once, then with backoff from 30 seconds, until the tax data document's status is final.
+// Cancelling the Operation drops a request not yet made (a call under way, or its backoff, is waited
+// for); it stays `cancelled`. The caller acts at the ETag it read (`If-Match`, the e-invoice's `etag`,
+// 412 otherwise). Refused: an e-invoice whose transmission is not completed (409
+// `einvoicing.not_transmitted`) or has a request not yet made (409
+// `einvoicing.tax_data_request_pending`); a connector that can no longer send for the company, as
+// `sendOutgoingEInvoice` refuses one. An e-invoice of a company the caller may not act in is not found
+// (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
+// §13). Refused besides: a tax data document not failed (409 `einvoicing.tax_data_not_failed`).
+//
+// POST /v1/outgoing-e-invoices/{id}:retry-tax-data
+func (c *Client) RetryOutgoingEInvoiceTaxData(ctx context.Context, params RetryOutgoingEInvoiceTaxDataParams) (RetryOutgoingEInvoiceTaxDataRes, error) {
+	res, err := c.sendRetryOutgoingEInvoiceTaxData(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRetryOutgoingEInvoiceTaxData(ctx context.Context, params RetryOutgoingEInvoiceTaxDataParams) (res RetryOutgoingEInvoiceTaxDataRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("retryOutgoingEInvoiceTaxData"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/outgoing-e-invoices/{id}:retry-tax-data"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RetryOutgoingEInvoiceTaxDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/outgoing-e-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":retry-tax-data"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RetryOutgoingEInvoiceTaxDataOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRetryOutgoingEInvoiceTaxDataResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ReverseAllocationRun invokes reverseAllocationRun operation.
 //
 // Reverses a run of an allocation cycle (ADR-0064 As built T60k; SAP's cycle reversal, from memory):
@@ -126514,6 +126780,191 @@ func (c *Client) sendWithdrawChangeRequest(ctx context.Context, request *ReasonI
 
 	stage = "DecodeResponse"
 	result, err := decodeWithdrawChangeRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// WithdrawOutgoingEInvoiceTaxData invokes withdrawOutgoingEInvoiceTaxData operation.
+//
+// Asks the company's accredited provider to withdraw the tax data document reported to the authority
+// for a transmitted e-invoice (its `transmission.tax_data_status` TDD_SEND, TDD_APPROVED,
+// TDD_ACKNOWLEDGED, or WITHDRAW_FAILED to ask again; ADR-0061 §9, As built E4; the coordinator plan's
+// default 8; at Evatra `POST /peppol/tdd/withdraw`), after which its status is WITHDRAW_SEND. What a
+// withdrawal means at the authority, and when it is due, is for the tax specialist; the e-invoice
+// stays transmitted, and a correction is a credit note. The request writes, in its transaction, the
+// request on the e-invoice's `transmission` (`tax_data_request`) and the Operation that carries it out
+// (kind `einvoicing.tax_data`, its resource the e-invoice), which takes over the transmission's
+// `operation_id`, audited in the caller's name (`einvoicing.outgoing.tax_data`) with
+// OutgoingEInvoiceTransmissionChanged: the request is the outbox of the call, which is made only after
+// that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow engine) as
+// the einvoicing context's system principal. The step first reads the tax data document's status at
+// the provider and makes the call only if it does not show the request made already, so a step run
+// twice asks once; a call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+// calls). The Operation succeeds once the provider took the request (or showed it made), its resource
+// the e-invoice; it fails with the provider's refusal (`einvoicing.tax_data_refused`), after the fifth
+// failed call (`einvoicing.provider_unavailable`), or with the connector's refusal since the request
+// (disabled, its credentials not resolving: `integration.connector_disabled`,
+// `integration.secret_unavailable`). Either way the request is cleared and the delivery status read
+// again at once, then with backoff from 30 seconds, until the tax data document's status is final.
+// Cancelling the Operation drops a request not yet made (a call under way, or its backoff, is waited
+// for); it stays `cancelled`. The caller acts at the ETag it read (`If-Match`, the e-invoice's `etag`,
+// 412 otherwise). Refused: an e-invoice whose transmission is not completed (409
+// `einvoicing.not_transmitted`) or has a request not yet made (409
+// `einvoicing.tax_data_request_pending`); a connector that can no longer send for the company, as
+// `sendOutgoingEInvoice` refuses one. An e-invoice of a company the caller may not act in is not found
+// (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
+// §13). Refused besides: a tax data document not reported, failed, rejected or being withdrawn (409
+// `einvoicing.tax_data_not_withdrawable`).
+//
+// POST /v1/outgoing-e-invoices/{id}:withdraw-tax-data
+func (c *Client) WithdrawOutgoingEInvoiceTaxData(ctx context.Context, params WithdrawOutgoingEInvoiceTaxDataParams) (WithdrawOutgoingEInvoiceTaxDataRes, error) {
+	res, err := c.sendWithdrawOutgoingEInvoiceTaxData(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendWithdrawOutgoingEInvoiceTaxData(ctx context.Context, params WithdrawOutgoingEInvoiceTaxDataParams) (res WithdrawOutgoingEInvoiceTaxDataRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("withdrawOutgoingEInvoiceTaxData"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/outgoing-e-invoices/{id}:withdraw-tax-data"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, WithdrawOutgoingEInvoiceTaxDataOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/outgoing-e-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":withdraw-tax-data"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, WithdrawOutgoingEInvoiceTaxDataOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeWithdrawOutgoingEInvoiceTaxDataResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

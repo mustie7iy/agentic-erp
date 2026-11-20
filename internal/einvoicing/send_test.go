@@ -169,8 +169,9 @@ func operation(t *testing.T, op uuid.UUID) string {
 // Operation, audited and published, before any call; the first step sends
 // its XML as kept (B2B, UAE_PINT, ERP) and records the tracking id; a step
 // before the status is due calls nothing; the status read COMPLETED
-// completes it and succeeds the Operation with the e-invoice; a step run
-// again changes nothing and sends nothing; a second send is refused.
+// completes it and succeeds the Operation with the e-invoice, its delivery
+// read due 30 seconds later (As built E4); a step run again changes
+// nothing and sends nothing; a second send is refused.
 func TestSendEInvoice(t *testing.T) {
 	s := senderSetup(t)
 	id := s.invoice["id"].(string)
@@ -192,13 +193,13 @@ func TestSendEInvoice(t *testing.T) {
 		t.Errorf("before the status read is due: got %+v, want a wait of 20s", step)
 	}
 	s.later(20 * time.Second)
-	if step := s.advance(t, id, op); !step.Done {
-		t.Errorf("the status read COMPLETED: got %+v, want done", step)
+	if step := s.advance(t, id, op); step.Done || step.Wait != 30*time.Second {
+		t.Errorf("the status read COMPLETED: got %+v, want its delivery read in 30s (As built E4)", step)
 	}
 	check(t, "completed", s.transmission(t, id), "completed COMPLETED 1 0 -")
 	check(t, "the operation", operation(t, op), "succeeded /v1/outgoing-e-invoices/"+id+" -")
-	if step := s.advance(t, id, op); !step.Done || len(s.srv.Evatra.Sends()) != 1 {
-		t.Errorf("run again: got %+v and %d sends, want done and one send", step, len(s.srv.Evatra.Sends()))
+	if step := s.advance(t, id, op); step.Done || step.Wait != 30*time.Second || len(s.srv.Evatra.Sends()) != 1 {
+		t.Errorf("run again: got %+v and %d sends, want the same wait and one send", step, len(s.srv.Evatra.Sends()))
 	}
 	var events, audits int
 	pgtest.Scan(t, `SELECT (SELECT count(*) FROM einvoicing.outbox WHERE tenant_id = $1 AND event_type = 'com.example.erp.einvoicing.outgoing_einvoice_transmission_changed.v1'),

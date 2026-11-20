@@ -4413,8 +4413,12 @@ components:
         its status after the change (queued, sending, submitted,
         completed, failed), the status before (null when first queued),
         the provider's status and tracking id, the attempts and resends,
-        and, once failed, the problem code. A status read that finds
-        nothing new emits nothing. It carries no document content and no
+        and, once failed, the problem code; once completed, whenever the
+        buyer's access point's message level response or the tax data
+        document's status read moves, and when a person asks for the tax
+        data document to be sent again or withdrawn and that request ends
+        (As built E4; the response's detail is not carried). A status read
+        that finds nothing new emits nothing. It carries no document content and no
         TRN. `GET /v1/outgoing-e-invoices/{id}` returns the e-invoice with
         its transmission at `version` or later. Subject is the outgoing
         e-invoice id.
@@ -4428,7 +4432,7 @@ components:
       examples:
         - name: completed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f02, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.outgoing_einvoice_transmission_changed.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-19T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
-          payload: {outgoing_einvoice_id: 0192a000-0000-7000-8000-000000000f11, customer_invoice_number: '1800000007', legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '5000', connector_id: 0192a000-0000-7000-8000-000000000e01, operation_id: 0192a000-0000-7000-8000-000000000c01, business_type: B2B, status: completed, status_before: submitted, provider_status: COMPLETED, tracking_id: TRK-1001, attempts: 1, resends: 0, problem_code: null, version: 4}
+          payload: {outgoing_einvoice_id: 0192a000-0000-7000-8000-000000000f11, customer_invoice_number: '1800000007', legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '5000', connector_id: 0192a000-0000-7000-8000-000000000e01, operation_id: 0192a000-0000-7000-8000-000000000c01, business_type: B2B, status: completed, status_before: submitted, provider_status: COMPLETED, tracking_id: TRK-1001, attempts: 1, resends: 0, problem_code: null, delivery_status: null, tax_data_status: null, tax_data_request: null, version: 4}
     CustomerInvoiceChanged:
       name: CustomerInvoiceChanged
       x-webhook: true
@@ -6207,6 +6211,9 @@ components:
         attempts: {type: integer, description: "Calls made for the current send."}
         resends: {type: integer, description: "Sends again after SENDING_FAILED."}
         problem_code: {type: [string, 'null'], description: "Why it failed; null unless failed."}
+        delivery_status: {type: [string, 'null'], description: "Once completed, the buyer's access point's message level response as last reported (As built E4); null for none. Open enum. Added within v1, so not required (ADR-0041); every event carries it."}
+        tax_data_status: {type: [string, 'null'], description: "Once completed, the tax data document's status as last reported (As built E4); null for none. Open enum. Added within v1, so not required; every event carries it."}
+        tax_data_request: {type: [string, 'null'], description: "A person's request of the tax data document not yet made (retry, withdraw); null for none. Open enum. Added within v1, so not required; every event carries it."}
         version: {type: integer, description: "The submission's version after the change."}
     CustomerInvoiceChangedV1:
       type: object

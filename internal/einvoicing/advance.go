@@ -26,12 +26,15 @@ type Step struct {
 
 // call is what a step asks the provider, prepared with no transaction
 // open (the connector resolved, the XML read) and decided in the claim's
-// transaction: a send (with the document looked up first, lookUp) or a
-// status read, of the submission at its version.
+// transaction: a send (with the document looked up first, lookUp), a
+// status read, or, once completed, a delivery read and a person's request
+// of the tax data document (follow, As built E4), of the submission at its
+// version.
 type call struct {
 	s       submission
 	company Company
 	send    bool
+	follow  bool
 	lookUp  bool
 	prov    Provider
 	conn    Connector
@@ -112,10 +115,14 @@ func (e *Endpoints) prepare(ctx context.Context, outgoing uuid.UUID, in Within) 
 	}); err != nil {
 		return nil, err
 	}
-	if !found || s.NextCheckAt == nil || clock.Now(e.Now).Before(*s.NextCheckAt) {
+	due := s.NextCheckAt
+	if s.Status == SubmissionCompleted {
+		due = s.FollowCheckAt
+	}
+	if !found || due == nil || clock.Now(e.Now).Before(*due) {
 		return nil, nil
 	}
-	c := &call{s: s, send: s.Status != SubmissionSubmitted}
+	c := &call{s: s, send: s.Status == SubmissionQueued || s.Status == SubmissionSending, follow: s.Status == SubmissionCompleted}
 	var err error
 	if c.conn, c.prov, _, err = e.provider(ctx, s.ConnectorID, in); err == nil && c.send {
 		c.doc, c.content, err = e.kept(ctx, outgoing, in)
@@ -142,8 +149,11 @@ func (e *Endpoints) claim(ctx context.Context, tx pgx.Tx, outgoing, operation uu
 	if !found || s.OperationID != operation {
 		return nil, Step{Done: true}, e.endOperation(ctx, operation, uuid.Nil, notOwned(operation))
 	}
-	if s.Status == SubmissionCompleted || s.Status == SubmissionFailed { // its Operation ended in the same transaction
+	switch s.Status {
+	case SubmissionFailed: // its Operation ended in the same transaction
 		return nil, Step{Done: true}, nil
+	case SubmissionCompleted:
+		return e.claimFollow(ctx, tx, s, operation, prep)
 	}
 	now := clock.Now(e.Now)
 	cancelled, err := e.Sends.Cancelled(ctx, operation, true)
@@ -228,13 +238,17 @@ func unavailable(s submission) *problem.Problem {
 
 // answer is the provider's answer to a call.
 type answer struct {
-	sent   Submission
-	report Report
+	sent     Submission
+	report   Report
+	delivery Delivery
 }
 
 // ask makes the prepared call with no transaction open: the send of the
 // XML as kept, or the status read.
 func (c *call) ask(ctx context.Context) (answer, error) {
+	if c.follow {
+		return c.askFollow(ctx)
+	}
 	if !c.send {
 		r, err := c.prov.Status(ctx, *c.s.TrackingID)
 		return answer{report: r}, err

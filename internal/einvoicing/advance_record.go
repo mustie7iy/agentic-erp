@@ -22,6 +22,9 @@ func (e *Endpoints) answered(ctx context.Context, tx pgx.Tx, c *call, got answer
 	if err != nil || s.Version != c.s.Version {
 		return Step{}, err
 	}
+	if c.follow {
+		return e.followed(ctx, tx, s, c.company, got.delivery, callErr)
+	}
 	cancelled, err := e.Sends.Cancelled(ctx, s.OperationID, true)
 	switch {
 	case err != nil:
@@ -136,13 +139,16 @@ func (e *Endpoints) resend(ctx context.Context, tx pgx.Tx, s submission, co Comp
 		failed_tracking_ids = failed_tracking_ids || ARRAY[tracking_id], next_check_at = $4`, failed, now)
 }
 
-// complete records the provider's COMPLETED and succeeds the Operation.
+// complete records the provider's COMPLETED and succeeds the Operation;
+// what Peppol and the authority report of it is read from pollFirst on
+// (As built E4).
 func (e *Endpoints) complete(ctx context.Context, tx pgx.Tx, s submission, co Company, status string, now time.Time) (Step, error) {
-	if _, err := e.move(ctx, tx, s, co, `status = 'completed', provider_status = $3, polls = polls + 1, completed_at = $4, next_check_at = NULL`,
-		status, now); err != nil {
+	step, err := e.move(ctx, tx, s, co, `status = 'completed', provider_status = $3, polls = polls + 1, completed_at = $4, next_check_at = NULL,
+		follow_check_at = $5`, status, now, now.Add(pollFirst))
+	if err != nil {
 		return Step{}, err
 	}
-	return Step{Done: true}, e.endOperation(ctx, s.OperationID, s.OutgoingID, nil)
+	return step, e.endOperation(ctx, s.OperationID, s.OutgoingID, nil)
 }
 
 // fail records the submission failed with the problem (and what the
@@ -176,15 +182,27 @@ func (e *Endpoints) move(ctx context.Context, tx pgx.Tx, s submission, co Compan
 		RETURNING `+submissionColumns, append([]any{s.ID, SenderActor}, args...)...).Scan(after.fields()...); err != nil {
 		return Step{}, fmt.Errorf("einvoicing: record the submission of outgoing e-invoice %s: %w", s.Filename, err)
 	}
-	if after.Status != s.Status || !samePtr(after.ProviderStatus, s.ProviderStatus) {
+	if after.Status != s.Status || !samePtr(after.ProviderStatus, s.ProviderStatus) || !samePtr(after.DeliveryStatus, s.DeliveryStatus) ||
+		!samePtr(after.TaxDataStatus, s.TaxDataStatus) || !samePtr(after.TaxDataRequest, s.TaxDataRequest) {
 		if err := after.record(ctx, "einvoicing.outgoing.transmission", co, &s.Status); err != nil {
 			return Step{}, err
 		}
 	}
-	if after.NextCheckAt == nil {
-		return Step{Done: true}, nil
+	return after.step(clock.Now(e.Now)), nil
+}
+
+// step is where the submission stands at now: done once nothing is due
+// (finished, or completed and no longer followed), or the wait until its
+// next check.
+func (s submission) step(now time.Time) Step {
+	next := s.NextCheckAt
+	if s.Status == SubmissionCompleted {
+		next = s.FollowCheckAt
 	}
-	return Step{Wait: max(after.NextCheckAt.Sub(clock.Now(e.Now)), 0)}, nil
+	if next == nil {
+		return Step{Done: true}
+	}
+	return Step{Wait: max(next.Sub(now), 0)}
 }
 
 func samePtr(a, b *string) bool { return (a == nil) == (b == nil) && (a == nil || *a == *b) }

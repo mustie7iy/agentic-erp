@@ -28058,6 +28058,7 @@ func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) retireCatalogItemRes()                     {}
 func (*ConflictHeaders) retireControlRes()                         {}
 func (*ConflictHeaders) retireEntryTemplateRes()                   {}
+func (*ConflictHeaders) retryOutgoingEInvoiceTaxDataRes()          {}
 func (*ConflictHeaders) reverseAllocationRunRes()                  {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
 func (*ConflictHeaders) reverseAssetRetirementRes()                {}
@@ -28130,6 +28131,7 @@ func (*ConflictHeaders) updateYearCloseTaskRes()                   {}
 func (*ConflictHeaders) uploadMemoRecordsRes()                     {}
 func (*ConflictHeaders) verifyAuditChainRes()                      {}
 func (*ConflictHeaders) withdrawChangeRequestRes()                 {}
+func (*ConflictHeaders) withdrawOutgoingEInvoiceTaxDataRes()       {}
 func (*ConflictHeaders) withdrawTaxReturnRes()                     {}
 
 // Merged schema.
@@ -76413,19 +76415,21 @@ func (s *OperationHeaders) SetResponse(val Operation) {
 	s.Response = val
 }
 
-func (*OperationHeaders) captureSalesOrderRes()      {}
-func (*OperationHeaders) captureSupplierInvoiceRes() {}
-func (*OperationHeaders) createConsolidationRunRes() {}
-func (*OperationHeaders) fetchEInvoicesRes()         {}
-func (*OperationHeaders) proposePaymentRunRes()      {}
-func (*OperationHeaders) reconcileMigrationRunRes()  {}
-func (*OperationHeaders) releasePaymentRunRes()      {}
-func (*OperationHeaders) sendOutgoingEInvoiceRes()   {}
-func (*OperationHeaders) simulateChangeRequestRes()  {}
-func (*OperationHeaders) startDepreciationRunRes()   {}
-func (*OperationHeaders) startMigrationRunRes()      {}
-func (*OperationHeaders) transmitBankFileRes()       {}
-func (*OperationHeaders) verifyAuditChainRes()       {}
+func (*OperationHeaders) captureSalesOrderRes()               {}
+func (*OperationHeaders) captureSupplierInvoiceRes()          {}
+func (*OperationHeaders) createConsolidationRunRes()          {}
+func (*OperationHeaders) fetchEInvoicesRes()                  {}
+func (*OperationHeaders) proposePaymentRunRes()               {}
+func (*OperationHeaders) reconcileMigrationRunRes()           {}
+func (*OperationHeaders) releasePaymentRunRes()               {}
+func (*OperationHeaders) retryOutgoingEInvoiceTaxDataRes()    {}
+func (*OperationHeaders) sendOutgoingEInvoiceRes()            {}
+func (*OperationHeaders) simulateChangeRequestRes()           {}
+func (*OperationHeaders) startDepreciationRunRes()            {}
+func (*OperationHeaders) startMigrationRunRes()               {}
+func (*OperationHeaders) transmitBankFileRes()                {}
+func (*OperationHeaders) verifyAuditChainRes()                {}
+func (*OperationHeaders) withdrawOutgoingEInvoiceTaxDataRes() {}
 
 // One page of operations.
 // Ref: #/components/schemas/OperationPage
@@ -83999,7 +84003,8 @@ type OutgoingEInvoiceTransmission struct {
 	ConnectorID uuid.UUID `json:"connector_id"`
 	// The connector's name.
 	ConnectorName string `json:"connector_name"`
-	// The Operation of the send asked for last (`getOperation`).
+	// The Operation asked for last (`getOperation`): the send's, or that of a request of its tax data
+	// document (kind `einvoicing.tax_data`, As built E4).
 	OperationID uuid.UUID `json:"operation_id"`
 	// B2B or B2G, as asked.
 	BusinessType string `json:"business_type"`
@@ -84025,6 +84030,40 @@ type OutgoingEInvoiceTransmission struct {
 	SubmittedAt NilDateTime `json:"submitted_at"`
 	// When the provider reported it COMPLETED.
 	CompletedAt NilDateTime `json:"completed_at"`
+	// The message level response of the buyer's access point, as the provider last reported it once
+	// completed (As built E4; Evatra: ACCEPTANCE, ACKNOWLEDGING, REJECTION, BUSINESS_RULE_FATAL,
+	// BUSINESS_RULE_WARNING, DELIVERY_FAILURE, SYNTAX_VIOLATION); null while none is reported. Open
+	// enumeration.
+	DeliveryStatus NilString `json:"delivery_status"`
+	// What that response says of the e-invoice (the rule broken, for a rejection), as the provider gives
+	// it; null for none.
+	DeliveryDetail NilString `json:"delivery_detail"`
+	// When that response was recorded.
+	DeliveredAt NilDateTime `json:"delivered_at"`
+	// What the responses mean for the e-invoice, null until completed: pending (none final yet: no
+	// response, ACKNOWLEDGING), accepted (ACCEPTANCE, BUSINESS_RULE_WARNING), rejected (REJECTION,
+	// BUSINESS_RULE_FATAL, SYNTAX_VIOLATION, or the tax data document TDD_REJECTED: on the worklist to
+	// correct by a credit note), corrected (rejected, and a credit note of the company naming it, IBT-025,
+	// rendered after it, transmitted), undelivered (DELIVERY_FAILURE: the buyer's access point could not
+	// deliver it). Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	DeliveryOutcome NilString `json:"delivery_outcome"`
+	// The tax data document's status at the authority's corner, as the provider last reported it once
+	// completed (As built E4; Evatra: TDD_SEND, TDD_FAILED, TDD_APPROVED, TDD_ACKNOWLEDGED, TDD_REJECTED,
+	// WITHDRAW_SEND, WITHDRAW_FAILED); null while none is reported. A person may send a failed one again
+	// (`retryOutgoingEInvoiceTaxData`) or withdraw a reported one (`withdrawOutgoingEInvoiceTaxData`).
+	// Open enumeration.
+	TaxDataStatus NilString `json:"tax_data_status"`
+	// When that status was recorded.
+	TaxDataAt NilDateTime `json:"tax_data_at"`
+	// A person's request of the tax data document not yet made at the provider; null for none. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	TaxDataRequest NilString `json:"tax_data_request"`
+	// When what Peppol and the authority report of it is next read once completed (from 30 seconds after
+	// completion, doubling to an hour); null before completion and once both statuses are final or 500
+	// reads were made.
+	FollowCheckAt NilDateTime `json:"follow_check_at"`
 	// The submission's version.
 	Version int32 `json:"version"`
 }
@@ -84092,6 +84131,46 @@ func (s *OutgoingEInvoiceTransmission) GetSubmittedAt() NilDateTime {
 // GetCompletedAt returns the value of CompletedAt.
 func (s *OutgoingEInvoiceTransmission) GetCompletedAt() NilDateTime {
 	return s.CompletedAt
+}
+
+// GetDeliveryStatus returns the value of DeliveryStatus.
+func (s *OutgoingEInvoiceTransmission) GetDeliveryStatus() NilString {
+	return s.DeliveryStatus
+}
+
+// GetDeliveryDetail returns the value of DeliveryDetail.
+func (s *OutgoingEInvoiceTransmission) GetDeliveryDetail() NilString {
+	return s.DeliveryDetail
+}
+
+// GetDeliveredAt returns the value of DeliveredAt.
+func (s *OutgoingEInvoiceTransmission) GetDeliveredAt() NilDateTime {
+	return s.DeliveredAt
+}
+
+// GetDeliveryOutcome returns the value of DeliveryOutcome.
+func (s *OutgoingEInvoiceTransmission) GetDeliveryOutcome() NilString {
+	return s.DeliveryOutcome
+}
+
+// GetTaxDataStatus returns the value of TaxDataStatus.
+func (s *OutgoingEInvoiceTransmission) GetTaxDataStatus() NilString {
+	return s.TaxDataStatus
+}
+
+// GetTaxDataAt returns the value of TaxDataAt.
+func (s *OutgoingEInvoiceTransmission) GetTaxDataAt() NilDateTime {
+	return s.TaxDataAt
+}
+
+// GetTaxDataRequest returns the value of TaxDataRequest.
+func (s *OutgoingEInvoiceTransmission) GetTaxDataRequest() NilString {
+	return s.TaxDataRequest
+}
+
+// GetFollowCheckAt returns the value of FollowCheckAt.
+func (s *OutgoingEInvoiceTransmission) GetFollowCheckAt() NilDateTime {
+	return s.FollowCheckAt
 }
 
 // GetVersion returns the value of Version.
@@ -84162,6 +84241,46 @@ func (s *OutgoingEInvoiceTransmission) SetSubmittedAt(val NilDateTime) {
 // SetCompletedAt sets the value of CompletedAt.
 func (s *OutgoingEInvoiceTransmission) SetCompletedAt(val NilDateTime) {
 	s.CompletedAt = val
+}
+
+// SetDeliveryStatus sets the value of DeliveryStatus.
+func (s *OutgoingEInvoiceTransmission) SetDeliveryStatus(val NilString) {
+	s.DeliveryStatus = val
+}
+
+// SetDeliveryDetail sets the value of DeliveryDetail.
+func (s *OutgoingEInvoiceTransmission) SetDeliveryDetail(val NilString) {
+	s.DeliveryDetail = val
+}
+
+// SetDeliveredAt sets the value of DeliveredAt.
+func (s *OutgoingEInvoiceTransmission) SetDeliveredAt(val NilDateTime) {
+	s.DeliveredAt = val
+}
+
+// SetDeliveryOutcome sets the value of DeliveryOutcome.
+func (s *OutgoingEInvoiceTransmission) SetDeliveryOutcome(val NilString) {
+	s.DeliveryOutcome = val
+}
+
+// SetTaxDataStatus sets the value of TaxDataStatus.
+func (s *OutgoingEInvoiceTransmission) SetTaxDataStatus(val NilString) {
+	s.TaxDataStatus = val
+}
+
+// SetTaxDataAt sets the value of TaxDataAt.
+func (s *OutgoingEInvoiceTransmission) SetTaxDataAt(val NilDateTime) {
+	s.TaxDataAt = val
+}
+
+// SetTaxDataRequest sets the value of TaxDataRequest.
+func (s *OutgoingEInvoiceTransmission) SetTaxDataRequest(val NilString) {
+	s.TaxDataRequest = val
+}
+
+// SetFollowCheckAt sets the value of FollowCheckAt.
+func (s *OutgoingEInvoiceTransmission) SetFollowCheckAt(val NilDateTime) {
+	s.FollowCheckAt = val
 }
 
 // SetVersion sets the value of Version.
@@ -101876,6 +101995,30 @@ func (*RetireEntryTemplatePreconditionFailed) retireEntryTemplateRes() {}
 type RetireEntryTemplatePreconditionRequired Problem
 
 func (*RetireEntryTemplatePreconditionRequired) retireEntryTemplateRes() {}
+
+type RetryOutgoingEInvoiceTaxDataBadRequest Problem
+
+func (*RetryOutgoingEInvoiceTaxDataBadRequest) retryOutgoingEInvoiceTaxDataRes() {}
+
+type RetryOutgoingEInvoiceTaxDataForbidden Problem
+
+func (*RetryOutgoingEInvoiceTaxDataForbidden) retryOutgoingEInvoiceTaxDataRes() {}
+
+type RetryOutgoingEInvoiceTaxDataNotFound Problem
+
+func (*RetryOutgoingEInvoiceTaxDataNotFound) retryOutgoingEInvoiceTaxDataRes() {}
+
+type RetryOutgoingEInvoiceTaxDataPreconditionFailed Problem
+
+func (*RetryOutgoingEInvoiceTaxDataPreconditionFailed) retryOutgoingEInvoiceTaxDataRes() {}
+
+type RetryOutgoingEInvoiceTaxDataPreconditionRequired Problem
+
+func (*RetryOutgoingEInvoiceTaxDataPreconditionRequired) retryOutgoingEInvoiceTaxDataRes() {}
+
+type RetryOutgoingEInvoiceTaxDataUnprocessableEntity Problem
+
+func (*RetryOutgoingEInvoiceTaxDataUnprocessableEntity) retryOutgoingEInvoiceTaxDataRes() {}
 
 // A return receipt (sales, ADR-0067, As built T85b): quantities of a returns order's items a person
 // confirmed as received on a date. It moves no stock and posts nothing. It is written once and never
@@ -119704,6 +119847,7 @@ func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
 func (*TooManyRequestsHeaders) retireControlRes()                         {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()                   {}
+func (*TooManyRequestsHeaders) retryOutgoingEInvoiceTaxDataRes()          {}
 func (*TooManyRequestsHeaders) reverseAllocationRunRes()                  {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()                {}
@@ -119778,6 +119922,7 @@ func (*TooManyRequestsHeaders) updateYearCloseTaskRes()                   {}
 func (*TooManyRequestsHeaders) uploadMemoRecordsRes()                     {}
 func (*TooManyRequestsHeaders) verifyAuditChainRes()                      {}
 func (*TooManyRequestsHeaders) withdrawChangeRequestRes()                 {}
+func (*TooManyRequestsHeaders) withdrawOutgoingEInvoiceTaxDataRes()       {}
 func (*TooManyRequestsHeaders) withdrawTaxReturnRes()                     {}
 
 // A journal line's trading partner (ADR-0059 §4): a legal entity of the tenant, by id and, to a
@@ -120667,6 +120812,7 @@ func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
 func (*UnauthorizedHeaders) retireControlRes()                         {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()                   {}
+func (*UnauthorizedHeaders) retryOutgoingEInvoiceTaxDataRes()          {}
 func (*UnauthorizedHeaders) reverseAllocationRunRes()                  {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()                {}
@@ -120741,6 +120887,7 @@ func (*UnauthorizedHeaders) updateYearCloseTaskRes()                   {}
 func (*UnauthorizedHeaders) uploadMemoRecordsRes()                     {}
 func (*UnauthorizedHeaders) verifyAuditChainRes()                      {}
 func (*UnauthorizedHeaders) withdrawChangeRequestRes()                 {}
+func (*UnauthorizedHeaders) withdrawOutgoingEInvoiceTaxDataRes()       {}
 func (*UnauthorizedHeaders) withdrawTaxReturnRes()                     {}
 
 type UnblockBusinessPartnerBadRequest Problem
@@ -124697,6 +124844,30 @@ func (*WithdrawChangeRequestPreconditionRequired) withdrawChangeRequestRes() {}
 type WithdrawChangeRequestUnprocessableEntity Problem
 
 func (*WithdrawChangeRequestUnprocessableEntity) withdrawChangeRequestRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataBadRequest Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataBadRequest) withdrawOutgoingEInvoiceTaxDataRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataForbidden Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataForbidden) withdrawOutgoingEInvoiceTaxDataRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataNotFound Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataNotFound) withdrawOutgoingEInvoiceTaxDataRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataPreconditionFailed Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataPreconditionFailed) withdrawOutgoingEInvoiceTaxDataRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataPreconditionRequired Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataPreconditionRequired) withdrawOutgoingEInvoiceTaxDataRes() {}
+
+type WithdrawOutgoingEInvoiceTaxDataUnprocessableEntity Problem
+
+func (*WithdrawOutgoingEInvoiceTaxDataUnprocessableEntity) withdrawOutgoingEInvoiceTaxDataRes() {}
 
 type WithdrawTaxReturnBadRequest Problem
 

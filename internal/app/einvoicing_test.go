@@ -30,6 +30,9 @@ func TestEInvoiceSendKind(t *testing.T) {
 	if workflows.EInvoiceSendKind != einvoicing.KindSend {
 		t.Errorf("got %s, want %s", workflows.EInvoiceSendKind, einvoicing.KindSend)
 	}
+	if workflows.EInvoiceTaxDataKind != einvoicing.KindTaxData {
+		t.Errorf("got %s, want %s", workflows.EInvoiceTaxDataKind, einvoicing.KindTaxData)
+	}
 	port := EInvoiceSends(Config{})
 	tenant := uuid.New()
 	if p := port.Sender(tenant); p.ID != einvoicing.SenderActor || p.TenantID != tenant {

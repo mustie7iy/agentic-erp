@@ -6361,7 +6361,8 @@ type Handler interface {
 	// (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
 	// by company, by the customer document it renders (at most one), by status, so the invalid ones to
 	// correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
-	// the failed submissions to correct and send again are found.
+	// the failed submissions to correct and send again are found, and by the outcome of its delivery
+	// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found.
 	//
 	// GET /v1/outgoing-e-invoices
 	ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (ListOutgoingEInvoicesRes, error)
@@ -8326,6 +8327,37 @@ type Handler interface {
 	//
 	// POST /v1/entry-templates/{id}:retire
 	RetireEntryTemplate(ctx context.Context, params RetireEntryTemplateParams) (RetireEntryTemplateRes, error)
+	// RetryOutgoingEInvoiceTaxData implements retryOutgoingEInvoiceTaxData operation.
+	//
+	// Asks the company's accredited provider to send again the tax data document of a transmitted
+	// e-invoice that the authority's corner failed to take (its `transmission.tax_data_status` TDD_FAILED;
+	// ADR-0061 §9, As built E4; the coordinator plan's default 8; at Evatra
+	// `POST /peppol/tdd/retry-failed`). The request writes, in its transaction, the request on the
+	// e-invoice's `transmission` (`tax_data_request`) and the Operation that carries it out (kind
+	// `einvoicing.tax_data`, its resource the e-invoice), which takes over the transmission's
+	// `operation_id`, audited in the caller's name (`einvoicing.outgoing.tax_data`) with
+	// OutgoingEInvoiceTransmissionChanged: the request is the outbox of the call, which is made only after
+	// that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow engine) as
+	// the einvoicing context's system principal. The step first reads the tax data document's status at
+	// the provider and makes the call only if it does not show the request made already, so a step run
+	// twice asks once; a call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+	// calls). The Operation succeeds once the provider took the request (or showed it made), its resource
+	// the e-invoice; it fails with the provider's refusal (`einvoicing.tax_data_refused`), after the fifth
+	// failed call (`einvoicing.provider_unavailable`), or with the connector's refusal since the request
+	// (disabled, its credentials not resolving: `integration.connector_disabled`,
+	// `integration.secret_unavailable`). Either way the request is cleared and the delivery status read
+	// again at once, then with backoff from 30 seconds, until the tax data document's status is final.
+	// Cancelling the Operation drops a request not yet made (a call under way, or its backoff, is waited
+	// for); it stays `cancelled`. The caller acts at the ETag it read (`If-Match`, the e-invoice's `etag`,
+	// 412 otherwise). Refused: an e-invoice whose transmission is not completed (409
+	// `einvoicing.not_transmitted`) or has a request not yet made (409
+	// `einvoicing.tax_data_request_pending`); a connector that can no longer send for the company, as
+	// `sendOutgoingEInvoice` refuses one. An e-invoice of a company the caller may not act in is not found
+	// (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
+	// §13). Refused besides: a tax data document not failed (409 `einvoicing.tax_data_not_failed`).
+	//
+	// POST /v1/outgoing-e-invoices/{id}:retry-tax-data
+	RetryOutgoingEInvoiceTaxData(ctx context.Context, params RetryOutgoingEInvoiceTaxDataParams) (RetryOutgoingEInvoiceTaxDataRes, error)
 	// ReverseAllocationRun implements reverseAllocationRun operation.
 	//
 	// Reverses a run of an allocation cycle (ADR-0064 As built T60k; SAP's cycle reversal, from memory):
@@ -9547,6 +9579,40 @@ type Handler interface {
 	//
 	// POST /v1/change-requests/{id}:withdraw
 	WithdrawChangeRequest(ctx context.Context, req *ReasonInput, params WithdrawChangeRequestParams) (WithdrawChangeRequestRes, error)
+	// WithdrawOutgoingEInvoiceTaxData implements withdrawOutgoingEInvoiceTaxData operation.
+	//
+	// Asks the company's accredited provider to withdraw the tax data document reported to the authority
+	// for a transmitted e-invoice (its `transmission.tax_data_status` TDD_SEND, TDD_APPROVED,
+	// TDD_ACKNOWLEDGED, or WITHDRAW_FAILED to ask again; ADR-0061 §9, As built E4; the coordinator plan's
+	// default 8; at Evatra `POST /peppol/tdd/withdraw`), after which its status is WITHDRAW_SEND. What a
+	// withdrawal means at the authority, and when it is due, is for the tax specialist; the e-invoice
+	// stays transmitted, and a correction is a credit note. The request writes, in its transaction, the
+	// request on the e-invoice's `transmission` (`tax_data_request`) and the Operation that carries it out
+	// (kind `einvoicing.tax_data`, its resource the e-invoice), which takes over the transmission's
+	// `operation_id`, audited in the caller's name (`einvoicing.outgoing.tax_data`) with
+	// OutgoingEInvoiceTransmissionChanged: the request is the outbox of the call, which is made only after
+	// that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow engine) as
+	// the einvoicing context's system principal. The step first reads the tax data document's status at
+	// the provider and makes the call only if it does not show the request made already, so a step run
+	// twice asks once; a call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+	// calls). The Operation succeeds once the provider took the request (or showed it made), its resource
+	// the e-invoice; it fails with the provider's refusal (`einvoicing.tax_data_refused`), after the fifth
+	// failed call (`einvoicing.provider_unavailable`), or with the connector's refusal since the request
+	// (disabled, its credentials not resolving: `integration.connector_disabled`,
+	// `integration.secret_unavailable`). Either way the request is cleared and the delivery status read
+	// again at once, then with backoff from 30 seconds, until the tax data document's status is final.
+	// Cancelling the Operation drops a request not yet made (a call under way, or its backoff, is waited
+	// for); it stays `cancelled`. The caller acts at the ETag it read (`If-Match`, the e-invoice's `etag`,
+	// 412 otherwise). Refused: an e-invoice whose transmission is not completed (409
+	// `einvoicing.not_transmitted`) or has a request not yet made (409
+	// `einvoicing.tax_data_request_pending`); a connector that can no longer send for the company, as
+	// `sendOutgoingEInvoice` refuses one. An e-invoice of a company the caller may not act in is not found
+	// (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
+	// §13). Refused besides: a tax data document not reported, failed, rejected or being withdrawn (409
+	// `einvoicing.tax_data_not_withdrawable`).
+	//
+	// POST /v1/outgoing-e-invoices/{id}:withdraw-tax-data
+	WithdrawOutgoingEInvoiceTaxData(ctx context.Context, params WithdrawOutgoingEInvoiceTaxDataParams) (WithdrawOutgoingEInvoiceTaxDataRes, error)
 	// WithdrawTaxReturn implements withdrawTaxReturn operation.
 	//
 	// Withdraws a prepared or approved return that is not filed (ADR-0049 §11): its pending approval

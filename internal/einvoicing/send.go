@@ -85,16 +85,24 @@ type submission struct {
 	NextCheckAt, SubmittedAt, CompletedAt                   *time.Time
 	ProblemCode, ProblemDetail                              *string
 	Version                                                 int32
+	// What Peppol and the authority reported once completed (As built E4).
+	DeliveryStatus, DeliveryDetail, TaxDataStatus, TaxDataRequest *string
+	DeliveredAt, TaxDataAt, FollowCheckAt                         *time.Time
+	TaxDataAttempts                                               int16
+	FollowPolls                                                   int32
+	Outcome                                                       *string // the delivery's outcome, as a read of the e-invoices gives it
 }
 
 const submissionColumns = `s.id, s.outgoing_einvoice_id, s.legal_entity_id, s.connector_id, s.operation_id, s.filename, s.business_type, s.status,
 	s.provider_status, s.tracking_id, s.failed_tracking_ids, s.attempts, s.resends, s.polls, s.look_up, s.next_check_at, s.submitted_at, s.completed_at,
-	s.problem_code, s.problem_detail, s.version`
+	s.problem_code, s.problem_detail, s.version, s.delivery_status, s.delivery_detail, s.tax_data_status, s.tax_data_request, s.delivered_at, s.tax_data_at,
+	s.follow_check_at, s.tax_data_attempts, s.follow_polls`
 
 func (s *submission) fields() []any {
 	return []any{&s.ID, &s.OutgoingID, &s.LegalEntityID, &s.ConnectorID, &s.OperationID, &s.Filename, &s.BusinessType, &s.Status, &s.ProviderStatus,
 		&s.TrackingID, &s.Failed, &s.Attempts, &s.Resends, &s.Polls, &s.LookUp, &s.NextCheckAt, &s.SubmittedAt, &s.CompletedAt, &s.ProblemCode,
-		&s.ProblemDetail, &s.Version}
+		&s.ProblemDetail, &s.Version, &s.DeliveryStatus, &s.DeliveryDetail, &s.TaxDataStatus, &s.TaxDataRequest, &s.DeliveredAt, &s.TaxDataAt,
+		&s.FollowCheckAt, &s.TaxDataAttempts, &s.FollowPolls}
 }
 
 // submissionOf reads the e-invoice's submission, FOR UPDATE when lock;
@@ -117,14 +125,17 @@ func submissionOf(ctx context.Context, tx pgx.Tx, outgoing uuid.UUID, lock bool)
 
 // UnfinishedSends lists, in the transaction's tenant, the submissions the
 // in-process sender of a cell without a workflow engine advances (As
-// built E3), by e-invoice with its send's Operation: those queued, sending
-// or submitted whose step is due at now, or whose Operation was cancelled,
-// so that their next step ends them; those a workflow carries out are left
-// to it.
+// built E3), by e-invoice with its Operation: those queued, sending or
+// submitted whose step is due at now, or whose Operation was cancelled, so
+// that their next step ends them; and those completed whose delivery read
+// or tax data request is due, or whose request's Operation was cancelled
+// (As built E4); those a workflow carries out are left to it.
 func (e *Endpoints) UnfinishedSends(ctx context.Context, tx pgx.Tx, now time.Time) (map[uuid.UUID]uuid.UUID, error) {
 	rows, _ := tx.Query(ctx, `SELECT s.outgoing_einvoice_id, s.operation_id FROM einvoicing.outgoing_submission s
 		JOIN platform.operation o ON o.tenant_id = s.tenant_id AND o.id = s.operation_id
-		WHERE s.status IN ('queued', 'sending', 'submitted') AND o.workflow_id IS NULL AND (s.next_check_at <= $1 OR o.status = 'cancelled')`, now)
+		WHERE o.workflow_id IS NULL AND ((s.status IN ('queued', 'sending', 'submitted') AND (s.next_check_at <= $1 OR o.status = 'cancelled'))
+		  OR (s.status = 'completed' AND s.follow_check_at IS NOT NULL
+		    AND (s.follow_check_at <= $1 OR (s.tax_data_request IS NOT NULL AND o.status = 'cancelled'))))`, now)
 	out := map[uuid.UUID]uuid.UUID{}
 	var outgoing, op uuid.UUID
 	if _, err := pgx.ForEachRow(rows, []any{&outgoing, &op}, func() error { out[outgoing] = op; return nil }); err != nil {
@@ -282,7 +293,8 @@ func (s submission) record(ctx context.Context, action string, company Company, 
 	payload := map[string]any{"outgoing_einvoice_id": s.OutgoingID, "customer_invoice_number": s.Filename, "legal_entity_id": s.LegalEntityID,
 		"legal_entity_code": company.Code, "connector_id": s.ConnectorID, "operation_id": s.OperationID, "business_type": s.BusinessType,
 		"status": s.Status, "status_before": before, "provider_status": s.ProviderStatus, "tracking_id": s.TrackingID, "attempts": s.Attempts,
-		"resends": s.Resends, "problem_code": s.ProblemCode, "version": s.Version}
+		"resends": s.Resends, "problem_code": s.ProblemCode, "delivery_status": s.DeliveryStatus, "tax_data_status": s.TaxDataStatus,
+		"tax_data_request": s.TaxDataRequest, "version": s.Version}
 	return audit.Record(ctx, action, "einvoicing.outgoing_einvoice", s.OutgoingID, payload,
 		outbox.Event{Context: "einvoicing", Name: "outgoing_einvoice_transmission_changed", AggregateType: "einvoicing.outgoing_einvoice",
 			AggregateID: s.OutgoingID, Payload: payload})

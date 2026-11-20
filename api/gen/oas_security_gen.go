@@ -636,6 +636,7 @@ var operationRolesOidc = map[string][]string{
 	RetireCatalogItemOperation:                     []string{},
 	RetireControlOperation:                         []string{},
 	RetireEntryTemplateOperation:                   []string{},
+	RetryOutgoingEInvoiceTaxDataOperation:          []string{},
 	ReverseAllocationRunOperation:                  []string{},
 	ReverseAssetAcquisitionOperation:               []string{},
 	ReverseAssetRetirementOperation:                []string{},
@@ -710,6 +711,7 @@ var operationRolesOidc = map[string][]string{
 	UploadMemoRecordsOperation:                     []string{},
 	VerifyAuditChainOperation:                      []string{},
 	WithdrawChangeRequestOperation:                 []string{},
+	WithdrawOutgoingEInvoiceTaxDataOperation:       []string{},
 	WithdrawTaxReturnOperation:                     []string{},
 }
 

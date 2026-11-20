@@ -113,7 +113,7 @@ func start(w operations.Waiting, queue string) workflow.Start {
 	case EInvoiceFetchKind:
 		return workflow.Start{ID: EInvoiceFetchWorkflowID(w.TenantID, w.ID), Queue: queue, Name: EInvoiceFetchWorkflow,
 			Args: []any{EInvoiceFetchInput{TenantID: w.TenantID, ConnectorID: w.Resource, OperationID: w.ID}}}
-	case EInvoiceSendKind:
+	case EInvoiceSendKind, EInvoiceTaxDataKind:
 		return workflow.Start{ID: EInvoiceSendWorkflowID(w.TenantID, w.ID), Queue: queue, Name: EInvoiceSendWorkflow,
 			Args: []any{EInvoiceSendInput{TenantID: w.TenantID, OutgoingID: w.Resource, OperationID: w.ID}}}
 	case configuration.SimulateKind:
@@ -278,9 +278,10 @@ func (d *Dispatcher) startPeriodic(ctx context.Context, p periodic, done *time.T
 // queued reads the operations waiting for a workflow: payment proposals
 // and releases, configuration simulations, migrations and reconciliations,
 // each listed by the context that owns its resource, and depreciation and
-// consolidation runs and e-invoice fetches and sends, whose leaf contexts'
-// tables the dispatcher may not read, from their operations alone
-// (ADR-0057 §7, ADR-0059 §6, ADR-0061 §4 and As built E3), in the order they were queued (operation ids are UUIDv7, and PostgreSQL orders uuids by
+// consolidation runs and e-invoice fetches, sends and tax data requests,
+// whose leaf contexts' tables the dispatcher may not read, from their
+// operations alone (ADR-0057 §7, ADR-0059 §6, ADR-0061 §4 and As built E3,
+// E4), in the order they were queued (operation ids are UUIDv7, and PostgreSQL orders uuids by
 // their bytes, as bytes.Compare does).
 func queued(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 	var jobs []operations.Waiting
@@ -296,8 +297,11 @@ func queued(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 	sends := func(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 		return operations.QueuedOf(ctx, tx, EInvoiceSendKind)
 	}
+	requests := func(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
+		return operations.QueuedOf(ctx, tx, EInvoiceTaxDataKind)
+	}
 	for _, list := range []func(context.Context, pgx.Tx) ([]operations.Waiting, error){payments.Queued, configuration.QueuedSimulations, integration.QueuedRuns,
-		depreciations, consolidations, fetches, sends} {
+		depreciations, consolidations, fetches, sends, requests} {
 		more, err := list(ctx, tx)
 		if err != nil {
 			return nil, fmt.Errorf("dispatcher: reading queued operations: %w", err)
