@@ -107,12 +107,8 @@ func SendEInvoice(ctx workflow.Context, in EInvoiceSendInput) error {
 		if step.Done {
 			return nil
 		}
-		err := workflow.Sleep(waits, max(step.Wait, time.Second))
-		switch {
-		case temporal.IsCanceledError(err):
+		if err := workflow.Sleep(waits, max(step.Wait, time.Second)); err != nil { // a timer fails only when cancelled
 			waits = steps // cancelled: the next step ends the submission
-		case err != nil:
-			return err //nolint:wrapcheck // the engine's error, the workflow's result as it is
 		}
 	}
 	return workflow.NewContinueAsNewError(steps, EInvoiceSendWorkflow, in) //nolint:wrapcheck // the engine's continue-as-new, returned as it is

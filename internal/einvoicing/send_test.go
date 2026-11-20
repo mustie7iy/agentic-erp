@@ -345,6 +345,44 @@ func TestSendCancelled(t *testing.T) {
 			words("failed PENDING 1 0 einvoicing.send_cancelled", s.srv.Evatra.Sends()[len(s.srv.Evatra.Sends())-1].TrackingID,
 				"cancelled /v1/outgoing-e-invoices/"+id+" -"))
 	})
+	t.Run("during a call that failed, and during a status read", func(t *testing.T) {
+		failed, read := next(t), next(t)
+		opFailed, opRead := s.send(t, failed, s.connector), s.send(t, read, s.connector)
+		s.advance(t, read, opRead) // submitted
+		s.later(30 * time.Second)
+		for _, c := range []struct {
+			id string
+			op uuid.UUID
+		}{{failed, opFailed}, {read, opRead}} {
+			if c.id == failed {
+				s.srv.Fail("POST /evatra/invoice/send-document-async", 1)
+			}
+			calls := 0
+			cancelling := func(ctx context.Context, fn func(ctx context.Context) error) error {
+				calls++
+				err := s.within()(ctx, fn)
+				if (c.id == failed && calls == 4) || (c.id == read && calls == 3) { // the claim committed: cancelled while the call is made
+					s.cancelSend(t, c.op)
+				}
+				return err
+			}
+			if step, err := s.e.AdvanceSubmission(context.Background(), uuid.MustParse(c.id), c.op, cancelling); err != nil || !step.Done {
+				t.Errorf("got %+v and %v, want done", step, err)
+			}
+		}
+		check(t, "a failed call: nothing to keep", s.transmission(t, failed), "failed <nil> 1 0 einvoicing.send_cancelled")
+		check(t, "a status read: the status kept", s.transmission(t, read), "failed COMPLETED 1 0 einvoicing.send_cancelled")
+	})
+	t.Run("failing statements on the way to its end", func(t *testing.T) {
+		id := next(t)
+		op := s.send(t, id, s.connector)
+		s.cancelSend(t, op)
+		s.sendEveryFailure(t, func(in einvoicing.Within) error {
+			_, err := s.e.AdvanceSubmission(context.Background(), uuid.MustParse(id), op, in)
+			return err
+		})
+		check(t, "ended", s.transmission(t, id), "failed <nil> 0 0 einvoicing.send_cancelled")
+	})
 	t.Run("a call claimed", func(t *testing.T) {
 		id := next(t)
 		op := s.send(t, id, s.connector)
