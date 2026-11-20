@@ -46,16 +46,16 @@ type call struct {
 // the provider called. The step is prepared first, from the submission as
 // read: a failure of the machinery there changes nothing and is returned,
 // to be tried again, so a send cancelled while the vault or the store
-// fails stays in progress until they answer. Then, under the row's lock, a submission whose send
-// was cancelled is ended (sendCancelled); a queued submission (or one
-// whose claim lapsed, its outcome unknown) is claimed, its call counted,
-// and sent, looked up first when a call was made before; a submitted one
-// has its status read once due. What the provider answered is recorded
-// only if the row is as the claim left it (its version), so a step run
-// twice, or after another, records nothing twice. A finished submission's
-// Operation ended in the transaction that finished it. A submission
-// another send owns now (a person's new send after it failed) is not this
-// operation's: the step is done.
+// fails stays in progress until they answer. Then, under the row's lock,
+// a submission whose send was cancelled is ended (cancel); a queued
+// submission (or one whose claim lapsed, its outcome unknown) is claimed,
+// its call counted, and sent, looked up first when a call was made
+// before; a submitted one has its status read once due. What the provider
+// answered is recorded only if the row is as the claim left it (its
+// version), so a step run twice, or after another, records nothing twice.
+// A finished submission's Operation ended in the transaction that
+// finished it. A submission another send owns now (a person's new send
+// after it failed) is not this operation's: the step is done.
 func (e *Endpoints) AdvanceSubmission(ctx context.Context, outgoing, operation uuid.UUID, in Within) (Step, error) {
 	prep, err := e.prepare(ctx, outgoing, in)
 	if err != nil {

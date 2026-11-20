@@ -347,7 +347,7 @@ func TestSendCancelled(t *testing.T) {
 			words("failed PENDING 1 0 einvoicing.send_cancelled", s.srv.Evatra.Sends()[len(s.srv.Evatra.Sends())-1].TrackingID,
 				"cancelled /v1/outgoing-e-invoices/"+id+" -"))
 	})
-	t.Run("during a call failing, refused, or reading a status, or that read failing", func(t *testing.T) {
+	t.Run("during each kind of call", func(t *testing.T) {
 		refuses := s.sendConnector(t, "Refused while cancelled", "evatra", "NOT-OURS", map[string]string{"5000": sellerParticipant})
 		failed, refused, processing, completed, readFails := next(t), next(t), next(t), next(t), next(t)
 		got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+processing, "", "")
