@@ -2,6 +2,8 @@ package integration_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/go-faster/jx"
@@ -228,6 +230,16 @@ func TestEInvoiceProviders(t *testing.T) {
 		t.Errorf("names: got %v, want the provider's alone", names)
 	}
 
+	t.Run("the vault failing", func(t *testing.T) { // not a refusal: the caller tries again
+		down := integration.EInvoiceProviders{Secrets: downVault{}}
+		_, err := down.Credentials(context.Background(), integration.EInvoiceConnector{Tenant: f.Tenant.ID, Name: "Provider", SecretRef: token})
+		if err == nil || !strings.Contains(err.Error(), "vault down") {
+			t.Errorf("got %v, want the vault's failure", err)
+		}
+		if p := problem.From(err); p.Status < 500 {
+			t.Errorf("got %d %s, want no refusal", p.Status, p.Code)
+		}
+	})
 	t.Run("outside a unit of work and failing statements", func(t *testing.T) {
 		for name, call := range map[string]func(ctx context.Context) error{
 			"provider": func(ctx context.Context) error { _, err := p.Provider(ctx, valid); return err },
@@ -242,3 +254,8 @@ func TestEInvoiceProviders(t *testing.T) {
 		}
 	})
 }
+
+// downVault is a vault that cannot be reached.
+type downVault struct{}
+
+func (downVault) Resolve(context.Context, string) (string, error) { return "", errors.New("vault down") }

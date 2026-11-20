@@ -1311,7 +1311,10 @@ answers the three calls below. Decided by default:
   each tenant with send Operations, as the depreciation runner's). A step
   reads the submission and prepares its call: the connector read in a
   transaction of its own and, once that committed, its credentials
-  resolved from the vault with no transaction open (review round 1: the
+  resolved from the vault with no transaction open, a reference that
+  names nothing or is not the tenant's refused (`integration.secret_unavailable`)
+  and any other vault failure an error the step is tried again on, so a
+  passing outage fails nothing (review round 2) (review round 1: the
   vault was called inside the read's transaction; E1's fetch steps had
   the same fault, fixed the same way, src review:batch85), the XML read
   from the store and compared with its SHA-256: a failure of the
@@ -1360,7 +1363,10 @@ answers the three calls below. Decided by default:
   each claim, and the recording of each answer, reads the Operation under
   its lock, and one cancelled fails the submission with
   `einvoicing.send_cancelled` (the Operation stays cancelled), keeping
-  what Evatra answered (its tracking id and status); a claimed call whose
+  what Evatra answered (its tracking id and status), unless the answer is
+  final (Evatra refusing the document, a status of COMPLETED, FAILED or
+  PERMANENT_FAILED), which is recorded as it is: a delivered e-invoice
+  stays completed (review round 2); a claimed call whose
   claim has not lapsed is waited for, as it may be under way. A person
   may then send it again: it is looked up first, so a submission Evatra
   holds is taken, not sent twice. The workflow runs its steps on a context

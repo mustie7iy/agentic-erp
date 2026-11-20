@@ -284,9 +284,11 @@ func (s *sender) cancelSend(t *testing.T, op uuid.UUID) {
 // it, nothing sent; one cancelled once submitted is ended by its next
 // step, its tracking id kept, and a person's send again looks it up and
 // takes the submission found, not sending it twice; one cancelled during
-// its call ends with the provider's answer kept; one cancelled while a
-// claimed call may be under way waits for the claim to lapse. Each ends
-// failed with einvoicing.send_cancelled, its Operation left cancelled.
+// its call ends with the provider's answer kept, unless the answer is
+// final (Evatra refusing it, COMPLETED), which is recorded as it is; one
+// cancelled while a claimed call may be under way waits for the claim to
+// lapse. The others end failed with einvoicing.send_cancelled; the
+// Operation stays cancelled.
 func TestSendCancelled(t *testing.T) {
 	s := senderSetup(t)
 	next := func(t *testing.T) string {
@@ -345,33 +347,42 @@ func TestSendCancelled(t *testing.T) {
 			words("failed PENDING 1 0 einvoicing.send_cancelled", s.srv.Evatra.Sends()[len(s.srv.Evatra.Sends())-1].TrackingID,
 				"cancelled /v1/outgoing-e-invoices/"+id+" -"))
 	})
-	t.Run("during a call that failed, and during a status read", func(t *testing.T) {
-		failed, read := next(t), next(t)
-		opFailed, opRead := s.send(t, failed, s.connector), s.send(t, read, s.connector)
-		s.advance(t, read, opRead) // submitted
+	t.Run("during a call failing, refused, or reading a status", func(t *testing.T) {
+		refuses := s.sendConnector(t, "Refused while cancelled", "evatra", "NOT-OURS", map[string]string{"5000": sellerParticipant})
+		failed, refused, processing, completed := next(t), next(t), next(t), next(t)
+		got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+processing, "", "")
+		s.srv.Evatra.Script(got["customer_invoice_number"].(string), []string{"PROCESSING"})
+		ops := map[string]uuid.UUID{failed: s.send(t, failed, s.connector), refused: s.send(t, refused, refuses),
+			processing: s.send(t, processing, s.connector), completed: s.send(t, completed, s.connector)}
+		s.advance(t, processing, ops[processing]) // submitted
+		s.advance(t, completed, ops[completed])
 		s.later(30 * time.Second)
-		for _, c := range []struct {
-			id string
-			op uuid.UUID
-		}{{failed, opFailed}, {read, opRead}} {
-			if c.id == failed {
+		for _, id := range []string{failed, refused, processing, completed} {
+			if id == failed {
 				s.srv.Fail("POST /evatra/invoice/send-document-async", 1)
+			}
+			claimed := 4 // the read, the connector, the XML, then the claim's commit
+			if id == processing || id == completed {
+				claimed = 3 // a status read reads no XML
 			}
 			calls := 0
 			cancelling := func(ctx context.Context, fn func(ctx context.Context) error) error {
 				calls++
 				err := s.within()(ctx, fn)
-				if (c.id == failed && calls == 4) || (c.id == read && calls == 3) { // the claim committed: cancelled while the call is made
-					s.cancelSend(t, c.op)
+				if calls == claimed { // cancelled while the call is made
+					s.cancelSend(t, ops[id])
 				}
 				return err
 			}
-			if step, err := s.e.AdvanceSubmission(context.Background(), uuid.MustParse(c.id), c.op, cancelling); err != nil || !step.Done {
-				t.Errorf("got %+v and %v, want done", step, err)
+			if _, err := s.e.AdvanceSubmission(context.Background(), uuid.MustParse(id), ops[id], cancelling); err != nil {
+				t.Errorf("%s: %v", id, err)
 			}
 		}
 		check(t, "a failed call: nothing to keep", s.transmission(t, failed), "failed <nil> 1 0 einvoicing.send_cancelled")
-		check(t, "a status read: the status kept", s.transmission(t, read), "failed COMPLETED 1 0 einvoicing.send_cancelled")
+		check(t, "a refusal: final, recorded as it is", s.transmission(t, refused), "failed <nil> 1 0 einvoicing.send_refused")
+		check(t, "a status in progress: kept", s.transmission(t, processing), "failed PROCESSING 1 0 einvoicing.send_cancelled")
+		check(t, "COMPLETED: final, recorded as it is", words(s.transmission(t, completed), operation(t, ops[completed])),
+			"completed COMPLETED 1 0 - cancelled /v1/outgoing-e-invoices/"+completed+" -")
 	})
 	t.Run("failing statements on the way to its end", func(t *testing.T) {
 		id := next(t)

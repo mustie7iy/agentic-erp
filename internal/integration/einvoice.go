@@ -2,6 +2,8 @@ package integration
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"slices"
@@ -263,12 +265,19 @@ func (p EInvoiceProviders) Provider(ctx context.Context, id uuid.UUID) (EInvoice
 // its tenant's own namespace, failing closed. It opens no transaction and
 // is called after the one that read the connector committed, so no
 // transaction stays open while the vault is called; they are resolved on
-// each use, so a rotated secret takes effect without a restart.
+// each use, so a rotated secret takes effect without a restart. A
+// reference that names nothing, or is not the tenant's, is refused (422
+// integration.secret_unavailable), which another try would meet again;
+// any other failure (the vault unreachable or failing) is an error to try
+// again, so a step is not failed for good by a passing outage.
 func (p EInvoiceProviders) Credentials(ctx context.Context, c EInvoiceConnector) (string, error) {
 	secret, err := tenantSecret(ctx, p.Secrets, c.Tenant, c.SecretRef)
-	if err != nil {
+	switch {
+	case errors.Is(err, secrets.ErrNotFound) || errors.Is(err, secrets.ErrNotTenants):
 		return "", problem.Unprocessable("integration.secret_unavailable",
 			"The e-invoicing provider's credentials ("+c.SecretRef+") cannot be resolved.").WithCause(err)
+	case err != nil:
+		return "", fmt.Errorf("integration: the credentials of connector %s: %w", c.Name, err)
 	}
 	return secret, nil
 }

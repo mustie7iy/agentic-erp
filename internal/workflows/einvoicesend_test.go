@@ -150,8 +150,14 @@ func TestSendEInvoiceWorkflow(t *testing.T) {
 		env.RegisterDelayedCallback(env.CancelWorkflow, time.Minute)
 		start := env.Now()
 		env.ExecuteWorkflow(workflows.EInvoiceSendWorkflow, in)
-		if err := env.GetWorkflowError(); !env.IsWorkflowCompleted() || err != nil || port.called() != 3 {
-			t.Errorf("cancelled: got %v after %d steps, want it completed after 3", err, port.called())
+		if !env.IsWorkflowCompleted() {
+			t.Fatal("cancelled: the workflow did not complete")
+		}
+		if err := env.GetWorkflowError(); err != nil {
+			t.Errorf("cancelled: got %v, want it completed without an error", err)
+		}
+		if got := port.called(); got != 3 {
+			t.Errorf("cancelled: got %d steps, want 3", got)
 		}
 		if took := env.Now().Sub(start); took >= time.Hour {
 			t.Errorf("cancelled: took %v, want the hour's wait cut short", took)

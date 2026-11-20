@@ -402,7 +402,8 @@ func (failingCustomers) Customers(context.Context, []uuid.UUID) (map[uuid.UUID]e
 // submitted one's status read again later, not failed; a row moved between
 // the step's preparation and its claim is taken again with nothing called;
 // a server without a store, or whose store fails, changes nothing; a send
-// without a store is refused; one whose connector's secret is not
+// without a store is refused; a vault failing changes nothing and is tried
+// again; one whose connector's secret is not
 // Evatra's is queued (the request resolves no secret) and fails at its
 // first step; the worklist with a page token of another listing is
 // refused, and its customers failing fail it.
@@ -473,6 +474,18 @@ func TestSendEdges(t *testing.T) {
 		})
 		check(t, "a send without a store", problem.From(err).Status, 503)
 	})
+	t.Run("the vault failing", func(t *testing.T) { // not a refusal: the step is tried again, nothing changed
+		id := next(t)
+		op := s.send(t, id, s.connector)
+		cfg := s.cfg
+		cfg.Secrets = downVault{}
+		if _, err := app.EInvoicing(cfg).AdvanceSubmission(ctx, uuid.MustParse(id), op, s.within()); err == nil || isRefusal(err) {
+			t.Errorf("got %v, want an error to try again", err)
+		}
+		check(t, "unchanged", s.transmission(t, id), "queued <nil> 0 0 -")
+		s.advance(t, id, op)
+		check(t, "sent once the vault answers", s.transmission(t, id), "submitted PENDING 1 0 -")
+	})
 	t.Run("a secret not Evatra's", func(t *testing.T) {
 		conn := uuid.Must(uuid.NewV7())
 		pgtest.Exec(t, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, secret_ref, status, created_by, updated_by)
@@ -513,3 +526,13 @@ func TestSendEdges(t *testing.T) {
 		check(t, "failed", s.transmission(t, id), "failed <nil> 0 0 integration.connector_disabled")
 	})
 }
+
+// downVault is a vault that cannot be reached.
+type downVault struct{}
+
+func (downVault) Resolve(context.Context, string) (string, error) {
+	return "", errors.New("vault down")
+}
+
+// isRefusal reports whether err is a problem below 500.
+func isRefusal(err error) bool { p := problem.From(err); return p.Status < 500 }

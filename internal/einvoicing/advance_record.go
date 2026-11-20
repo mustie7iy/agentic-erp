@@ -26,9 +26,9 @@ func (e *Endpoints) answered(ctx context.Context, tx pgx.Tx, c *call, got answer
 	switch {
 	case err != nil:
 		return Step{}, fmt.Errorf("einvoicing: the send of outgoing e-invoice %s: %w", s.Filename, err)
-	case cancelled:
+	case cancelled && !final(c.send, got, callErr):
 		return e.cancel(ctx, tx, s, clock.Now(e.Now), got.kept(c.send, callErr))
-	case c.send:
+	case c.send: // a final answer is recorded as it is, cancelled or not: its Operation stays cancelled (endOperation)
 		return e.sent(ctx, tx, s, c.company, got.sent, callErr)
 	}
 	return e.read(ctx, tx, s, c.company, got.report, callErr)
@@ -38,6 +38,25 @@ func (e *Endpoints) answered(ctx context.Context, tx pgx.Tx, c *call, got answer
 // it fails: its status and tracking id, nil for those recorded already.
 type outcome struct {
 	status, tracking *string
+}
+
+// final reports whether the provider's answer ends the submission
+// whatever the send's Operation says: Evatra refusing the document, or a
+// status read of COMPLETED, FAILED or PERMANENT_FAILED. A cancel does not
+// override it (review round 2): a delivered e-invoice stays completed.
+func final(send bool, got answer, callErr error) bool {
+	if send {
+		_, refused := refusal(callErr)
+		return refused
+	}
+	if callErr != nil {
+		return false
+	}
+	switch got.report.Status {
+	case ProviderCompleted, ProviderFailed, ProviderPermanentFailed:
+		return true
+	}
+	return false
 }
 
 // kept is the outcome of the answer to a send (with its tracking id) or a

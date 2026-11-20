@@ -125338,20 +125338,22 @@ func (s *Server) handleScheduleReportRequest(args [1]string, argsEscaped bool, w
 // provider holds the document, so it is not failed for it. Cancelling the send's Operation
 // (`cancelOperation`) ends it at its next step: the submission is `failed` with
 // `einvoicing.send_cancelled`, keeping what the provider answered (a call under way is waited for),
-// and a person may send it again, looked up at the provider first. The caller sends the e-invoice at
-// the ETag it read (`If-Match`, the e-invoice's `etag`; the ETag moves with its transmission, so a
-// send asked twice on one reading is refused 412). Refused: a business type other than B2B and B2G
-// (422 `einvoicing.unknown_business_type`); an e-invoice that is invalid (409
-// `einvoicing.document_invalid`); one queued, sending or submitted (409
+// unless that answer is final (the provider refusing the document, COMPLETED, FAILED or
+// PERMANENT_FAILED), which is recorded as it is; a person may send it again, looked up at the provider
+// first. The caller sends the e-invoice at the ETag it read (`If-Match`, the e-invoice's `etag`; the
+// ETag moves with its transmission, so a send asked twice on one reading is refused 412). Refused: a
+// business type other than B2B and B2G (422 `einvoicing.unknown_business_type`); an e-invoice that is
+// invalid (409 `einvoicing.document_invalid`); one queued, sending or submitted (409
 // `einvoicing.transmission_in_progress`) or completed (409 `einvoicing.already_transmitted`); a
 // `connector_id` the tenant has no connector of (422 `request.reference_not_found`); a connector that
 // is not an active `einvoice_provider` connector naming a `secret_ref`, as `fetchEInvoices` refuses
 // one (its credentials are resolved by the send's first step, with no transaction open, which fails
-// the submission with `integration.secret_unavailable` when they do not resolve); one whose adapter
-// does not send (the stand-in's own protocol: 422 `einvoicing.adapter_cannot_send`) or that names no
-// participant for the e-invoice's company (422 `einvoicing.not_a_participant`). An e-invoice of a
-// company the caller may not act in is not found (404). 503 while the server has no object storage.
-// Human-only (`x-agent: false`): agents never send an e-invoice (ADR-0061 §13).
+// the submission with `integration.secret_unavailable` when its `secret_ref` names nothing; a vault
+// that cannot be reached is tried again); one whose adapter does not send (the stand-in's own
+// protocol: 422 `einvoicing.adapter_cannot_send`) or that names no participant for the e-invoice's
+// company (422 `einvoicing.not_a_participant`). An e-invoice of a company the caller may not act in is
+// not found (404). 503 while the server has no object storage. Human-only (`x-agent: false`): agents
+// never send an e-invoice (ADR-0061 §13).
 //
 // POST /v1/outgoing-e-invoices/{id}:send
 func (s *Server) handleSendOutgoingEInvoiceRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

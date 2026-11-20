@@ -127,7 +127,9 @@ func (e *Endpoints) prepare(ctx context.Context, outgoing uuid.UUID, in Within) 
 }
 
 // claim reads the submission FOR UPDATE and decides its step: finished
-// (its Operation ended), its send cancelled (ended), not due (the wait),
+// (its Operation ended), its send cancelled (ended at once, due or not,
+// which is why UnfinishedSends lists the cancelled ones whatever their
+// next check), not due (the wait),
 // moved since it was prepared (taken again at once), refused since (a
 // send failed, a status read counted as a failed read), or a call to
 // make, claimed.
