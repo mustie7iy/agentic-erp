@@ -161,7 +161,9 @@ leaf, as `assets` and `closing` are (ADR-0057, ADR-0058): no context
 imports it; it reaches others through ports the composition root adapts:
 
 - `einvoicing.Connectors` over integration: the connector's settings and
-  resolved secret, read at use, failing closed.
+  `secret_ref`, read at use in the caller's transaction, failing closed,
+  and its credentials, resolved from the vault apart with no transaction
+  open (`Credentials`, As built E3).
 - `einvoicing.Payables` over payables' published API, two functions:
   `EInvoices.Enter` enters a supplier invoice from structured fields (§6);
   `EInvoices.Attach` makes an e-invoice the document of an invoice a
@@ -1076,9 +1078,9 @@ Evatra. Decided by default:
   default, for the product owner to overrule.
 - **Credentials.** The tenant-scoped connector secret (po-2026-11-16 H2)
   holds a JSON object `{"apiKey", "email"}`, the body of Evatra's
-  `POST /auth/login`. One not of that form is refused when a fetch is
-  asked for (the adapter is built then, without a call) and at use, 422
-  `integration.secret_unavailable`; Evatra answering the login 401 or 403
+  `POST /auth/login`. One not of that form is refused at use, 422
+  `integration.secret_unavailable` (a fetch's first step fails its
+  Operation; the request no longer resolves the secret, As built E3); Evatra answering the login 401 or 403
   fails the fetch with the same code, and is not retried. The secret and
   the token are never logged, audited or put in an error: errors name the
   path and status only.
@@ -1278,14 +1280,16 @@ OutgoingEInvoiceTransmissionChanged, the audit records
 `einvoicing.outgoing.transmission` (each change the sender makes), the
 workflow `SendEInvoice` and, in a cell without a workflow engine, the
 in-process `EInvoiceSender`. The port's `Send` and `Status` are built
-(§3); the stand-in's own protocol sends nothing (`NoSending`: 422
-`einvoicing.adapter_cannot_send`), and Evatra's emulation
+(§3); the stand-in's own protocol sends nothing (`Sends`, by the
+adapter's name: 422 `einvoicing.adapter_cannot_send`), and Evatra's emulation
 (`einvoicetest.Evatra`, the walkthrough's `providerstub -evatra-outbox`)
 answers the three calls below. Decided by default:
 
 - **The outbox.** The request reads the valid e-invoice FOR UPDATE (two
-  sends of it wait for each other), resolves the connector into its
-  adapter without a call and checks that it names the company's
+  sends of it wait for each other), reads the connector without a call
+  (a `connector_id` the tenant has not is 422
+  `request.reference_not_found`, the body's reference; review round 1)
+  and checks that its adapter sends and that it names the company's
   participant, and writes in its transaction the submission (`queued`),
   the Operation (its resource the e-invoice), the audit record and the
   event: the submission is the outbox of the call (ADR-0007), which the
@@ -1294,13 +1298,23 @@ answers the three calls below. Decided by default:
   a person's new send, with a new Operation; a completed one is final (409
   `einvoicing.already_transmitted`; a correction is a credit note), one in
   progress refused (409 `einvoicing.transmission_in_progress`).
+- **The ETag.** An e-invoice's ETag is its version plus its submission's
+  (both only grow), so it moves with its transmission and a send asked
+  twice on one reading is refused 412; the representation carries it as
+  `etag`, so a send from a listing takes its `If-Match` from there
+  (review round 1).
 - **One step, idempotent.** The workflow repeats one activity,
   `AdvanceSubmission`, and sleeps as long as it answers (a timer, so the
   workflow stays deterministic), continuing as new after 1,000 steps; the
-  in-process sender runs the same step each round for every send still
-  queued whose step is due. A step reads the submission and prepares its
-  call with no transaction open (the connector's secret resolved, the XML
-  read from the store and compared with its SHA-256): a failure of the
+  in-process sender runs the same step each round for every send the
+  einvoicing context lists as due or cancelled (`UnfinishedSends`, in
+  each tenant with send Operations, as the depreciation runner's). A step
+  reads the submission and prepares its call: the connector read in a
+  transaction of its own and, once that committed, its credentials
+  resolved from the vault with no transaction open (review round 1: the
+  vault was called inside the read's transaction; E1's fetch steps had
+  the same fault, fixed the same way, src review:batch85), the XML read
+  from the store and compared with its SHA-256: a failure of the
   machinery there changes nothing. Then, under the row's lock, it claims a
   due send (`sending`, the call counted in `attempts`, held five call
   timeouts), commits, calls Evatra with no transaction open, and records
@@ -1324,8 +1338,9 @@ answers the three calls below. Decided by default:
   document (`einvoicing.send_refused`, failed at once); anything else is
   tried again after 1, 5, 15 and 60 minutes, and the fifth failure fails it
   (`einvoicing.provider_unavailable`). A connector or XML refused since the
-  request (disabled, its secret not Evatra's, the bytes not their hash)
-  fails it with that problem, no call made.
+  request (disabled, its secret not resolving or not Evatra's, the bytes
+  not their hash) fails a send with that problem, no call made; the
+  request resolves no secret, so one not Evatra's fails the first step.
 - **The status.** `GET /invoice/document-status/{trackingId}`, its
   `status` read, first 30 seconds after the submission and then doubling
   to an hour (plan default 3): COMPLETED completes it (the Operation
@@ -1334,11 +1349,29 @@ answers the three calls below. Decided by default:
   SENDING_FAILED queues it to be sent again at once, looked up first, up
   to three times (`resends`), the fourth failing it
   (`einvoicing.sending_failed`); any other status, or a read that failed,
-  is read again, and 500 reads (about three weeks at the hour) without an
+  is read again; so is a read refused (the connector disabled since, its
+  credentials not resolving, Evatra refusing them): Evatra holds the
+  document, so it is not failed for it (review round 1); and 500 reads (about three weeks at the hour) without an
   end fail it (`einvoicing.status_unconfirmed`). A failed submission fails
   its Operation with the same problem; the failed ones are the worklist
   `listOutgoingEInvoices?transmission_status=failed`, which a person
-  sends again once corrected.
+  sends again once corrected, its attempts and resends counted afresh.
+- **Cancellation.** `cancelOperation` on a send ends it at its next step:
+  each claim, and the recording of each answer, reads the Operation under
+  its lock, and one cancelled fails the submission with
+  `einvoicing.send_cancelled` (the Operation stays cancelled), keeping
+  what Evatra answered (its tracking id and status); a claimed call whose
+  claim has not lapsed is waited for, as it may be under way. A person
+  may then send it again: it is looked up first, so a submission Evatra
+  holds is taken, not sent twice. The workflow runs its steps on a context
+  the engine's cancellation does not reach (as the depreciation run's), so
+  a call is never cut off; the cancellation cuts its wait short, and the
+  steps go on until one ends the submission. A send cancelled before any
+  workflow took it is started all the same (`QueuedOf` lists it), and its
+  first step ends it; the in-process sender lists the cancelled ones too.
+  Chosen over refusing `:cancel` for sends (review round 1's option B):
+  the generic cancel stays uniform, and the guard the step already has
+  (the version, the look-up) makes ending it at a step boundary safe.
 - **Audit and events.** Every change of the submission's status or of
   Evatra's status writes `einvoicing.outgoing.transmission` and
   OutgoingEInvoiceTransmissionChanged, as the system principal
@@ -1355,7 +1388,9 @@ answers the three calls below. Decided by default:
   (its weekend, by default Saturday and Sunday, and holidays, ADR-0058 §3;
   the context reads the calendar through a `Settings` port, `internal/layout`
   allowing it `config` as closing's), the business days left on the key
-  date (negative once overdue), its e-invoice's and transmission's status,
+  date (negative once past; overdue when the deadline is before the key
+  date, so also on a key date after it with no business day between,
+  review round 1), its e-invoice's and transmission's status,
   ordered by deadline, with the totals of every row, paged in memory.
 - **Agents** never send (§13): the operation is `x-agent: false`.
 - **The walkthrough.** `step_einvoice_send` (step 146, after

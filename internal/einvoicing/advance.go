@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -44,15 +45,16 @@ type call struct {
 // none open while the connector's secret is resolved, the store read or
 // the provider called. The step is prepared first, from the submission as
 // read: a failure of the machinery there changes nothing and is returned,
-// to be tried again. Then, under the row's lock, a queued submission (or
-// one whose claim lapsed, its outcome unknown) is claimed, its call
-// counted, and sent, looked up first when a call was made before; a
-// submitted one has its status read once due. What the provider answered
-// is recorded only if the row is as the claim left it (its version), so a
-// step run twice, or after another, records nothing twice. A finished
-// submission's Operation ended in the transaction that finished it. A
-// submission another send owns now (a person's new send after it failed)
-// is not this operation's: the step is done.
+// to be tried again. Then, under the row's lock, a submission whose send
+// was cancelled is ended (sendCancelled); a queued submission (or one
+// whose claim lapsed, its outcome unknown) is claimed, its call counted,
+// and sent, looked up first when a call was made before; a submitted one
+// has its status read once due. What the provider answered is recorded
+// only if the row is as the claim left it (its version), so a step run
+// twice, or after another, records nothing twice. A finished submission's
+// Operation ended in the transaction that finished it. A submission
+// another send owns now (a person's new send after it failed) is not this
+// operation's: the step is done.
 func (e *Endpoints) AdvanceSubmission(ctx context.Context, outgoing, operation uuid.UUID, in Within) (Step, error) {
 	prep, err := e.prepare(ctx, outgoing, in)
 	if err != nil {
@@ -93,11 +95,12 @@ func refusal(err error) (*problem.Problem, bool) {
 	return p, isProblem(err) && p.Status < http.StatusInternalServerError
 }
 
-// prepare reads the submission and, when it is due for a call, resolves
-// its connector and, for a send, reads the XML as kept: nil when no call
-// is due (the claim decides what then). A refusal is kept on the call for
-// the claim to fail the submission with; a failure of the machinery is
-// returned.
+// prepare reads the submission and, when it is due for a call, reads its
+// connector, resolves its credentials once that read committed, and, for a
+// send, reads the XML as kept: nil when no call is due (the claim decides
+// what then). A refusal is kept on the call for the claim to decide on (a
+// send fails, a status read counts as failed); a failure of the machinery
+// is returned.
 func (e *Endpoints) prepare(ctx context.Context, outgoing uuid.UUID, in Within) (*call, error) {
 	var s submission
 	var found bool
@@ -108,7 +111,7 @@ func (e *Endpoints) prepare(ctx context.Context, outgoing uuid.UUID, in Within) 
 	}); err != nil {
 		return nil, err
 	}
-	if !found || s.NextCheckAt == nil || e.now().Before(*s.NextCheckAt) {
+	if !found || s.NextCheckAt == nil || clock.Now(e.Now).Before(*s.NextCheckAt) {
 		return nil, nil
 	}
 	c := &call{s: s, send: s.Status != SubmissionSubmitted}
@@ -124,9 +127,10 @@ func (e *Endpoints) prepare(ctx context.Context, outgoing uuid.UUID, in Within) 
 }
 
 // claim reads the submission FOR UPDATE and decides its step: finished
-// (its Operation ended), not due (the wait), moved since it was prepared
-// (taken again at once), refused since (failed), or a call to make,
-// claimed.
+// (its Operation ended), its send cancelled (ended), not due (the wait),
+// moved since it was prepared (taken again at once), refused since (a
+// send failed, a status read counted as a failed read), or a call to
+// make, claimed.
 func (e *Endpoints) claim(ctx context.Context, tx pgx.Tx, outgoing, operation uuid.UUID, prep *call) (*call, Step, error) {
 	s, found, err := submissionOf(ctx, tx, outgoing, true)
 	if err != nil {
@@ -135,10 +139,17 @@ func (e *Endpoints) claim(ctx context.Context, tx pgx.Tx, outgoing, operation uu
 	if !found || s.OperationID != operation {
 		return nil, Step{Done: true}, e.endOperation(ctx, operation, uuid.Nil, notOwned(operation))
 	}
-	now := e.now()
-	switch {
-	case s.Status == SubmissionCompleted || s.Status == SubmissionFailed: // its Operation ended in the same transaction
+	if s.Status == SubmissionCompleted || s.Status == SubmissionFailed { // its Operation ended in the same transaction
 		return nil, Step{Done: true}, nil
+	}
+	now := clock.Now(e.Now)
+	cancelled, err := e.Sends.Cancelled(ctx, operation, true)
+	switch {
+	case err != nil:
+		return nil, Step{}, fmt.Errorf("einvoicing: the send of outgoing e-invoice %s: %w", s.Filename, err)
+	case cancelled:
+		step, err := e.cancel(ctx, tx, s, now, nil)
+		return nil, step, err
 	case now.Before(*s.NextCheckAt):
 		return nil, Step{Wait: s.NextCheckAt.Sub(now)}, nil
 	case prep == nil || prep.s.Version != s.Version:
@@ -148,14 +159,39 @@ func (e *Endpoints) claim(ctx context.Context, tx pgx.Tx, outgoing, operation uu
 		return nil, Step{}, err
 	}
 	switch {
+	case prep.refused != nil && !prep.send: // a status read refused (the connector disabled, the provider refusing): the provider holds it still
+		step, err := e.read(ctx, tx, s, prep.company, Report{}, prep.refused)
+		return nil, step, err
 	case prep.refused != nil:
-		return nil, Step{Done: true}, e.fail(ctx, tx, s, prep.company, prep.refused, nil)
+		return nil, Step{Done: true}, e.fail(ctx, tx, s, prep.company, prep.refused, outcome{})
 	case !prep.send:
 		return prep, Step{}, nil
 	case s.Attempts >= maxAttempts: // its last call's claim lapsed
-		return nil, Step{Done: true}, e.fail(ctx, tx, s, prep.company, unavailable(s), nil)
+		return nil, Step{Done: true}, e.fail(ctx, tx, s, prep.company, unavailable(s), outcome{})
 	}
 	return prep, Step{}, e.claimSend(ctx, tx, prep, now)
+}
+
+// cancel ends a submission whose send's Operation was cancelled: one with
+// a call claimed whose claim has not lapsed waits for it, as the call may
+// be under way still; otherwise the submission fails with
+// einvoicing.send_cancelled, keeping what the provider answered (got), so
+// a person may send it again, looked up first since a call may have
+// reached the provider. Its Operation stays cancelled.
+func (e *Endpoints) cancel(ctx context.Context, tx pgx.Tx, s submission, now time.Time, got *outcome) (Step, error) {
+	if got == nil && s.Status == SubmissionSending && now.Before(*s.NextCheckAt) {
+		return Step{Wait: s.NextCheckAt.Sub(now)}, nil
+	}
+	co, err := e.companyNamed(ctx, s.LegalEntityID)
+	if err != nil {
+		return Step{}, err
+	}
+	var kept outcome
+	if got != nil {
+		kept = *got
+	}
+	return Step{Done: true}, e.fail(ctx, tx, s, co, problem.Conflict("einvoicing.send_cancelled", "Send "+s.OperationID.String()+" of e-invoice "+
+		s.Filename+" was cancelled; it is not followed further. Send it again to transmit it: it is looked up at the provider first."), kept)
 }
 
 // claimSend counts the call and holds it for claimLease; a submission

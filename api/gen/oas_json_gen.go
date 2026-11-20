@@ -205455,9 +205455,13 @@ func (s *OutgoingEInvoice) encodeFields(e *jx.Encoder) {
 		e.FieldStart("version")
 		e.Int32(s.Version)
 	}
+	{
+		e.FieldStart("etag")
+		e.Str(s.Etag)
+	}
 }
 
-var jsonFieldsNameOfOutgoingEInvoice = [28]string{
+var jsonFieldsNameOfOutgoingEInvoice = [29]string{
 	0:  "id",
 	1:  "customer_invoice_id",
 	2:  "customer_invoice_number",
@@ -205486,6 +205490,7 @@ var jsonFieldsNameOfOutgoingEInvoice = [28]string{
 	25: "rendered_at",
 	26: "transmission",
 	27: "version",
+	28: "etag",
 }
 
 // Decode decodes OutgoingEInvoice from json.
@@ -205819,6 +205824,18 @@ func (s *OutgoingEInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"version\"")
 			}
+		case "etag":
+			requiredBitSet[3] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.Etag = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"etag\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -205832,7 +205849,7 @@ func (s *OutgoingEInvoice) Decode(d *jx.Decoder) error {
 		0b11111111,
 		0b11111111,
 		0b11110111,
-		0b00001111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

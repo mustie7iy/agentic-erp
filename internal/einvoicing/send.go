@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -113,18 +115,37 @@ func submissionOf(ctx context.Context, tx pgx.Tx, outgoing uuid.UUID, lock bool)
 	return s, true, nil
 }
 
+// UnfinishedSends lists, in the transaction's tenant, the submissions the
+// in-process sender of a cell without a workflow engine advances (As
+// built E3), by e-invoice with its send's Operation: those queued, sending
+// or submitted whose step is due at now, or whose Operation was cancelled,
+// so that their next step ends them; those a workflow carries out are left
+// to it.
+func (e *Endpoints) UnfinishedSends(ctx context.Context, tx pgx.Tx, now time.Time) (map[uuid.UUID]uuid.UUID, error) {
+	rows, _ := tx.Query(ctx, `SELECT s.outgoing_einvoice_id, s.operation_id FROM einvoicing.outgoing_submission s
+		JOIN platform.operation o ON o.tenant_id = s.tenant_id AND o.id = s.operation_id
+		WHERE s.status IN ('queued', 'sending', 'submitted') AND o.workflow_id IS NULL AND (s.next_check_at <= $1 OR o.status = 'cancelled')`, now)
+	out := map[uuid.UUID]uuid.UUID{}
+	var outgoing, op uuid.UUID
+	if _, err := pgx.ForEachRow(rows, []any{&outgoing, &op}, func() error { out[outgoing] = op; return nil }); err != nil {
+		return nil, fmt.Errorf("einvoicing: the sends to advance: %w", err)
+	}
+	return out, nil
+}
+
 // outgoingPath is an e-invoice's resource path: a send's Operation names it.
 func outgoingPath(id uuid.UUID) string { return "/v1/outgoing-e-invoices/" + id.String() }
 
 // SendOutgoingEInvoice implements POST /v1/outgoing-e-invoices/{id}:send
-// (As built E3): the connector is resolved into its adapter first, with
-// no row locked (its secret may be read from the vault) and without a
-// call, so one that cannot send for the e-invoice's company is refused
-// before anything is queued; then the valid e-invoice, read FOR UPDATE so
-// two sends of it wait for each other, is queued for its provider: its
-// submission written (or a failed one queued again in its row) with the
-// Operation the send workflow carries out, audited and published, before
-// any call.
+// (As built E3): the connector is read and checked first, without a call
+// and with no row locked, so one that cannot send for the e-invoice's
+// company is refused before anything is queued; its credentials are not
+// resolved here, where the request's transaction is open, but by the
+// send's first step, which fails the submission when they do not resolve.
+// Then the valid e-invoice, read FOR UPDATE so two sends of it wait for
+// each other, is queued for its provider: its submission written (or a
+// failed one queued again in its row) with the Operation the send workflow
+// carries out, audited and published, before any call.
 func (e *Endpoints) SendOutgoingEInvoice(ctx context.Context, req *gen.OutgoingEInvoiceSend, params gen.SendOutgoingEInvoiceParams) (gen.SendOutgoingEInvoiceRes, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -154,19 +175,12 @@ func (e *Endpoints) SendOutgoingEInvoice(ctx context.Context, req *gen.OutgoingE
 	if err != nil {
 		return nil, fmt.Errorf("einvoicing: operation of the send of outgoing e-invoice %s: %w", o.ID, err)
 	}
-	s, before, err := queue(ctx, tx, p, o, req, op.ID, e.now())
+	s, before, err := queue(ctx, tx, p, o, req, op.ID, clock.Now(e.Now))
 	if err != nil {
 		return nil, err
 	}
 	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: op},
 		s.record(ctx, "einvoicing.outgoing.send", company, before)
-}
-
-func (e *Endpoints) now() time.Time {
-	if e.Now == nil {
-		return time.Now()
-	}
-	return e.Now()
 }
 
 // sendable refuses an e-invoice, locked, that cannot be sent: read at
@@ -195,19 +209,19 @@ func sendable(ctx context.Context, tx pgx.Tx, o OutgoingEInvoice, ifMatch string
 }
 
 // sender refuses a connector that cannot send for the e-invoice's
-// company: not an active einvoice_provider with credentials that resolve,
-// an adapter that sends nothing, or no participant for the company. It
+// company: none of the tenant's (422 request.reference_not_found, as the
+// body names it), not an active einvoice_provider with a secret_ref, an
+// adapter that sends nothing, or no participant for the company. It
 // answers the company.
 func (e *Endpoints) sender(ctx context.Context, o OutgoingEInvoice, connector uuid.UUID) (Company, error) {
 	c, err := e.Connectors.Provider(ctx, connector)
+	if problem.From(err).Status == http.StatusNotFound {
+		return Company{}, problem.ReferenceNotFound("connector_id", "connector", "no connector with this id")
+	}
 	if err != nil {
 		return Company{}, err
 	}
-	prov, err := e.Adapter(c)
-	if err != nil {
-		return Company{}, err
-	}
-	if _, none := prov.(NoSending); none {
+	if !Sends(c.Adapter) {
 		return Company{}, cannotSend()
 	}
 	co, err := e.companyNamed(ctx, o.LegalEntityID)
@@ -245,7 +259,7 @@ func queue(ctx context.Context, tx pgx.Tx, p reqctx.Principal, o OutgoingEInvoic
 		ON CONFLICT ON CONSTRAINT outgoing_submission_once DO UPDATE SET connector_id = EXCLUDED.connector_id, operation_id = EXCLUDED.operation_id,
 			business_type = EXCLUDED.business_type, status = 'queued', provider_status = NULL, tracking_id = NULL,
 			failed_tracking_ids = s.failed_tracking_ids || CASE WHEN s.provider_status IN ('SENDING_FAILED', 'FAILED', 'PERMANENT_FAILED')
-				THEN ARRAY[s.tracking_id] ELSE '{}' END, attempts = 0, polls = 0, look_up = true,
+				THEN ARRAY[s.tracking_id] ELSE '{}' END, attempts = 0, resends = 0, polls = 0, look_up = true,
 			next_check_at = EXCLUDED.next_check_at, problem_code = NULL, problem_detail = NULL, requested_by = EXCLUDED.requested_by,
 			version = s.version + 1, updated_by = EXCLUDED.updated_by
 		WHERE s.status = 'failed' RETURNING `+submissionColumns,

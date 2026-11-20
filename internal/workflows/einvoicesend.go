@@ -12,7 +12,6 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -25,9 +24,11 @@ import (
 // e-invoice its resource); the dispatcher starts SendEInvoice for it,
 // which advances the submission one idempotent step at a time (send, read
 // the provider's status, send again after SENDING_FAILED) and sleeps as
-// long as each step says, until it is completed or failed. The einvoicing
-// context is a leaf, so the workflow reaches it through the EInvoiceSends
-// port, which the composition root wires to it.
+// long as each step says, until it is completed or failed. A cancelled
+// Operation is ended by the next step, which fails the submission
+// (einvoicing.send_cancelled). The einvoicing context is a leaf, so the
+// workflow reaches it through the EInvoiceSends port, which the
+// composition root wires to it.
 
 // EInvoiceSendKind is the kind of a send's Operation (einvoicing.KindSend,
 // which the composition root's test holds equal).
@@ -41,10 +42,15 @@ type EInvoiceSendStep struct {
 }
 
 // EInvoiceSends is a send's work as the einvoicing context does it: the
-// send's principal and its one step, idempotent.
+// send's principal, its one step, idempotent, and the sends the in-process
+// sender advances.
 type EInvoiceSends interface {
 	Sender(tenant uuid.UUID) reqctx.Principal
 	AdvanceEInvoiceSubmission(ctx context.Context, outgoing, operation uuid.UUID, in Within) (EInvoiceSendStep, error)
+	// UnfinishedEInvoiceSends lists, in the transaction's tenant, the sends
+	// no workflow carries out whose step is due at now or whose Operation
+	// was cancelled, by e-invoice with its Operation.
+	UnfinishedEInvoiceSends(ctx context.Context, tx pgx.Tx, now time.Time) (map[uuid.UUID]uuid.UUID, error)
 }
 
 // EInvoiceSendInput names the send a SendEInvoice workflow carries out.
@@ -82,22 +88,34 @@ var sendOptions = workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute,
 // as long as the step says, until the step is done; after sendStepsPerRun
 // steps it continues as new. Each step runs through perform, so a send
 // whose tenant is suspended waits until it is active again (po:2026-11-09).
+// The steps run on a context the engine's cancellation (which the
+// Operation's :cancel sends) does not reach, so a step under way, a call
+// to the provider among it, is never cut off; the cancellation cuts the
+// wait short instead, and the steps go on, waits and all, until one finds
+// the Operation cancelled and ends the submission.
 func SendEInvoice(ctx workflow.Context, in EInvoiceSendInput) error {
-	ctx = workflow.WithActivityOptions(ctx, sendOptions)
+	steps, cancel := workflow.NewDisconnectedContext(ctx)
+	defer cancel()
+	steps = workflow.WithActivityOptions(steps, sendOptions)
+	waits := ctx
 	var a *EInvoiceSenders
 	for i := 0; i < sendStepsPerRun; i++ {
 		var step EInvoiceSendStep
-		if err := perform(ctx, in.TenantID, &step, a.AdvanceEInvoiceSubmission, in); err != nil {
+		if err := perform(steps, in.TenantID, &step, a.AdvanceEInvoiceSubmission, in); err != nil {
 			return err
 		}
 		if step.Done {
 			return nil
 		}
-		if err := workflow.Sleep(ctx, max(step.Wait, time.Second)); err != nil {
-			return err //nolint:wrapcheck // the engine's cancellation, the workflow's result as it is
+		err := workflow.Sleep(waits, max(step.Wait, time.Second))
+		switch {
+		case temporal.IsCanceledError(err):
+			waits = steps // cancelled: the next step ends the submission
+		case err != nil:
+			return err //nolint:wrapcheck // the engine's error, the workflow's result as it is
 		}
 	}
-	return workflow.NewContinueAsNewError(ctx, EInvoiceSendWorkflow, in) //nolint:wrapcheck // the engine's continue-as-new, returned as it is
+	return workflow.NewContinueAsNewError(steps, EInvoiceSendWorkflow, in) //nolint:wrapcheck // the engine's continue-as-new, returned as it is
 }
 
 // EInvoiceSenders holds the send's activity: its step in the send's
@@ -130,60 +148,33 @@ func (s *EInvoiceSenders) AdvanceEInvoiceSubmission(ctx context.Context, in EInv
 
 // EInvoiceSender is the in-process send worker of a cell without a
 // workflow engine: each round it advances, by the workflow's step, every
-// send of every tenant still queued whose step is due, and keeps when each
-// is next due, so a send waiting for its next status read costs nothing
-// until then. A step that fails is tried again the next round.
+// send of every tenant with send Operations whose step is due or whose
+// Operation was cancelled (so that its step ends it), as the einvoicing
+// context lists them (unfinishedRuns, as the depreciation runner's), so a
+// send waiting for its next status read costs nothing until then. A step
+// that fails is tried again the next round.
 type EInvoiceSender struct {
 	Senders  *EInvoiceSenders
 	Interval time.Duration // between rounds; default 1 second
 	Log      *slog.Logger
-
-	due map[uuid.UUID]time.Time // operation -> when its next step is due
 }
 
-// queued lists the sends still queued, across tenants as the worker role.
-func (w *EInvoiceSender) queued(ctx context.Context) ([]operations.Waiting, error) {
-	tx, err := w.Senders.begin(ctx, database.Scope{Role: w.Senders.WorkerRole, ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(context.WithoutCancel(ctx))
-	waiting, err := operations.StillQueuedOf(ctx, tx, EInvoiceSendKind)
-	if err != nil {
-		return nil, fmt.Errorf("workflows: %w", err)
-	}
-	return waiting, nil
-}
-
-// RunOnce advances every due send still queued and returns how many
-// steps it took.
+// RunOnce advances every send due or cancelled and returns how many steps
+// it took.
 func (w *EInvoiceSender) RunOnce(ctx context.Context) (int, error) {
-	waiting, err := w.queued(ctx)
+	s := w.Senders
+	now := clock.Now(s.Now)
+	sends, err := unfinishedRuns(ctx, s.begin, s.AppRole, s.WorkerRole, EInvoiceSendKind, func(ctx context.Context, tx pgx.Tx) (map[uuid.UUID]uuid.UUID, error) {
+		return s.Sends.UnfinishedEInvoiceSends(ctx, tx, now)
+	})
 	failures := []error{err}
-	due := make(map[uuid.UUID]time.Time, len(waiting)) // only the sends still queued: one finished elsewhere is forgotten
-	for _, q := range waiting {
-		if at, ok := w.due[q.ID]; ok {
-			due[q.ID] = at
-		}
-	}
-	w.due = due
-	now := clock.Now(w.Senders.Now)
 	n := 0
-	for _, q := range waiting {
-		if at, ok := w.due[q.ID]; ok && now.Before(at) {
-			continue
-		}
-		step, err := w.Senders.AdvanceEInvoiceSubmission(ctx, EInvoiceSendInput{TenantID: q.TenantID, OutgoingID: q.Resource, OperationID: q.ID})
-		if err != nil {
-			failures = append(failures, fmt.Errorf("e-invoice sends: send %s: %w", q.ID, err))
+	for _, r := range sends {
+		if _, err := s.AdvanceEInvoiceSubmission(ctx, EInvoiceSendInput{TenantID: r.tenant, OutgoingID: r.run, OperationID: r.operation}); err != nil {
+			failures = append(failures, fmt.Errorf("e-invoice sends: send %s: %w", r.operation, err))
 			continue
 		}
 		n++
-		if step.Done {
-			delete(w.due, q.ID)
-		} else {
-			w.due[q.ID] = now.Add(step.Wait)
-		}
 	}
 	return n, errors.Join(failures...)
 }

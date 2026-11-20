@@ -28,12 +28,32 @@ import (
 // test's: the steps themselves are the einvoicing context's tests'.
 
 // scriptedSends is the port, answering its steps in order (the last one
-// again), each run in a transaction of the send's tenant.
+// again), each run in a transaction of the send's tenant, and listing the
+// sends to advance it is given (unfinished), with the time it was asked
+// at.
 type scriptedSends struct {
-	mu    sync.Mutex
-	steps []workflows.EInvoiceSendStep
-	err   error
-	calls int
+	mu         sync.Mutex
+	tenant     uuid.UUID // the scenario's: other tenants' lists are empty
+	steps      []workflows.EInvoiceSendStep
+	err        error
+	calls      int
+	unfinished map[uuid.UUID]uuid.UUID
+	listErr    error
+	asked      time.Time
+}
+
+func (s *scriptedSends) UnfinishedEInvoiceSends(ctx context.Context, tx pgx.Tx, now time.Time) (map[uuid.UUID]uuid.UUID, error) {
+	var tenant string
+	if err := tx.QueryRow(ctx, `SELECT current_setting('app.tenant_id')`).Scan(&tenant); err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if tenant != s.tenant.String() {
+		return nil, nil
+	}
+	s.asked = now
+	return s.unfinished, s.listErr
 }
 
 func (s *scriptedSends) Sender(tenant uuid.UUID) reqctx.Principal {
@@ -66,7 +86,7 @@ func (s *scriptedSends) called() int {
 func sendScenario(t *testing.T, steps ...workflows.EInvoiceSendStep) (fixture.Env, *scriptedSends, *workflows.EInvoiceSenders) {
 	t.Helper()
 	f := fixture.New(t)
-	port := &scriptedSends{steps: steps}
+	port := &scriptedSends{steps: steps, tenant: f.Tenant.ID}
 	return f, port, &workflows.EInvoiceSenders{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Sends: port}
 }
 
@@ -100,7 +120,9 @@ func runSend(t *testing.T, a *workflows.EInvoiceSenders, in workflows.EInvoiceSe
 
 // TestSendEInvoiceWorkflow: the workflow takes the steps, sleeping between
 // them, until one is done; a step's problem fails it; after its steps per
-// run it continues as new.
+// run it continues as new; a cancellation cuts its wait short and the
+// steps go on, waiting as they say, until one is done (it ended the
+// cancelled send).
 func TestSendEInvoiceWorkflow(t *testing.T) {
 	f, port, a := sendScenario(t, workflows.EInvoiceSendStep{Wait: 30 * time.Second}, workflows.EInvoiceSendStep{}, workflows.EInvoiceSendStep{Done: true})
 	in := queueSend(t, f)
@@ -119,32 +141,55 @@ func TestSendEInvoiceWorkflow(t *testing.T) {
 	if got, want := workflows.EInvoiceSendWorkflowID(in.TenantID, in.OperationID), in.TenantID.String()+"-einvoice_send-"+in.OperationID.String(); got != want {
 		t.Errorf("the workflow id: got %s, want %s", got, want)
 	}
+	t.Run("cancelled", func(t *testing.T) {
+		port.calls, port.steps = 0, []workflows.EInvoiceSendStep{{Wait: time.Hour}, {Wait: time.Minute}, {Done: true}}
+		var suite testsuite.WorkflowTestSuite
+		env := workflowEnv(&suite)
+		env.RegisterWorkflowWithOptions(workflows.SendEInvoice, sdkworkflow.RegisterOptions{Name: workflows.EInvoiceSendWorkflow})
+		env.RegisterActivity(a)
+		env.RegisterDelayedCallback(env.CancelWorkflow, time.Minute)
+		start := env.Now()
+		env.ExecuteWorkflow(workflows.EInvoiceSendWorkflow, in)
+		if err := env.GetWorkflowError(); !env.IsWorkflowCompleted() || err != nil || port.called() != 3 {
+			t.Errorf("cancelled: got %v after %d steps, want it completed after 3", err, port.called())
+		}
+		if took := env.Now().Sub(start); took >= time.Hour {
+			t.Errorf("cancelled: took %v, want the hour's wait cut short", took)
+		}
+	})
 }
 
 // TestEInvoiceSender: without a workflow engine the in-process sender
-// advances each queued send whose step is due, keeps when it is next due,
-// and forgets it once done; a step failing is reported and tried again;
-// Run logs its rounds and stops with its context.
+// asks the einvoicing context, in the scope of each tenant with send
+// Operations and at its clock, for the sends to advance (due, or
+// cancelled) and advances each once; none listed, none advanced; a step
+// failing, or a tenant's list, is reported and tried again; Run logs its
+// rounds and stops with its context.
 func TestEInvoiceSender(t *testing.T) {
 	f, port, a := sendScenario(t, workflows.EInvoiceSendStep{Wait: time.Hour}, workflows.EInvoiceSendStep{Done: true})
 	now := time.Now()
 	a.Now = func() time.Time { return now }
-	queueSend(t, f)
+	in := queueSend(t, f)
 	logs := &pgtest.SyncBuffer{}
 	w := &workflows.EInvoiceSender{Senders: a, Log: slog.New(slog.NewTextHandler(logs, nil))}
 	ctx := context.Background()
 	mine := func() int { return port.called() }
-	if _, err := w.RunOnce(ctx); err != nil || mine() != 1 {
-		t.Fatalf("the first round: got %v after %d steps, want one step", err, mine())
+	if n, err := w.RunOnce(ctx); err != nil || n != 0 || mine() != 0 {
+		t.Fatalf("none listed: got %v after %d steps, want none", err, mine())
 	}
-	if _, err := w.RunOnce(ctx); err != nil || mine() != 1 {
-		t.Errorf("before it is due: got %v after %d steps, want none more", err, mine())
+	if !port.asked.Equal(now) {
+		t.Errorf("asked at: got %v, want the sender's clock %v", port.asked, now)
 	}
-	now = now.Add(time.Hour)
-	if _, err := w.RunOnce(ctx); err != nil || mine() != 2 {
-		t.Errorf("once due: got %v after %d steps, want the second", err, mine())
+	port.unfinished = map[uuid.UUID]uuid.UUID{in.OutgoingID: in.OperationID}
+	if n, err := w.RunOnce(ctx); err != nil || n != 1 || mine() != 1 {
+		t.Errorf("one listed: got %v after %d steps, want one step", err, mine())
 	}
 	t.Run("failures", func(t *testing.T) {
+		port.listErr = errors.New("list down")
+		if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "list down") {
+			t.Errorf("a tenant's list failing: got %v, want it reported", err)
+		}
+		port.listErr = nil
 		port.err = errors.New("step down")
 		if _, err := w.RunOnce(ctx); err == nil || !strings.Contains(err.Error(), "step down") {
 			t.Errorf("a step failing: got %v, want it reported", err)

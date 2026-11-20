@@ -13,7 +13,9 @@ import (
 // invoices and credit memos whose e-invoice is not transmitted, each with
 // its deadline (the 14th business day after its issue date, the company's
 // weekend and holiday left out) and the business days left on the key
-// date, by deadline; one completed is not listed; the totals are every
+// date, by deadline; one completed is not listed; one whose deadline is
+// before the key date is overdue, also on a key date no business day
+// follows the deadline by (0 business days left); the totals are every
 // row's; it pages; a period and a company it cannot list are refused.
 func TestTransmissionDeadlines(t *testing.T) {
 	s := senderSetup(t)
@@ -51,9 +53,12 @@ func TestTransmissionDeadlines(t *testing.T) {
 	}
 	s.later(30 * time.Second)
 	s.advance(t, sent, op) // COMPLETED
+	holiday, _ := s.f.Must(200, "GET", path+"2026-04-01", "", "")
+	check(t, "the holiday after the deadline", words(holiday["count"], holiday["overdue_count"]), "2 2")
+	check(t, "overdue, no business day past it", strings.Count(rows(holiday), "true 0"), 2)
 	late, _ := s.f.Must(200, "GET", path+"2026-04-02", "", "")
-	check(t, "a day after the deadline", words(late["count"], late["overdue_count"]), "2 2")
-	check(t, "overdue by two business days", strings.Count(rows(late), "true -2"), 2)
+	check(t, "two days after the deadline", words(late["count"], late["overdue_count"]), "2 2")
+	check(t, "overdue by one business day", strings.Count(rows(late), "true -1"), 2)
 	early, _ := s.f.Must(200, "GET", path+"2026-03-19&page_size=1", "", "")
 	check(t, "a page of one", words(len(early["items"].([]any)), early["count"], early["next_page_token"] != nil), "1 2 true")
 	check(t, "seven business days left (the holiday left out)", strings.Contains(rows(early), "false 7"), true)

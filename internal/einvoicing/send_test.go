@@ -2,6 +2,7 @@ package einvoicing_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -236,8 +237,9 @@ func TestSendLostAnswer(t *testing.T) {
 // is sent again, the failed submission not taken as found; the second
 // submission's PERMANENT_FAILED fails it and its Operation, and it is on
 // the worklist of failed submissions; a person sends it again (a new
-// Operation), the old one's step done; after three resends a fourth
-// SENDING_FAILED fails it with einvoicing.sending_failed.
+// Operation, its attempts and resends counted afresh), the old one's step
+// done; after three resends a fourth SENDING_FAILED fails it with
+// einvoicing.sending_failed.
 func TestSendResend(t *testing.T) {
 	s := senderSetup(t)
 	id := s.invoice["id"].(string)
@@ -261,12 +263,155 @@ func TestSendResend(t *testing.T) {
 	page, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices?transmission_status=failed", "", "")
 	check(t, "the worklist", len(page["items"].([]any)), 1)
 	again := s.send(t, id, s.connector)
-	check(t, "sent again by a person", s.transmission(t, id), "queued <nil> 0 1 -")
+	check(t, "sent again by a person, counted afresh", s.transmission(t, id), "queued <nil> 0 0 -")
 	if step := s.advance(t, id, op); !step.Done {
 		t.Errorf("the old send's step: got %+v, want done", step)
 	}
-	for i := 0; i < 8 && !s.advance(t, id, again).Done; i++ {
+	for i := 0; i < 12 && !s.advance(t, id, again).Done; i++ {
 		s.later(time.Minute)
 	}
 	check(t, "after three resends", s.transmission(t, id), "failed SENDING_FAILED 1 3 einvoicing.sending_failed")
+}
+
+// cancelSend cancels the send's Operation as a person does.
+func (s *sender) cancelSend(t *testing.T, op uuid.UUID) {
+	t.Helper()
+	_, tag := s.f.Must(200, "GET", "/v1/operations/"+op.String(), "", "")
+	s.f.Must(200, "POST", "/v1/operations/"+op.String()+":cancel", "", tag)
+}
+
+// TestSendCancelled: a send cancelled before its first step is ended by
+// it, nothing sent; one cancelled once submitted is ended by its next
+// step, its tracking id kept, and a person's send again looks it up and
+// takes the submission found, not sending it twice; one cancelled during
+// its call ends with the provider's answer kept; one cancelled while a
+// claimed call may be under way waits for the claim to lapse. Each ends
+// failed with einvoicing.send_cancelled, its Operation left cancelled.
+func TestSendCancelled(t *testing.T) {
+	s := senderSetup(t)
+	next := func(t *testing.T) string {
+		t.Helper()
+		return s.render(t, 201, fmt.Sprintf(`{"customer_invoice_id": %q}`, s.posted(t, s.customer, "", "AED", s.item("10.00", "AED", "Z0"))))["id"].(string)
+	}
+	t.Run("before its first step", func(t *testing.T) {
+		id := next(t)
+		op := s.send(t, id, s.connector)
+		s.cancelSend(t, op)
+		if step := s.advance(t, id, op); !step.Done {
+			t.Errorf("got %+v, want done", step)
+		}
+		check(t, "ended, nothing sent", words(s.transmission(t, id), operation(t, op), len(s.srv.Evatra.Sends())),
+			"failed <nil> 0 0 einvoicing.send_cancelled cancelled /v1/outgoing-e-invoices/"+id+" - 0")
+		if step := s.advance(t, id, op); !step.Done {
+			t.Errorf("run again: got %+v, want done", step)
+		}
+	})
+	t.Run("once submitted, then sent again", func(t *testing.T) {
+		id := next(t)
+		op := s.send(t, id, s.connector)
+		s.advance(t, id, op)
+		sends := len(s.srv.Evatra.Sends())
+		tracking := s.srv.Evatra.Sends()[sends-1].TrackingID
+		s.cancelSend(t, op)
+		if step := s.advance(t, id, op); !step.Done {
+			t.Errorf("got %+v, want done at once, its read not due", step)
+		}
+		got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
+		check(t, "ended, its tracking id kept", words(s.transmission(t, id), got["transmission"].(map[string]any)["tracking_id"]),
+			"failed PENDING 1 0 einvoicing.send_cancelled "+tracking)
+		again := s.send(t, id, s.connector)
+		s.advance(t, id, again)
+		got, _ = s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
+		check(t, "found, not sent twice", words(len(s.srv.Evatra.Sends()), s.transmission(t, id), got["transmission"].(map[string]any)["tracking_id"]),
+			words(sends, "submitted PENDING 1 0 - "+tracking))
+	})
+	t.Run("during its call", func(t *testing.T) {
+		id := next(t)
+		op := s.send(t, id, s.connector)
+		calls := 0
+		cancelling := func(c context.Context, fn func(ctx context.Context) error) error {
+			calls++
+			err := s.within()(c, fn)
+			if calls == 4 { // the read, the connector, the XML, then the claim's commit: cancelled while the call is made
+				s.cancelSend(t, op)
+			}
+			return err
+		}
+		if step, err := s.e.AdvanceSubmission(context.Background(), uuid.MustParse(id), op, cancelling); err != nil || !step.Done {
+			t.Errorf("got %+v and %v, want done", step, err)
+		}
+		got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
+		check(t, "the answer kept", words(s.transmission(t, id), got["transmission"].(map[string]any)["tracking_id"], operation(t, op)),
+			words("failed PENDING 1 0 einvoicing.send_cancelled", s.srv.Evatra.Sends()[len(s.srv.Evatra.Sends())-1].TrackingID,
+				"cancelled /v1/outgoing-e-invoices/"+id+" -"))
+	})
+	t.Run("a call claimed", func(t *testing.T) {
+		id := next(t)
+		op := s.send(t, id, s.connector)
+		pgtest.Exec(t, `UPDATE einvoicing.outgoing_submission SET status = 'sending', attempts = 1, next_check_at = $2, version = version + 1
+			WHERE outgoing_einvoice_id = $1`, id, s.clock().Add(time.Minute))
+		s.cancelSend(t, op)
+		if step := s.advance(t, id, op); step.Done || step.Wait != time.Minute {
+			t.Errorf("its claim not lapsed: got %+v, want a wait of a minute", step)
+		}
+		check(t, "still claimed", s.transmission(t, id), "sending <nil> 1 0 -")
+		s.later(time.Minute)
+		if step := s.advance(t, id, op); !step.Done {
+			t.Errorf("its claim lapsed: got %+v, want done", step)
+		}
+		check(t, "ended", s.transmission(t, id), "failed <nil> 1 0 einvoicing.send_cancelled")
+	})
+}
+
+// TestUnfinishedSends: the in-process sender's work in a tenant is the
+// submissions no workflow carries out that are due, or whose Operation was
+// cancelled, and not those finished or not yet due.
+func TestUnfinishedSends(t *testing.T) {
+	s := senderSetup(t)
+	ids := map[string]string{}
+	ops := map[string]uuid.UUID{}
+	for _, name := range []string{"due", "not due", "cancelled", "finished"} {
+		ids[name] = s.render(t, 201, fmt.Sprintf(`{"customer_invoice_id": %q}`, s.posted(t, s.customer, "", "AED", s.item("10.00", "AED", "Z0"))))["id"].(string)
+		ops[name] = s.send(t, ids[name], s.connector)
+	}
+	pgtest.Exec(t, `UPDATE einvoicing.outgoing_submission SET status = 'sending', attempts = 1, next_check_at = $2, version = version + 1
+		WHERE outgoing_einvoice_id = ANY($1::uuid[])`, []string{ids["not due"], ids["cancelled"]}, s.clock().Add(time.Hour))
+	pgtest.Exec(t, `UPDATE einvoicing.outgoing_submission SET status = 'failed', next_check_at = NULL, problem_code = 'einvoicing.test', problem_detail = 'failed',
+		version = version + 1 WHERE outgoing_einvoice_id = $1`, ids["finished"])
+	s.cancelSend(t, ops["cancelled"])
+	var got map[uuid.UUID]uuid.UUID
+	err := apitest.InRequest(t, s.f.Tenant, s.f.Tenant.Human, func(ctx context.Context) error {
+		tx, _, err := reqctx.Request(ctx)
+		if err != nil {
+			return err
+		}
+		// as a cell without a workflow engine has them: within this transaction alone, so no other runner sees them
+		if _, err := tx.Exec(ctx, `UPDATE platform.operation SET workflow_id = NULL, version = version + 1 WHERE id = ANY($1)`,
+			[]uuid.UUID{ops["due"], ops["not due"], ops["cancelled"], ops["finished"]}); err != nil {
+			return err
+		}
+		got, err = s.e.UnfinishedSends(ctx, tx, s.clock())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine := map[uuid.UUID]uuid.UUID{}
+	for _, name := range []string{"due", "not due", "cancelled", "finished"} {
+		if op, ok := got[uuid.MustParse(ids[name])]; ok {
+			mine[uuid.MustParse(ids[name])] = op
+		}
+	}
+	want := map[uuid.UUID]uuid.UUID{uuid.MustParse(ids["due"]): ops["due"], uuid.MustParse(ids["cancelled"]): ops["cancelled"]}
+	check(t, "the sends to advance", fmt.Sprint(mine), fmt.Sprint(want))
+	if err := apitest.InRequest(t, s.f.Tenant, s.f.Tenant.Human, func(ctx context.Context) error {
+		tx, _, err := reqctx.Request(ctx)
+		if err != nil {
+			return err
+		}
+		_, err = s.e.UnfinishedSends(ctx, &pgtest.FailingTx{Tx: tx, FailAt: 1}, s.clock())
+		return err
+	}); !errors.Is(err, pgtest.ErrInjected) {
+		t.Errorf("its statement failing: got %v, want the injected failure", err)
+	}
 }

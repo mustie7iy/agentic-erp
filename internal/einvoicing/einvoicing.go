@@ -74,12 +74,14 @@ func Fetcher(tenant uuid.UUID) reqctx.Principal {
 	return reqctx.Principal{ID: FetcherActor, Kind: reqctx.KindSystem, TenantID: tenant}
 }
 
-// Connector is an einvoice_provider connector resolved for use (ADR-0061
-// §3): the adapter, the stand-in's base URL or Evatra's environment and
-// company id, each company's participant identifier by company code, the
-// format and the credentials.
+// Connector is an einvoice_provider connector read for use (ADR-0061 §3):
+// its tenant, the adapter, the stand-in's base URL or Evatra's environment
+// and company id, each company's participant identifier by company code,
+// the format, the secret_ref and, once resolved (Connectors.Credentials),
+// the credentials.
 type Connector struct {
 	ID           uuid.UUID
+	Tenant       uuid.UUID
 	Name         string
 	Adapter      string
 	BaseURL      string            // the stand-in's
@@ -87,16 +89,21 @@ type Connector struct {
 	CompanyID    string            // the company's id at Evatra
 	Participants map[string]string // company code -> participant identifier
 	Format       string
+	SecretRef    string
 	Secret       string
 }
 
 // Connectors reads the einvoice_provider connectors (integration context,
-// ADR-0061 §2): Provider resolves one, failing closed (one that is not
-// an active einvoice_provider with credentials that resolve, or the
-// stand-in in production, is refused with the integration context's
-// problem); Names gives connectors' names by id.
+// ADR-0061 §2): Provider reads one in the caller's transaction, failing
+// closed (one that is not an active einvoice_provider with a secret_ref,
+// or the stand-in in production, is refused with the integration
+// context's problem); Credentials resolves its credentials from the vault
+// with no transaction open, so it is called after the transaction that
+// read the connector committed (As built E3); Names gives connectors'
+// names by id.
 type Connectors interface {
 	Provider(ctx context.Context, id uuid.UUID) (Connector, error)
+	Credentials(ctx context.Context, c Connector) (string, error)
 	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
@@ -114,12 +121,15 @@ type Companies interface {
 	Named(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Company, error)
 }
 
-// Runs keeps a fetch's Operation (operations, 04 §4.8): Start queues one
-// for the dispatcher; Queue records, once, one with the id a scheduled
-// fetch's workflow chose, naming that workflow.
+// Runs keeps a fetch's or a send's Operation (operations, 04 §4.8): Start
+// queues one for the dispatcher; Queue records, once, one with the id a
+// scheduled fetch's workflow chose, naming that workflow; Cancelled says
+// whether one was cancelled, under its row lock with lock (a send's steps
+// end its submission then, As built E3).
 type Runs interface {
 	Start(ctx context.Context, resource string, request any) (gen.Operation, error)
 	Queue(ctx context.Context, id uuid.UUID, resource string, request any, workflowID string) error
+	Cancelled(ctx context.Context, id uuid.UUID, lock bool) (bool, error)
 	Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error
 	Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) error
 }

@@ -3141,21 +3141,23 @@ type Handler interface {
 	// next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10
 	// MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A
 	// provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is
-	// not an active `einvoice_provider` connector with credentials that resolve is refused before anything
-	// is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
-	// `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`,
-	// `integration.secret_unavailable`); so is, in production, the provider's stand-in or Evatra's `stage`
-	// sandbox (422 `integration.adapter_not_certified`), and an Evatra connector whose credentials are not
-	// a JSON object with `apiKey` and `email` (422 `integration.secret_unavailable`). An Evatra connector
-	// (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received for each
-	// company's TIN in the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the
-	// acknowledgement is local only and a fetch leaves out what is recorded and acknowledged, and Evatra
-	// refusing the credentials fails the fetch with `integration.secret_unavailable`. A server without
-	// object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
-	// for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from
-	// every active `einvoice_provider` connector of an active tenant once per
-	// `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created
-	// by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
+	// not an active `einvoice_provider` connector naming a `secret_ref` is refused before anything is
+	// queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
+	// `integration.connector_disabled`, 422 `integration.secret_required`,
+	// `integration.invalid_settings`); so is, in production, the provider's stand-in or Evatra's `stage`
+	// sandbox (422 `integration.adapter_not_certified`). Its credentials are resolved from the vault by
+	// the fetch's first step, with no transaction open (ADR-0061 As built E3), not by this request:
+	// credentials that do not resolve, or an Evatra connector's that are not a JSON object with `apiKey`
+	// and `email`, fail the Operation with `integration.secret_unavailable`. An Evatra connector (adapter
+	// `evatra`) logs in to Evatra with them, lists the documents Evatra received for each company's TIN in
+	// the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the acknowledgement
+	// is local only and a fetch leaves out what is recorded and acknowledged, and Evatra refusing the
+	// credentials fails the fetch with `integration.secret_unavailable`. A server without object storage
+	// refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the
+	// provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active
+	// `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default
+	// 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the
+	// workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
 	//
 	// POST /v1/e-invoices:fetch
 	FetchEInvoices(ctx context.Context, req *EInvoiceFetch, params FetchEInvoicesParams) (FetchEInvoicesRes, error)
@@ -8666,18 +8668,26 @@ type Handler interface {
 	// `einvoicing.status_unconfirmed`. Every change of the submission's status or of the provider's is
 	// audited (`einvoicing.outgoing.transmission`) and publishes OutgoingEInvoiceTransmissionChanged; the
 	// failed ones are the worklist `listOutgoingEInvoices?transmission_status=failed`, which a person
-	// sends again with this operation once corrected (the row queued again, a new Operation). The caller
-	// sends the e-invoice at the ETag it read (`If-Match`; the ETag moves with its transmission, so a send
-	// asked twice on one reading is refused 412). Refused: a business type other than B2B and B2G (422
-	// `einvoicing.unknown_business_type`); an e-invoice that is invalid (409
+	// sends again with this operation once corrected (the row queued again, its attempts and resends
+	// counted afresh, a new Operation). A status read the provider or the connector refuses (the connector
+	// disabled since, the credentials refused) is a read that failed, read again after the backoff: the
+	// provider holds the document, so it is not failed for it. Cancelling the send's Operation
+	// (`cancelOperation`) ends it at its next step: the submission is `failed` with
+	// `einvoicing.send_cancelled`, keeping what the provider answered (a call under way is waited for),
+	// and a person may send it again, looked up at the provider first. The caller sends the e-invoice at
+	// the ETag it read (`If-Match`, the e-invoice's `etag`; the ETag moves with its transmission, so a
+	// send asked twice on one reading is refused 412). Refused: a business type other than B2B and B2G
+	// (422 `einvoicing.unknown_business_type`); an e-invoice that is invalid (409
 	// `einvoicing.document_invalid`); one queued, sending or submitted (409
 	// `einvoicing.transmission_in_progress`) or completed (409 `einvoicing.already_transmitted`); a
-	// connector that is not an active `einvoice_provider` connector with credentials that resolve, as
-	// `fetchEInvoices` refuses one; one whose adapter does not send (the stand-in's own protocol: 422
-	// `einvoicing.adapter_cannot_send`) or that names no participant for the e-invoice's company (422
-	// `einvoicing.not_a_participant`). An e-invoice of a company the caller may not act in is not found
-	// (404). 503 while the server has no object storage. Human-only (`x-agent: false`): agents never send
-	// an e-invoice (ADR-0061 §13).
+	// `connector_id` the tenant has no connector of (422 `request.reference_not_found`); a connector that
+	// is not an active `einvoice_provider` connector naming a `secret_ref`, as `fetchEInvoices` refuses
+	// one (its credentials are resolved by the send's first step, with no transaction open, which fails
+	// the submission with `integration.secret_unavailable` when they do not resolve); one whose adapter
+	// does not send (the stand-in's own protocol: 422 `einvoicing.adapter_cannot_send`) or that names no
+	// participant for the e-invoice's company (422 `einvoicing.not_a_participant`). An e-invoice of a
+	// company the caller may not act in is not found (404). 503 while the server has no object storage.
+	// Human-only (`x-agent: false`): agents never send an e-invoice (ADR-0061 §13).
 	//
 	// POST /v1/outgoing-e-invoices/{id}:send
 	SendOutgoingEInvoice(ctx context.Context, req *OutgoingEInvoiceSend, params SendOutgoingEInvoiceParams) (SendOutgoingEInvoiceRes, error)

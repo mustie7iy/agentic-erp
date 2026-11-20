@@ -45516,7 +45516,9 @@ type EInvoiceDeadline struct {
 	Deadline time.Time `json:"deadline"`
 	// Whether the deadline is before the key date.
 	Overdue bool `json:"overdue"`
-	// Business days from the key date to the deadline; 0 on it, negative once overdue.
+	// Business days from the key date to the deadline (those after the key date up to the deadline),
+	// negative for those past it; 0 on the deadline, and on a day after it with no business day between
+	// (`overdue` says which).
 	BusinessDaysLeft int32     `json:"business_days_left"`
 	CustomerID       uuid.UUID `json:"customer_id"`
 	CustomerNumber   string    `json:"customer_number"`
@@ -83267,6 +83269,9 @@ type OutgoingEInvoice struct {
 	// not sent.
 	Transmission NilOutgoingEInvoiceTransmission `json:"transmission"`
 	Version      int32                           `json:"version"`
+	// The ETag it is read at (its `version` and its transmission's, which moves it): the `If-Match` a send
+	// of it takes, also when it was read from a listing (As built E3).
+	Etag string `json:"etag"`
 }
 
 // GetID returns the value of ID.
@@ -83409,6 +83414,11 @@ func (s *OutgoingEInvoice) GetVersion() int32 {
 	return s.Version
 }
 
+// GetEtag returns the value of Etag.
+func (s *OutgoingEInvoice) GetEtag() string {
+	return s.Etag
+}
+
 // SetID sets the value of ID.
 func (s *OutgoingEInvoice) SetID(val uuid.UUID) {
 	s.ID = val
@@ -83547,6 +83557,11 @@ func (s *OutgoingEInvoice) SetTransmission(val NilOutgoingEInvoiceTransmission) 
 // SetVersion sets the value of Version.
 func (s *OutgoingEInvoice) SetVersion(val int32) {
 	s.Version = val
+}
+
+// SetEtag sets the value of Etag.
+func (s *OutgoingEInvoice) SetEtag(val string) {
+	s.Etag = val
 }
 
 // OutgoingEInvoiceHeaders wraps OutgoingEInvoice with response headers.
@@ -83902,8 +83917,8 @@ func (s *OutgoingEInvoiceTransmission) SetVersion(val int32) {
 // Ref: #/components/schemas/OutgoingEInvoiceTransmissionProblem
 type OutgoingEInvoiceTransmissionProblem struct {
 	// Einvoicing.permanent_failure, einvoicing.provider_failed, einvoicing.sending_failed,
-	// einvoicing.status_unconfirmed, einvoicing.provider_unavailable, or a refusal's code. Open
-	// enumeration.
+	// einvoicing.status_unconfirmed, einvoicing.provider_unavailable, einvoicing.send_cancelled (its
+	// Operation cancelled), or a refusal's code. Open enumeration.
 	Code string `json:"code"`
 	// What happened, and what to do.
 	Detail string `json:"detail"`

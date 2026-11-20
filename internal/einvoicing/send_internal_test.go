@@ -11,8 +11,7 @@ import (
 
 // TestSendBounds: the status reads' backoff doubles from 30 seconds to an
 // hour; a detail is clipped to its column at a character boundary; the
-// endpoints' clock is the time without one; the submissions of a page are
-// read in the request's transaction alone.
+// submissions of a page are read in the request's transaction alone.
 func TestSendBounds(t *testing.T) {
 	for polls, want := range map[int32]time.Duration{0: 30 * time.Second, 1: time.Minute, 6: 32 * time.Minute, 7: time.Hour, 400: time.Hour} {
 		if got := pollWait(polls); got != want {
@@ -27,9 +26,6 @@ func TestSendBounds(t *testing.T) {
 	}
 	if got := clip(strings.Repeat("é", 6), 5); got != "éé" {
 		t.Errorf("clip at a character boundary: got %q, want two characters", got)
-	}
-	if got := (&Endpoints{}).now(); time.Since(got) > time.Minute {
-		t.Errorf("now without a clock: got %v, want the time", got)
 	}
 	if _, err := submissions(context.Background(), []uuid.UUID{uuid.New()}); err == nil {
 		t.Error("submissions outside a request: got nil error, want an error")

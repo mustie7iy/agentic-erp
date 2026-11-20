@@ -94,12 +94,11 @@ type Provider interface {
 	Status(ctx context.Context, trackingID string) (Report, error)
 }
 
-// NoSending is a provider whose adapter sends nothing (the stand-in's own
-// protocol): a send through its connector is refused before anything is
-// queued.
-type NoSending interface {
-	SendsNothing()
-}
+// Sends reports whether the adapter sends e-invoices: Evatra's does, the
+// stand-in's own protocol does not, so a send through its connector is
+// refused before anything is queued, by the adapter's name alone, with no
+// credentials resolved (As built E3).
+func Sends(adapter string) bool { return adapter == "evatra" }
 
 // NewClient is the egress client providers are called through: public
 // addresses only, no redirects, the system roots (ADR-0031), with the
@@ -215,16 +214,13 @@ func (s *StandIn) Acknowledge(ctx context.Context, id string) error {
 	return nil
 }
 
-// SendsNothing implements NoSending: the stand-in's protocol has no
-// sending; the Evatra adapter, against Evatra's emulation, sends.
-func (*StandIn) SendsNothing() {}
-
 // cannotSend refuses a send through a provider that sends nothing.
 func cannotSend() error {
 	return problem.Unprocessable("einvoicing.adapter_cannot_send", "The stand-in's own protocol sends no e-invoices; send through an evatra connector.")
 }
 
-// Send implements Provider: refused, the stand-in's protocol sends nothing.
+// Send implements Provider: refused, the stand-in's protocol sends nothing
+// (Sends); the Evatra adapter, against Evatra's emulation, sends.
 func (*StandIn) Send(context.Context, Outgoing) (Submission, error) {
 	return Submission{}, cannotSend()
 }

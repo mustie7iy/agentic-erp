@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
@@ -33,8 +35,12 @@ type einvoiceConnectors struct{ p integration.EInvoiceProviders }
 
 func (c einvoiceConnectors) Provider(ctx context.Context, id uuid.UUID) (einvoicing.Connector, error) {
 	p, err := c.p.Provider(ctx, id)
-	return einvoicing.Connector{ID: p.ID, Name: p.Name, Adapter: p.Adapter, BaseURL: p.BaseURL, Environment: p.Environment, CompanyID: p.CompanyID,
-		Participants: p.Participants, Format: p.Format, Secret: p.Secret}, err
+	return einvoicing.Connector{ID: p.ID, Tenant: p.Tenant, Name: p.Name, Adapter: p.Adapter, BaseURL: p.BaseURL, Environment: p.Environment,
+		CompanyID: p.CompanyID, Participants: p.Participants, Format: p.Format, SecretRef: p.SecretRef}, err
+}
+
+func (c einvoiceConnectors) Credentials(ctx context.Context, conn einvoicing.Connector) (string, error) {
+	return c.p.Credentials(ctx, integration.EInvoiceConnector{ID: conn.ID, Tenant: conn.Tenant, Name: conn.Name, SecretRef: conn.SecretRef})
 }
 
 func (c einvoiceConnectors) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
@@ -121,6 +127,10 @@ func EInvoiceSends(cfg Config) workflows.EInvoiceSends {
 type einvoiceSends struct{ e *einvoicing.Endpoints }
 
 func (einvoiceSends) Sender(tenant uuid.UUID) reqctx.Principal { return einvoicing.Sender(tenant) }
+
+func (s einvoiceSends) UnfinishedEInvoiceSends(ctx context.Context, tx pgx.Tx, now time.Time) (map[uuid.UUID]uuid.UUID, error) {
+	return s.e.UnfinishedSends(ctx, tx, now)
+}
 
 func (s einvoiceSends) AdvanceEInvoiceSubmission(ctx context.Context, outgoing, operation uuid.UUID, in workflows.Within) (workflows.EInvoiceSendStep, error) {
 	step, err := s.e.AdvanceSubmission(ctx, outgoing, operation, in)

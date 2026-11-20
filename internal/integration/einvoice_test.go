@@ -148,11 +148,12 @@ func TestStandInRefusedInProduction(t *testing.T) {
 	}
 }
 
-// TestEInvoiceProviders: an einvoice_provider connector resolves into its
-// settings with its credentials, read now, and fails closed on anything
-// else; the stand-in is refused at use where production refuses it
-// (ADR-0061 §2, §3), as Evatra's sandbox is and its production is not.
-// Names are given by id.
+// TestEInvoiceProviders: an einvoice_provider connector is read into its
+// settings and secret_ref, and fails closed on anything else; the
+// stand-in is refused at use where production refuses it (ADR-0061 §2,
+// §3), as Evatra's sandbox is and its production is not. Its credentials
+// are resolved apart, with no transaction, under the tenant's own
+// namespace only. Names are given by id.
 func TestEInvoiceProviders(t *testing.T) {
 	f := fixture.New(t)
 	token := vaulttest.TenantRef(f.Tenant.ID, "provider")
@@ -176,15 +177,18 @@ func TestEInvoiceProviders(t *testing.T) {
 			c, err = p.Provider(ctx, id)
 			return err
 		})
+		if err == nil { // after the transaction, as the einvoicing context resolves them
+			c.Secret, err = p.Credentials(context.Background(), c)
+		}
 		return c, err
 	}
 	c, err := resolve(p, valid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.ID != valid || c.Name != "Provider" || c.Adapter != "standin" || c.BaseURL != "https://127.0.0.1:18444/provider" || c.Format != "pint_ae" ||
-		c.Participants["AE01"] != "0235:100000000000003" || c.Secret != "s3cret" {
-		t.Errorf("got %+v, want the connector's settings and secret", c)
+	if c.ID != valid || c.Tenant != f.Tenant.ID || c.Name != "Provider" || c.Adapter != "standin" || c.BaseURL != "https://127.0.0.1:18444/provider" ||
+		c.Format != "pint_ae" || c.Participants["AE01"] != "0235:100000000000003" || c.SecretRef != token || c.Secret != "s3cret" {
+		t.Errorf("got %+v, want the connector's tenant, settings, secret_ref and secret", c)
 	}
 	if e, err := resolve(integration.EInvoiceProviders{Secrets: p.Secrets, RefuseStandIn: true}, evatra); err != nil || e.Adapter != "evatra" ||
 		e.Environment != "prod" || e.CompanyID != "COMP-1" || e.BaseURL != "" || e.Participants["AE01"] != "0235:1001234567" {

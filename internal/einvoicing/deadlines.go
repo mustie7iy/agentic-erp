@@ -59,6 +59,7 @@ type deadline struct {
 	Issued
 	due      time.Time
 	left     int
+	overdue  bool // its deadline before the key date, as the contract says: so on a key date after a weekend that follows it
 	einvoice *uuid.UUID
 	status   *string
 	sending  *string
@@ -106,7 +107,7 @@ func (e *Endpoints) ListEInvoiceTransmissionDeadlines(ctx context.Context, param
 	out := &gen.EInvoiceDeadlinePage{LegalEntityID: co.ID, CompanyCode: co.Code, CompanyName: co.Name, KeyDate: key, IssuedFrom: from,
 		Count: int32(len(rows)), Items: make([]gen.EInvoiceDeadline, len(page))} // #nosec G115 -- a year of one company's documents
 	for _, d := range rows {
-		if d.left < 0 {
+		if d.overdue {
 			out.OverdueCount++
 		}
 	}
@@ -193,6 +194,7 @@ func (e *Endpoints) deadlines(ctx context.Context, tx pgx.Tx, doc *config.Config
 		}
 		row.due = businessDays(doc, co.Code, d.IssueDate, transmitDays)
 		row.left = businessBetween(doc, co.Code, key, row.due)
+		row.overdue = row.due.Before(key)
 		out = append(out, row)
 	}
 	return out, nil
@@ -229,7 +231,7 @@ func businessBetween(doc *config.Config, company string, key, due time.Time) int
 
 func (d deadline) toAPI(c CustomerName) gen.EInvoiceDeadline {
 	out := gen.EInvoiceDeadline{CustomerInvoiceID: d.ID, CustomerInvoiceNumber: d.Number, Kind: d.Kind, IssueDate: d.IssueDate, Deadline: d.due,
-		Overdue: d.left < 0, BusinessDaysLeft: int32(d.left), CustomerID: d.CustomerID, CustomerNumber: c.Number, CustomerName: c.Name, // #nosec G115 -- at most a year of days
+		Overdue: d.overdue, BusinessDaysLeft: int32(d.left), CustomerID: d.CustomerID, CustomerNumber: c.Number, CustomerName: c.Name, // #nosec G115 -- at most a year of days
 		GrossAmount: apitypes.Money(d.Gross, d.Currency, d.Exponent), OutgoingEinvoiceID: nilUUID(d.einvoice), EinvoiceStatus: nilString(d.status),
 		TransmissionStatus: nilString(d.sending)}
 	return out

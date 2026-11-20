@@ -30,7 +30,8 @@ import (
 
 // TestSendRefusals: a send is refused before anything is queued for an
 // invalid e-invoice, through the stand-in's own protocol, through a
-// connector naming no participant for the company or disabled, for an
+// connector naming no participant for the company or disabled, through a
+// connector the tenant has not (the body's reference: 422), for an
 // e-invoice queued already, and for one of no company the caller may act
 // in; a business type outside B2B and B2G is refused by the contract.
 func TestSendRefusals(t *testing.T) {
@@ -51,6 +52,7 @@ func TestSendRefusals(t *testing.T) {
 		{"the stand-in's protocol", id, body(standIn), "einvoicing.adapter_cannot_send", 422},
 		{"no participant for the company", id, body(other), "einvoicing.not_a_participant", 422},
 		{"a disabled connector", id, body(off), "integration.connector_disabled", 409},
+		{"an unknown connector", id, body(uuid.New()), "request.reference_not_found", 422},
 		{"an unknown e-invoice", uuid.NewString(), body(s.connector), "request.not_found", 404},
 		{"a business type outside the mandate", id, fmt.Sprintf(`{"connector_id": %q, "business_type": "B2C"}`, s.connector), "einvoicing.unknown_business_type", 422},
 	} {
@@ -70,9 +72,10 @@ func TestSendRefusals(t *testing.T) {
 // (einvoicing.send_refused); five calls failing fail it as unavailable,
 // each tried again after its backoff; a connector disabled since fails it
 // with the connector's problem; FAILED fails it (einvoicing.provider_failed);
-// a status read failing, or still PROCESSING, is read again after the
-// backoff, and 500 reads without an end fail it as unconfirmed; a stored
-// XML that does not match its hash is not sent.
+// a status read failing, refused (the connector disabled, its credentials
+// not resolving), or still PROCESSING, is read again after the backoff,
+// and 500 reads without an end fail it as unconfirmed; a stored XML that
+// does not match its hash is not sent.
 func TestSendProviderFailures(t *testing.T) {
 	s := senderSetup(t)
 	next := func(t *testing.T) string { // a valid e-invoice of a new posted invoice
@@ -133,6 +136,28 @@ func TestSendProviderFailures(t *testing.T) {
 		s.later(time.Hour)
 		s.advance(t, id, op)
 		check(t, "FAILED", s.transmission(t, id), "failed FAILED 1 0 einvoicing.provider_failed")
+	})
+	t.Run("status reads refused", func(t *testing.T) {
+		conn := s.sendConnector(t, "Off for a while", "evatra", einvoicetest.EvatraCompany, map[string]string{"5000": sellerParticipant})
+		id := next(t)
+		op := s.send(t, id, conn)
+		s.advance(t, id, op)
+		pgtest.Exec(t, `UPDATE integration.connector SET status = 'disabled', version = version + 1 WHERE id = $1`, conn)
+		s.later(30 * time.Second)
+		if step := s.advance(t, id, op); step.Done || step.Wait != time.Minute {
+			t.Errorf("the connector disabled: got %+v, want it read again after a minute", step)
+		}
+		check(t, "held by the provider, not failed", s.transmission(t, id), "submitted PENDING 1 0 -")
+		pgtest.Exec(t, `UPDATE integration.connector SET status = 'active', secret_ref = $2, version = version + 1 WHERE id = $1`, conn,
+			vaulttest.TenantRef(s.f.Tenant.ID, "missing"))
+		s.later(time.Minute)
+		if step := s.advance(t, id, op); step.Done || step.Wait != 2*time.Minute {
+			t.Errorf("the credentials not resolving: got %+v, want it read again after two minutes", step)
+		}
+		pgtest.Exec(t, `UPDATE integration.connector SET secret_ref = $2, version = version + 1 WHERE id = $1`, conn, vaulttest.TenantRef(s.f.Tenant.ID, "evatra"))
+		s.later(2 * time.Minute)
+		s.advance(t, id, op)
+		check(t, "corrected, then completed", s.transmission(t, id), "completed COMPLETED 1 0 -")
 	})
 	t.Run("unconfirmed", func(t *testing.T) {
 		id := next(t)
@@ -358,7 +383,7 @@ func TestEvatraSendAnswers(t *testing.T) {
 	}
 	t.Run("the stand-in's protocol", func(t *testing.T) {
 		p := &einvoicing.StandIn{}
-		p.SendsNothing()
+		check(t, "which adapters send", words(einvoicing.Sends("standin"), einvoicing.Sends("evatra")), "false true")
 		_, sendErr := p.Send(ctx, d)
 		_, statusErr := p.Status(ctx, "T-1")
 		check(t, "refused", words(problem.From(sendErr).Code, problem.From(statusErr).Code), "einvoicing.adapter_cannot_send einvoicing.adapter_cannot_send")
@@ -373,13 +398,14 @@ func (failingCustomers) Customers(context.Context, []uuid.UUID) (map[uuid.UUID]e
 }
 
 // TestSendEdges: a step after a failure ends its Operation again; a
-// connector whose adapter changed to one that sends nothing fails a
-// submitted one at its status read; a row moved between the step's
-// preparation and its claim is taken again with nothing called; a server
-// without a store, or whose store fails, changes nothing; a send without a
-// store is refused, as is one whose connector's secret is not Evatra's;
-// the worklist with a page token of another listing is refused, and its
-// customers failing fail it.
+// connector whose adapter changed to one that sends nothing has a
+// submitted one's status read again later, not failed; a row moved between
+// the step's preparation and its claim is taken again with nothing called;
+// a server without a store, or whose store fails, changes nothing; a send
+// without a store is refused; one whose connector's secret is not
+// Evatra's is queued (the request resolves no secret) and fails at its
+// first step; the worklist with a page token of another listing is
+// refused, and its customers failing fail it.
 func TestSendEdges(t *testing.T) {
 	s := senderSetup(t)
 	ctx := context.Background()
@@ -404,8 +430,10 @@ func TestSendEdges(t *testing.T) {
 		pgtest.Exec(t, `UPDATE integration.connector SET settings = jsonb_build_object('adapter', 'standin', 'base_url', $2::text, 'format', 'pint_ae',
 			'participants', settings->'participants'), version = version + 1 WHERE id = $1`, conn, s.srv.URL)
 		s.later(time.Minute)
-		s.advance(t, id, op)
-		check(t, "failed at its read", s.transmission(t, id), "failed PENDING 1 0 einvoicing.adapter_cannot_send")
+		if step := s.advance(t, id, op); step.Done || step.Wait != time.Minute {
+			t.Errorf("its read refused: got %+v, want it read again after a minute", step)
+		}
+		check(t, "held, not failed", s.transmission(t, id), "submitted PENDING 1 0 -")
 	})
 	t.Run("moved before the claim", func(t *testing.T) {
 		id := next(t)
@@ -451,8 +479,13 @@ func TestSendEdges(t *testing.T) {
 			VALUES ($1, $2, 'einvoice_provider', 'Bad secret', jsonb_build_object('adapter', 'evatra', 'environment', 'stage', 'company_id', 'C',
 			'format', 'pint_ae', 'participants', jsonb_build_object('5000', $3::text)), $4, 'active', $5, $5)`,
 			s.f.Tenant.ID, conn, sellerParticipant, vaulttest.TenantRef(s.f.Tenant.ID, "provider"), s.f.Tenant.Human.ID)
-		s.f.Problem(422, "integration.secret_unavailable", "POST", "/v1/outgoing-e-invoices/"+next(t)+":send",
-			fmt.Sprintf(`{"connector_id": %q, "business_type": "B2B"}`, conn), `"1"`)
+		id := next(t)
+		op := s.send(t, id, conn)
+		if step := s.advance(t, id, op); !step.Done {
+			t.Errorf("its first step: got %+v, want done", step)
+		}
+		check(t, "failed with no call made", words(s.transmission(t, id), operation(t, op)), "failed <nil> 0 0 integration.secret_unavailable failed "+
+			"/v1/outgoing-e-invoices/"+id+" integration.secret_unavailable")
 	})
 	t.Run("the worklist", func(t *testing.T) {
 		s.f.Problem(400, "request.invalid_page_token", "GET", "/v1/e-invoice-transmission-deadlines?legal_entity_id="+s.le.String()+
