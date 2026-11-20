@@ -101,9 +101,9 @@ func TestEInvoiceTrigger(t *testing.T) {
 	for name, c := range map[string]struct{ set, want string }{
 		"a status moved":             {"status = 'entered'", "cannot change from received to entered"},
 		"a document's bytes changed": {"sha256 = sha256('y'::bytea)", "keeps what was recorded"},
-		"a refusal undone": {refusedSet + ", version = version + 1; UPDATE einvoicing.einvoice SET status = 'received', problem_code = NULL, " +
-			"problem_detail = NULL", "cannot change from refused to received"},
-		"what processing read changed": {processedSet + ", version = version + 1; UPDATE einvoicing.einvoice SET document_number = 'other'",
+		"a refusal undone": {refusedSet + ", version = version + 1" + ownRow + "; UPDATE einvoicing.einvoice SET status = 'received', " +
+			"problem_code = NULL, problem_detail = NULL", "cannot change from refused to received"},
+		"what processing read changed": {processedSet + ", version = version + 1" + ownRow + "; UPDATE einvoicing.einvoice SET document_number = 'other'",
 			"keeps what its processing read and decided"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -121,7 +121,7 @@ func TestEInvoiceTrigger(t *testing.T) {
 				step(`INSERT INTO einvoicing.einvoice (tenant_id, id, connector_id, message_id, status, sha256, size, content_ref, fetch_operation_id,
 					created_by, updated_by) VALUES ($1, gen_random_uuid(), gen_random_uuid(), 'M', 'received', sha256('x'::bytea), 1, 'k',
 					gen_random_uuid(), $1, $1)`, tenant),
-				step(`UPDATE einvoicing.einvoice SET `+c.set+`, version = version + 1`))
+				step(`UPDATE einvoicing.einvoice SET `+c.set+`, version = version + 1`+ownRow))
 			failsWith(t, err, c.want)
 		})
 	}
@@ -221,6 +221,10 @@ func TestEInvoiceChange(t *testing.T) {
 		failsWith(t, inRole(t, "erp_worker", func(tx pgx.Tx) error { return exec(tx, `SELECT sha256 FROM einvoicing.einvoice`) }), "permission denied")
 	})
 }
+
+// ownRow limits an owner's update to the test's tenant: the owner is not
+// bound by row-level security, and other tests commit e-invoices.
+const ownRow = " WHERE tenant_id = current_setting('app.tenant_id')::uuid"
 
 // The updates of a processing (T65c): left received with what it read, or
 // refused with its problem.

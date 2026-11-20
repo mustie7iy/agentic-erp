@@ -47,8 +47,8 @@ type unprocessed struct {
 // answers how many documents this fetch refused, counted from the rows, so
 // a step run again after a commit still counts them, and how many of the
 // connector's documents are still waiting (left unprocessed until the
-// company's setup is completed, or their bytes failed), so a person sees
-// the gap in the fetch's result.
+// company's setup is completed), so a person sees the gap in the fetch's
+// result; a document whose bytes are gone fails the step instead.
 func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in Within) (Processed, error) {
 	var c Connector
 	var docs []unprocessed

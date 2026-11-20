@@ -260,7 +260,9 @@ func FetchEInvoices(ctx workflow.Context, in EInvoiceFetchInput) error {
 		process: func() (EInvoiceProcessed, error) {
 			var processed EInvoiceProcessed
 			if workflow.GetVersion(ctx, "einvoice-process", workflow.DefaultVersion, processedFetch) == workflow.DefaultVersion {
-				return processed, nil // a fetch started before T65c finishes as it began; the next fetch processes its documents
+				// A fetch started before T65c finishes as it began, counting nothing
+				// refused or waiting; the next fetch processes its documents.
+				return processed, nil
 			}
 			err := perform(ctx, in.TenantID, &processed, a.ProcessEInvoices, in)
 			return processed, err
