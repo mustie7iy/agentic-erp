@@ -55,6 +55,9 @@ GRANT UPDATE (confirmed_quantity) ON sales.sales_order_item TO erp_app;
 ALTER TABLE sales.delivery_assignment
   ADD COLUMN plant_id uuid;    -- tenancy context
 ALTER TABLE sales.delivery_assignment DISABLE TRIGGER delivery_assignment_immutable;
+-- Tenant rows: under a role that does not bypass row-level security this
+-- fails rather than backfill nothing, as 000054.
+SET LOCAL row_security = off;
 UPDATE sales.delivery_assignment a SET plant_id = d.plant_id
 FROM shipping.outbound_delivery d WHERE d.tenant_id = a.tenant_id AND d.id = a.outbound_delivery_id;
 ALTER TABLE sales.delivery_assignment ENABLE TRIGGER delivery_assignment_immutable;

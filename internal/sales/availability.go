@@ -220,10 +220,11 @@ func (s stockLeft) free(material uuid.UUID) *big.Rat {
 // from the plant hold of orders that name no plant, counted out of a
 // stock of nothing, in one statement: each item's confirmed quantity less
 // what is delivered of it, and each delivery's assignments at the plant
-// (taken, less given back at their goods issue), in the base unit at the
-// material's factor now. An item that is removed, or that is delivered as
-// far as it was confirmed, promises nothing; an order with a plant holds
-// its deliveries within what it confirmed.
+// (taken, less given back at their goods issue; only of items something
+// is still in delivery of, so a plant's delivery history is not read), in
+// the base unit at the material's factor now. An item that is removed,
+// or that is delivered as far as it was confirmed, promises nothing; an
+// order with a plant holds its deliveries within what it confirmed.
 func demand(ctx context.Context, tx pgx.Tx, o Order, ms map[uuid.UUID]materials.Material) (stockLeft, error) {
 	ids := make([]uuid.UUID, 0, len(ms))
 	s := stockLeft{left: map[uuid.UUID]*big.Rat{}, unknown: map[uuid.UUID]bool{}}
@@ -245,7 +246,7 @@ func demand(ctx context.Context, tx pgx.Tx, o Order, ms map[uuid.UUID]materials.
 			FROM sales.delivery_assignment a
 				JOIN sales.sales_order_item i ON i.tenant_id = a.tenant_id AND i.sales_order_id = a.sales_order_id AND i.item_no = a.order_item_no
 				JOIN sales.sales_order o ON o.tenant_id = a.tenant_id AND o.id = a.sales_order_id
-			WHERE a.plant_id = $2 AND i.material_id = ANY($1) AND o.plant_id IS NULL) promised
+			WHERE a.plant_id = $2 AND i.material_id = ANY($1) AND i.in_delivery_quantity > 0 AND o.plant_id IS NULL) promised
 		GROUP BY material_id, uom_code HAVING sum(q) > 0 ORDER BY material_id, uom_code`, ids, *o.PlantID, o.ID)
 	opens, err := pgx.CollectRows(rows, pgx.RowToStructByPos[open])
 	if err != nil {
