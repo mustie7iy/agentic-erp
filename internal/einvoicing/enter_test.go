@@ -291,6 +291,10 @@ func TestEnteredEInvoiceListed(t *testing.T) {
 	if !d.SupplierInvoiceID.Set || d.SupplierInvoiceNumber.Value == "" || !d.EnteredAt.Set {
 		t.Errorf("its invoice: got %v %v %v, want its id, number and when", d.SupplierInvoiceID, d.SupplierInvoiceNumber, d.EnteredAt)
 	}
+	apitest.EveryFailure(t, s.f.Tenant, s.f.Tenant.Human, "list the entered", func(ctx context.Context) error {
+		_, err := s.e.ListEInvoices(ctx, gen.ListEInvoicesParams{SupplierID: gen.NewOptUUID(s.f.Supplier)})
+		return err
+	})
 	held := list(gen.ListEInvoicesParams{Status: gen.NewOptString(einvoicing.StatusHeld)})
 	if len(held) != 1 || held[0].SupplierInvoiceID.Set || held[0].SupplierName.Set || !held[0].EnteredAt.Set {
 		t.Errorf("the held one: got %+v, want GOI-2 with no invoice and when it was held", held)
