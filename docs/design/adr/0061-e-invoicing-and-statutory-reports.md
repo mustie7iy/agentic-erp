@@ -198,6 +198,11 @@ type Provider interface {
     // provider reports of it since (built in E3, As built E3).
     Send(ctx context.Context, d Outgoing) (Submission, error)
     Status(ctx context.Context, trackingID string) (Report, error)
+    // Delivery reads what Peppol and the authority report of a completed
+    // submission; TaxData asks for its tax data document to be sent again
+    // or withdrawn (built in E4, As built E4).
+    Delivery(ctx context.Context, trackingID string) (Delivery, error)
+    TaxData(ctx context.Context, trackingID, request string) error
 }
 ```
 - **Connector kind `einvoice_provider`** (added to the open enumeration).
@@ -218,7 +223,11 @@ type Provider interface {
   one (`GET /invoice/get-document/{id}/XML`, Base64); acknowledges
   locally; sends (`POST /invoice/send-document-async`), looks a document
   up (`POST /invoice/document-process/search`) and reads its status
-  (`GET /invoice/document-status/{trackingId}`) (E3, As built E3).
+  (`GET /invoice/document-status/{trackingId}`) (E3, As built E3); reads
+  a submission's message level responses (`GET /peppol/invoice-mls-list`)
+  and tax data document (`GET /peppol/get-tdd`) and asks for that document
+  to be sent again or withdrawn (`POST /peppol/tdd/retry-failed`,
+  `/peppol/tdd/withdraw`) (E4, As built E4).
 - **Production refuses the stand-in**: creating or enabling an
   `einvoice_provider` connector whose adapter is `standin` there answers
   422 `integration.adapter_not_certified`, as EBICS is refused until
@@ -591,7 +600,7 @@ E1-E4 under T65h):
 |---|---|---|
 | `einvoicing.einvoice.read` | list and read e-invoices; `/content` is `x-agent: false` | AP clerks, controllers; agents (fields only) |
 | `einvoicing.einvoice.manage` | `:fetch`, `:retry`, `:link` (with `payables.invoice.read`), `:dismiss` | AP clerks; people and integrations, never agents (`x-autonomy: none`) |
-| `einvoicing.outgoing.send` | `:send` an outgoing e-invoice to the accredited provider (As built E3) | people only, never agents (`x-agent: false`); given to no role, as E2's |
+| `einvoicing.outgoing.send` | `:send` an outgoing e-invoice to the accredited provider (As built E3); `:retry-tax-data` and `:withdraw-tax-data` of a transmitted one (As built E4) | people only, never agents (`x-agent: false`); given to no role, as E2's |
 | `tax.audit_file.generate` | generate an audit file | tax accountants; people only |
 | `tax.audit_file.read` | read and download audit files | tax accountants, controllers; people only |
 
@@ -614,7 +623,8 @@ an e-invoice's invoice held for its codes, as to any held invoice; it may
 read e-invoices' fields (`einvoicing.einvoice.read`) to recommend the
 order for a held one, which a person acts on with `:link` or by
 correcting the order and `:retry`. Agents never fetch, retry, link or
-dismiss e-invoices, never send one (E3), and never generate or read
+dismiss e-invoices, never send one (E3), never retry or withdraw a tax
+data document (E4), and never generate or read
 an audit file. No new agent type and no new evaluation suite in T65.
 
 ### 14. Budgets
@@ -1425,6 +1435,103 @@ answers the three calls below. Decided by default:
   business days count UAE public holidays (the company's calendar is
   used) and whether a reversed invoice still needs its e-invoice (not
   listed here).
+
+### E4: delivery status and FTA reporting (po:2026-11-19, plan einvoicing-evatra.md)
+
+Built as §9 for what comes back: migration 000422 (on
+`einvoicing.outgoing_submission`, once completed: `delivery_status`,
+`delivery_detail`, `delivered_at`, `tax_data_status`, `tax_data_at`,
+`tax_data_request`, `tax_data_attempts`, `follow_polls`,
+`follow_check_at`; the transition trigger allows completed to itself and
+keeps a completed one's transmission), the e-invoice's `transmission`
+showing them with `delivery_outcome`, the list's `delivery_outcome`
+filter, `POST /v1/outgoing-e-invoices/{id}:retry-tax-data`
+(`retryOutgoingEInvoiceTaxData`) and `:withdraw-tax-data`
+(`withdrawOutgoingEInvoiceTaxData`), human-only, an Operation of kind
+`einvoicing.tax_data`, the audit record `einvoicing.outgoing.tax_data` (the
+person's request), and OutgoingEInvoiceTransmissionChanged carrying
+`delivery_status`, `tax_data_status` and `tax_data_request` (optional,
+added within v1). The port gains `Delivery` and `TaxData` (§3); the
+stand-in's own protocol refuses both, as it refuses Send; Evatra's
+emulation answers the four calls below, scripted per filename
+(`<number>.delivery` in the walkthrough). Decided by default:
+
+- **Following after completion.** COMPLETED no longer ends the send's
+  steps: the same step (`AdvanceSubmission`, the workflow `SendEInvoice`,
+  the in-process sender) reads, from 30 seconds after completion doubling
+  to an hour (E3's backoff), what Peppol and the authority report, until
+  the message level response is final (any but ACKNOWLEDGING) and the tax
+  data document's status is final (any but none, TDD_SEND and
+  WITHDRAW_SEND), or 500 reads were made (about three weeks; then it is
+  no longer followed, and fails nothing: the transmission is done). The
+  send's Operation succeeds at completion as in E3. A read that fails, or
+  that the connector or the provider refuses, records nothing but the
+  count. Each change of either status is audited
+  (`einvoicing.outgoing.transmission`) and published; a read that finds
+  nothing new writes neither. The detail is shown on the e-invoice, not
+  carried in the event or the audit record (it is the provider's free
+  text).
+- **Which response.** Of the message level responses Evatra lists, the
+  last final one is taken (an ACKNOWLEDGING before it is not), else the
+  last listed; its description, trimmed and clipped to 1,000 bytes, is
+  the detail.
+- **The worklist to correct by credit note.** `delivery_outcome` says what
+  the statuses mean, computed at the read and stored nowhere: rejected for
+  REJECTION, BUSINESS_RULE_FATAL and SYNTAX_VIOLATION (the buyer's access
+  point refusing the document) and for a tax data document TDD_REJECTED
+  (the authority refusing it); corrected once a credit note of the
+  company naming it (IBT-025, its `reference_invoice_number`; a rejected
+  credit note by the invoice it names), rendered after it, is
+  transmitted (completed); undelivered for DELIVERY_FAILURE (not the
+  document's fault, so not on the correction worklist); accepted for
+  ACCEPTANCE and BUSINESS_RULE_WARNING; pending otherwise. The worklist is
+  `listOutgoingEInvoices?delivery_outcome=rejected`.
+- **Retry and withdrawal, people only.** A person asks for a failed tax
+  data document (TDD_FAILED) to be sent again, or for one reported
+  (TDD_SEND, TDD_APPROVED, TDD_ACKNOWLEDGED, or WITHDRAW_FAILED to ask
+  again) to be withdrawn, with `einvoicing.outgoing.send` (the person who
+  transmits; no permission of its own) at the e-invoice's ETag; the
+  connector checked as a send's is. The request writes itself on the
+  submission with its Operation, which takes over `operation_id` (so a
+  send workflow still following ends at its next step, not owning it,
+  and the dispatcher starts `SendEInvoice` for the new Operation; one
+  request at a time, 409 `einvoicing.tax_data_request_pending`), audited
+  and published, the outbox of the call (ADR-0007). Its step claims the
+  call as a send's (counted, held for five call timeouts), reads the tax
+  data document first and calls only if it does not show the request made
+  (a retry once no longer TDD_FAILED, a withdrawal once WITHDRAW_SEND), so
+  a step run twice, or one whose claim lapsed after the call, asks once
+  (Evatra has no idempotency key). A call that fails is tried again after
+  1, 5, 15 and 60 minutes; a 4xx other than 401 and 429 refuses it
+  (`einvoicing.tax_data_refused`), the fifth failure fails it
+  (`einvoicing.provider_unavailable`), a connector refused since fails it
+  with that refusal. However it ends, the request is cleared, the status
+  found kept, the delivery read again at once with its reads counted
+  afresh, and the Operation succeeded or failed. Cancelling it drops a
+  request not yet made once no claim or backoff runs (the Operation stays
+  cancelled). No reason is asked for a withdrawal (none in Evatra's call
+  as read); the audit record names who asked.
+- **Agents** never retry or withdraw (§13): both operations are
+  `x-agent: false`.
+- **The walkthrough.** `step_einvoice_send` (step 146) goes on: the
+  invoice, completed, is refused by the buyer's access point on a fatal
+  rule and its tax data document fails; it is on the rejected worklist
+  (its credit note failed, so not corrected); a withdrawal of the failed
+  document is refused, Ruth has it sent again (TDD_APPROVED) and then
+  withdraws it (WITHDRAW_SEND).
+- **For the specialist and Evatra (not in Evatra's docs as read):** the
+  parameters and answers of `GET /peppol/invoice-mls-list` and
+  `/peppol/get-tdd` (assumed: `companyId` and `trackingId` as query
+  parameters; a list under `content` of `status` and `description`; a
+  tax data document's `status`, 404 while none) and the bodies of `POST
+  /peppol/tdd/retry-failed` and `/peppol/tdd/withdraw` (assumed:
+  `companyId`, `trackingId`); `/peppol/tdd-mls-list` (not read); which
+  statuses are final (WITHDRAW_SEND and TDD_ACKNOWLEDGED taken as written
+  above) and whether a withdrawal succeeded shows as a status of its own;
+  what a withdrawal means at the FTA and when it is due or allowed; whether
+  DELIVERY_FAILURE calls for a resend or a credit note; whether a
+  rejected tax data document (TDD_REJECTED) is corrected by credit note
+  as a Peppol rejection is.
 
 ### T65c: validation and refusals (adr:ADR-0061 · po:2026-11-09)
 

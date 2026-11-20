@@ -137,7 +137,7 @@ func (e *Endpoints) delivered(ctx context.Context, tx pgx.Tx, s submission, co C
 		taxData = &d.TaxData
 	}
 	var next *time.Time
-	if !(responseFinal(deref(response)) && taxDataFinal(deref(taxData))) && s.FollowPolls+1 < maxPolls {
+	if final := responseFinal(deref(response)) && taxDataFinal(deref(taxData)); !final && s.FollowPolls+1 < maxPolls {
 		at := now.Add(pollWait(s.FollowPolls + 1))
 		next = &at
 	}

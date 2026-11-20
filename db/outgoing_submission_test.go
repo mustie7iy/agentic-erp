@@ -180,7 +180,9 @@ func TestEInvoiceDeliveryRules(t *testing.T) {
 				update(`tax_data_attempts = 1`), update(`tax_data_request = NULL, tax_data_attempts = 0, tax_data_status = 'TDD_SEND'`),
 				update(`follow_check_at = NULL`))
 		}, ""},
-		{"followed before completion", func(s outgoingScene) []stmt { return queued(s, update(`status = 'sending', attempts = 1, follow_check_at = now()`)) }, "outgoing_submission_followed"},
+		{"followed before completion", func(s outgoingScene) []stmt {
+			return queued(s, update(`status = 'sending', attempts = 1, follow_check_at = now()`))
+		}, "outgoing_submission_followed"},
 		{"reported before completion", func(s outgoingScene) []stmt {
 			return queued(s, update(`status = 'sending', attempts = 1, delivery_status = 'ACCEPTANCE', delivered_at = now()`))
 		}, "outgoing_submission_followed"},

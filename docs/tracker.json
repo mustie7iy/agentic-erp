@@ -2866,9 +2866,9 @@
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
           "t": "E4 Delivery status and FTA reporting: the Peppol message level responses (ACCEPTANCE, REJECTION, BUSINESS_RULE_FATAL and the others) and the tax data document's status shown on the invoice; a rejection or a fatal rule puts it on a worklist to correct by credit note; the tax data document's retry and withdrawal offered to a person only, never an agent; walkthrough step_einvoice_send extended",
-          "r": "ADR-0061 §9 · coordinator plan einvoicing-evatra E4, default 8",
+          "r": "migration 000422 · einvoicing.outgoing_submission delivery_status, tax_data_status, tax_data_request · retryOutgoingEInvoiceTaxData · withdrawOutgoingEInvoiceTaxData · listOutgoingEInvoices delivery_outcome · OutgoingEInvoiceTransmissionChanged delivery_status, tax_data_status · einvoicing.Evatra Delivery, TaxData · einvoicetest.Evatra invoice-mls-list, get-tdd, tdd/retry-failed, tdd/withdraw · walkthrough step_einvoice_send (step 146) · ADR-0061 §3, §9, §11, §13 and As built E4 · coordinator plan einvoicing-evatra E4, default 8",
           "src": "po:2026-11-19",
           "c": []
          },

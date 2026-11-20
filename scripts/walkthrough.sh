@@ -15253,10 +15253,17 @@ step_einvoice_render() {
 # looked up first by its number, and its second submission is
 # PERMANENT_FAILED, which fails it and puts it on the worklist of failed
 # submissions. The worklist of documents not transmitted within 14
-# business days lists the credit note, not the invoice.
+# business days lists the credit note, not the invoice. E4 (As built E4):
+# once completed, the sender reads what Peppol and the authority report of
+# the invoice: the buyer's access point refuses it on a fatal rule, which
+# puts it on the worklist of rejected e-invoices to correct by credit note
+# (the credit note naming it failed, so it stays there), and its tax data
+# document fails at the authority's corner. A withdrawal of the failed one
+# is refused; Ruth has it sent again, approved, and then withdraws it.
+# People only: agents never send, retry or withdraw (x-agent: false).
 step_einvoice_send() {
-  heading "Step 146 — PINT AE e-invoices sent through Evatra: the tax invoice submitted and COMPLETED, the credit note sent again after SENDING_FAILED and PERMANENT_FAILED on the worklist; the documents not transmitted within 14 business days"
-  local ae connector invoice note number notenum sent sum
+  heading "Step 146 — PINT AE e-invoices sent through Evatra: the tax invoice submitted and COMPLETED, the credit note sent again after SENDING_FAILED and PERMANENT_FAILED on the worklist; the documents not transmitted within 14 business days; the invoice rejected on a fatal rule, its tax data document failed, sent again and withdrawn"
+  local ae connector invoice note number notenum sent sum op
   as ruth
   QUIET=1 api 200 '' listLegalEntities -p page_size=100
   ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
@@ -15271,6 +15278,11 @@ step_einvoice_send() {
   say "Evatra will fail to send the credit note $notenum once (SENDING_FAILED) and then report its second submission"
   say "PERMANENT_FAILED (the stand-in's script for it):"
   printf 'SENDING_FAILED\nPERMANENT_FAILED\n' >"$WORK/provider/evatra-sent/$notenum.statuses"
+  say "Once Evatra delivers the invoice $number, the buyer's access point will refuse it on a fatal business rule (the"
+  say "stand-in's illustrative detail) and the authority's corner will fail its tax data document, then take it when sent"
+  say "again, and take a withdrawal:"
+  jq -n '{responses: [{status: "ACKNOWLEDGING"}, {status: "BUSINESS_RULE_FATAL", description: "The buyer'"'"'s access point refused the document on a fatal business rule (illustrative)."}],
+    tax_data: {report: ["TDD_FAILED"], retry: ["TDD_SEND", "TDD_APPROVED"], withdraw: ["WITHDRAW_SEND"]}}' >"$WORK/provider/evatra-sent/$number.delivery"
   say "Ruth sends the tax invoice $number to Evatra as a B2B e-invoice: the request writes its submission, queued, with the"
   say "Operation that carries it out, before any call; the sender then gives Evatra the XML as kept, and reads its status:"
   QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
@@ -15303,7 +15315,47 @@ step_einvoice_send() {
     listEInvoiceTransmissionDeadlines -p "legal_entity_id=$ae" -p "key_date=$TODAY"
   expect "the credit note listed" "$(jq -r --arg n "$notenum" '[.items[] | select(.customer_invoice_number == $n) | "\(.transmission_status) \(.overdue)"] | join(" ")' "$WORK/last.json")" "failed false"
   expect "the invoice not listed" "$(jq -r --arg n "$number" '[.items[] | select(.customer_invoice_number == $n)] | length' "$WORK/last.json")" "0"
+  local delivered='"e-invoice \(.customer_invoice_number): delivery \(.transmission.delivery_status // "-") (\(.transmission.delivery_outcome // "-")), tax data document \(.transmission.tax_data_status // "-")\(if .transmission.tax_data_request then ", \(.transmission.tax_data_request) asked" else "" end)"'
+  say "Completed, the invoice's delivery is read from 30 seconds on: the buyer's access point refused it on a fatal rule,"
+  say "and the authority's corner failed its tax data document:"
+  wait_einvoice "$invoice" '.transmission.tax_data_status' TDD_FAILED
+  api 200 "$delivered"', "  \(.transmission.delivery_detail)"' getOutgoingEInvoice -p "id=$invoice"
+  expect "the invoice's delivery" "$(field '"\(.transmission.delivery_status) \(.transmission.delivery_outcome) \(.transmission.tax_data_status)"')" "BUSINESS_RULE_FATAL rejected TDD_FAILED"
+  say "Rejected, it is on the worklist to correct by a credit note; the credit note $notenum naming it is not transmitted,"
+  say "so it stays there:"
+  api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number): \(.transmission.delivery_status), \(.transmission.delivery_outcome)"' listOutgoingEInvoices -p "legal_entity_id=$ae" -p delivery_outcome=rejected
+  expect "the worklist of rejected e-invoices" "$(field '[.items[].id] | join(" ")')" "$invoice"
+  say "A failed tax data document is not withdrawn; Ruth has it sent again, a request the sender makes after it commits:"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  refused 409 einvoicing.tax_data_not_withdrawable withdrawOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  api 202 '"operation \(.kind): \(.status), for \(.resource)"' retryOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
+  op=$(field .id)
+  expect "the request's Operation" "$(field .kind)" einvoicing.tax_data
+  wait_einvoice "$invoice" '.transmission.tax_data_status' TDD_APPROVED
+  api 200 "$delivered" getOutgoingEInvoice -p "id=$invoice"
+  QUIET=1 api 200 '' getOperation -p "id=$op"
+  expect "its Operation" "$(field .status)" succeeded
+  say "She then withdraws it:"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  api 202 '"operation \(.kind): \(.status)"' withdrawOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
+  wait_einvoice "$invoice" '.transmission.tax_data_status' WITHDRAW_SEND
+  api 200 "$delivered" getOutgoingEInvoice -p "id=$invoice"
   passed
+}
+
+# wait_einvoice EINVOICE PATH VALUE waits, up to three minutes, until the
+# e-invoice's field at PATH is VALUE (the sender reads the delivery from
+# 30 seconds after completion, doubling, and at once after a request).
+wait_einvoice() {
+  local i got
+  for i in $(seq 1 720); do
+    QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$1"
+    got=$(field "$2 // \"none\"")
+    if [ "$got" = "$3" ]; then return 0; fi
+    sleep 0.25
+  done
+  fail "e-invoice $1's $2 still $got after three minutes (attempt $i), not $3"
 }
 
 # wait_transmission EINVOICE STATUS waits, up to two minutes, until the

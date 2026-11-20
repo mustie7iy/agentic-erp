@@ -91,18 +91,16 @@ func (e *Endpoints) requestTaxData(ctx context.Context, id uuid.UUID, ifMatch, r
 		s.record(ctx, "einvoicing.outgoing.tax_data", company, &completed)
 }
 
-// requestable refuses a request the locked submission cannot take: read at
-// another ETag than the caller's, not completed, a request not yet made,
-// or a tax data document in a status the request does not apply to.
+// requestable refuses a request the locked submission, completed, cannot
+// take: read at another ETag than the caller's, a request not yet made, or
+// a tax data document in a status the request does not apply to.
 func requestable(o OutgoingEInvoice, s submission, ifMatch, request string) error {
 	if err := etag.Check(ifMatch, o.Version+s.Version); err != nil {
 		return err
 	}
 	status := deref(s.TaxDataStatus)
 	switch {
-	case s.Status != SubmissionCompleted:
-		return notTransmitted(o)
-	case s.TaxDataRequest != nil:
+	case s.TaxDataRequest != nil: // completed, as read before the lock: completed is final
 		return problem.Conflict("einvoicing.tax_data_request_pending", "The "+*s.TaxDataRequest+" of e-invoice "+o.CustomerInvoiceNumber+
 			"'s tax data document is not made yet; follow operation "+s.OperationID.String()+".")
 	case request == TaxDataRetry && status != TaxDataFailed:
