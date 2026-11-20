@@ -56,6 +56,19 @@ func (s transportScene) orderRow(status string, issue, receipt *uuid.UUID) stmt 
 		s.tenant, s.order, s.company, s.from, s.plant, status, issue, issueNo, issueDay, receipt, receiptNo, receiptDay)
 }
 
+// orderNumbered is an open order of the number.
+func (s transportScene) orderNumbered(number string) stmt {
+	return step(`INSERT INTO procurement.stock_transport_order (tenant_id, id, legal_entity_id, fiscal_year, number, supplying_plant_id, receiving_plant_id,
+			order_date, created_by, updated_by) VALUES ($1, $2, $3, 2026, $4, $5, $6, '2026-11-20', $1, $1)`, s.tenant, s.order, s.company, number, s.from, s.plant)
+}
+
+// item is item 1 of the order, of the quantities in the unit.
+func (s transportScene) item(qty, base, unit string, order uuid.UUID) stmt {
+	return step(`INSERT INTO procurement.stock_transport_order_item (tenant_id, order_id, item_no, material_id, quantity, uom_code, base_quantity,
+			supplying_storage_location_id, receiving_storage_location_id) VALUES ($1, $2, 1, $3, $4::numeric, $5, $6::numeric, $7, $8)`,
+		s.tenant, order, s.material, qty, unit, base, id(), s.location)
+}
+
 func (s transportScene) orderItem(no int, material uuid.UUID) stmt {
 	return step(`INSERT INTO procurement.stock_transport_order_item (tenant_id, order_id, item_no, material_id, quantity, uom_code, base_quantity,
 			supplying_storage_location_id, receiving_storage_location_id) VALUES ($1, $2, $3, $4, 1, 'EA', 1, $5, $6)`,
@@ -142,6 +155,35 @@ func TestStockTransportRules(t *testing.T) {
 			return []stmt{s.orderRow("open", nil, nil), s.orderItem(101, s.material)}
 		},
 			"stock_transport_order_item_no_check"},
+		{"a number of 41 characters", func(s transportScene) []stmt { return []stmt{s.orderNumbered(strings.Repeat("T", 41))} },
+			"stock_transport_order_number_check"},
+		{"no number", func(s transportScene) []stmt { return []stmt{s.orderNumbered("")} }, "stock_transport_order_number_check"},
+		{"version 0", func(s transportScene) []stmt {
+			return []stmt{step(`INSERT INTO procurement.stock_transport_order (tenant_id, id, legal_entity_id, fiscal_year, number, supplying_plant_id,
+				receiving_plant_id, order_date, version, created_by, updated_by) VALUES ($1, $2, $3, 2026, 'TO1', $4, $5, '2026-11-20', 0, $1, $1)`,
+				s.tenant, s.order, s.company, s.from, s.plant)}
+		}, "stock_transport_order_version_check"},
+		{"an issue document number of 41 characters", func(s transportScene) []stmt {
+			return []stmt{s.orderRow("open", nil, nil), step(`UPDATE procurement.stock_transport_order SET status = 'in_transit', issue_document_id = $2,
+				issue_document_number = $3, issue_date = '2026-11-20', version = 2 WHERE id = $1`, s.order, doc, strings.Repeat("M", 41))}
+		}, "stock_transport_order_issue_document_number_check"},
+		{"a receipt document number of 41 characters", func(s transportScene) []stmt {
+			return []stmt{s.orderRow("in_transit", &doc, nil), step(`UPDATE procurement.stock_transport_order SET status = 'received', receipt_document_id = $2,
+				receipt_document_number = $3, receipt_date = '2026-11-20', version = 2 WHERE id = $1`, s.order, doc, strings.Repeat("M", 41))}
+		}, "stock_transport_order_receipt_document_number_check"},
+		{"an item of no quantity", func(s transportScene) []stmt {
+			return []stmt{s.orderRow("open", nil, nil), s.item("0", "1", "EA", s.order)}
+		},
+			"stock_transport_order_item_quantity_check"},
+		{"an item of no base quantity", func(s transportScene) []stmt {
+			return []stmt{s.orderRow("open", nil, nil), s.item("1", "0", "EA", s.order)}
+		},
+			"stock_transport_order_item_base_quantity_check"},
+		{"an item of an unknown unit", func(s transportScene) []stmt {
+			return []stmt{s.orderRow("open", nil, nil), s.item("1", "1", "XX", s.order)}
+		},
+			"stock_transport_order_item_uom_code_fkey"},
+		{"an item of no order", func(s transportScene) []stmt { return []stmt{s.item("1", "1", "EA", id())} }, "stock_transport_order_item_order_fkey"},
 		{"an item changed", func(s transportScene) []stmt {
 			return []stmt{s.orderRow("open", nil, nil), s.orderItem(1, s.material),
 				step(`UPDATE procurement.stock_transport_order_item SET quantity = 2 WHERE order_id = $1`, s.order)}
@@ -185,14 +227,21 @@ func TestStockTransportRules(t *testing.T) {
 }
 
 // TestStockTransportTriggersAsOwner (S2h, migration 000416): past the
-// grants, as the owner, an order moves forward only and keeps what it is.
+// grants, as the owner, an order moves forward only and keeps what it is,
+// and its items are neither changed nor deleted.
 func TestStockTransportTriggersAsOwner(t *testing.T) {
 	need(t)
 	ctx := context.Background()
 	s := newTransportScene()
-	for name, st := range map[string]stmt{
-		"received to open":  step(`UPDATE procurement.stock_transport_order SET status = 'open' WHERE id = $1`, s.order),
-		"its plant changed": step(`UPDATE procurement.stock_transport_order SET receiving_plant_id = $2 WHERE id = $1`, s.order, id()),
+	for name, c := range map[string]struct {
+		st   stmt
+		want string
+	}{
+		"received to open":  {step(`UPDATE procurement.stock_transport_order SET status = 'open' WHERE id = $1`, s.order), "stock_transport_order_fixed"},
+		"its plant changed": {step(`UPDATE procurement.stock_transport_order SET receiving_plant_id = $2 WHERE id = $1`, s.order, id()), "stock_transport_order_fixed"},
+		"an item changed": {step(`UPDATE procurement.stock_transport_order_item SET quantity = 2 WHERE order_id = $1`, s.order),
+			"is insert-only"},
+		"an item deleted": {step(`DELETE FROM procurement.stock_transport_order_item WHERE order_id = $1`, s.order), "is insert-only"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tx, err := testDB.Begin(ctx)
@@ -204,10 +253,14 @@ func TestStockTransportTriggersAsOwner(t *testing.T) {
 				t.Fatal(err)
 			}
 			doc := id()
-			if err := all(tx, s.orderRow("received", &doc, &doc)); err != nil {
+			if err := all(tx, s.orderRow("received", &doc, &doc), s.orderItem(1, s.material)); err != nil {
 				t.Fatal(err)
 			}
-			failsOn(t, exec(tx, st.sql, st.args...), "stock_transport_order_fixed")
+			if err := exec(tx, c.st.sql, c.st.args...); strings.Contains(c.want, " ") {
+				failsWith(t, err, c.want)
+			} else {
+				failsOn(t, err, c.want)
+			}
 		})
 	}
 }
