@@ -15224,7 +15224,7 @@ step_stock_transport() {
   say "An order to the plant it comes from is refused:"
   refused 422 inventory.same_location createStockTransportOrder -body "{\"supplying_plant_id\": \"$PLANT\", \"receiving_plant_id\": \"$PLANT\",
       \"items\": [{\"material_id\": \"$washer\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"supplying_storage_location_id\": \"$MAIN_STORE\",
-      \"receiving_storage_location_id\": \"$store\"}]}"
+      \"receiving_storage_location_id\": \"$MAIN_STORE\"}]}"
   as wade
   say "Wade posts its goods issue at the version he reads: one material document of 351, the line into Montreal in transit:"
   QUIET=1 api 200 '' getStockTransportOrder -p "id=$order"
