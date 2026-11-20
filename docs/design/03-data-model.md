@@ -6760,7 +6760,7 @@ erDiagram
   `material_document_reference`, widened NOT VALID and validated by
   000417). `inventory.movement.in_transit`: the line moves stock in transit
   to its storage location of its plant, the receiving one, rather than the
-  stock at that location. `inventory.transit_stock` (SAP MARC's UMLMC,
+  stock at that location. `inventory.transit_stock` (SAP MARC's TRAME, from memory,
   here per storage location received at): as `inventory.stock`, a row of
   no quantity written before its first movement
   (`transit_stock_from_movements`), once per material, plant and storage

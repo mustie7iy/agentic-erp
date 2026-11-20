@@ -107,12 +107,14 @@ type TransportOrder struct {
 	UpdatedBy                          uuid.UUID
 }
 
-// movement is the order's items as inventory moves them.
+// movement is the order's items as inventory moves them: their base
+// quantities, as converted when the order was created, once it has them.
 func (o TransportOrder) movement() []inventory.TransportItem {
 	out := make([]inventory.TransportItem, len(o.Items))
 	for i, it := range o.Items {
 		out[i] = inventory.TransportItem{MaterialID: it.MaterialID, SupplyingPlantID: o.SupplyingPlantID, SupplyingStorageLocation: it.SupplyingStorageLocationID,
-			ReceivingPlantID: o.ReceivingPlantID, ReceivingStorageLocation: it.ReceivingStorageLocationID, Quantity: it.Quantity, Unit: it.Unit}
+			ReceivingPlantID: o.ReceivingPlantID, ReceivingStorageLocation: it.ReceivingStorageLocationID, Quantity: it.Quantity, Unit: it.Unit,
+			BaseQuantity: it.BaseQuantity}
 	}
 	return out
 }
@@ -349,10 +351,9 @@ func (e *Endpoints) recordTransport(ctx context.Context, action string, o Transp
 		items[i] = map[string]any{"item_no": it.ItemNo, "material_id": it.MaterialID, "quantity": it.Quantity, "unit": it.Unit, "base_quantity": it.BaseQuantity,
 			"supplying_storage_location_id": it.SupplyingStorageLocationID, "receiving_storage_location_id": it.ReceivingStorageLocationID}
 	}
-	if err := audit.Record(ctx, action, "procurement.stock_transport_order", o.ID, map[string]any{"number": o.Number, "legal_entity_id": o.LegalEntityID,
+	// audit.Record without events only adds to the unit of work's buffer,
+	// which every request has; its error names the action.
+	return audit.Record(ctx, action, "procurement.stock_transport_order", o.ID, map[string]any{"number": o.Number, "legal_entity_id": o.LegalEntityID,
 		"supplying_plant_id": o.SupplyingPlantID, "receiving_plant_id": o.ReceivingPlantID, "status": o.Status, "items": items,
-		"issue_document_number": o.IssueDocumentNumber, "receipt_document_number": o.ReceiptDocumentNumber}); err != nil {
-		return fmt.Errorf("procurement: record %s of stock transport order %s: %w", action, o.Number, err)
-	}
-	return nil
+		"issue_document_number": o.IssueDocumentNumber, "receipt_document_number": o.ReceiptDocumentNumber})
 }

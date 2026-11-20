@@ -26016,7 +26016,7 @@ paths:
       tags:
         - procurement
       summary: List stock transport orders
-      description: "The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as `getStockTransportOrder` gives it, the latest first. Filtered by company, supplying or receiving plant and status. Sortable by: `created_at`."
+      description: "The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as `getStockTransportOrder` gives it, the latest first. Filtered by company, number, supplying or receiving plant and status. Sortable by: `created_at`."
       x-permission: procurement.stock_transport.read
       x-problem-codes:
         - request.invalid_order_by
@@ -26024,6 +26024,13 @@ paths:
         - request.invalid_page_token
       parameters:
         - $ref: "#/components/parameters/LegalEntityId"
+        - name: number
+          in: query
+          required: false
+          description: "Only the order with this number, as a material document's `reference` names it (each company numbers its own, so `legal_entity_id` narrows it to one)."
+          schema:
+            type: string
+            maxLength: 40
         - name: plant_id
           in: query
           required: false
@@ -64518,7 +64525,7 @@ components:
         journal_entry_id: {type: string, format: uuid, description: "The journal entry that posted its value (`GET /v1/journal-entries/{id}`); absent when it moved none.", readOnly: true}
         journal_entry_year: {type: integer, format: int32, description: "That entry's fiscal year; absent with it.", readOnly: true}
         journal_entry_number: {type: string, description: "That entry's document number; absent with it.", readOnly: true}
-        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number` (`GET /v1/stock-transport-orders`); it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on every other document.", readOnly: true}
+        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number` (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on every other document.", readOnly: true}
         lines:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocumentLine"}

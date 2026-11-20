@@ -3,10 +3,12 @@ package inventory_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
@@ -208,19 +210,21 @@ func TestStockTransportReceiptRefused(t *testing.T) {
 			map[string]any{"plant_id": e.p2, "storage_location_ids": []any{e.s3}}, map[string]any{"plant_id": e.p3, "storage_location_ids": []any{e.s4}}}}), "")
 	e.Approve(t, m["pending_change_id"].(string))
 	us := m["id"].(string)
-	item := inventory.TransportItem{MaterialID: uuid.MustParse(e.bracket), ReceivingPlantID: e.p2, ReceivingStorageLocation: e.s3, Quantity: "1", Unit: "EA"}
+	item := inventory.TransportItem{MaterialID: uuid.MustParse(e.bracket), ReceivingPlantID: e.p2, ReceivingStorageLocation: e.s3, Quantity: "1", Unit: "EA",
+		BaseQuantity: "1"}
 	for _, c := range []struct {
 		name, code string
 		items      []inventory.TransportItem
 	}{
 		{"an unknown material", "inventory.material_invalid", []inventory.TransportItem{{MaterialID: uuid.New(), ReceivingPlantID: e.p2,
+			ReceivingStorageLocation: e.s3, Quantity: "1", Unit: "EA", BaseQuantity: "1"}}},
+		{"no base quantity", "inventory.invalid_quantity", []inventory.TransportItem{{MaterialID: item.MaterialID, ReceivingPlantID: e.p2,
 			ReceivingStorageLocation: e.s3, Quantity: "1", Unit: "EA"}}},
-		{"an inexact quantity", "inventory.inexact_quantity", []inventory.TransportItem{{MaterialID: item.MaterialID, ReceivingPlantID: e.p2,
-			ReceivingStorageLocation: e.s3, Quantity: "1", Unit: "KG"}}},
 		{"a storage location of another plant", "inventory.storage_location_invalid", []inventory.TransportItem{{MaterialID: item.MaterialID,
-			ReceivingPlantID: e.p2, ReceivingStorageLocation: e.s1, Quantity: "1", Unit: "EA"}}},
+			ReceivingPlantID: e.p2, ReceivingStorageLocation: e.s1, Quantity: "1", Unit: "EA", BaseQuantity: "1"}}},
 		{"two companies", "inventory.mixed_companies", []inventory.TransportItem{item, {MaterialID: uuid.MustParse(us), ReceivingPlantID: e.p3,
-			ReceivingStorageLocation: e.s4, Quantity: "1", Unit: "EA"}}},
+			ReceivingStorageLocation: e.s4, Quantity: "1", Unit: "EA", BaseQuantity: "1"}}},
+		{"more than is in transit", "inventory.insufficient_stock", []inventory.TransportItem{item}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			err := e.inRequest(t, func(ctx context.Context) error {
@@ -229,6 +233,64 @@ func TestStockTransportReceiptRefused(t *testing.T) {
 			})
 			if p := problem.From(err); p.Code != c.code {
 				t.Errorf("got %v, want %s", err, c.code)
+			}
+		})
+	}
+	t.Run("named in transit", func(t *testing.T) {
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ReceiveForTransport(ctx, "TO1", []inventory.TransportItem{item})
+			return err
+		})
+		if p := problem.From(err); !strings.Contains(p.Detail, "0 EA in transit to plant P2 storage location S3") {
+			t.Errorf("got %q, want it to name the stock in transit", p.Detail)
+		}
+	})
+	for name, call := range map[string]func() error{
+		"issue": func() error {
+			_, err := h.IssueForTransport(context.Background(), "TO1", []inventory.TransportItem{item})
+			return err
+		},
+		"receipt": func() error {
+			_, err := h.ReceiveForTransport(context.Background(), "TO1", []inventory.TransportItem{item})
+			return err
+		},
+	} {
+		t.Run(name+" outside a unit of work", func(t *testing.T) {
+			if err := call(); err == nil {
+				t.Error("got nil error, want an error")
+			}
+		})
+	}
+}
+
+// TestStockTransportUnitChanged: an order moves the base quantity it was
+// created with: a factor of its unit changed after the issue leaves the
+// receipt taking out of transit what the issue put in.
+func TestStockTransportUnitChanged(t *testing.T) {
+	e := setupWith(t, transportPerms...)
+	e.post(t, "561", e.item("40", "EA", nil))
+	issued := e.step(t, e.transport(t, e.transportItem(e.bracket, "1", "BOX", nil)), "postGoodsIssue")
+	_, tag := e.Must(200, "GET", "/v1/materials/"+e.bracket, "", "")
+	c, _ := e.Must(200, "PATCH", "/v1/materials/"+e.bracket, mustJSON(t, map[string]any{"reason": "Boxes of ten now",
+		"alternative_units": []any{map[string]any{"unit": "BOX", "numerator": 10, "denominator": 1}}}), tag)
+	e.Approve(t, c["pending_change_id"].(string))
+	received := e.step(t, issued, "postGoodsReceipt")
+	receipt, _ := e.Must(200, "GET", docs+"/"+received["receipt_document_id"].(string), "", "")
+	if got := e.lines(t, receipt) + "|" + e.stock(t, e.s3, "") + "|" + e.transit(t); got != "P2:S3 -20 EA (1 BOX); P2:S3 20 EA (1 BOX)|20 EA|0" {
+		t.Errorf("the receipt after the factor changed: got %s", got)
+	}
+}
+
+// TestStockTransportConstraints: the database's refusals the orders
+// register answer with their problems (the application refuses both
+// first).
+func TestStockTransportConstraints(t *testing.T) {
+	for constraint, want := range map[string]string{"transit_stock_not_negative": "409 inventory.insufficient_stock",
+		"stock_transport_order_item_material_once": "422 procurement.stock_transport_material_repeated"} {
+		t.Run(constraint, func(t *testing.T) {
+			p := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: constraint})
+			if got := fmt.Sprint(p.Status, " ", p.Code); got != want {
+				t.Errorf("got %s, want %s", got, want)
 			}
 		})
 	}
@@ -280,6 +342,7 @@ func TestListStockTransportOrders(t *testing.T) {
 		{"?status=open", fmt.Sprint(first["number"])},
 		{"?plant_id=" + e.p2.String() + "&legal_entity_id=" + e.DE.String(), fmt.Sprint(second["number"], " ", first["number"])},
 		{"?plant_id=" + e.p3.String(), ""},
+		{"?number=" + first["number"].(string), fmt.Sprint(first["number"])},
 	} {
 		t.Run(c.query, func(t *testing.T) {
 			page, _ := e.Must(200, "GET", transports+c.query, "", "")
@@ -292,6 +355,13 @@ func TestListStockTransportOrders(t *testing.T) {
 			}
 		})
 	}
+	t.Run("pages", func(t *testing.T) {
+		page, _ := e.Must(200, "GET", transports+"?page_size=1", "", "")
+		next, _ := e.Must(200, "GET", transports+"?page_size=1&page_token="+page["next_page_token"].(string), "", "")
+		if got := fmt.Sprint(rows(t, page, "items")[0]["number"], " ", rows(t, next, "items")[0]["number"]); got != fmt.Sprint(second["number"], " ", first["number"]) {
+			t.Errorf("two pages: got %s", got)
+		}
+	})
 }
 
 // TestStockTransportDatabaseFailures: every database error of the orders'

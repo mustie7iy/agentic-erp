@@ -102111,8 +102111,8 @@ func (s *Server) handleListStockRequest(args [0]string, argsEscaped bool, w http
 // handleListStockTransportOrdersRequest handles listStockTransportOrders operation.
 //
 // The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as
-// `getStockTransportOrder` gives it, the latest first. Filtered by company, supplying or receiving
-// plant and status. Sortable by: `created_at`.
+// `getStockTransportOrder` gives it, the latest first. Filtered by company, number, supplying or
+// receiving plant and status. Sortable by: `created_at`.
 //
 // GET /v1/stock-transport-orders
 func (s *Server) handleListStockTransportOrdersRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -102257,6 +102257,10 @@ func (s *Server) handleListStockTransportOrdersRequest(args [0]string, argsEscap
 					Name: "legal_entity_id",
 					In:   "query",
 				}: params.LegalEntityID,
+				{
+					Name: "number",
+					In:   "query",
+				}: params.Number,
 				{
 					Name: "plant_id",
 					In:   "query",

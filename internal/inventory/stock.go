@@ -145,10 +145,13 @@ func lockRows(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.U
 // quantities.
 func (r refs) shortage(k stockKey, have, move *big.Rat) error {
 	m := r.materials[k.material]
-	takes := new(big.Rat).Neg(move)
-	return problem.Conflict("inventory.insufficient_stock", fmt.Sprintf("Material %s %s has %s %s at %s when the document's line takes %s, "+
+	takes, where := new(big.Rat).Neg(move), "at "+r.where(k)
+	if k.transit {
+		where = r.where(k)
+	}
+	return problem.Conflict("inventory.insufficient_stock", fmt.Sprintf("Material %s %s has %s %s %s when the document's line takes %s, "+
 		"more than that.",
-		m.Number, m.Description, money.PlainQuantity(have), m.BaseUnit, r.where(k), money.PlainQuantity(takes)))
+		m.Number, m.Description, money.PlainQuantity(have), m.BaseUnit, where, money.PlainQuantity(takes)))
 }
 
 // where names a stock's location by its plant's and storage location's

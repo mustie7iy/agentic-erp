@@ -8241,8 +8241,8 @@ func (UnimplementedHandler) ListStock(ctx context.Context, params ListStockParam
 // ListStockTransportOrders implements listStockTransportOrders operation.
 //
 // The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as
-// `getStockTransportOrder` gives it, the latest first. Filtered by company, supplying or receiving
-// plant and status. Sortable by: `created_at`.
+// `getStockTransportOrder` gives it, the latest first. Filtered by company, number, supplying or
+// receiving plant and status. Sortable by: `created_at`.
 //
 // GET /v1/stock-transport-orders
 func (UnimplementedHandler) ListStockTransportOrders(ctx context.Context, params ListStockTransportOrdersParams) (r ListStockTransportOrdersRes, _ error) {

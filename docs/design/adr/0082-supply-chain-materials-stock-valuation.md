@@ -1114,6 +1114,13 @@ reads a location's stock without a lock for shipping's picking.
   order's 101. A material blocked since the issue is still received (its
   stock is the company's already); a count of the receiving location
   blocks it.
+- **The base quantity is fixed at creation** (review round 1): the order
+  keeps each item's quantity in the base unit as converted then, and its
+  goods issue and receipt move exactly that (`TransportItem.BaseQuantity`),
+  the lines showing the unit ordered: an alternative unit's factor a
+  material change sets or removes since moves nothing else, so the
+  receipt takes out of transit what the issue put in
+  (`TestStockTransportUnitChanged`).
 - **The order moves whole** (`open`, `in_transit`, `received`), one goods
   issue of every item and then one goods receipt, each step under the
   order's row lock and `If-Match`, guarded by the status and version read
@@ -1130,7 +1137,8 @@ reads a location's stock without a lock for shipping's picking.
 - **Stock in transit is no location's stock**: `GET /v1/stock` (now and
   as at a day) leaves its lines out; the order's items answer what is in
   transit (`in_transit_quantity`), and a material document's lines which
-  are in transit.
+  are in transit. A document's `reference` finds its order through
+  `GET /v1/stock-transport-orders?number=` (review round 1).
 - Walkthrough step 146, `step_stock_transport`.
 - **Not built** (Later, plan §S2h): partial issues and receipts,
   reversals (352, 102), cancelling an open order, a delivery between the

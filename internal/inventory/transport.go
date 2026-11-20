@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -41,11 +42,18 @@ var transportReceipt = movementType{name: "Goods receipt for a stock transport o
 // TransportItem is an item of a stock transport order's goods issue or
 // receipt: a positive quantity of a material in one of its units, from a
 // storage location of the supplying plant to one of the receiving plant.
+// BaseQuantity is the order's quantity in the material's base unit, as it
+// was converted when the order was created: the goods issue and receipt
+// move exactly that, whatever an alternative unit's factor is since (a
+// material change may change or remove it), so the receipt takes out of
+// transit what the issue put in; Quantity and Unit are what each
+// document's lines show as entered. TransportQuantities, which converts
+// it, takes none.
 type TransportItem struct {
 	MaterialID                                 uuid.UUID
 	SupplyingPlantID, SupplyingStorageLocation uuid.UUID
 	ReceivingPlantID, ReceivingStorageLocation uuid.UUID
-	Quantity, Unit                             string
+	Quantity, Unit, BaseQuantity               string
 }
 
 // IssueForTransport posts a stock transport order's goods issue (351) as
@@ -61,11 +69,15 @@ type TransportItem struct {
 // one WA entry between the classes' stock accounts. The audit record and
 // MaterialDocumentPosted are written in the request's transaction.
 func (e *Endpoints) IssueForTransport(ctx context.Context, reference string, in []TransportItem) (Document, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Document{}, err
+	}
 	company, lines, items, r, err := e.issueLines(ctx, in)
 	if err != nil {
 		return Document{}, err
 	}
-	return e.postTransport(ctx, posting{movementType: "351", reference: &reference, lines: lines, items: items}, company, r)
+	return e.postTransport(ctx, tx, p, posting{movementType: "351", reference: &reference, lines: lines, items: items}, company, r)
 }
 
 // TransportQuantities checks a stock transport order's items as its goods
@@ -89,7 +101,8 @@ func (e *Endpoints) TransportQuantities(ctx context.Context, in []TransportItem)
 // issueLines are the lines of a stock transport order's goods issue, each
 // item checked as a transfer between plants (301) is: its issue from the
 // supplying storage location, then its receipt in transit to the
-// receiving one.
+// receiving one. An item with its base quantity moves that, in the base
+// unit, and its lines show the quantity and unit it was ordered in.
 func (e *Endpoints) issueLines(ctx context.Context, in []TransportItem) (uuid.UUID, []Line, []ItemInput, refs, error) {
 	items := make([]ItemInput, len(in))
 	for i, it := range in {
@@ -100,11 +113,18 @@ func (e *Endpoints) issueLines(ctx context.Context, in []TransportItem) (uuid.UU
 	if err != nil {
 		return uuid.Nil, nil, nil, refs{}, err
 	}
+	for i, it := range in {
+		if m, ok := r.materials[it.MaterialID]; ok && it.BaseQuantity != "" {
+			items[i].Quantity, items[i].Unit = it.BaseQuantity, m.BaseUnit
+		}
+	}
 	company, lines, err := e.items(items, movementTypes["351"], r)
 	if err != nil {
 		return uuid.Nil, nil, nil, refs{}, err
 	}
 	for i := range lines {
+		it := in[lines[i].ItemNo-1]
+		lines[i].EntryQuantity, lines[i].EntryUnit = it.Quantity, it.Unit
 		lines[i].InTransit = money.ParseRat(lines[i].Quantity).Sign() > 0 // each item's receiving line
 	}
 	return company, lines, items, r, nil
@@ -112,14 +132,18 @@ func (e *Endpoints) issueLines(ctx context.Context, in []TransportItem) (uuid.UU
 
 // ReceiveForTransport posts a stock transport order's goods receipt (101)
 // as a material document in the request's transaction, its reference the
-// order's number: each item's quantity, converted to the base unit
-// exactly, leaves the stock in transit to its receiving storage location
+// order's number: each item's base quantity, what its goods issue put in
+// transit, leaves the stock in transit to its receiving storage location
 // (409 inventory.insufficient_stock when less is in transit) and enters
 // that location's stock, the location active and the material kept
 // there; a material blocked since the issue is still received, as its
 // stock is the company's already. Within the receiving plant's valuation
 // it moves no value and posts nothing.
 func (e *Endpoints) ReceiveForTransport(ctx context.Context, reference string, in []TransportItem) (Document, error) {
+	tx, p, err := reqctx.Request(ctx)
+	if err != nil {
+		return Document{}, err
+	}
 	items := make([]ItemInput, len(in))
 	for i, it := range in {
 		items[i] = ItemInput{MaterialID: it.MaterialID, PlantID: it.ReceivingPlantID, StorageLocationID: it.ReceivingStorageLocation, Quantity: it.Quantity,
@@ -129,20 +153,16 @@ func (e *Endpoints) ReceiveForTransport(ctx context.Context, reference string, i
 	if err != nil {
 		return Document{}, err
 	}
-	company, lines, err := receiptLines(items, r)
+	company, lines, err := receiptLines(in, items, r)
 	if err != nil {
 		return Document{}, err
 	}
-	return e.postTransport(ctx, posting{movementType: "101", reference: &reference, lines: lines, items: items, kind: &transportReceipt}, company, r)
+	return e.postTransport(ctx, tx, p, posting{movementType: "101", reference: &reference, lines: lines, items: items, kind: &transportReceipt}, company, r)
 }
 
 // postTransport posts a stock transport order's document on its
 // company's date today and records it.
-func (e *Endpoints) postTransport(ctx context.Context, in posting, company uuid.UUID, r refs) (Document, error) {
-	tx, p, err := reqctx.Request(ctx)
-	if err != nil {
-		return Document{}, err
-	}
+func (e *Endpoints) postTransport(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in posting, company uuid.UUID, r refs) (Document, error) {
 	c, err := e.companyOf(ctx, company)
 	if err != nil {
 		return Document{}, err
@@ -156,9 +176,9 @@ func (e *Endpoints) postTransport(ctx context.Context, in posting, company uuid.
 }
 
 // receiptLines are the lines of a stock transport order's goods receipt:
-// for each item, the stock in transit to its storage location taken out
-// and then put into the location, both at the receiving plant.
-func receiptLines(items []ItemInput, r refs) (uuid.UUID, []Line, error) {
+// for each item, its base quantity in transit to its storage location
+// taken out and then put into the location, both at the receiving plant.
+func receiptLines(in []TransportItem, items []ItemInput, r refs) (uuid.UUID, []Line, error) {
 	var company uuid.UUID
 	var lines []Line
 	for i, it := range items {
@@ -176,7 +196,7 @@ func receiptLines(items []ItemInput, r refs) (uuid.UUID, []Line, error) {
 				"A material document moves the stock of one company; this plant is of another than the items before it.")
 		}
 		company = c
-		base, err := baseQuantity(at+"quantity", m, it.Quantity, it.Unit)
+		base, err := baseQuantity(at+"quantity", m, in[i].BaseQuantity, m.BaseUnit)
 		if err != nil {
 			return uuid.Nil, nil, err
 		}
@@ -191,7 +211,10 @@ func receiptLines(items []ItemInput, r refs) (uuid.UUID, []Line, error) {
 }
 
 // transport says the document moves stock in transit: a stock transport
-// order's goods issue or receipt.
+// order's goods issue or receipt. The in_transit lines are the only mark
+// of it a 101 carries (a purchase order's 101 has none), so a document is
+// told by them alone; every line a transport document posts with a line in
+// transit beside it (issueLines, receiptLines).
 func (d Document) transport() bool {
 	return slices.ContainsFunc(d.Lines, func(l Line) bool { return l.InTransit })
 }

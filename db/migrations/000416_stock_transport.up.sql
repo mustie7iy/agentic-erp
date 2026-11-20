@@ -1,5 +1,5 @@
 -- Stock transport orders within a company (S2h; ADR-0082 As built S2h;
--- 03-data-model §3.9, §3.35). A planner orders a material from a storage
+-- 03-data-model §3.8, §3.35). A planner orders a material from a storage
 -- location of one plant to one of another plant of the same company
 -- (SAP's stock transport order, purchasing document type UB, from
 -- memory). Its goods issue (351) takes the stock out of the supplying
@@ -23,7 +23,7 @@
 -- of its plant, the receiving one.
 ALTER TABLE inventory.movement ADD COLUMN in_transit boolean NOT NULL DEFAULT false;
 
--- Stock in transit to a storage location of a plant (SAP MARC's UMLMC,
+-- Stock in transit to a storage location of a plant (SAP MARC's TRAME, from memory,
 -- here per storage location received at), in the material's base unit,
 -- with the plant's company. As inventory.stock: the application writes a
 -- row with no quantity before its first movement and locks it; only its

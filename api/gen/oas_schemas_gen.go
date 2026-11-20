@@ -69281,7 +69281,7 @@ type MaterialDocument struct {
 	// the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods
 	// sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods
 	// issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number`
-	// (`GET /v1/stock-transport-orders`); it is not reversed yet (409
+	// (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409
 	// `inventory.reverse_stock_transport`). Absent on every other document.
 	Reference OptString `json:"reference"`
 	// Its lines, in line order.

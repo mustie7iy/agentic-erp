@@ -150,14 +150,14 @@ var transportSort = pagination.Sort{Default: "created_at", DefaultDesc: true,
 
 // ListStockTransportOrders implements GET /v1/stock-transport-orders: the
 // orders of the companies the caller may act in, the latest first,
-// filtered by company, a plant they are from or to, and status.
+// filtered by company, number, a plant they are from or to, and status.
 func (e *Endpoints) ListStockTransportOrders(ctx context.Context, params gen.ListStockTransportOrdersParams) (gen.ListStockTransportOrdersRes, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	le, plant := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.PlantID)
-	scope := fmt.Sprintf("listStockTransportOrders|%s|%s|%s", le, plant, params.Status.Value)
+	scope := fmt.Sprintf("listStockTransportOrders|%s|%s|%s|%s", le, plant, params.Status.Value, params.Number.Value)
 	ks, err := e.Pages.Keyset(transportSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("procurement: page of stock transport orders: %w", err)
@@ -169,8 +169,9 @@ func (e *Endpoints) ListStockTransportOrders(ctx context.Context, params gen.Lis
 	// The orders' columns have names of their own, so the page's condition
 	// and order name them.
 	query, args := ks.SQL(`SELECT * FROM (`+transportSelect+` WHERE ($1 OR o.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR o.legal_entity_id = $3)
-			AND ($4::uuid IS NULL OR $4 IN (o.supplying_plant_id, o.receiving_plant_id)) AND ($5 = '' OR o.status = $5)) x WHERE true`,
-		[]any{a.All, a.IDs, le, plant, params.Status.Value})
+			AND ($4::uuid IS NULL OR $4 IN (o.supplying_plant_id, o.receiving_plant_id)) AND ($5 = '' OR o.status = $5) AND ($6 = '' OR o.number = $6)) x
+			WHERE true`,
+		[]any{a.All, a.IDs, le, plant, params.Status.Value, params.Number.Value})
 	rows, _ := tx.Query(ctx, query, args...)
 	os, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (TransportOrder, error) { return scanTransport(r) })
 	if err != nil {

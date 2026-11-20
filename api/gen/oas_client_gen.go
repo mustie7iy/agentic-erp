@@ -6790,8 +6790,8 @@ type Invoker interface {
 	// ListStockTransportOrders invokes listStockTransportOrders operation.
 	//
 	// The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as
-	// `getStockTransportOrder` gives it, the latest first. Filtered by company, supplying or receiving
-	// plant and status. Sortable by: `created_at`.
+	// `getStockTransportOrder` gives it, the latest first. Filtered by company, number, supplying or
+	// receiving plant and status. Sortable by: `created_at`.
 	//
 	// GET /v1/stock-transport-orders
 	ListStockTransportOrders(ctx context.Context, params ListStockTransportOrdersParams) (ListStockTransportOrdersRes, error)
@@ -97120,8 +97120,8 @@ func (c *Client) sendListStock(ctx context.Context, params ListStockParams) (res
 // ListStockTransportOrders invokes listStockTransportOrders operation.
 //
 // The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as
-// `getStockTransportOrder` gives it, the latest first. Filtered by company, supplying or receiving
-// plant and status. Sortable by: `created_at`.
+// `getStockTransportOrder` gives it, the latest first. Filtered by company, number, supplying or
+// receiving plant and status. Sortable by: `created_at`.
 //
 // GET /v1/stock-transport-orders
 func (c *Client) ListStockTransportOrders(ctx context.Context, params ListStockTransportOrdersParams) (ListStockTransportOrdersRes, error) {
@@ -97183,6 +97183,23 @@ func (c *Client) sendListStockTransportOrders(ctx context.Context, params ListSt
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.LegalEntityID.Get(); ok {
 				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Number.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
 		}); err != nil {
