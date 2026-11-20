@@ -1250,7 +1250,11 @@ default:
   each line's emirate; until it can, the UAE company's standard-rated
   sales e-invoiced here are customer invoices entered in receivables. The
   walkthrough therefore renders a customer invoice and a credit memo, not
-  a billing document.
+  a billing document. (Closed in batch 85: ADR-0067 As built, the emirate
+  on a sales item; step 146 renders a billing document's customer invoice
+  as a valid 380. E2 needed no change: it renders the parties' emirates
+  from their addresses and the VAT by category from the invoice's tax
+  items.)
 - **The walkthrough.** `step_einvoice_render` (step 145, after E1's
   `step_evatra_inbound` and before `step_close`): Ada gives 5000 a customer reconciliation account and its
   postal address in Dubai (one governed change); Ruth creates a UAE

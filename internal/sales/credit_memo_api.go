@@ -65,7 +65,7 @@ func creditAPI(r CreditMemoRequest, refs references) gen.CreditMemoRequest {
 		item := gen.CreditMemoRequestItem{ItemNo: it.ItemNo, BillingItemNo: it.BillingItemNo, OrderItemNo: it.OrderItemNo,
 			ItemKey: apitypes.OptString(it.ItemKey), Description: it.Description, BilledQuantity: gen.Quantity{Value: it.BilledQuantity, Unit: it.Unit},
 			BilledAmount: amount(it.Billed), NetAmount: amount(it.Net), AccountID: it.AccountID, AccountNumber: account.Number,
-			AccountName: account.Name, TaxCode: apitypes.OptString(it.TaxCode)}
+			AccountName: account.Name, TaxCode: apitypes.OptString(it.TaxCode), TaxJurisdiction: apitypes.OptString(it.TaxJurisdiction)}
 		if it.Quantity != nil {
 			item.Quantity.SetTo(gen.Quantity{Value: *it.Quantity, Unit: it.Unit})
 		}

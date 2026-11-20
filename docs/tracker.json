@@ -2845,9 +2845,9 @@
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
           "t": "UAE emirate on sales items and billing documents: a sales document's item carries the emirate of its supply, so a UAE billing document can bill the standard-rated code S5 (which levies each line's emirate) instead of being refused sales.tax_jurisdiction_not_supported, and E2 renders the billing document's customer invoice; until then E2 renders only customer invoices and credit memos entered in receivables (batch 85)",
-          "r": "ADR-0061 As built E2 (Gaps found) · ADR-0049 · T75 · coordinator plan einvoicing-evatra E2",
+          "r": "migration 000416 (sales.quotation_item.tax_jurisdiction, sales.sales_order_item.tax_jurisdiction) · ledger.TaxCode.RefuseItemJurisdiction · sales.tax_jurisdiction_required, sales.tax_jurisdiction_not_levied · TestSalesItemJurisdiction · TestBillingJurisdictionRechecked · TestSalesItemJurisdictionRules · walkthrough step_einvoice_billing (step 146) · ADR-0067 As built (The emirate on a sales item) · ADR-0061 As built E2 (Gaps found, closed) · ADR-0063 As built (The emirate on the item) · ADR-0049 §7 As built",
           "src": "review:batch84",
           "c": []
          },

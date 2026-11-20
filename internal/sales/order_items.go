@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -104,7 +105,7 @@ func (e *Endpoints) changeCheck(ctx context.Context, tx pgx.Tx, o Order, le tena
 	if err != nil {
 		return itemCheck{}, err
 	}
-	return itemCheck{e: e, tx: tx, doc: doc, units: units, materials: ms, accounts: map[uuid.UUID]bool{}, codes: map[string]bool{}}, nil
+	return itemCheck{e: e, tx: tx, doc: doc, units: units, materials: ms, accounts: map[uuid.UUID]bool{}, codes: map[string]ledger.TaxCode{}}, nil
 }
 
 // removeItems removes the items the request names (T78e), each once and

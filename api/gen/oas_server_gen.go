@@ -631,17 +631,18 @@ type Handler interface {
 	// one without takes its item key's price record valid on the order's date (`price_list`, T80a), and
 	// one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`).
 	// The currency is the one printed, else the company's. Every item takes the revenue account
-	// (`account_id`) and output tax code (`tax_code`) of the request, which a document does not name;
-	// their refusals name those fields. What an order created by hand refuses is refused alike. The order
-	// is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read
-	// (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives
-	// one order: the same upload captured again into the same company answers the same order; into another
-	// company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take
-	// longer than a synchronous answer, so this returns an Operation, completed within the request, whose
-	// `resource` is the order and whose `result` names it with any warning (a confidence below high).
-	// Audited and published as SalesOrderChanged, as an order created by hand. Human-only
-	// (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with
-	// `createSalesOrderUpload`, which asks the same permission.
+	// (`account_id`), output tax code (`tax_code`) and tax jurisdiction (`tax_jurisdiction`) of the
+	// request, which a document does not name; their refusals name those fields. What an order created by
+	// hand refuses is refused alike. The order is always a `draft`, numbered and dated as
+	// `createSalesOrder` makes one, and keeps what capture read (`capture`); a person checks and confirms
+	// it (`:confirm`); capture never confirms. One upload gives one order: the same upload captured again
+	// into the same company answers the same order; into another company it is refused as used (422
+	// `payables.upload_used`), naming no order. Extraction can take longer than a synchronous answer, so
+	// this returns an Operation, completed within the request, whose `resource` is the order and whose
+	// `result` names it with any warning (a confidence below high). Audited and published as
+	// SalesOrderChanged, as an order created by hand. Human-only (`x-agent: false`): an agent or a service
+	// cannot capture an order. The upload is started with `createSalesOrderUpload`, which asks the same
+	// permission.
 	//
 	// POST /v1/sales-orders:capture
 	CaptureSalesOrder(ctx context.Context, req *SalesOrderCaptureRequest, params CaptureSalesOrderParams) (CaptureSalesOrderRes, error)
@@ -683,11 +684,12 @@ type Handler interface {
 	// the unit price given, in the order's currency, with its price unit; what is not given stays. A
 	// changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the
 	// order's date: an entered price stays entered, an item priced from the price records takes the record
-	// valid on that date again, with the pricing procedure's discounts; its account and tax code are
-	// checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's
-	// quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
-	// `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
-	// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
+	// valid on that date again, with the pricing procedure's discounts; its account, tax code and tax
+	// jurisdiction, which stay, are checked again on that date (422 `sales.account_not_postable`,
+	// `sales.unknown_tax_code`, `sales.tax_jurisdiction_required`, `sales.tax_jurisdiction_not_levied`).
+	// An item's quantity is never below what is delivered of it (422 `sales.quantity_below_delivered`
+	// naming `items[i].quantity.value`), and an item of which something is billed keeps its quantity and
+	// price (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
 	// (`cancelBillingDocument`). A confirmed order's revenue contract (`getRevenueContract`) follows the
 	// change by itself, shortly after it (ADR-0068, As built T81e). `requested_delivery_date` is on or
 	// after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. From T78e a
@@ -2440,12 +2442,13 @@ type Handler interface {
 	// price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
 	// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
 	// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
-	// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies
-	// the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales
-	// document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is
-	// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
-	// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or
-	// `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
+	// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code
+	// that levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is
+	// levied in, `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or
+	// none, 422 `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's
+	// `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's
+	// minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`,
+	// or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
 	// their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`),
 	// each discount of the procedure recorded for the item's key and valid on the quotation's date, the
 	// customer's before the general one, is taken off an item priced from the price records, in the

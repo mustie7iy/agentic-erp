@@ -17278,6 +17278,10 @@ type BillingDocumentItem struct {
 	AccountName string `json:"account_name"`
 	// The item's output tax code; absent: it bears no tax.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`), as entered; absent unless
+	// its tax code levies its lines' subdivision. A billing document's item has its order item's, which
+	// the customer invoice it posts names.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// The number of the sales order's item this item bills.
 	OrderItemNo int32 `json:"order_item_no"`
 	// The net amount credited of the item by the credit memo requests posted against it
@@ -17353,6 +17357,11 @@ func (s *BillingDocumentItem) GetAccountName() string {
 // GetTaxCode returns the value of TaxCode.
 func (s *BillingDocumentItem) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *BillingDocumentItem) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
 }
 
 // GetOrderItemNo returns the value of OrderItemNo.
@@ -17433,6 +17442,11 @@ func (s *BillingDocumentItem) SetAccountName(val string) {
 // SetTaxCode sets the value of TaxCode.
 func (s *BillingDocumentItem) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *BillingDocumentItem) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
 }
 
 // SetOrderItemNo sets the value of OrderItemNo.
@@ -37413,6 +37427,9 @@ type CreditMemoRequestItem struct {
 	// The billing item's output tax code, which the credit memo's tax is calculated with; absent when the
 	// item has none.
 	TaxCode OptString `json:"tax_code"`
+	// The sales order item's province or emirate (ISO 3166-2, `AE-DU`), which the credit memo's item
+	// names; absent unless its tax code levies its lines' subdivision.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -37480,6 +37497,11 @@ func (s *CreditMemoRequestItem) GetTaxCode() OptString {
 	return s.TaxCode
 }
 
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *CreditMemoRequestItem) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *CreditMemoRequestItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -37543,6 +37565,11 @@ func (s *CreditMemoRequestItem) SetAccountName(val string) {
 // SetTaxCode sets the value of TaxCode.
 func (s *CreditMemoRequestItem) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *CreditMemoRequestItem) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
 }
 
 // An amount credited of one item of the billing document.
@@ -108164,6 +108191,10 @@ type SalesItem struct {
 	AccountName string `json:"account_name"`
 	// The item's output tax code; absent: it bears no tax.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`), as entered; absent unless
+	// its tax code levies its lines' subdivision. A billing document's item has its order item's, which
+	// the customer invoice it posts names.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -108236,6 +108267,11 @@ func (s *SalesItem) GetTaxCode() OptString {
 	return s.TaxCode
 }
 
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *SalesItem) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *SalesItem) SetItemNo(val int32) {
 	s.ItemNo = val
@@ -108306,6 +108342,11 @@ func (s *SalesItem) SetTaxCode(val OptString) {
 	s.TaxCode = val
 }
 
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *SalesItem) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
+}
+
 // An item of a quotation or a sales order to create (ADR-0067 §3): a quantity of what is sold at a
 // unit price, entered with it or taken from the company's price records by its item key (§10), with
 // the revenue account and output tax code its billing posts with.
@@ -108343,6 +108384,14 @@ type SalesItemCreate struct {
 	// An output tax code of the company with a rate in force on the document's date; absent: the item
 	// bears no tax. The tax is calculated when the item is billed.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`; ADR-0049 §7, ADR-0067 As
+	// built, the emirate on a sales item): for a UAE sale, the emirate the VAT 201's boxes 1a-1g report it
+	// in. Required with a tax code whose component levies its lines' subdivision (the UAE's `S5`; 422
+	// `sales.tax_jurisdiction_required`), a subdivision of that component's country and, where the
+	// component lists the subdivisions it accepts, one of them; with any other code, or none, it is
+	// refused (422 `sales.tax_jurisdiction_not_levied`). Both name `items[i].tax_jurisdiction`. It is
+	// entered, not derived from an address. The customer invoice its billing posts names it on the item.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 }
 
 // GetItemKey returns the value of ItemKey.
@@ -108385,6 +108434,11 @@ func (s *SalesItemCreate) GetTaxCode() OptString {
 	return s.TaxCode
 }
 
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *SalesItemCreate) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
+}
+
 // SetItemKey sets the value of ItemKey.
 func (s *SalesItemCreate) SetItemKey(val OptString) {
 	s.ItemKey = val
@@ -108423,6 +108477,11 @@ func (s *SalesItemCreate) SetAccountID(val uuid.UUID) {
 // SetTaxCode sets the value of TaxCode.
 func (s *SalesItemCreate) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *SalesItemCreate) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
 }
 
 // Merged schema.
@@ -108842,6 +108901,11 @@ type SalesOrderCaptureRequest struct {
 	// The output tax code every item is billed with: an output tax code of the company in force on the
 	// order's date (422 `sales.unknown_tax_code`); absent, the items have none.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate every item's tax is levied in (ISO 3166-2, `AE-DU`; `SalesItemCreate`'s
+	// `tax_jurisdiction`): required with a `tax_code` that levies its lines' subdivision (422
+	// `sales.tax_jurisdiction_required`), refused with any other code or none (422
+	// `sales.tax_jurisdiction_not_levied`); both name `tax_jurisdiction`.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -108864,6 +108928,11 @@ func (s *SalesOrderCaptureRequest) GetTaxCode() OptString {
 	return s.TaxCode
 }
 
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *SalesOrderCaptureRequest) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *SalesOrderCaptureRequest) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -108882,6 +108951,11 @@ func (s *SalesOrderCaptureRequest) SetAccountID(val uuid.UUID) {
 // SetTaxCode sets the value of TaxCode.
 func (s *SalesOrderCaptureRequest) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *SalesOrderCaptureRequest) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
 }
 
 // What order capture read into the order (ADR-0067, As built T90a); absent for an order created by
@@ -109679,6 +109753,10 @@ type SalesOrderItem struct {
 	AccountName string `json:"account_name"`
 	// The item's output tax code; absent: it bears no tax.
 	TaxCode OptString `json:"tax_code"`
+	// The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`), as entered; absent unless
+	// its tax code levies its lines' subdivision. A billing document's item has its order item's, which
+	// the customer invoice it posts names.
+	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// The quantity delivered so far, confirmed (`confirmSalesDelivery`) or, for a material kept in stock,
 	// issued by an outbound delivery's goods issue (S2b1), in the item's unit; with `in_delivery_quantity`
 	// at most `quantity`, the quantity ordered, and what is open for delivery is the difference.
@@ -109767,6 +109845,11 @@ func (s *SalesOrderItem) GetAccountName() string {
 // GetTaxCode returns the value of TaxCode.
 func (s *SalesOrderItem) GetTaxCode() OptString {
 	return s.TaxCode
+}
+
+// GetTaxJurisdiction returns the value of TaxJurisdiction.
+func (s *SalesOrderItem) GetTaxJurisdiction() OptString {
+	return s.TaxJurisdiction
 }
 
 // GetDeliveredQuantity returns the value of DeliveredQuantity.
@@ -109862,6 +109945,11 @@ func (s *SalesOrderItem) SetAccountName(val string) {
 // SetTaxCode sets the value of TaxCode.
 func (s *SalesOrderItem) SetTaxCode(val OptString) {
 	s.TaxCode = val
+}
+
+// SetTaxJurisdiction sets the value of TaxJurisdiction.
+func (s *SalesOrderItem) SetTaxJurisdiction(val OptString) {
+	s.TaxJurisdiction = val
 }
 
 // SetDeliveredQuantity sets the value of DeliveredQuantity.

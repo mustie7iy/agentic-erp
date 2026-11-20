@@ -340,12 +340,12 @@ func planItems(o Order, in []ItemChangeInput) ([]itemPlan, error) {
 }
 
 // changedInput is the item as it is to be checked and priced again: what
-// it names, its unit, account and tax code as they are, the quantity
+// it names, its unit, account, tax code and jurisdiction as they are, the quantity
 // given else its own, and the price given, else its own entered price,
 // else none, so the price records give it again.
 func changedInput(it Item, ch ItemChangeInput, currency string, exp int) ItemInput {
 	in := ItemInput{ItemKey: it.ItemKey, MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, AccountID: it.AccountID,
-		TaxCode: it.TaxCode, Kept: true}
+		TaxCode: it.TaxCode, TaxJurisdiction: it.TaxJurisdiction, Kept: true}
 	if ch.Quantity != nil {
 		in.Quantity = *ch.Quantity
 	}

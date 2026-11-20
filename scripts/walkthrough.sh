@@ -15174,6 +15174,80 @@ step_einvoice_render() {
   passed
 }
 
+# step_einvoice_billing is the emirate on a sales item (ADR-0067 As built,
+# the emirate on a sales item; review:batch84): the UAE company sells
+# through sales orders and bills them, its standard-rated code S5 levying
+# each item's emirate. Sally orders desks for step 145's Dubai customer;
+# an S5 item without its emirate is refused naming the field, with
+# AE-DU it is ordered. She confirms the delivery, Ruth bills it and posts
+# the billing document: its customer invoice's item names AE-DU and the
+# entry's revenue and tax lines carry it, so the VAT 201 reads the sale
+# in Dubai. The invoice renders as a valid PINT AE tax invoice 380 (E2).
+step_einvoice_billing() {
+  heading "Step 146 — A UAE sales order billed under S5: each item names its emirate, the billing document posts a customer invoice whose item and entry lines carry it, rendered as a valid PINT AE tax invoice 380"
+  local ae day customer sales order doc invoice entry rendered number
+  as sally
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  day=$(ZONE=Asia/Dubai company_day)
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Desert Rose"
+  customer=$(field '.items[0].id')
+  [ -n "$customer" ] || fail "step 145's customer Desert Rose Retail is not there"
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  sales=$(field '.items[] | select(.number == "4000") | .id')
+  say "Desert Rose Retail orders twenty desks from $AE. The UAE's standard-rated code S5 levies the tax of the emirate"
+  say "each item names (one code for every emirate, the VAT 201's boxes 1a-1g), so an item without one is refused:"
+  local item="{\"item_key\": \"DESK-160\", \"description\": \"Office desk 160 cm\", \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"1500.00\", \"currency\": \"AED\"}, \"account_id\": \"$sales\", \"tax_code\": \"S5\""
+  refused 422 sales.tax_jurisdiction_required createSalesOrder \
+    -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"currency\": \"AED\", \"items\": [$item}]}"
+  expect "the refused field" "$(field '.errors[0].field')" "items[0].tax_jurisdiction"
+  say "Sally names Dubai, the emirate the sale is reported in, which the order item keeps:"
+  api 201 '"sales order \(.document_number) of \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.description): \(.tax_code) in \(.tax_jurisdiction)")' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"currency\": \"AED\", \"items\": [$item, \"tax_jurisdiction\": \"AE-DU\"}]}"
+  order=$(field .id)
+  expect "the order item's emirate" "$(field '.items[0].tax_jurisdiction')" AE-DU
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  if [ "$(field .credit_block)" = blocked ]; then
+    local tag=$ETAG
+    as ruth
+    say "Desert Rose has no credit limit in $AE; Ruth releases the block:"
+    api 200 '"sales order \(.document_number): credit block \(.credit_block)"' releaseSalesOrderCreditBlock -p "id=$order" -if-match "$tag"
+    as sally
+  fi
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)"' \
+    confirmSalesDelivery -p "id=$order" -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}]}"
+  as ruth
+  say "Ruth bills the delivery; the billing document's item is the order item's, its emirate too:"
+  api 201 '"billing document \(.document_number) of \(.sales_order_number): net \(.net_amount.amount) \(.currency)", (.items[] | "  item \(.item_no): \(.tax_code) in \(.tax_jurisdiction)")' \
+    createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  doc=$(field .id)
+  expect "the billing item's emirate" "$(field '.items[0].tax_jurisdiction')" AE-DU
+  api 200 '"billing document \(.document_number): \(.status) on \(.posting_date) as customer invoice \(.customer_invoice_number)"' \
+    postBillingDocument -p "id=$doc" -if-match "$ETAG"
+  invoice=$(field .customer_invoice_id)
+  number=$(field .customer_invoice_number)
+  say "Its customer invoice bears 5% VAT and names Dubai on the item; the entry's revenue and tax lines carry it, where the"
+  say "VAT 201's box 1b reads the sale:"
+  api 200 '"customer invoice \(.document_number): net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)", (.items[] | "  item \(.item_no): \(.tax_code) in \(.tax_jurisdiction)")' \
+    getCustomerInvoice -p "id=$invoice"
+  expect "the invoice" "$(field '"\(.status) \(.tax_amount.amount) \(.gross_amount.amount) \(.items[0].tax_jurisdiction)"')" "posted 1500.00 31500.00 AE-DU"
+  entry=$(field .journal_entry_id)
+  api 200 '.lines[] | select(.tax_jurisdiction) | "  line \(.line_no): \(.amount.amount) \(.amount.currency) \(.tax_code) in \(.tax_jurisdiction)"' getJournalEntry -p "id=$entry"
+  expect "the lines in Dubai" "$(field '[.lines[] | select(.tax_jurisdiction == "AE-DU") | .amount.amount] | join(" ")')" "-30000.00 -1500.00"
+  say "She renders it as its e-invoice: a valid PINT AE tax invoice 380 with its VAT at 5%:"
+  api 201 '"e-invoice \(.type_code) \(.kind) of \(.customer_invoice_number): \(.status), \(.problems | length) problems, gross \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    createOutgoingEInvoice -body "{\"customer_invoice_id\": \"$invoice\"}"
+  expect "the e-invoice" "$(field '"\(.status) \(.type_code) \(.customer_invoice_number) \(.gross_amount.amount)"')" "valid 380 $number 31500.00"
+  rendered=$(field .id)
+  api 200 '' getOutgoingEInvoiceContent -p "id=$rendered" -out "$WORK/einvoice-billing.xml"
+  for want in '<cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>' "<cbc:ID>$number</cbc:ID>" '<cbc:TaxAmount currencyID="AED">1500.00</cbc:TaxAmount>' \
+    '<cbc:CountrySubentity>DXB</cbc:CountrySubentity>'; do
+    grep -qF "$want" "$WORK/einvoice-billing.xml" || fail "the billing document's e-invoice lacks $want"
+    say "  $want"
+  done
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -17204,7 +17278,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_billing step_close'
 
 main() {
   stop_unseen

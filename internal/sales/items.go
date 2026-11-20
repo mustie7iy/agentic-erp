@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/materials"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -39,6 +40,10 @@ type ItemInput struct {
 	PriceUnit int32
 	AccountID uuid.UUID
 	TaxCode   *string
+	// TaxJurisdiction is the subdivision the item's tax is levied in (the
+	// emirate of a UAE sale, AE-DU), named exactly where its tax code
+	// levies its lines' subdivision (outputCode).
+	TaxJurisdiction *string
 	// Kept is an order item an order change keeps (changedInput): its
 	// material stays, whatever its status since.
 	Kept bool
@@ -48,7 +53,8 @@ type ItemInput struct {
 // quantity (a decimal string with up to six decimals) and unit, its unit
 // price per price unit and its net value in minor units of the document's
 // currency, where the price came from (Manual or PriceList), and the
-// revenue account and output tax code its billing posts with.
+// revenue account, output tax code and tax jurisdiction its billing posts
+// with.
 type Item struct {
 	ItemNo      int32       `json:"item_no"`
 	ItemKey     *string     `json:"item_key"`
@@ -65,6 +71,10 @@ type Item struct {
 	Net        money.Minor `json:"net_amount"`
 	AccountID  uuid.UUID   `json:"account_id"`
 	TaxCode    *string     `json:"tax_code"`
+	// TaxJurisdiction is the subdivision its tax is levied in, nil but
+	// with a code that levies its lines' subdivision (ADR-0067 As built,
+	// the emirate on a sales item).
+	TaxJurisdiction *string `json:"tax_jurisdiction"`
 }
 
 // document is what a sales document's items are checked and priced
@@ -113,7 +123,7 @@ func (e *Endpoints) items(ctx context.Context, tx pgx.Tx, doc document, in []Ite
 	if err != nil {
 		return nil, 0, err
 	}
-	check := itemCheck{e: e, tx: tx, doc: doc, units: units, materials: ms, accounts: map[uuid.UUID]bool{}, codes: map[string]bool{}}
+	check := itemCheck{e: e, tx: tx, doc: doc, units: units, materials: ms, accounts: map[uuid.UUID]bool{}, codes: map[string]ledger.TaxCode{}}
 	items, nets := make([]Item, len(in)), make([]money.Minor, len(in))
 	for i, it := range in {
 		if items[i], err = check.item(ctx, i, it); err != nil {
@@ -151,8 +161,8 @@ type itemCheck struct {
 	doc       document
 	units     map[string]bool
 	materials map[uuid.UUID]materials.Material
-	accounts  map[uuid.UUID]bool // postable in the company
-	codes     map[string]bool    // output tax codes in force on the document's date
+	accounts  map[uuid.UUID]bool        // postable in the company
+	codes     map[string]ledger.TaxCode // output tax codes in force on the document's date
 }
 
 // item checks and prices item i.
@@ -179,13 +189,12 @@ func (c itemCheck) item(ctx context.Context, i int, it ItemInput) (Item, error) 
 	if err := c.account(ctx, i, it.AccountID); err != nil {
 		return Item{}, err
 	}
-	if it.TaxCode != nil {
-		if err := c.outputCode(ctx, i, *it.TaxCode); err != nil {
-			return Item{}, err
-		}
+	if err := c.tax(ctx, i, it); err != nil {
+		return Item{}, err
 	}
 	return Item{ItemNo: int32(i + 1), ItemKey: it.ItemKey, MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
-		UnitPrice: p.UnitPrice, PriceUnit: p.PriceUnit, PriceSource: p.Source, Conditions: p.Conditions, Net: p.Net, AccountID: it.AccountID, TaxCode: it.TaxCode}, nil
+		UnitPrice: p.UnitPrice, PriceUnit: p.PriceUnit, PriceSource: p.Source, Conditions: p.Conditions, Net: p.Net, AccountID: it.AccountID, TaxCode: it.TaxCode,
+		TaxJurisdiction: it.TaxJurisdiction}, nil
 }
 
 // namesWhatIsSold refuses an item whose description, or whose item key
@@ -223,35 +232,51 @@ func (c itemCheck) account(ctx context.Context, i int, id uuid.UUID) error {
 	return nil
 }
 
-// outputCode requires item i's tax code to be an output tax code of the
-// company with a rate in force on the document's date (422
-// sales.unknown_tax_code naming the item's field). A code whose component
-// levies the subdivision its lines name (one code for every emirate,
-// ADR-0049 §7) is refused: a sales document's item names no
-// jurisdiction, as a customer invoice's can (ADR-0063 §4 As built), so
-// it could never be billed. The tax
-// itself is calculated when the item is billed (ADR-0067 §3).
-func (c itemCheck) outputCode(ctx context.Context, i int, code string) error {
-	if c.codes[code] {
-		return nil
-	}
-	field := fmt.Sprintf("items[%d].tax_code", i)
-	t, ok, err := c.e.Accounts.TaxCode(ctx, c.doc.le.ID, code, c.doc.date)
-	if err != nil {
-		return fmt.Errorf("sales: tax code %s of item %d: %w", code, i+1, err)
-	}
-	if !ok || t.Direction != config.TaxOutput {
-		return problem.Invalid("sales.unknown_tax_code", field,
-			"Tax code "+code+" is not an output tax code of the legal entity on "+c.doc.date.Format(time.DateOnly)+".")
-	}
-	for _, component := range t.Components {
-		if component.JurisdictionOnLine {
-			return problem.Invalid("sales.tax_jurisdiction_not_supported", field,
-				"Tax code "+code+" levies the tax of the subdivision each line names; a sales document's items name none.")
+// tax holds item i's tax code, when it names one, to the company's
+// output codes (outputCode) and its tax jurisdiction to that code, the
+// zero code for an item without one (ledger.TaxCode.RefuseItemJurisdiction;
+// ADR-0049 §7, ADR-0067 As built, the emirate on a sales item): a code
+// whose component levies the subdivision its lines name (one code for
+// every emirate) needs the item's (422 sales.tax_jurisdiction_required),
+// a subdivision of the component's country and, where the component lists
+// those it accepts, one of them; an item of any other code, or of none,
+// names none (422 sales.tax_jurisdiction_not_levied). Each names
+// items[i].tax_jurisdiction. The jurisdiction is the one entered: nothing
+// in the configuration says which establishment makes a sale, which the
+// VAT 201 reads it by (ADR-0063 As built, decided by default 2).
+func (c itemCheck) tax(ctx context.Context, i int, it ItemInput) error {
+	var code ledger.TaxCode // the zero code: an item without one
+	if it.TaxCode != nil {
+		var err error
+		if code, err = c.outputCode(ctx, i, *it.TaxCode); err != nil {
+			return err
 		}
 	}
-	c.codes[code] = true
+	if err := code.RefuseItemJurisdiction(it.TaxJurisdiction, fmt.Sprintf("items[%d].tax_jurisdiction", i),
+		"sales.tax_jurisdiction_required", "sales.tax_jurisdiction_not_levied"); err != nil {
+		return fmt.Errorf("sales: jurisdiction of item %d: %w", i+1, err)
+	}
 	return nil
+}
+
+// outputCode requires item i's tax code to be an output tax code of the
+// company with a rate in force on the document's date (422
+// sales.unknown_tax_code naming the item's field) and returns it. The
+// tax itself is calculated when the item is billed (ADR-0067 §3).
+func (c itemCheck) outputCode(ctx context.Context, i int, code string) (ledger.TaxCode, error) {
+	if t, ok := c.codes[code]; ok {
+		return t, nil
+	}
+	t, ok, err := c.e.Accounts.TaxCode(ctx, c.doc.le.ID, code, c.doc.date)
+	if err != nil {
+		return ledger.TaxCode{}, fmt.Errorf("sales: tax code %s of item %d: %w", code, i+1, err)
+	}
+	if !ok || t.Direction != config.TaxOutput {
+		return ledger.TaxCode{}, problem.Invalid("sales.unknown_tax_code", fmt.Sprintf("items[%d].tax_code", i),
+			"Tax code "+code+" is not an output tax code of the legal entity on "+c.doc.date.Format(time.DateOnly)+".")
+	}
+	c.codes[code] = t
+	return t, nil
 }
 
 // insertItems writes a new document's items; table is an item table of
@@ -263,18 +288,18 @@ func insertItems(ctx context.Context, tx pgx.Tx, table, column string, tenant, d
 	nos, keys, descriptions, quantities, units := make([]int32, n), make([]*string, n), make([]string, n), make([]string, n), make([]string, n)
 	mats := make([]*uuid.UUID, n)
 	prices, priceUnits, nets, accounts, codes := make([]money.Minor, n), make([]int32, n), make([]money.Minor, n), make([]uuid.UUID, n), make([]*string, n)
-	sources, conditions := make([]string, n), make([][]Condition, n)
+	sources, conditions, jurisdictions := make([]string, n), make([][]Condition, n), make([]*string, n)
 	for i, it := range items {
 		nos[i], keys[i], descriptions[i], quantities[i], units[i] = it.ItemNo, it.ItemKey, it.Description, it.Quantity, it.Unit
 		prices[i], priceUnits[i], nets[i], accounts[i], codes[i] = it.UnitPrice, it.PriceUnit, it.Net, it.AccountID, it.TaxCode
-		sources[i], conditions[i], mats[i] = it.PriceSource, it.Conditions, it.MaterialID
+		sources[i], conditions[i], mats[i], jurisdictions[i] = it.PriceSource, it.Conditions, it.MaterialID, it.TaxJurisdiction
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO `+pgx.Identifier{"sales", table}.Sanitize()+` (tenant_id, `+pgx.Identifier{column}.Sanitize()+`, item_no, item_key,
-			description, quantity, uom_code, unit_price, price_unit, net_amount, account_id, tax_code, price_source, conditions, material_id)
-		SELECT $1, $2, n, k, d, q::numeric, u, p, pu, na, ac, tc, ps, coalesce(nullif($14::jsonb -> (ord::int - 1), 'null'), '[]'), m
+			description, quantity, uom_code, unit_price, price_unit, net_amount, account_id, tax_code, price_source, conditions, material_id, tax_jurisdiction)
+		SELECT $1, $2, n, k, d, q::numeric, u, p, pu, na, ac, tc, ps, coalesce(nullif($14::jsonb -> (ord::int - 1), 'null'), '[]'), m, tj
 		FROM unnest($3::int[], $4::text[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::bigint[], $11::uuid[], $12::text[],
-			$13::text[], $15::uuid[]) WITH ORDINALITY AS x(n, k, d, q, u, p, pu, na, ac, tc, ps, m, ord)`,
-		tenant, doc, nos, keys, descriptions, quantities, units, prices, priceUnits, nets, accounts, codes, sources, conditions, mats); err != nil {
+			$13::text[], $15::uuid[], $16::text[]) WITH ORDINALITY AS x(n, k, d, q, u, p, pu, na, ac, tc, ps, m, tj, ord)`,
+		tenant, doc, nos, keys, descriptions, quantities, units, prices, priceUnits, nets, accounts, codes, sources, conditions, mats, jurisdictions); err != nil {
 		return fmt.Errorf("sales: write items of sales.%s %s: %w", table, doc, err)
 	}
 	return nil
@@ -288,6 +313,7 @@ func insertItems(ctx context.Context, tx pgx.Tx, table, column string, tenant, d
 func itemsJSON(table, column, doc, extra string) string {
 	return `coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'item_key', t.item_key, 'material_id', t.material_id, 'description', t.description,
 			'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'unit_price', t.unit_price, 'price_unit', t.price_unit,
-			'price_source', t.price_source, 'conditions', t.conditions, 'net_amount', t.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code` + extra + `) ORDER BY t.item_no)
+			'price_source', t.price_source, 'conditions', t.conditions, 'net_amount', t.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code,
+			'tax_jurisdiction', t.tax_jurisdiction` + extra + `) ORDER BY t.item_no)
 		 FROM ` + pgx.Identifier{"sales", table}.Sanitize() + ` t WHERE t.tenant_id = ` + doc + `.tenant_id AND t.` + pgx.Identifier{column}.Sanitize() + ` = ` + doc + `.id), '[]')`
 }
