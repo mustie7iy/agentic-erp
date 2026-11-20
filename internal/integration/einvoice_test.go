@@ -258,4 +258,6 @@ func TestEInvoiceProviders(t *testing.T) {
 // downVault is a vault that cannot be reached.
 type downVault struct{}
 
-func (downVault) Resolve(context.Context, string) (string, error) { return "", errors.New("vault down") }
+func (downVault) Resolve(context.Context, string) (string, error) {
+	return "", errors.New("vault down")
+}
