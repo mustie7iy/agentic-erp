@@ -193,7 +193,7 @@ type Provider interface {
     Acknowledge(ctx context.Context, id string) error
     // Send gives the provider one rendered document, as it is archived
     // (§9), and answers the provider's tracking id; Status reads what the
-    // provider reports of it since. Signatures only: E3 builds them.
+    // provider reports of it since (built in E3, As built E3).
     Send(ctx context.Context, d Outgoing) (Submission, error)
     Status(ctx context.Context, trackingID string) (Report, error)
 }
@@ -214,8 +214,9 @@ type Provider interface {
   logging in once again on a 401; lists received documents
   (`POST /invoice/search-documents`, `documentType` INCOMING) and reads
   one (`GET /invoice/get-document/{id}/XML`, Base64); acknowledges
-  locally. Sending (`POST /invoice/send-document-async`) and statuses
-  (`GET /invoice/document-status/{trackingId}`) are E3's.
+  locally; sends (`POST /invoice/send-document-async`), looks a document
+  up (`POST /invoice/document-process/search`) and reads its status
+  (`GET /invoice/document-status/{trackingId}`) (E3, As built E3).
 - **Production refuses the stand-in**: creating or enabling an
   `einvoice_provider` connector whose adapter is `standin` there answers
   422 `integration.adapter_not_certified`, as EBICS is refused until
@@ -588,6 +589,7 @@ E1-E4 under T65h):
 |---|---|---|
 | `einvoicing.einvoice.read` | list and read e-invoices; `/content` is `x-agent: false` | AP clerks, controllers; agents (fields only) |
 | `einvoicing.einvoice.manage` | `:fetch`, `:retry`, `:link` (with `payables.invoice.read`), `:dismiss` | AP clerks; people and integrations, never agents (`x-autonomy: none`) |
+| `einvoicing.outgoing.send` | `:send` an outgoing e-invoice to the accredited provider (As built E3) | people only, never agents (`x-agent: false`); given to no role, as E2's |
 | `tax.audit_file.generate` | generate an audit file | tax accountants; people only |
 | `tax.audit_file.read` | read and download audit files | tax accountants, controllers; people only |
 
@@ -1261,3 +1263,116 @@ default:
   unchanged; a credit memo's render without its reason is refused, with
   one it is a valid 381 naming the invoice; both are listed for the
   company.
+
+### E3: sending (po:2026-11-19, plan einvoicing-evatra.md)
+
+Built as §9 for sending: migration 000416 (`einvoicing.outgoing_submission`,
+the permission `einvoicing.outgoing.send`, given to no role as E2's),
+`POST /v1/outgoing-e-invoices/{id}:send` (`sendOutgoingEInvoice`,
+human-only, an Operation of kind `einvoicing.send`), the e-invoice's
+`transmission`, the list's `transmission_status` filter,
+`GET /v1/e-invoice-transmission-deadlines`
+(`listEInvoiceTransmissionDeadlines`), the event
+OutgoingEInvoiceTransmissionChanged, the audit records
+`einvoicing.outgoing.send` (the person's request) and
+`einvoicing.outgoing.transmission` (each change the sender makes), the
+workflow `SendEInvoice` and, in a cell without a workflow engine, the
+in-process `EInvoiceSender`. The port's `Send` and `Status` are built
+(§3); the stand-in's own protocol sends nothing (`NoSending`: 422
+`einvoicing.adapter_cannot_send`), and Evatra's emulation
+(`einvoicetest.Evatra`, the walkthrough's `providerstub -evatra-outbox`)
+answers the three calls below. Decided by default:
+
+- **The outbox.** The request reads the valid e-invoice FOR UPDATE (two
+  sends of it wait for each other), resolves the connector into its
+  adapter without a call and checks that it names the company's
+  participant, and writes in its transaction the submission (`queued`),
+  the Operation (its resource the e-invoice), the audit record and the
+  event: the submission is the outbox of the call (ADR-0007), which the
+  workflow makes after that commit. One submission per e-invoice
+  (`outgoing_submission_once`); a failed one is queued again in its row by
+  a person's new send, with a new Operation; a completed one is final (409
+  `einvoicing.already_transmitted`; a correction is a credit note), one in
+  progress refused (409 `einvoicing.transmission_in_progress`).
+- **One step, idempotent.** The workflow repeats one activity,
+  `AdvanceSubmission`, and sleeps as long as it answers (a timer, so the
+  workflow stays deterministic), continuing as new after 1,000 steps; the
+  in-process sender runs the same step each round for every send still
+  queued whose step is due. A step reads the submission and prepares its
+  call with no transaction open (the connector's secret resolved, the XML
+  read from the store and compared with its SHA-256): a failure of the
+  machinery there changes nothing. Then, under the row's lock, it claims a
+  due send (`sending`, the call counted in `attempts`, held three call
+  timeouts), commits, calls Evatra with no transaction open, and records
+  the answer in a third transaction only if the row is at the version the
+  claim wrote; a step run twice records nothing twice, and a claim whose
+  outcome never came (the worker stopped) lapses and is claimed again.
+- **The duplicate guard.** Evatra has no idempotency key (plan default 4):
+  every call after the first (`look_up`, set by the first claim, by a
+  resend after SENDING_FAILED and by a person's new send) first asks
+  `POST /invoice/document-process/search` (`companyId`, `direction`
+  OUTGOING, `filename` the e-invoice's number, `pageNumber` 0) and takes a
+  submission found whose status is not SENDING_FAILED, FAILED or
+  PERMANENT_FAILED and whose tracking id is not among those Evatra failed
+  to send (`failed_tracking_ids`), instead of sending again.
+- **The send.** `POST /invoice/send-document-async` with `compId` (the
+  connector's `company_id`), `base64Document` (the XML as kept, Base64),
+  `invoiceType` UAE_PINT, `businessType` as asked (B2B or B2G; B2C is
+  outside the mandate) and `invoiceSource` ERP; the answer's `trackingId`
+  is recorded (`submitted`), its `status` read as PENDING when it has none
+  of the form. A 4xx other than 401 and 429 is Evatra refusing the
+  document (`einvoicing.send_refused`, failed at once); anything else is
+  tried again after 1, 5, 15 and 60 minutes, and the fifth failure fails it
+  (`einvoicing.provider_unavailable`). A connector or XML refused since the
+  request (disabled, its secret not Evatra's, the bytes not their hash)
+  fails it with that problem, no call made.
+- **The status.** `GET /invoice/document-status/{trackingId}`, its
+  `status` read, first 30 seconds after the submission and then doubling
+  to an hour (plan default 3): COMPLETED completes it (the Operation
+  succeeds, its resource the e-invoice); FAILED and PERMANENT_FAILED fail
+  it (`einvoicing.provider_failed`, `einvoicing.permanent_failure`);
+  SENDING_FAILED queues it to be sent again at once, looked up first, up
+  to three times (`resends`), the fourth failing it
+  (`einvoicing.sending_failed`); any other status, or a read that failed,
+  is read again, and 500 reads (about three weeks at the hour) without an
+  end fail it (`einvoicing.status_unconfirmed`). A failed submission fails
+  its Operation with the same problem; the failed ones are the worklist
+  `listOutgoingEInvoices?transmission_status=failed`, which a person
+  sends again once corrected.
+- **Audit and events.** Every change of the submission's status or of
+  Evatra's status writes `einvoicing.outgoing.transmission` and
+  OutgoingEInvoiceTransmissionChanged, as the system principal
+  `einvoicing.Sender`; a status read that finds nothing new writes
+  neither. No content and no TRN in either.
+- **The 14 business days** (plan default 9; MoF Guidelines v2.0 as the
+  plan cites them): `listEInvoiceTransmissionDeadlines` lists a UAE
+  company's posted customer invoices and credit memos (receivables'
+  `IssuedInvoices`; a reversed document and a debit memo are not listed)
+  issued from `issued_from` (default 90 days before the key date, at most
+  366) through the key date whose e-invoice is not `completed`: none
+  rendered, invalid, or not completed at Evatra; each with its deadline,
+  the 14th business day of the company's calendar after its issue date
+  (its weekend, by default Saturday and Sunday, and holidays, ADR-0058 §3;
+  the context reads the calendar through a `Settings` port, `internal/layout`
+  allowing it `config` as closing's), the business days left on the key
+  date (negative once overdue), its e-invoice's and transmission's status,
+  ordered by deadline, with the totals of every row, paged in memory.
+- **Agents** never send (§13): the operation is `x-agent: false`.
+- **The walkthrough.** `step_einvoice_send` (step 146, after
+  `step_einvoice_render`, before `step_close`): Ruth sends the tax
+  invoice through the Evatra connector, which completes, Evatra holding
+  its bytes; the credit note, which Evatra's stand-in fails to send once
+  and then reports PERMANENT_FAILED, is sent again (looked up first) and
+  fails onto the worklist; the deadlines worklist lists it and not the
+  invoice.
+- **For the specialist and Evatra (not in Evatra's docs as read):** the
+  answer forms of `send-document-async` (`trackingId`, `status` assumed),
+  `document-status` (`status`) and `document-process/search` (a page of
+  `content`, each with `trackingId`, `status` and `filename`, assumed);
+  which filename Evatra files a `base64Document` under (the plan says our
+  document number; the adapter sends none, and the stand-in takes the
+  XML's IBT-001); whether FAILED differs from PERMANENT_FAILED for a
+  resend; Evatra's limits on send and status calls; whether the 14
+  business days count UAE public holidays (the company's calendar is
+  used) and whether a reversed invoice still needs its e-invoice (not
+  listed here).

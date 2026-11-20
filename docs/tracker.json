@@ -2852,9 +2852,9 @@
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
           "t": "E3 Sending: the outbox to a submission row written before the call, then Evatra's POST /invoice/send-document-async (base64Document, invoiceType UAE_PINT, businessType B2B or B2G, invoiceSource ERP); the port's Send and Status; status by polling GET /invoice/document-status/{trackingId} in a workflow per submission with backoff; after a lost answer the document looked up (document-process/search by filename) before any resend; resend of SENDING_FAILED, PERMANENT_FAILED to a worklist; a worklist of billing documents not transmitted within 14 business days of the UAE company's calendar; walkthrough step_einvoice_send",
-          "r": "ADR-0061 §3, §9 · coordinator plan einvoicing-evatra E3, defaults 3, 4, 9",
+          "r": "migration 000416 · einvoicing.outgoing_submission · sendOutgoingEInvoice · listEInvoiceTransmissionDeadlines · listOutgoingEInvoices transmission_status · OutgoingEInvoiceTransmissionChanged · einvoicing.AdvanceSubmission · einvoicing.Evatra Send, Status · workflow SendEInvoice · workflows.EInvoiceSender · receivables.IssuedInvoices · einvoicetest.Evatra send-document-async, document-status, document-process/search · walkthrough step_einvoice_send (step 146) · ADR-0061 §3, §9, §11 and As built E3 · coordinator plan einvoicing-evatra E3, defaults 3, 4, 9",
           "src": "po:2026-11-19",
           "c": []
          },
