@@ -51,12 +51,14 @@ type EInvoiceFailure struct {
 
 // EInvoiceCounts are what a fetch found: the messages it recorded, those
 // recorded by an earlier fetch, those recorded before that it found with
-// other bytes, and the documents its processing refused (T65c).
+// other bytes, the documents its processing refused, and the connector's
+// documents still waiting to be processed (T65c).
 type EInvoiceCounts struct {
 	Recorded        int `json:"recorded"`
 	AlreadyRecorded int `json:"already_recorded"`
 	Changed         int `json:"changed"`
 	Refused         int `json:"refused"`
+	Waiting         int `json:"waiting"`
 }
 
 // Within runs fn in one transaction of the fetch's tenant as its
@@ -79,9 +81,16 @@ type EInvoices interface {
 	QueueEInvoiceFetch(ctx context.Context, operation, connector uuid.UUID, workflowID string) error
 	PendingEInvoices(ctx context.Context, connector uuid.UUID, in Within) ([]EInvoiceMessage, error)
 	RecordEInvoice(ctx context.Context, connector, operation uuid.UUID, m EInvoiceMessage, in Within) (string, error)
-	ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in Within) (int, error)
+	ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in Within) (EInvoiceProcessed, error)
 	FinishEInvoiceFetch(ctx context.Context, operation uuid.UUID, counts EInvoiceCounts, failed []EInvoiceFailure) error
 	FailEInvoiceFetch(ctx context.Context, operation uuid.UUID, why *problem.Problem) error
+}
+
+// EInvoiceProcessed is what a fetch's processing found: the documents it
+// refused and the connector's documents still waiting to be processed.
+type EInvoiceProcessed struct {
+	Refused int `json:"refused"`
+	Waiting int `json:"waiting"`
 }
 
 // EInvoiceFetchInput names the fetch a FetchEInvoices workflow carries out.
@@ -134,7 +143,7 @@ func ScheduledEInvoiceFetchInput(tenant, connector uuid.UUID, period time.Time) 
 type fetchSteps struct {
 	pending func() ([]EInvoiceMessage, error)
 	record  func(m EInvoiceMessage) (string, error)
-	process func() (int, error)
+	process func() (EInvoiceProcessed, error)
 	finish  func(counts EInvoiceCounts, failed []EInvoiceFailure) error
 	fail    func(why problem.Problem) error
 }
@@ -166,8 +175,8 @@ func unprocessed() problem.Problem {
 // naming it with the code that stopped it. It then processes the
 // connector's documents not processed yet (T65c), every one recorded so
 // far, whether or not this fetch recorded it; a failure there fails the
-// fetch as unprocessed, after the step's tries, or with the problem that
-// refused the connector since. A business problem listing them (the
+// fetch as unprocessed, after the step's tries, or with its problem: the
+// connector refused since, or stored bytes gone (einvoicing.document_changed). A business problem listing them (the
 // connector refused since the fetch was queued) fails the fetch with it;
 // any other error fails it as unlisted and is returned, so the workflow
 // fails with it for the operators. In a workflow it only sequences the
@@ -195,14 +204,14 @@ func (s fetchSteps) run() error {
 			counts.AlreadyRecorded++
 		}
 	}
-	refused, err := s.process()
-	if why, ok := problemOf(err); ok { // the connector refused since the fetch began
+	processed, err := s.process()
+	if why, ok := problemOf(err); ok { // the connector refused since the fetch began, or stored bytes gone (einvoicing.document_changed)
 		return s.fail(why)
 	}
 	if err != nil {
 		return errors.Join(err, s.fail(unprocessed()))
 	}
-	counts.Refused = refused
+	counts.Refused, counts.Waiting = processed.Refused, processed.Waiting
 	if err := s.finish(counts, failed); err != nil {
 		return err
 	}
@@ -248,13 +257,13 @@ func FetchEInvoices(ctx workflow.Context, in EInvoiceFetchInput) error {
 			err := perform(ctx, in.TenantID, &outcome, a.RecordEInvoice, in, m)
 			return outcome, err
 		},
-		process: func() (int, error) {
+		process: func() (EInvoiceProcessed, error) {
+			var processed EInvoiceProcessed
 			if workflow.GetVersion(ctx, "einvoice-process", workflow.DefaultVersion, processedFetch) == workflow.DefaultVersion {
-				return 0, nil // a fetch started before T65c finishes as it began; the next fetch processes its documents
+				return processed, nil // a fetch started before T65c finishes as it began; the next fetch processes its documents
 			}
-			var refused int
-			err := perform(ctx, in.TenantID, &refused, a.ProcessEInvoices, in)
-			return refused, err
+			err := perform(ctx, in.TenantID, &processed, a.ProcessEInvoices, in)
+			return processed, err
 		},
 		finish: func(counts EInvoiceCounts, failed []EInvoiceFailure) error {
 			return perform(recording(ctx), in.TenantID, nil, a.FinishEInvoiceFetch, in, counts, failed)
@@ -323,10 +332,10 @@ func (f *EInvoiceFetches) PendingEInvoices(ctx context.Context, in EInvoiceFetch
 }
 
 // ProcessEInvoices processes the connector's documents not processed yet
-// and says how many this fetch refused.
-func (f *EInvoiceFetches) ProcessEInvoices(ctx context.Context, in EInvoiceFetchInput) (int, error) {
-	refused, err := f.Fetches.ProcessEInvoices(ctx, in.ConnectorID, in.OperationID, f.within(in))
-	return refused, asProblem(err)
+// and says how many this fetch refused and how many still wait.
+func (f *EInvoiceFetches) ProcessEInvoices(ctx context.Context, in EInvoiceFetchInput) (EInvoiceProcessed, error) {
+	processed, err := f.Fetches.ProcessEInvoices(ctx, in.ConnectorID, in.OperationID, f.within(in))
+	return processed, asProblem(err)
 }
 
 // RecordEInvoice records one message and acknowledges it.
@@ -369,7 +378,7 @@ func (w *EInvoiceFetcher) Fetch(ctx context.Context, in EInvoiceFetchInput) erro
 	return fetchSteps{
 		pending: func() ([]EInvoiceMessage, error) { return f.PendingEInvoices(ctx, in) },
 		record:  func(m EInvoiceMessage) (string, error) { return f.RecordEInvoice(ctx, in, m) },
-		process: func() (int, error) { return f.ProcessEInvoices(ctx, in) },
+		process: func() (EInvoiceProcessed, error) { return f.ProcessEInvoices(ctx, in) },
 		finish: func(counts EInvoiceCounts, failed []EInvoiceFailure) error {
 			return f.FinishEInvoiceFetch(ctx, in, counts, failed)
 		},

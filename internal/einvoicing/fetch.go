@@ -368,12 +368,14 @@ type Failure struct {
 }
 
 // Counts are what a fetch found, its Operation's result: the documents it
-// recorded, found recorded already or changed, and refused (T65c).
+// recorded, found recorded already or changed, refused, and the
+// connector's documents still waiting to be processed (T65c).
 type Counts struct {
 	Recorded        int `json:"recorded"`
 	AlreadyRecorded int `json:"already_recorded"`
 	Changed         int `json:"changed"`
 	Refused         int `json:"refused"`
+	Waiting         int `json:"waiting"`
 }
 
 // FinishEInvoiceFetch ends the fetch's Operation in the caller's

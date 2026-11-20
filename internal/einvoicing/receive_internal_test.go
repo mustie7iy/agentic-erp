@@ -96,6 +96,8 @@ func TestReceivedRefusals(t *testing.T) {
 		{"an amount out of range", strings.Replace(invoice, `<cbc:LineExtensionAmount currencyID="USD">2000.00`,
 			`<cbc:LineExtensionAmount currencyID="USD">92233720368547758.07`, 1), RefusedInconsistent, "An amount is out of range"},
 		{"many fields missing", many(t), RefusedMissingField, "and 5 more."},
+		{"an amount too large", strings.Replace(invoice, `<cbc:PayableAmount currencyID="USD">3100.00`,
+			`<cbc:PayableAmount currencyID="USD">99999999999999999999.00`, 1), RefusedMissingField, "IBT-115 (amount"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

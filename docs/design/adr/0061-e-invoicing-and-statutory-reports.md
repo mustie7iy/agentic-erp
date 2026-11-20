@@ -1330,7 +1330,9 @@ IBT-013 and the order line IBT-132). Decided by default:
   (review round 1): when the connector no longer names a participant of
   the company, or the company holds no FTA registration on the issue
   date, the document is left unprocessed (no write) and a fetch after the
-  setup is completed processes it.
+  setup is completed processes it; the fetch's result counts the
+  connector's documents still `waiting` (review round 2), so the gap is
+  seen.
 - **The other mandatory fields of C3 are not refused**: IBT-034 (the
   seller's electronic address), the seller's and buyer's names and
   postal addresses (line 1, city, subdivision, country), IBT-023 and

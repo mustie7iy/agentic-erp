@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +21,10 @@ import (
 // StatusRefused is a received document refused by validation (ADR-0061
 // §5, §7): kept, never entered, final.
 const StatusRefused = "refused"
+
+// Processed is what a fetch's processing found: the documents it refused,
+// and the connector's documents still waiting to be processed.
+type Processed struct{ Refused, Waiting int }
 
 // unprocessed is a document of the connector not yet processed, as the
 // process step reads it before its own transaction.
@@ -42,8 +45,11 @@ type unprocessed struct {
 // event: its status does not move), for entering (T65d). A document
 // already processed is skipped, so the step runs any number of times; it
 // answers how many documents this fetch refused, counted from the rows, so
-// a step run again after a commit still counts them.
-func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in Within) (int, error) {
+// a step run again after a commit still counts them, and how many of the
+// connector's documents are still waiting (left unprocessed until the
+// company's setup is completed, or their bytes failed), so a person sees
+// the gap in the fetch's result.
+func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in Within) (Processed, error) {
 	var c Connector
 	var docs []unprocessed
 	if err := inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, _ reqctx.Principal) error {
@@ -54,15 +60,16 @@ func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation u
 		docs, err = unprocessedOf(ctx, tx, connector)
 		return err
 	}); err != nil {
-		return 0, err
+		return Processed{}, err
 	}
 	if err := e.processAll(ctx, c, operation, docs, in); err != nil {
-		return 0, err
+		return Processed{}, err
 	}
-	var refused int
-	return refused, inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, _ reqctx.Principal) error {
-		if err := tx.QueryRow(ctx, `SELECT count(*) FROM einvoicing.einvoice WHERE connector_id = $1 AND processed_fetch_operation_id = $2
-			AND status = 'refused'`, connector, operation).Scan(&refused); err != nil {
+	var out Processed
+	return out, inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, _ reqctx.Principal) error {
+		if err := tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE processed_fetch_operation_id = $2 AND status = 'refused'),
+				count(*) FILTER (WHERE processed_at IS NULL AND status = 'received')
+			FROM einvoicing.einvoice WHERE connector_id = $1`, connector, operation).Scan(&out.Refused, &out.Waiting); err != nil {
 			return fmt.Errorf("einvoicing: count the documents fetch %s refused: %w", operation, err)
 		}
 		return nil
@@ -91,7 +98,7 @@ func (e *Endpoints) processAll(ctx context.Context, c Connector, operation uuid.
 		return errors.Join(failed...)
 	}
 	if len(changed) > 0 {
-		return problem.Conflict("einvoicing.document_changed", "The stored bytes of e-invoices "+strings.Join(changed, ", ")+
+		return problem.Conflict("einvoicing.document_changed", "The stored bytes of e-invoices "+atMost(changed)+
 			" are gone or do not match the SHA-256 recorded when they were received; they are not processed, the others were.")
 	}
 	return nil

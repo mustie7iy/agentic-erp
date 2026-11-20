@@ -24,7 +24,7 @@ const (
 	RefusedPrecision     = "einvoicing.amount_precision"
 	RefusedInconsistent  = "einvoicing.totals_inconsistent"
 	RefusedNotAddressed  = "einvoicing.not_addressed_to_company"
-	maxNamedMissingTerms = 20
+	maxNamedMissingTerms = 20 // a detail names at most these, then how many more
 )
 
 // Refusal is why a received document is refused: its problem code and the
@@ -96,11 +96,17 @@ func clip(s string) string {
 }
 
 func missingFields(terms []string) *Refusal {
-	named := terms
+	return &Refusal{Code: RefusedMissingField, Detail: "Missing or malformed: " + atMost(terms) + "."}
+}
+
+// atMost joins the items a detail names, at most maxNamedMissingTerms of
+// them and then how many more, so a detail stays bounded.
+func atMost(items []string) string {
+	named := items
 	if len(named) > maxNamedMissingTerms {
-		named = append(named[:maxNamedMissingTerms:maxNamedMissingTerms], fmt.Sprintf("and %d more", len(terms)-maxNamedMissingTerms))
+		named = append(named[:maxNamedMissingTerms:maxNamedMissingTerms], fmt.Sprintf("and %d more", len(items)-maxNamedMissingTerms))
 	}
-	return &Refusal{Code: RefusedMissingField, Detail: "Missing or malformed: " + strings.Join(named, ", ") + "."}
+	return strings.Join(named, ", ")
 }
 
 // missing names the fields the ERP reads that the document lacks or holds
@@ -196,10 +202,11 @@ func (l ublLine) missing(at string) []string {
 	return out
 }
 
-// decimal says whether s is a plain decimal (a sign, digits, a point).
+// decimal says whether s is an XML Schema decimal (a sign, digits, a
+// point), as parseAmount reads amounts.
 func decimal(s string) bool {
-	_, err := money.ParseDecimalRat(s)
-	return err == nil && !strings.HasSuffix(strings.TrimSpace(s), "-")
+	_, err := xsdDecimal(s)
+	return err == nil
 }
 
 // inconsistent checks the arithmetic that involves no tax rule (§5): the

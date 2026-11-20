@@ -3162,8 +3162,9 @@ type Invoker interface {
 	// currency, gross, specification) and the release validated against, for entering (T65d). When the
 	// fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
 	// `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
-	// refused) and its `resource` the list of the documents it recorded or found changed
-	// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
+	// refused; `waiting`: the connector's documents still not processed, waiting for the company's setup
+	// or with their stored bytes gone) and its `resource` the list of the documents it recorded or found
+	// changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
 	// `changed_fetch_operation_id`); a message not recorded fails the Operation with
 	// `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
 	// error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the
@@ -36283,8 +36284,9 @@ func (c *Client) sendExcludeBankStatementLine(ctx context.Context, request *Reas
 // currency, gross, specification) and the release validated against, for entering (T65d). When the
 // fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
 // `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
-// refused) and its `resource` the list of the documents it recorded or found changed
-// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
+// refused; `waiting`: the connector's documents still not processed, waiting for the company's setup
+// or with their stored bytes gone) and its `resource` the list of the documents it recorded or found
+// changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
 // `changed_fetch_operation_id`); a message not recorded fails the Operation with
 // `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
 // error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the

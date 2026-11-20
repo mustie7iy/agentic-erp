@@ -132,8 +132,8 @@ func TestProcessEInvoices(t *testing.T) {
 	s.recordAll(t, op)
 	ctx := context.Background()
 	for run := range 2 {
-		if refused, err := s.e.ProcessEInvoices(ctx, s.connector, op, s.within()); err != nil || refused != 4 {
-			t.Fatalf("run %d: got %d refused (%v), want 4", run+1, refused, err)
+		if got, err := s.e.ProcessEInvoices(ctx, s.connector, op, s.within()); err != nil || got.Refused != 4 {
+			t.Fatalf("run %d: got %d refused (%v), want 4", run+1, got.Refused, err)
 		}
 	}
 	for message, want := range map[string]string{
@@ -191,8 +191,8 @@ func TestProcessEInvoices(t *testing.T) {
 			t.Errorf("the company's participant gone: got %s, want it left unprocessed", got)
 		}
 	})
-	if refused, err := s.e.ProcessEInvoices(ctx, s.connector, uuid.Must(uuid.NewV7()), s.within()); err != nil || refused != 0 {
-		t.Errorf("a later fetch: got %d refused (%v), want none, nothing left to process", refused, err)
+	if got, err := s.e.ProcessEInvoices(ctx, s.connector, uuid.Must(uuid.NewV7()), s.within()); err != nil || got.Refused != 0 || got.Waiting != 2 {
+		t.Errorf("a later fetch: got %+v (%v), want none refused and GOI-4 and GOI-6 waiting", got, err)
 	}
 }
 
@@ -296,12 +296,12 @@ func TestProcessEInvoicesRace(t *testing.T) {
 	s.recordAll(t, first)
 	e := app.EInvoicing(s.cfg)
 	e.Objects = &racing{Store: s.store, before: func() {
-		if refused, err := s.e.ProcessEInvoices(ctx, s.connector, second, s.within()); err != nil || refused != 1 {
-			t.Errorf("the other fetch: got %d refused (%v), want 1", refused, err)
+		if got, err := s.e.ProcessEInvoices(ctx, s.connector, second, s.within()); err != nil || got.Refused != 1 {
+			t.Errorf("the other fetch: got %d refused (%v), want 1", got.Refused, err)
 		}
 	}}
-	if refused, err := e.ProcessEInvoices(ctx, s.connector, first, s.within()); err != nil || refused != 0 {
-		t.Errorf("this fetch: got %d refused (%v), want none, the other fetch's", refused, err)
+	if got, err := e.ProcessEInvoices(ctx, s.connector, first, s.within()); err != nil || got.Refused != 0 {
+		t.Errorf("this fetch: got %d refused (%v), want none, the other fetch's", got.Refused, err)
 	}
 	var audits int
 	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'einvoicing.einvoice.refused'`, []any{s.f.Tenant.ID}, &audits)

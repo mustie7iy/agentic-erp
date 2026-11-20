@@ -133,6 +133,17 @@ func (a *amounts) of(v ublAmount, term string) money.Minor {
 	return m
 }
 
+// xsdDecimal checks an XML Schema decimal (a leading sign, digits, a
+// point; not the trailing sign money's grammar also reads) and answers it
+// trimmed.
+func xsdDecimal(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if _, err := money.ParseDecimalRat(s); err != nil || strings.HasSuffix(s, "-") {
+		return "", fmt.Errorf("%q is not a decimal", raw)
+	}
+	return s, nil
+}
+
 // errPrecision is an amount with more decimals than its currency's minor
 // unit, zeros included (ADR-0061 §5: einvoicing.amount_precision).
 var errPrecision = errors.New("more decimals than the currency's minor unit")
@@ -140,14 +151,11 @@ var errPrecision = errors.New("more decimals than the currency's minor unit")
 // parseAmount reads an XML Schema decimal amount (digits, a sign, at most
 // exp decimals; fewer are padded) into minor units.
 func parseAmount(raw string, exp int) (money.Minor, error) {
-	s := strings.TrimSpace(raw)
-	if strings.HasSuffix(s, "-") {
-		return 0, fmt.Errorf("amount %q is not a decimal", raw)
+	s, err := xsdDecimal(raw)
+	if err != nil {
+		return 0, err
 	}
 	if _, frac, _ := strings.Cut(s, "."); len(frac) > exp {
-		if _, err := money.ParseDecimalRat(s); err != nil {
-			return 0, fmt.Errorf("amount %q is not a decimal", raw)
-		}
 		return 0, fmt.Errorf("amount %q: %w", raw, errPrecision)
 	}
 	m, err := money.ParseDecimal(s, exp)

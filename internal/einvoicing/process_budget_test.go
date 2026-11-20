@@ -39,8 +39,8 @@ func TestProcessEInvoiceBudget(t *testing.T) {
 		op := uuid.Must(uuid.NewV7())
 		s.recordAll(t, op)
 		start := time.Now()
-		if refused, err := s.e.ProcessEInvoices(ctx, s.connector, op, s.within()); err != nil || refused != 0 {
-			t.Fatalf("process %s: got %d refused (%v), want it valid", number, refused, err)
+		if got, err := s.e.ProcessEInvoices(ctx, s.connector, op, s.within()); err != nil || got.Refused != 0 {
+			t.Fatalf("process %s: got %d refused (%v), want it valid", number, got.Refused, err)
 		}
 		times = append(times, time.Since(start))
 	}

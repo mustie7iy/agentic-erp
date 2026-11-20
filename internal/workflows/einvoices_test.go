@@ -127,7 +127,7 @@ func TestFetchEInvoicesWorkflow(t *testing.T) {
 	if err := s.runEInvoiceFetch(t, first); err != nil {
 		t.Fatalf("the fetch: %v", err)
 	}
-	if got := fetchOutcome(t, first); got != `succeeded {"changed": 0, "refused": 2, "recorded": 2, "already_recorded": 0}` {
+	if got := fetchOutcome(t, first); got != `succeeded {"changed": 0, "refused": 2, "waiting": 0, "recorded": 2, "already_recorded": 0}` {
 		t.Errorf("the fetch: got %s, want both recorded", got)
 	}
 	s.srv.Fail("POST /messages/MSG-1/acknowledge", 1) // lost once: the activity's retry acknowledges it
@@ -182,7 +182,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("round: got %d %v, want the fetch ended", n, err)
 	}
-	if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 1, "recorded": 1, "already_recorded": 0}` {
+	if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 1, "waiting": 0, "recorded": 1, "already_recorded": 0}` {
 		t.Errorf("the fetch: got %s, want MSG-1 recorded", got)
 	}
 	t.Run("failures", func(t *testing.T) {
@@ -218,7 +218,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 		if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 			t.Errorf("the next round: got %d %v, want the fetch carried out", n, err)
 		}
-		if got := fetchOutcome(t, stuck); got != `succeeded {"changed": 0, "refused": 0, "recorded": 0, "already_recorded": 0}` {
+		if got := fetchOutcome(t, stuck); got != `succeeded {"changed": 0, "refused": 0, "waiting": 0, "recorded": 0, "already_recorded": 0}` {
 			t.Errorf("the fetch after the next round: got %s, want it succeeded", got)
 		}
 	})
@@ -236,7 +236,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 		if _, err := w.RunOnce(ctx); err != nil {
 			t.Fatalf("round: %v", err)
 		}
-		if got := fetchOutcome(t, again); got != `succeeded {"changed": 0, "refused": 0, "recorded": 0, "already_recorded": 1}` {
+		if got := fetchOutcome(t, again); got != `succeeded {"changed": 0, "refused": 0, "waiting": 0, "recorded": 0, "already_recorded": 1}` {
 			t.Errorf("the next fetch: got %s, want MSG-2 already recorded", got)
 		}
 	})
@@ -262,7 +262,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 		if _, err := w.RunOnce(ctx); err != nil {
 			t.Errorf("the next round: got %v, want no error", err)
 		}
-		if got := fetchOutcome(t, left); got != `succeeded {"changed": 0, "refused": 0, "recorded": 0, "already_recorded": 0}` {
+		if got := fetchOutcome(t, left); got != `succeeded {"changed": 0, "refused": 0, "waiting": 0, "recorded": 0, "already_recorded": 0}` {
 			t.Errorf("the fetch after the next round: got %s, want it succeeded", got)
 		}
 	})
@@ -321,8 +321,8 @@ type processFailing struct {
 	err error
 }
 
-func (p processFailing) ProcessEInvoices(context.Context, uuid.UUID, uuid.UUID, workflows.Within) (int, error) {
-	return 0, p.err
+func (p processFailing) ProcessEInvoices(context.Context, uuid.UUID, uuid.UUID, workflows.Within) (workflows.EInvoiceProcessed, error) {
+	return workflows.EInvoiceProcessed{}, p.err
 }
 
 // TestFetchEInvoicesProcessing (T65c): after recording, the workflow
@@ -347,7 +347,7 @@ func TestFetchEInvoicesProcessing(t *testing.T) {
 		}
 		var unprocessed int
 		pgtest.Scan(t, `SELECT count(*) FROM einvoicing.einvoice WHERE tenant_id = $1 AND processed_at IS NULL`, []any{s.e.Tenant.ID}, &unprocessed)
-		if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 0, "recorded": 1, "already_recorded": 0}` || unprocessed != 1 {
+		if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 0, "waiting": 0, "recorded": 1, "already_recorded": 0}` || unprocessed != 1 {
 			t.Errorf("got %s with %d unprocessed, want MSG-1 recorded and left unprocessed", got, unprocessed)
 		}
 	})
@@ -376,7 +376,7 @@ func TestFetchEInvoicesProcessing(t *testing.T) {
 	if err := s.runEInvoiceFetch(t, in); err != nil {
 		t.Fatal(err)
 	}
-	if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 1, "recorded": 0, "already_recorded": 0}` {
+	if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 1, "waiting": 0, "recorded": 0, "already_recorded": 0}` {
 		t.Errorf("the next fetch: got %s, want MSG-1 processed and refused", got)
 	}
 }
