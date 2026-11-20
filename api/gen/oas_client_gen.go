@@ -2123,7 +2123,8 @@ type Invoker interface {
 	// neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
 	// `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`)
 	// by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by
-	// `postOutboundDeliveryGoodsIssue` and a count's differences (`701`, `702`) by
+	// `postOutboundDeliveryGoodsIssue`, a stock transport order's goods issue (`351`) by
+	// `postStockTransportGoodsIssue` and a count's differences (`701`, `702`) by
 	// `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted
 	// on the company's date today in its time zone and numbered from its `material_document` range of that
 	// date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range`
@@ -2851,6 +2852,27 @@ type Invoker interface {
 	//
 	// POST /v1/statistical-key-figures/{id}/postings
 	CreateStatisticalKeyFigurePosting(ctx context.Context, request *StatisticalKeyFigurePostingCreate, params CreateStatisticalKeyFigurePostingParams) (CreateStatisticalKeyFigurePostingRes, error)
+	// CreateStockTransportOrder invokes createStockTransportOrder operation.
+	//
+	// Creates a stock transport order (ADR-0082 As built S2h; SAP ME21N with document type UB, from
+	// memory): a planner orders materials from a storage location of the supplying plant to one of the
+	// receiving plant, another plant of the same company. Each item is checked as its goods issue will be:
+	// the plants active plants of one company the caller may act in (422 `inventory.plant_invalid`,
+	// `inventory.mixed_companies`; the same plant twice, 422 `inventory.same_location`), the material an
+	// active material kept in stock (422 `inventory.material_invalid`, `inventory.material_not_usable`,
+	// `inventory.material_not_stocked`) extended to both plants (422 `inventory.plant_not_extended`) and
+	// kept at both storage locations, each active under its plant (422
+	// `inventory.storage_location_invalid`, `inventory.storage_location_not_extended`), its quantity
+	// positive (422 `inventory.invalid_quantity`) in one of its units (422 `inventory.unknown_unit`) and
+	// exact in its base unit (422 `inventory.inexact_quantity`); a material is ordered once per order (422
+	// `procurement.stock_transport_material_repeated`). Nothing is checked of the stock: the goods issue
+	// takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range
+	// of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
+	// `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
+	// created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/stock-transport-orders
+	CreateStockTransportOrder(ctx context.Context, request *StockTransportOrderCreate, params CreateStockTransportOrderParams) (CreateStockTransportOrderRes, error)
 	// CreateSupplierInvoice invokes createSupplierInvoice operation.
 	//
 	// Creates a parked supplier invoice. The same supplier reference for the same supplier is refused with
@@ -5100,6 +5122,16 @@ type Invoker interface {
 	//
 	// GET /v1/statistical-key-figures/{id}
 	GetStatisticalKeyFigure(ctx context.Context, params GetStatisticalKeyFigureParams) (GetStatisticalKeyFigureRes, error)
+	// GetStockTransportOrder invokes getStockTransportOrder operation.
+	//
+	// One stock transport order (ADR-0082 As built S2h) with its company by code, its plants and storage
+	// locations by code and name, its status, the material documents of its goods issue and receipt, and
+	// its items, each naming its material by number, its quantity in the unit ordered and in the base
+	// unit, and what of it is in transit. An order of a company the caller may not act in is not found
+	// (404).
+	//
+	// GET /v1/stock-transport-orders/{id}
+	GetStockTransportOrder(ctx context.Context, params GetStockTransportOrderParams) (GetStockTransportOrderRes, error)
 	// GetSupplierInvoice invokes getSupplierInvoice operation.
 	//
 	// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
@@ -6755,6 +6787,14 @@ type Invoker interface {
 	//
 	// GET /v1/stock
 	ListStock(ctx context.Context, params ListStockParams) (ListStockRes, error)
+	// ListStockTransportOrders invokes listStockTransportOrders operation.
+	//
+	// The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as
+	// `getStockTransportOrder` gives it, the latest first. Filtered by company, supplying or receiving
+	// plant and status. Sortable by: `created_at`.
+	//
+	// GET /v1/stock-transport-orders
+	ListStockTransportOrders(ctx context.Context, params ListStockTransportOrdersParams) (ListStockTransportOrdersRes, error)
 	// ListSupplierInvoices invokes listSupplierInvoices operation.
 	//
 	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
@@ -7444,6 +7484,46 @@ type Invoker interface {
 	//
 	// POST /v1/revaluation-runs
 	PostRevaluationRun(ctx context.Context, request *RevaluationPreviewRequest, params PostRevaluationRunParams) (PostRevaluationRunRes, error)
+	// PostStockTransportGoodsIssue invokes postStockTransportGoodsIssue operation.
+	//
+	// Posts an open stock transport order's goods issue (ADR-0082 As built S2h; SAP's 351, from memory),
+	// once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order no longer `open`,
+	// 409 `procurement.stock_transport_issued`). Every item's quantity leaves its supplying storage
+	// location and is in transit to its receiving storage location, as one material document of movement
+	// type `351` (`issue_document_id`), posted on the company's date today in its time zone and numbered
+	// from its `material_document` range, its `reference` the order's number; its lines in transit
+	// (`in_transit`) are neither plant's stock (`listStock`) but the receiving plant's valuation. Each
+	// item is checked as at the order's creation, the material active and valued in both plants (422
+	// `inventory.no_valuation`), the supplying location's stock enough (409
+	// `inventory.insufficient_stock`) and counted by no open physical inventory document (409
+	// `inventory.posting_blocked`). The issue takes the supplying stock's value as an issue does, and the
+	// stock in transit is worth what it took (at a standard price in the receiving plant, its quantity at
+	// the price, the rest a price difference), posted in one WA journal entry between the valuation
+	// classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422
+	// `ledger.period_not_open`). The order is `in_transit`. Audited, and published as
+	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/stock-transport-orders/{id}:postGoodsIssue
+	PostStockTransportGoodsIssue(ctx context.Context, params PostStockTransportGoodsIssueParams) (PostStockTransportGoodsIssueRes, error)
+	// PostStockTransportGoodsReceipt invokes postStockTransportGoodsReceipt operation.
+	//
+	// Posts the goods receipt of a stock transport order in transit (ADR-0082 As built S2h; SAP's 101 for
+	// the order, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an
+	// order not `in_transit`, 409 `procurement.stock_transport_not_in_transit`). Every item's quantity
+	// leaves the stock in transit to its receiving storage location and enters that location's stock, as
+	// one material document of movement type `101` (`receipt_document_id`), posted on the company's date
+	// today and numbered from its `material_document` range, its `reference` the order's number: the
+	// storage location still active (422 `inventory.storage_location_invalid`), the material kept there
+	// (422 `inventory.storage_location_not_extended`; a material blocked since the issue is still
+	// received), and no open physical inventory document counting it there (409
+	// `inventory.posting_blocked`). It stays in the receiving plant's valuation, so it moves no value and
+	// posts no journal entry. The order is `received` and changes no more. Audited, and published as
+	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/stock-transport-orders/{id}:postGoodsReceipt
+	PostStockTransportGoodsReceipt(ctx context.Context, params PostStockTransportGoodsReceiptParams) (PostStockTransportGoodsReceiptRes, error)
 	// PostSupplierInvoice invokes postSupplierInvoice operation.
 	//
 	// Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
@@ -8404,7 +8484,8 @@ type Invoker interface {
 	// its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
 	// it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
 	// nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet
-	// (409 `inventory.reverse_goods_issue`), nor a count's differences (409 `inventory.reverse_count`: a
+	// (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or receipt yet (409
+	// `inventory.reverse_stock_transport`), nor a count's differences (409 `inventory.reverse_count`: a
 	// new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so
 	// it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`,
 	// naming the material, the location and both quantities). It is refused, as a posting is, while an
@@ -26625,7 +26706,8 @@ func (c *Client) sendCreateMaterial(ctx context.Context, request *MaterialCreate
 // neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
 // `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`)
 // by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by
-// `postOutboundDeliveryGoodsIssue` and a count's differences (`701`, `702`) by
+// `postOutboundDeliveryGoodsIssue`, a stock transport order's goods issue (`351`) by
+// `postStockTransportGoodsIssue` and a count's differences (`701`, `702`) by
 // `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted
 // on the company's date today in its time zone and numbered from its `material_document` range of that
 // date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range`
@@ -32401,6 +32483,151 @@ func (c *Client) sendCreateStatisticalKeyFigurePosting(ctx context.Context, requ
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateStatisticalKeyFigurePostingResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateStockTransportOrder invokes createStockTransportOrder operation.
+//
+// Creates a stock transport order (ADR-0082 As built S2h; SAP ME21N with document type UB, from
+// memory): a planner orders materials from a storage location of the supplying plant to one of the
+// receiving plant, another plant of the same company. Each item is checked as its goods issue will be:
+// the plants active plants of one company the caller may act in (422 `inventory.plant_invalid`,
+// `inventory.mixed_companies`; the same plant twice, 422 `inventory.same_location`), the material an
+// active material kept in stock (422 `inventory.material_invalid`, `inventory.material_not_usable`,
+// `inventory.material_not_stocked`) extended to both plants (422 `inventory.plant_not_extended`) and
+// kept at both storage locations, each active under its plant (422
+// `inventory.storage_location_invalid`, `inventory.storage_location_not_extended`), its quantity
+// positive (422 `inventory.invalid_quantity`) in one of its units (422 `inventory.unknown_unit`) and
+// exact in its base unit (422 `inventory.inexact_quantity`); a material is ordered once per order (422
+// `procurement.stock_transport_material_repeated`). Nothing is checked of the stock: the goods issue
+// takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range
+// of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
+// `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/stock-transport-orders
+func (c *Client) CreateStockTransportOrder(ctx context.Context, request *StockTransportOrderCreate, params CreateStockTransportOrderParams) (CreateStockTransportOrderRes, error) {
+	res, err := c.sendCreateStockTransportOrder(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateStockTransportOrder(ctx context.Context, request *StockTransportOrderCreate, params CreateStockTransportOrderParams) (res CreateStockTransportOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createStockTransportOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/stock-transport-orders"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateStockTransportOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/stock-transport-orders"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateStockTransportOrderRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateStockTransportOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateStockTransportOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -58788,6 +59015,141 @@ func (c *Client) sendGetStatisticalKeyFigure(ctx context.Context, params GetStat
 
 	stage = "DecodeResponse"
 	result, err := decodeGetStatisticalKeyFigureResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetStockTransportOrder invokes getStockTransportOrder operation.
+//
+// One stock transport order (ADR-0082 As built S2h) with its company by code, its plants and storage
+// locations by code and name, its status, the material documents of its goods issue and receipt, and
+// its items, each naming its material by number, its quantity in the unit ordered and in the base
+// unit, and what of it is in transit. An order of a company the caller may not act in is not found
+// (404).
+//
+// GET /v1/stock-transport-orders/{id}
+func (c *Client) GetStockTransportOrder(ctx context.Context, params GetStockTransportOrderParams) (GetStockTransportOrderRes, error) {
+	res, err := c.sendGetStockTransportOrder(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetStockTransportOrder(ctx context.Context, params GetStockTransportOrderParams) (res GetStockTransportOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getStockTransportOrder"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/stock-transport-orders/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetStockTransportOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/stock-transport-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetStockTransportOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetStockTransportOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -96755,6 +97117,227 @@ func (c *Client) sendListStock(ctx context.Context, params ListStockParams) (res
 	return result, nil
 }
 
+// ListStockTransportOrders invokes listStockTransportOrders operation.
+//
+// The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as
+// `getStockTransportOrder` gives it, the latest first. Filtered by company, supplying or receiving
+// plant and status. Sortable by: `created_at`.
+//
+// GET /v1/stock-transport-orders
+func (c *Client) ListStockTransportOrders(ctx context.Context, params ListStockTransportOrdersParams) (ListStockTransportOrdersRes, error) {
+	res, err := c.sendListStockTransportOrders(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListStockTransportOrders(ctx context.Context, params ListStockTransportOrdersParams) (res ListStockTransportOrdersRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listStockTransportOrders"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/stock-transport-orders"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListStockTransportOrdersOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/stock-transport-orders"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListStockTransportOrdersOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListStockTransportOrdersResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListSupplierInvoices invokes listSupplierInvoices operation.
 //
 // Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
@@ -104252,6 +104835,348 @@ func (c *Client) sendPostRevaluationRun(ctx context.Context, request *Revaluatio
 
 	stage = "DecodeResponse"
 	result, err := decodePostRevaluationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PostStockTransportGoodsIssue invokes postStockTransportGoodsIssue operation.
+//
+// Posts an open stock transport order's goods issue (ADR-0082 As built S2h; SAP's 351, from memory),
+// once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order no longer `open`,
+// 409 `procurement.stock_transport_issued`). Every item's quantity leaves its supplying storage
+// location and is in transit to its receiving storage location, as one material document of movement
+// type `351` (`issue_document_id`), posted on the company's date today in its time zone and numbered
+// from its `material_document` range, its `reference` the order's number; its lines in transit
+// (`in_transit`) are neither plant's stock (`listStock`) but the receiving plant's valuation. Each
+// item is checked as at the order's creation, the material active and valued in both plants (422
+// `inventory.no_valuation`), the supplying location's stock enough (409
+// `inventory.insufficient_stock`) and counted by no open physical inventory document (409
+// `inventory.posting_blocked`). The issue takes the supplying stock's value as an issue does, and the
+// stock in transit is worth what it took (at a standard price in the receiving plant, its quantity at
+// the price, the rest a price difference), posted in one WA journal entry between the valuation
+// classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422
+// `ledger.period_not_open`). The order is `in_transit`. Audited, and published as
+// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/stock-transport-orders/{id}:postGoodsIssue
+func (c *Client) PostStockTransportGoodsIssue(ctx context.Context, params PostStockTransportGoodsIssueParams) (PostStockTransportGoodsIssueRes, error) {
+	res, err := c.sendPostStockTransportGoodsIssue(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendPostStockTransportGoodsIssue(ctx context.Context, params PostStockTransportGoodsIssueParams) (res PostStockTransportGoodsIssueRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postStockTransportGoodsIssue"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/stock-transport-orders/{id}:postGoodsIssue"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostStockTransportGoodsIssueOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/stock-transport-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":postGoodsIssue"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostStockTransportGoodsIssueOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostStockTransportGoodsIssueResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PostStockTransportGoodsReceipt invokes postStockTransportGoodsReceipt operation.
+//
+// Posts the goods receipt of a stock transport order in transit (ADR-0082 As built S2h; SAP's 101 for
+// the order, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an
+// order not `in_transit`, 409 `procurement.stock_transport_not_in_transit`). Every item's quantity
+// leaves the stock in transit to its receiving storage location and enters that location's stock, as
+// one material document of movement type `101` (`receipt_document_id`), posted on the company's date
+// today and numbered from its `material_document` range, its `reference` the order's number: the
+// storage location still active (422 `inventory.storage_location_invalid`), the material kept there
+// (422 `inventory.storage_location_not_extended`; a material blocked since the issue is still
+// received), and no open physical inventory document counting it there (409
+// `inventory.posting_blocked`). It stays in the receiving plant's valuation, so it moves no value and
+// posts no journal entry. The order is `received` and changes no more. Audited, and published as
+// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/stock-transport-orders/{id}:postGoodsReceipt
+func (c *Client) PostStockTransportGoodsReceipt(ctx context.Context, params PostStockTransportGoodsReceiptParams) (PostStockTransportGoodsReceiptRes, error) {
+	res, err := c.sendPostStockTransportGoodsReceipt(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendPostStockTransportGoodsReceipt(ctx context.Context, params PostStockTransportGoodsReceiptParams) (res PostStockTransportGoodsReceiptRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postStockTransportGoodsReceipt"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/stock-transport-orders/{id}:postGoodsReceipt"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostStockTransportGoodsReceiptOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/stock-transport-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":postGoodsReceipt"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostStockTransportGoodsReceiptOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostStockTransportGoodsReceiptResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -114255,7 +115180,8 @@ func (c *Client) sendReverseJournalEntry(ctx context.Context, request OptJournal
 // its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
 // it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
 // nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet
-// (409 `inventory.reverse_goods_issue`), nor a count's differences (409 `inventory.reverse_count`: a
+// (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or receipt yet (409
+// `inventory.reverse_stock_transport`), nor a count's differences (409 `inventory.reverse_count`: a
 // new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so
 // it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`,
 // naming the material, the location and both quantities). It is refused, as a posting is, while an

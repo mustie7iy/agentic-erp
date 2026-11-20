@@ -27894,6 +27894,7 @@ func (*ConflictHeaders) createScheduleLineRes()                    {}
 func (*ConflictHeaders) createSegmentRes()                         {}
 func (*ConflictHeaders) createSodRuleRes()                         {}
 func (*ConflictHeaders) createStatisticalKeyFigureRes()            {}
+func (*ConflictHeaders) createStockTransportOrderRes()             {}
 func (*ConflictHeaders) createSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) createSupplierQuotationRes()               {}
 func (*ConflictHeaders) createUploadRes()                          {}
@@ -27990,6 +27991,8 @@ func (*ConflictHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*ConflictHeaders) postParkedJournalEntryRes()                {}
 func (*ConflictHeaders) postPhysicalInventoryDifferencesRes()      {}
 func (*ConflictHeaders) postRevaluationRunRes()                    {}
+func (*ConflictHeaders) postStockTransportGoodsIssueRes()          {}
+func (*ConflictHeaders) postStockTransportGoodsReceiptRes()        {}
 func (*ConflictHeaders) postSupplierInvoiceRes()                   {}
 func (*ConflictHeaders) prepareTaxReturnRes()                      {}
 func (*ConflictHeaders) previewDepreciationRunRes()                {}
@@ -36026,6 +36029,18 @@ func (*CreateStatisticalKeyFigurePreconditionRequired) createStatisticalKeyFigur
 type CreateStatisticalKeyFigureUnprocessableEntity Problem
 
 func (*CreateStatisticalKeyFigureUnprocessableEntity) createStatisticalKeyFigureRes() {}
+
+type CreateStockTransportOrderBadRequest Problem
+
+func (*CreateStockTransportOrderBadRequest) createStockTransportOrderRes() {}
+
+type CreateStockTransportOrderForbidden Problem
+
+func (*CreateStockTransportOrderForbidden) createStockTransportOrderRes() {}
+
+type CreateStockTransportOrderUnprocessableEntity Problem
+
+func (*CreateStockTransportOrderUnprocessableEntity) createStockTransportOrderRes() {}
 
 type CreateSupplierInvoiceBadRequest Problem
 
@@ -53634,6 +53649,46 @@ func (s *GetStatisticalKeyFigureOKHeaders) SetResponse(val StatisticalKeyFigure)
 
 func (*GetStatisticalKeyFigureOKHeaders) getStatisticalKeyFigureRes() {}
 
+type GetStockTransportOrderBadRequest Problem
+
+func (*GetStockTransportOrderBadRequest) getStockTransportOrderRes() {}
+
+type GetStockTransportOrderForbidden Problem
+
+func (*GetStockTransportOrderForbidden) getStockTransportOrderRes() {}
+
+type GetStockTransportOrderNotFound Problem
+
+func (*GetStockTransportOrderNotFound) getStockTransportOrderRes() {}
+
+// GetStockTransportOrderOKHeaders wraps StockTransportOrder with response headers.
+type GetStockTransportOrderOKHeaders struct {
+	ETag     OptString
+	Response StockTransportOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *GetStockTransportOrderOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetStockTransportOrderOKHeaders) GetResponse() StockTransportOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetStockTransportOrderOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetStockTransportOrderOKHeaders) SetResponse(val StockTransportOrder) {
+	s.Response = val
+}
+
+func (*GetStockTransportOrderOKHeaders) getStockTransportOrderRes() {}
+
 type GetSupplierInvoiceBadRequest Problem
 
 func (*GetSupplierInvoiceBadRequest) getSupplierInvoiceRes() {}
@@ -67422,6 +67477,14 @@ type ListStockForbidden Problem
 
 func (*ListStockForbidden) listStockRes() {}
 
+type ListStockTransportOrdersBadRequest Problem
+
+func (*ListStockTransportOrdersBadRequest) listStockTransportOrdersRes() {}
+
+type ListStockTransportOrdersForbidden Problem
+
+func (*ListStockTransportOrdersForbidden) listStockTransportOrdersRes() {}
+
 type ListSupplierInvoicesBadRequest Problem
 
 func (*ListSupplierInvoicesBadRequest) listSupplierInvoicesRes() {}
@@ -69216,7 +69279,10 @@ type MaterialDocument struct {
 	// against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409
 	// `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1):
 	// the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods
-	// sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). Absent on every other document.
+	// sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods
+	// issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number`
+	// (`GET /v1/stock-transport-orders`); it is not reversed yet (409
+	// `inventory.reverse_stock_transport`). Absent on every other document.
 	Reference OptString `json:"reference"`
 	// Its lines, in line order.
 	Lines []MaterialDocumentLine `json:"lines"`
@@ -69659,6 +69725,11 @@ type MaterialDocumentLine struct {
 	CostCenterID OptUUID `json:"cost_center_id"`
 	// The cost center's code; absent with it.
 	CostCenterCode OptString `json:"cost_center_code"`
+	// Whether the line moves stock in transit to its storage location of its plant (a stock transport
+	// order's, S2h: into transit on its goods issue, 351, out of it on its goods receipt, 101) rather than
+	// the stock at that location; stock in transit is in the plant's valuation but in no location's stock
+	// (`listStock`).
+	InTransit bool `json:"in_transit"`
 	// What the line moves in value on the material's valuation in the plant, signed as its quantity is
 	// (S1d); absent on a document posted before materials were valued.
 	Amount OptMoney `json:"amount"`
@@ -69740,6 +69811,11 @@ func (s *MaterialDocumentLine) GetCostCenterID() OptUUID {
 // GetCostCenterCode returns the value of CostCenterCode.
 func (s *MaterialDocumentLine) GetCostCenterCode() OptString {
 	return s.CostCenterCode
+}
+
+// GetInTransit returns the value of InTransit.
+func (s *MaterialDocumentLine) GetInTransit() bool {
+	return s.InTransit
 }
 
 // GetAmount returns the value of Amount.
@@ -69825,6 +69901,11 @@ func (s *MaterialDocumentLine) SetCostCenterID(val OptUUID) {
 // SetCostCenterCode sets the value of CostCenterCode.
 func (s *MaterialDocumentLine) SetCostCenterCode(val OptString) {
 	s.CostCenterCode = val
+}
+
+// SetInTransit sets the value of InTransit.
+func (s *MaterialDocumentLine) SetInTransit(val bool) {
+	s.InTransit = val
 }
 
 // SetAmount sets the value of Amount.
@@ -90382,6 +90463,94 @@ func (*PostRevaluationRunPreconditionRequired) postRevaluationRunRes() {}
 type PostRevaluationRunUnprocessableEntity Problem
 
 func (*PostRevaluationRunUnprocessableEntity) postRevaluationRunRes() {}
+
+type PostStockTransportGoodsIssueBadRequest Problem
+
+func (*PostStockTransportGoodsIssueBadRequest) postStockTransportGoodsIssueRes() {}
+
+type PostStockTransportGoodsIssueForbidden Problem
+
+func (*PostStockTransportGoodsIssueForbidden) postStockTransportGoodsIssueRes() {}
+
+type PostStockTransportGoodsIssueNotFound Problem
+
+func (*PostStockTransportGoodsIssueNotFound) postStockTransportGoodsIssueRes() {}
+
+// PostStockTransportGoodsIssueOKHeaders wraps StockTransportOrder with response headers.
+type PostStockTransportGoodsIssueOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           StockTransportOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *PostStockTransportGoodsIssueOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PostStockTransportGoodsIssueOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PostStockTransportGoodsIssueOKHeaders) GetResponse() StockTransportOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PostStockTransportGoodsIssueOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PostStockTransportGoodsIssueOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PostStockTransportGoodsIssueOKHeaders) SetResponse(val StockTransportOrder) {
+	s.Response = val
+}
+
+func (*PostStockTransportGoodsIssueOKHeaders) postStockTransportGoodsIssueRes()   {}
+func (*PostStockTransportGoodsIssueOKHeaders) postStockTransportGoodsReceiptRes() {}
+
+type PostStockTransportGoodsIssuePreconditionFailed Problem
+
+func (*PostStockTransportGoodsIssuePreconditionFailed) postStockTransportGoodsIssueRes() {}
+
+type PostStockTransportGoodsIssuePreconditionRequired Problem
+
+func (*PostStockTransportGoodsIssuePreconditionRequired) postStockTransportGoodsIssueRes() {}
+
+type PostStockTransportGoodsIssueUnprocessableEntity Problem
+
+func (*PostStockTransportGoodsIssueUnprocessableEntity) postStockTransportGoodsIssueRes() {}
+
+type PostStockTransportGoodsReceiptBadRequest Problem
+
+func (*PostStockTransportGoodsReceiptBadRequest) postStockTransportGoodsReceiptRes() {}
+
+type PostStockTransportGoodsReceiptForbidden Problem
+
+func (*PostStockTransportGoodsReceiptForbidden) postStockTransportGoodsReceiptRes() {}
+
+type PostStockTransportGoodsReceiptNotFound Problem
+
+func (*PostStockTransportGoodsReceiptNotFound) postStockTransportGoodsReceiptRes() {}
+
+type PostStockTransportGoodsReceiptPreconditionFailed Problem
+
+func (*PostStockTransportGoodsReceiptPreconditionFailed) postStockTransportGoodsReceiptRes() {}
+
+type PostStockTransportGoodsReceiptPreconditionRequired Problem
+
+func (*PostStockTransportGoodsReceiptPreconditionRequired) postStockTransportGoodsReceiptRes() {}
+
+type PostStockTransportGoodsReceiptUnprocessableEntity Problem
+
+func (*PostStockTransportGoodsReceiptUnprocessableEntity) postStockTransportGoodsReceiptRes() {}
 
 type PostSupplierInvoiceBadRequest Problem
 
@@ -113656,6 +113825,656 @@ func (s *StockPage) SetNextPageToken(val OptString) {
 
 func (*StockPage) listStockRes() {}
 
+// A stock transport order within a company (SAP's purchasing document type UB, from memory): materials
+// ordered from one plant to another of the same company, issued into stock in transit and received out
+// of it. Never deleted; it changes only by its goods issue and receipt.
+// Ref: #/components/schemas/StockTransportOrder
+type StockTransportOrder struct {
+	// The order's id.
+	ID uuid.UUID `json:"id"`
+	// Its number in its company's `stock_transport_order` range of its fiscal year.
+	Number string `json:"number"`
+	// The company of its plants.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// That company's code.
+	CompanyCode string `json:"company_code"`
+	// The fiscal year of its order date, which its number is of.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The company's date it was created on.
+	OrderDate time.Time `json:"order_date"`
+	// The plant it is issued from.
+	SupplyingPlantID uuid.UUID `json:"supplying_plant_id"`
+	// That plant's code.
+	SupplyingPlantCode string `json:"supplying_plant_code"`
+	// That plant's name, as it is now.
+	SupplyingPlantName string `json:"supplying_plant_name"`
+	// The plant it is received at.
+	ReceivingPlantID uuid.UUID `json:"receiving_plant_id"`
+	// That plant's code.
+	ReceivingPlantCode string `json:"receiving_plant_code"`
+	// That plant's name, as it is now.
+	ReceivingPlantName string `json:"receiving_plant_name"`
+	// `open` until its goods issue, `in_transit` until its goods receipt, then `received`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// Its goods issue's material document (351, `GET /v1/material-documents/{id}`), whose
+	// `journal_entry_id` moved the value to the receiving plant; absent while it is open.
+	IssueDocumentID OptUUID `json:"issue_document_id"`
+	// That document's number; absent with it.
+	IssueDocumentNumber OptString `json:"issue_document_number"`
+	// The company's date its goods issue was posted on; absent with it.
+	IssueDate OptDate `json:"issue_date"`
+	// Its goods receipt's material document (101); absent until it is received.
+	ReceiptDocumentID OptUUID `json:"receipt_document_id"`
+	// That document's number; absent with it.
+	ReceiptDocumentNumber OptString `json:"receipt_document_number"`
+	// The company's date its goods receipt was posted on; absent with it.
+	ReceiptDate OptDate `json:"receipt_date"`
+	// Its items, by item number.
+	Items []StockTransportOrderItem `json:"items"`
+	// Its version, which every change moves (`If-Match`).
+	Version int32 `json:"version"`
+	// When it was created.
+	CreatedAt time.Time `json:"created_at"`
+	// Who created it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// When it last changed.
+	UpdatedAt time.Time `json:"updated_at"`
+	// Who last changed it.
+	UpdatedBy uuid.UUID `json:"updated_by"`
+}
+
+// GetID returns the value of ID.
+func (s *StockTransportOrder) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *StockTransportOrder) GetNumber() string {
+	return s.Number
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *StockTransportOrder) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *StockTransportOrder) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *StockTransportOrder) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetOrderDate returns the value of OrderDate.
+func (s *StockTransportOrder) GetOrderDate() time.Time {
+	return s.OrderDate
+}
+
+// GetSupplyingPlantID returns the value of SupplyingPlantID.
+func (s *StockTransportOrder) GetSupplyingPlantID() uuid.UUID {
+	return s.SupplyingPlantID
+}
+
+// GetSupplyingPlantCode returns the value of SupplyingPlantCode.
+func (s *StockTransportOrder) GetSupplyingPlantCode() string {
+	return s.SupplyingPlantCode
+}
+
+// GetSupplyingPlantName returns the value of SupplyingPlantName.
+func (s *StockTransportOrder) GetSupplyingPlantName() string {
+	return s.SupplyingPlantName
+}
+
+// GetReceivingPlantID returns the value of ReceivingPlantID.
+func (s *StockTransportOrder) GetReceivingPlantID() uuid.UUID {
+	return s.ReceivingPlantID
+}
+
+// GetReceivingPlantCode returns the value of ReceivingPlantCode.
+func (s *StockTransportOrder) GetReceivingPlantCode() string {
+	return s.ReceivingPlantCode
+}
+
+// GetReceivingPlantName returns the value of ReceivingPlantName.
+func (s *StockTransportOrder) GetReceivingPlantName() string {
+	return s.ReceivingPlantName
+}
+
+// GetStatus returns the value of Status.
+func (s *StockTransportOrder) GetStatus() string {
+	return s.Status
+}
+
+// GetIssueDocumentID returns the value of IssueDocumentID.
+func (s *StockTransportOrder) GetIssueDocumentID() OptUUID {
+	return s.IssueDocumentID
+}
+
+// GetIssueDocumentNumber returns the value of IssueDocumentNumber.
+func (s *StockTransportOrder) GetIssueDocumentNumber() OptString {
+	return s.IssueDocumentNumber
+}
+
+// GetIssueDate returns the value of IssueDate.
+func (s *StockTransportOrder) GetIssueDate() OptDate {
+	return s.IssueDate
+}
+
+// GetReceiptDocumentID returns the value of ReceiptDocumentID.
+func (s *StockTransportOrder) GetReceiptDocumentID() OptUUID {
+	return s.ReceiptDocumentID
+}
+
+// GetReceiptDocumentNumber returns the value of ReceiptDocumentNumber.
+func (s *StockTransportOrder) GetReceiptDocumentNumber() OptString {
+	return s.ReceiptDocumentNumber
+}
+
+// GetReceiptDate returns the value of ReceiptDate.
+func (s *StockTransportOrder) GetReceiptDate() OptDate {
+	return s.ReceiptDate
+}
+
+// GetItems returns the value of Items.
+func (s *StockTransportOrder) GetItems() []StockTransportOrderItem {
+	return s.Items
+}
+
+// GetVersion returns the value of Version.
+func (s *StockTransportOrder) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *StockTransportOrder) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *StockTransportOrder) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *StockTransportOrder) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *StockTransportOrder) GetUpdatedBy() uuid.UUID {
+	return s.UpdatedBy
+}
+
+// SetID sets the value of ID.
+func (s *StockTransportOrder) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *StockTransportOrder) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *StockTransportOrder) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *StockTransportOrder) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *StockTransportOrder) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetOrderDate sets the value of OrderDate.
+func (s *StockTransportOrder) SetOrderDate(val time.Time) {
+	s.OrderDate = val
+}
+
+// SetSupplyingPlantID sets the value of SupplyingPlantID.
+func (s *StockTransportOrder) SetSupplyingPlantID(val uuid.UUID) {
+	s.SupplyingPlantID = val
+}
+
+// SetSupplyingPlantCode sets the value of SupplyingPlantCode.
+func (s *StockTransportOrder) SetSupplyingPlantCode(val string) {
+	s.SupplyingPlantCode = val
+}
+
+// SetSupplyingPlantName sets the value of SupplyingPlantName.
+func (s *StockTransportOrder) SetSupplyingPlantName(val string) {
+	s.SupplyingPlantName = val
+}
+
+// SetReceivingPlantID sets the value of ReceivingPlantID.
+func (s *StockTransportOrder) SetReceivingPlantID(val uuid.UUID) {
+	s.ReceivingPlantID = val
+}
+
+// SetReceivingPlantCode sets the value of ReceivingPlantCode.
+func (s *StockTransportOrder) SetReceivingPlantCode(val string) {
+	s.ReceivingPlantCode = val
+}
+
+// SetReceivingPlantName sets the value of ReceivingPlantName.
+func (s *StockTransportOrder) SetReceivingPlantName(val string) {
+	s.ReceivingPlantName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *StockTransportOrder) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetIssueDocumentID sets the value of IssueDocumentID.
+func (s *StockTransportOrder) SetIssueDocumentID(val OptUUID) {
+	s.IssueDocumentID = val
+}
+
+// SetIssueDocumentNumber sets the value of IssueDocumentNumber.
+func (s *StockTransportOrder) SetIssueDocumentNumber(val OptString) {
+	s.IssueDocumentNumber = val
+}
+
+// SetIssueDate sets the value of IssueDate.
+func (s *StockTransportOrder) SetIssueDate(val OptDate) {
+	s.IssueDate = val
+}
+
+// SetReceiptDocumentID sets the value of ReceiptDocumentID.
+func (s *StockTransportOrder) SetReceiptDocumentID(val OptUUID) {
+	s.ReceiptDocumentID = val
+}
+
+// SetReceiptDocumentNumber sets the value of ReceiptDocumentNumber.
+func (s *StockTransportOrder) SetReceiptDocumentNumber(val OptString) {
+	s.ReceiptDocumentNumber = val
+}
+
+// SetReceiptDate sets the value of ReceiptDate.
+func (s *StockTransportOrder) SetReceiptDate(val OptDate) {
+	s.ReceiptDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *StockTransportOrder) SetItems(val []StockTransportOrderItem) {
+	s.Items = val
+}
+
+// SetVersion sets the value of Version.
+func (s *StockTransportOrder) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *StockTransportOrder) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *StockTransportOrder) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *StockTransportOrder) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *StockTransportOrder) SetUpdatedBy(val uuid.UUID) {
+	s.UpdatedBy = val
+}
+
+// A stock transport order to create: the supplying and receiving plants, two plants of one company,
+// and its items.
+// Ref: #/components/schemas/StockTransportOrderCreate
+type StockTransportOrderCreate struct {
+	// The plant the stock is issued from (`GET /v1/org-units/{id}`).
+	SupplyingPlantID uuid.UUID `json:"supplying_plant_id"`
+	// The plant it is received at, another plant of the same company.
+	ReceivingPlantID uuid.UUID `json:"receiving_plant_id"`
+	// Its items, a material once each.
+	Items []StockTransportOrderItemInput `json:"items"`
+}
+
+// GetSupplyingPlantID returns the value of SupplyingPlantID.
+func (s *StockTransportOrderCreate) GetSupplyingPlantID() uuid.UUID {
+	return s.SupplyingPlantID
+}
+
+// GetReceivingPlantID returns the value of ReceivingPlantID.
+func (s *StockTransportOrderCreate) GetReceivingPlantID() uuid.UUID {
+	return s.ReceivingPlantID
+}
+
+// GetItems returns the value of Items.
+func (s *StockTransportOrderCreate) GetItems() []StockTransportOrderItemInput {
+	return s.Items
+}
+
+// SetSupplyingPlantID sets the value of SupplyingPlantID.
+func (s *StockTransportOrderCreate) SetSupplyingPlantID(val uuid.UUID) {
+	s.SupplyingPlantID = val
+}
+
+// SetReceivingPlantID sets the value of ReceivingPlantID.
+func (s *StockTransportOrderCreate) SetReceivingPlantID(val uuid.UUID) {
+	s.ReceivingPlantID = val
+}
+
+// SetItems sets the value of Items.
+func (s *StockTransportOrderCreate) SetItems(val []StockTransportOrderItemInput) {
+	s.Items = val
+}
+
+// StockTransportOrderHeaders wraps StockTransportOrder with response headers.
+type StockTransportOrderHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           StockTransportOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *StockTransportOrderHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *StockTransportOrderHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *StockTransportOrderHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *StockTransportOrderHeaders) GetResponse() StockTransportOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *StockTransportOrderHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *StockTransportOrderHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *StockTransportOrderHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *StockTransportOrderHeaders) SetResponse(val StockTransportOrder) {
+	s.Response = val
+}
+
+func (*StockTransportOrderHeaders) createStockTransportOrderRes() {}
+
+// An item of a stock transport order: a quantity of a material from a storage location of the
+// supplying plant to one of the receiving plant.
+// Ref: #/components/schemas/StockTransportOrderItem
+type StockTransportOrderItem struct {
+	// The item's number in the order, from 1.
+	ItemNo int32 `json:"item_no"`
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The material's number.
+	MaterialNumber string `json:"material_number"`
+	// The material's description, as it is now.
+	MaterialDescription string `json:"material_description"`
+	// The quantity ordered, in the unit it was ordered in.
+	Quantity Quantity `json:"quantity"`
+	// The same in the material's base unit, which its stock is kept in.
+	BaseQuantity Quantity `json:"base_quantity"`
+	// What of it is in transit, in the base unit: the base quantity from its goods issue until its goods
+	// receipt, zero before and after.
+	InTransitQuantity Quantity `json:"in_transit_quantity"`
+	// The storage location it is issued from.
+	SupplyingStorageLocationID uuid.UUID `json:"supplying_storage_location_id"`
+	// That storage location's code.
+	SupplyingStorageLocationCode string `json:"supplying_storage_location_code"`
+	// That storage location's name, as it is now.
+	SupplyingStorageLocationName string `json:"supplying_storage_location_name"`
+	// The storage location it is received at.
+	ReceivingStorageLocationID uuid.UUID `json:"receiving_storage_location_id"`
+	// That storage location's code.
+	ReceivingStorageLocationCode string `json:"receiving_storage_location_code"`
+	// That storage location's name, as it is now.
+	ReceivingStorageLocationName string `json:"receiving_storage_location_name"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *StockTransportOrderItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *StockTransportOrderItem) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetMaterialNumber returns the value of MaterialNumber.
+func (s *StockTransportOrderItem) GetMaterialNumber() string {
+	return s.MaterialNumber
+}
+
+// GetMaterialDescription returns the value of MaterialDescription.
+func (s *StockTransportOrderItem) GetMaterialDescription() string {
+	return s.MaterialDescription
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *StockTransportOrderItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetBaseQuantity returns the value of BaseQuantity.
+func (s *StockTransportOrderItem) GetBaseQuantity() Quantity {
+	return s.BaseQuantity
+}
+
+// GetInTransitQuantity returns the value of InTransitQuantity.
+func (s *StockTransportOrderItem) GetInTransitQuantity() Quantity {
+	return s.InTransitQuantity
+}
+
+// GetSupplyingStorageLocationID returns the value of SupplyingStorageLocationID.
+func (s *StockTransportOrderItem) GetSupplyingStorageLocationID() uuid.UUID {
+	return s.SupplyingStorageLocationID
+}
+
+// GetSupplyingStorageLocationCode returns the value of SupplyingStorageLocationCode.
+func (s *StockTransportOrderItem) GetSupplyingStorageLocationCode() string {
+	return s.SupplyingStorageLocationCode
+}
+
+// GetSupplyingStorageLocationName returns the value of SupplyingStorageLocationName.
+func (s *StockTransportOrderItem) GetSupplyingStorageLocationName() string {
+	return s.SupplyingStorageLocationName
+}
+
+// GetReceivingStorageLocationID returns the value of ReceivingStorageLocationID.
+func (s *StockTransportOrderItem) GetReceivingStorageLocationID() uuid.UUID {
+	return s.ReceivingStorageLocationID
+}
+
+// GetReceivingStorageLocationCode returns the value of ReceivingStorageLocationCode.
+func (s *StockTransportOrderItem) GetReceivingStorageLocationCode() string {
+	return s.ReceivingStorageLocationCode
+}
+
+// GetReceivingStorageLocationName returns the value of ReceivingStorageLocationName.
+func (s *StockTransportOrderItem) GetReceivingStorageLocationName() string {
+	return s.ReceivingStorageLocationName
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *StockTransportOrderItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *StockTransportOrderItem) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetMaterialNumber sets the value of MaterialNumber.
+func (s *StockTransportOrderItem) SetMaterialNumber(val string) {
+	s.MaterialNumber = val
+}
+
+// SetMaterialDescription sets the value of MaterialDescription.
+func (s *StockTransportOrderItem) SetMaterialDescription(val string) {
+	s.MaterialDescription = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *StockTransportOrderItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetBaseQuantity sets the value of BaseQuantity.
+func (s *StockTransportOrderItem) SetBaseQuantity(val Quantity) {
+	s.BaseQuantity = val
+}
+
+// SetInTransitQuantity sets the value of InTransitQuantity.
+func (s *StockTransportOrderItem) SetInTransitQuantity(val Quantity) {
+	s.InTransitQuantity = val
+}
+
+// SetSupplyingStorageLocationID sets the value of SupplyingStorageLocationID.
+func (s *StockTransportOrderItem) SetSupplyingStorageLocationID(val uuid.UUID) {
+	s.SupplyingStorageLocationID = val
+}
+
+// SetSupplyingStorageLocationCode sets the value of SupplyingStorageLocationCode.
+func (s *StockTransportOrderItem) SetSupplyingStorageLocationCode(val string) {
+	s.SupplyingStorageLocationCode = val
+}
+
+// SetSupplyingStorageLocationName sets the value of SupplyingStorageLocationName.
+func (s *StockTransportOrderItem) SetSupplyingStorageLocationName(val string) {
+	s.SupplyingStorageLocationName = val
+}
+
+// SetReceivingStorageLocationID sets the value of ReceivingStorageLocationID.
+func (s *StockTransportOrderItem) SetReceivingStorageLocationID(val uuid.UUID) {
+	s.ReceivingStorageLocationID = val
+}
+
+// SetReceivingStorageLocationCode sets the value of ReceivingStorageLocationCode.
+func (s *StockTransportOrderItem) SetReceivingStorageLocationCode(val string) {
+	s.ReceivingStorageLocationCode = val
+}
+
+// SetReceivingStorageLocationName sets the value of ReceivingStorageLocationName.
+func (s *StockTransportOrderItem) SetReceivingStorageLocationName(val string) {
+	s.ReceivingStorageLocationName = val
+}
+
+// An item of a stock transport order to create: a quantity of a material from a storage location of
+// the supplying plant to one of the receiving plant.
+// Ref: #/components/schemas/StockTransportOrderItemInput
+type StockTransportOrderItemInput struct {
+	// The material (`GET /v1/materials/{id}`).
+	MaterialID uuid.UUID `json:"material_id"`
+	// The quantity ordered, positive, in one of the material's units.
+	Quantity Quantity `json:"quantity"`
+	// The storage location it is issued from, under the supplying plant.
+	SupplyingStorageLocationID uuid.UUID `json:"supplying_storage_location_id"`
+	// The storage location it is received at, under the receiving plant.
+	ReceivingStorageLocationID uuid.UUID `json:"receiving_storage_location_id"`
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *StockTransportOrderItemInput) GetMaterialID() uuid.UUID {
+	return s.MaterialID
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *StockTransportOrderItemInput) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetSupplyingStorageLocationID returns the value of SupplyingStorageLocationID.
+func (s *StockTransportOrderItemInput) GetSupplyingStorageLocationID() uuid.UUID {
+	return s.SupplyingStorageLocationID
+}
+
+// GetReceivingStorageLocationID returns the value of ReceivingStorageLocationID.
+func (s *StockTransportOrderItemInput) GetReceivingStorageLocationID() uuid.UUID {
+	return s.ReceivingStorageLocationID
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *StockTransportOrderItemInput) SetMaterialID(val uuid.UUID) {
+	s.MaterialID = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *StockTransportOrderItemInput) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetSupplyingStorageLocationID sets the value of SupplyingStorageLocationID.
+func (s *StockTransportOrderItemInput) SetSupplyingStorageLocationID(val uuid.UUID) {
+	s.SupplyingStorageLocationID = val
+}
+
+// SetReceivingStorageLocationID sets the value of ReceivingStorageLocationID.
+func (s *StockTransportOrderItemInput) SetReceivingStorageLocationID(val uuid.UUID) {
+	s.ReceivingStorageLocationID = val
+}
+
+// One page of stock transport orders.
+// Ref: #/components/schemas/StockTransportOrderPage
+type StockTransportOrderPage struct {
+	// The stock transport orders on this page.
+	Items []StockTransportOrder `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *StockTransportOrderPage) GetItems() []StockTransportOrder {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *StockTransportOrderPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *StockTransportOrderPage) SetItems(val []StockTransportOrder) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *StockTransportOrderPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*StockTransportOrderPage) listStockTransportOrdersRes() {}
+
 type SubmitChangeRequestBadRequest Problem
 
 func (*SubmitChangeRequestBadRequest) submitChangeRequestRes() {}
@@ -117536,6 +118355,7 @@ func (*TooManyRequestsHeaders) createSegmentRes()                         {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                         {}
 func (*TooManyRequestsHeaders) createStatisticalKeyFigurePostingRes()     {}
 func (*TooManyRequestsHeaders) createStatisticalKeyFigureRes()            {}
+func (*TooManyRequestsHeaders) createStockTransportOrderRes()             {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createSupplierQuotationRes()               {}
 func (*TooManyRequestsHeaders) createUploadRes()                          {}
@@ -117711,6 +118531,7 @@ func (*TooManyRequestsHeaders) getSchemaRes()                             {}
 func (*TooManyRequestsHeaders) getSegmentRes()                            {}
 func (*TooManyRequestsHeaders) getSodRuleRes()                            {}
 func (*TooManyRequestsHeaders) getStatisticalKeyFigureRes()               {}
+func (*TooManyRequestsHeaders) getStockTransportOrderRes()                {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*TooManyRequestsHeaders) getSupplierInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getTaxReturnDraftRes()                     {}
@@ -117877,6 +118698,7 @@ func (*TooManyRequestsHeaders) listSodRulesRes()                          {}
 func (*TooManyRequestsHeaders) listStatisticalKeyFigureValuesRes()        {}
 func (*TooManyRequestsHeaders) listStatisticalKeyFiguresRes()             {}
 func (*TooManyRequestsHeaders) listStockRes()                             {}
+func (*TooManyRequestsHeaders) listStockTransportOrdersRes()              {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listSupplierQuotationsRes()                {}
 func (*TooManyRequestsHeaders) listTaxPeriodsRes()                        {}
@@ -117917,6 +118739,8 @@ func (*TooManyRequestsHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()                {}
 func (*TooManyRequestsHeaders) postPhysicalInventoryDifferencesRes()      {}
 func (*TooManyRequestsHeaders) postRevaluationRunRes()                    {}
+func (*TooManyRequestsHeaders) postStockTransportGoodsIssueRes()          {}
+func (*TooManyRequestsHeaders) postStockTransportGoodsReceiptRes()        {}
 func (*TooManyRequestsHeaders) postSupplierInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) prepareTaxReturnRes()                      {}
 func (*TooManyRequestsHeaders) previewDepreciationRunRes()                {}
@@ -118492,6 +119316,7 @@ func (*UnauthorizedHeaders) createSegmentRes()                         {}
 func (*UnauthorizedHeaders) createSodRuleRes()                         {}
 func (*UnauthorizedHeaders) createStatisticalKeyFigurePostingRes()     {}
 func (*UnauthorizedHeaders) createStatisticalKeyFigureRes()            {}
+func (*UnauthorizedHeaders) createStockTransportOrderRes()             {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createSupplierQuotationRes()               {}
 func (*UnauthorizedHeaders) createUploadRes()                          {}
@@ -118667,6 +119492,7 @@ func (*UnauthorizedHeaders) getSchemaRes()                             {}
 func (*UnauthorizedHeaders) getSegmentRes()                            {}
 func (*UnauthorizedHeaders) getSodRuleRes()                            {}
 func (*UnauthorizedHeaders) getStatisticalKeyFigureRes()               {}
+func (*UnauthorizedHeaders) getStockTransportOrderRes()                {}
 func (*UnauthorizedHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*UnauthorizedHeaders) getSupplierInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getTaxReturnDraftRes()                     {}
@@ -118833,6 +119659,7 @@ func (*UnauthorizedHeaders) listSodRulesRes()                          {}
 func (*UnauthorizedHeaders) listStatisticalKeyFigureValuesRes()        {}
 func (*UnauthorizedHeaders) listStatisticalKeyFiguresRes()             {}
 func (*UnauthorizedHeaders) listStockRes()                             {}
+func (*UnauthorizedHeaders) listStockTransportOrdersRes()              {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listSupplierQuotationsRes()                {}
 func (*UnauthorizedHeaders) listTaxPeriodsRes()                        {}
@@ -118873,6 +119700,8 @@ func (*UnauthorizedHeaders) postOutboundDeliveryGoodsIssueRes()        {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()                {}
 func (*UnauthorizedHeaders) postPhysicalInventoryDifferencesRes()      {}
 func (*UnauthorizedHeaders) postRevaluationRunRes()                    {}
+func (*UnauthorizedHeaders) postStockTransportGoodsIssueRes()          {}
+func (*UnauthorizedHeaders) postStockTransportGoodsReceiptRes()        {}
 func (*UnauthorizedHeaders) postSupplierInvoiceRes()                   {}
 func (*UnauthorizedHeaders) prepareTaxReturnRes()                      {}
 func (*UnauthorizedHeaders) previewDepreciationRunRes()                {}

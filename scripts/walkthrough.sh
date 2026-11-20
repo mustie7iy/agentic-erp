@@ -1755,6 +1755,7 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
+# Maple's stock transport order range (TO, S2h), which no pack ships yet,
 # Maple's material number range (MA, ADR-0082 §6), which no pack ships:
 # material numbers are unique in the tenant, so each company sets its own
 # prefix (the ranges of
@@ -1853,7 +1854,8 @@ PILOT_SETTINGS='
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
-| .number_ranges += [{"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999}]'
+| .number_ranges += [{"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
+    {"company": "@CC@", "document_type": "stock_transport_order", "fiscal_year": @YEAR@, "prefix": "TO", "first": 1, "last": 9999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -15174,6 +15176,94 @@ step_einvoice_render() {
   passed
 }
 
+# step_stock_transport is S2h (ADR-0082 As built S2h, plan-supply-chain.md):
+# Pablo, the planner, orders washers from Toronto's main store to the
+# Montreal store, another plant of Maple, as a stock transport order
+# numbered from Maple's range. Wade posts its goods issue (351): the
+# washers leave the main store and are in transit to Montreal, in neither
+# store's stock but in Montreal's valuation, at its standard price, the
+# value posted between the plants' stock accounts with the difference on
+# price differences. A second issue is refused, and so is a reversal of
+# the issue. The goods receipt (101) takes them out of transit into the
+# Montreal store and posts nothing; the order is received.
+step_stock_transport() {
+  heading "Step 146 — Stock transport order: washers ordered from the Toronto plant to the Montreal plant; the goods issue (351) puts them in transit, in neither store's stock but in Montreal's valuation at its standard price, the difference on price differences; the goods receipt (101) takes them out of transit into the Montreal store, posting nothing; a second issue and a reversal refused"
+  local montreal store washer order tag doc
+  [ -n "$PLANT" ] || fail "step 122's plant is not there"
+  accounts
+  as mira
+  QUIET=1 api 200 '' listOrgUnits -p page_size=100
+  montreal=$(field '.items[] | select(.kind == "plant" and .code == "P200") | .id')
+  store=$(field '.items[] | select(.kind == "storage_location" and .code == "SL03" and .parent_id == "'"$montreal"'") | .id')
+  say "Mira creates the M10 washer, kept in Toronto's main store and the Montreal store; Priya approves it:"
+  api 201 '"material \(.number) \(.description): \([.plants[] | .plant_code] | join(", "))"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Washer M10\", \"base_unit\": \"EA\", \"material_type\": \"raw_material\", \"material_group\": \"FASTENERS\",
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}, {\"plant_id\": \"$montreal\", \"storage_location_ids\": [\"$store\"]}]}"
+  washer=$(field .id)
+  approve priya "$(material_request "$washer")" "Standard washer."
+  as ines
+  say "Ines values it at a moving price of 0.20 CAD in Toronto and a standard price of 0.25 CAD in Montreal:"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$washer\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"0.20\", \"currency\": \"CAD\"}}"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$washer\", \"plant_id\": \"$montreal\", \"valuation_class\": \"3100\",
+      \"price_control\": \"standard\", \"price\": {\"amount\": \"0.25\", \"currency\": \"CAD\"}}"
+  as wade
+  say "Wade enters the 500 washers on the main store's shelves (561), worth 100.00 CAD:"
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$washer\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"500\", \"unit\": \"EA\"}}]}"
+  as ada
+  say "Ada adds Pablo, the planner, to the team:"
+  person pablo "Pablo Planner" finance_staff
+  as pablo
+  say "Pablo orders 200 washers from Toronto's main store to the Montreal store (SAP's stock transport order, UB):"
+  api 201 '"stock transport order \(.number): \(.supplying_plant_code) to \(.receiving_plant_code), \(.status)", (.items[] | "  item \(.item_no): \(.material_number) \(.quantity.value) \(.quantity.unit) from \(.supplying_storage_location_code) to \(.receiving_storage_location_code), in transit \(.in_transit_quantity.value)")' \
+    createStockTransportOrder -body "{\"supplying_plant_id\": \"$PLANT\", \"receiving_plant_id\": \"$montreal\", \"items\": [{\"material_id\": \"$washer\",
+      \"quantity\": {\"value\": \"200\", \"unit\": \"EA\"}, \"supplying_storage_location_id\": \"$MAIN_STORE\", \"receiving_storage_location_id\": \"$store\"}]}"
+  order=$(field .id)
+  case "$(field .number)" in TO*) ;; *) fail "the order's number: got $(field .number), want one of the TO range" ;; esac
+  say "An order to the plant it comes from is refused:"
+  refused 422 inventory.same_location createStockTransportOrder -body "{\"supplying_plant_id\": \"$PLANT\", \"receiving_plant_id\": \"$PLANT\",
+      \"items\": [{\"material_id\": \"$washer\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"supplying_storage_location_id\": \"$MAIN_STORE\",
+      \"receiving_storage_location_id\": \"$store\"}]}"
+  as wade
+  say "Wade posts its goods issue at the version he reads: one material document of 351, the line into Montreal in transit:"
+  QUIET=1 api 200 '' getStockTransportOrder -p "id=$order"
+  api 200 '"order \(.number): \(.status), goods issue \(.issue_document_number) on \(.issue_date)", (.items[] | "  in transit: \(.in_transit_quantity.value) \(.in_transit_quantity.unit)")' \
+    postStockTransportGoodsIssue -p "id=$order" -if-match "$ETAG"
+  tag=$ETAG
+  expect "the order" "$(field '"\(.status) \(.items[0].in_transit_quantity.value)"')" "in_transit 200"
+  doc=$(field .issue_document_id)
+  api 200 '"material document \(.number) (\(.movement_type) \(.movement_type_name)), reference \(.reference)", (.lines[] | "  line \(.line_no): \(.plant_code)/\(.storage_location_code) \(.quantity.value) \(.quantity.unit)\(if .in_transit then " in transit" else "" end), worth \(.amount.amount)")' \
+    getMaterialDocument -p "id=$doc"
+  expect "the issue's lines" "$(field '[.lines[] | "\(.quantity.value):\(.in_transit):\(.amount.amount)"] | join(" ")')" "-200:false:-40.00 200:true:50.00"
+  say "Its entry (WA) moves the value from Toronto's stock to Montreal's on 1416, at Montreal's standard price, the 10.00"
+  say "difference on price differences (5196):"
+  api 200 '.lines[] | "\(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "the issue's entry" "$(field '[.lines[] | .amount.amount] | sort | join(" ")')" "-10.00 -40.00 50.00"
+  say "In transit, the washers are in neither store's stock, and in Montreal's valuation:"
+  QUIET=1 api 200 '' listStock -p "material_id=$washer"
+  expect "the washers' stock" "$(field '[.items[] | "\(.plant_code)/\(.storage_location_code) \(.quantity.value)"] | join(", ")')" "P100/SL01 300"
+  QUIET=1 api 200 '' listMaterialValuations -p "material_id=$washer" -p "plant_id=$montreal"
+  expect "Montreal's valuation" "$(field '.items[0] | "\(.quantity.value) \(.value.amount)"')" "200 50.00"
+  say "The order is issued once, and its goods issue is not reversed:"
+  refused 409 procurement.stock_transport_issued postStockTransportGoodsIssue -p "id=$order" -if-match "$tag"
+  QUIET=1 api 200 '' getMaterialDocument -p "id=$doc"
+  refused 409 inventory.reverse_stock_transport reverseMaterialDocument -p "id=$doc" -if-match "$ETAG"
+  say "The washers arrive in Montreal; Wade posts the goods receipt (101), which takes them out of transit into the store,"
+  say "within Montreal's valuation, so nothing is posted:"
+  api 200 '"order \(.number): \(.status), goods receipt \(.receipt_document_number) on \(.receipt_date)", (.items[] | "  in transit: \(.in_transit_quantity.value) \(.in_transit_quantity.unit)")' \
+    postStockTransportGoodsReceipt -p "id=$order" -if-match "$tag"
+  expect "the received order" "$(field '"\(.status) \(.items[0].in_transit_quantity.value)"')" "received 0"
+  api 200 '"material document \(.number) (\(.movement_type) \(.movement_type_name)), journal entry \(.journal_entry_number // "none")", (.lines[] | "  line \(.line_no): \(.plant_code)/\(.storage_location_code) \(.quantity.value) \(.quantity.unit)\(if .in_transit then " in transit" else "" end)")' \
+    getMaterialDocument -p "id=$(field .receipt_document_id)"
+  expect "the receipt's entry" "$(field '.journal_entry_number // "none"')" "none"
+  QUIET=1 api 200 '' listStock -p "material_id=$washer"
+  expect "the washers' stock after the receipt" "$(field '[.items[] | "\(.plant_code)/\(.storage_location_code) \(.quantity.value)"] | join(", ")')" "P100/SL01 300, P200/SL03 200"
+  QUIET=1 api 200 '' listStockTransportOrders -p "plant_id=$montreal" -p status=received
+  expect "Montreal's received orders" "$(field '[.items[] | .id] | join(" ")')" "$order"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -17204,7 +17294,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_stock_transport step_close'
 
 main() {
   stop_unseen
