@@ -62,9 +62,11 @@ const einvoiceColumns = `id, connector_id, message_id, receiver, legal_entity_id
 
 // fields are the destinations of einvoiceColumns, in order.
 func (d *EInvoice) fields() []any {
-	return []any{&d.ID, &d.ConnectorID, &d.MessageID, &d.Receiver, &d.LegalEntityID, &d.Status, &d.SHA256, &d.Size, &d.FetchOperationID, &d.ReceivedAt,
-		&d.AcknowledgedAt, &d.ChangedHash, &d.ChangedAt, &d.ChangedFetchedBy, &d.ProcessedAt, &d.ProcessedBy, &d.ValidatedAgainst, &d.ProblemCode,
-		&d.ProblemDetail, &d.DocumentNumber, &d.DocumentKind, &d.IssueDate, &d.Currency, &d.Gross, &d.Specification, &d.Version}
+	recorded := []any{&d.ID, &d.ConnectorID, &d.MessageID, &d.Receiver, &d.LegalEntityID, &d.Status, &d.SHA256, &d.Size, &d.FetchOperationID,
+		&d.ReceivedAt, &d.AcknowledgedAt, &d.ChangedHash, &d.ChangedAt, &d.ChangedFetchedBy}
+	processed := []any{&d.ProcessedAt, &d.ProcessedBy, &d.ValidatedAgainst, &d.ProblemCode, &d.ProblemDetail, &d.DocumentNumber, &d.DocumentKind,
+		&d.IssueDate, &d.Currency, &d.Gross, &d.Specification}
+	return append(append(recorded, processed...), &d.Version)
 }
 
 func scanEInvoice(r pgx.Row) (EInvoice, error) {
