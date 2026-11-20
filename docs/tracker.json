@@ -2790,9 +2790,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "E-invoice validation and refusals: the process activity (FOR UPDATE, only from received); parsing without DTD or entities; the PINT AE fields read, citing the specification the specialist or provider supplies; decimals; lines summing to the net and net plus tax to the gross (no tax-rate check: P5 at posting); the buyer a company of the connector with its FTA registration's TRN; refused with einvoicing.unreadable, unsupported_document, missing_field, amount_precision, totals_inconsistent, not_addressed_to_company, document_too_large; a fuzz test of the parser; an nfr budget of the processing transaction; walkthrough: a malformed e-invoice and one addressed to another TRN refused with their reasons, the valid one still received; the specification and fields as the UAE tax specialist cited them (po:2026-11-09, C1-C7; ADR-0061 §5, answered): PINT AE Billing, published by OpenPeppol for the Ministry of Finance (UBL 2.1; the release validated against and the document's IBT-024 recorded), each field read by its business term [H] and UBL path [M], only invoice 380 and credit note 381 [M], IBT-006 and IBT-111 required when IBT-005 is not AED; the buyer judged by the IBT-049 endpoint (scheme 0235 and the company's TIN, the first 10 digits of its own Corporate Tax TRN, a VAT group member's own and not the representative's, which the configuration carries where the company's VAT TRN is its group's) and IBT-048 checked apart rather than required to equal it digit for digit; the published Schematron vendored only once its licence is read",
-        "r": "ADR-0061 §4, §5, §14 · T65c · ADR-0061 §5 (answered, C1-C7)",
+        "r": "ADR-0061 §4, §5, §14 · T65c · ADR-0061 §5 (answered, C1-C7) · db/migrations/000416, 000417 · einvoicing.ProcessEInvoices · einvoicing.Received · einvoicing.PINTAERelease · einvoicing.FieldError · workflow FetchEInvoices einvoice-process · FuzzReceived · TestProcessEInvoiceBudget · walkthrough step_einvoice (einvoice_refusals), step_evatra_inbound · ADR-0061 As built T65c (a document too large not recorded)",
         "src": "adr:ADR-0061 · po:2026-11-09",
         "c": []
        },

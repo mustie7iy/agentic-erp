@@ -4350,8 +4350,11 @@ components:
         (`received`, status_before null), and when a fetch finds the
         provider delivered other bytes under its message id (T65b:
         `changed_sha256` set, the status unchanged, so status_before is
-        the status), once per different bytes. The processing slices add
-        its entering, holding, refusal and dismissal (T65c-T65f). It
+        the status), once per different bytes, and when a fetch's
+        validation refuses it (T65c: `refused`, status_before `received`,
+        with its `problem_code`); a valid document's validation moves no
+        status and publishes nothing. The later slices add its entering,
+        holding and dismissal (T65d-T65f). It
         carries no document content. `GET /v1/e-invoices/{id}` returns the
         document at `version` or later: its acknowledgement to the
         provider, which sets `acknowledged_at`, moves the version without
@@ -6127,7 +6130,8 @@ components:
         message_id: {type: string, description: "The provider's id of the document."}
         legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company it is addressed to; null when none."}
         legal_entity_code: {type: [string, 'null'], description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it; null with it.'}
-        status: {type: string, description: "The document's status after the change. Open enum: received."}
+        status: {type: string, description: "The document's status after the change. Open enum: received, refused (T65c)."}
+        problem_code: {type: [string, 'null'], description: "Why it was refused (`einvoicing.unreadable`, `einvoicing.unsupported_document`, `einvoicing.missing_field`, `einvoicing.amount_precision`, `einvoicing.totals_inconsistent`, `einvoicing.not_addressed_to_company`; an open enumeration); null unless refused. Its detail is on the document, not in the event. Added within v1, so not required (ADR-0041); every event carries it."}
         status_before: {type: [string, 'null'], description: "Its status before; null when it was received."}
         sha256: {type: string, description: "The SHA-256 of its bytes as received, hex."}
         changed_sha256: {type: [string, 'null'], description: "The SHA-256 of other bytes the provider delivered later under the same message id, the latest, hex; null while there are none. The document keeps its first bytes (`sha256`). Added within v1, so not required (ADR-0041); every event carries it."}

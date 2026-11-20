@@ -45296,9 +45296,47 @@ type EInvoice struct {
 	CompanyCode NilString `json:"company_code"`
 	// The company's name; null with `legal_entity_id`.
 	CompanyName NilString `json:"company_name"`
-	// Open enum: received (recorded, not yet processed). The processing slices add entered, held, refused
-	// and dismissed (ADR-0061 §7).
+	// Open enum: received (recorded; once processed, read as a PINT AE document and found valid, waiting
+	// to be entered) or refused (T65c: read and refused by validation, `problem_code` and `problem_detail`
+	// saying why; kept, never entered, final). The later slices add entered, held and dismissed (ADR-0061
+	// §7).
 	Status string `json:"status"`
+	// When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing
+	// it or leaving it received. Omitted until then; every fetch processes the documents of its connector
+	// not processed yet.
+	ProcessedAt OptDateTime `json:"processed_at"`
+	// The fetch that processed it: its Operation's id. Omitted with `processed_at`.
+	ProcessedFetchOperationID OptUUID `json:"processed_fetch_operation_id"`
+	// The release of the PINT AE rules it was validated against (ADR-0061 §5 C2), such as
+	// `PINT AE Billing 1.0.4`. Omitted with `processed_at`.
+	ValidatedAgainst OptString `json:"validated_against"`
+	// Why it was refused (ADR-0061 §5): unreadable (not well-formed XML, or declaring a DTD or an entity,
+	// never expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381
+	// following PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail`
+	// naming each by its business term), amount_precision (an amount with more decimals than its
+	// currency's minor unit), totals_inconsistent (the lines not summing to their total, the total without
+	// VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT total, with the
+	// figures), not_addressed_to_company (listed for none of the connector's companies, its buyer's
+	// electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the
+	// company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	ProblemCode OptString `json:"problem_code"`
+	// What was found, for a person to take up with the supplier (no TRN in clear). Omitted unless refused.
+	ProblemDetail OptString `json:"problem_detail"`
+	// The document's number as it states it (IBT-001). Omitted until processed, and for a document that
+	// could not be read.
+	DocumentNumber OptString `json:"document_number"`
+	// Invoice (a tax invoice, 380) or credit_note (a tax credit note, 381). Omitted with
+	// `document_number`. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	DocumentKind OptString `json:"document_kind"`
+	// Its issue date (IBT-002). Omitted with `document_number`.
+	IssueDate OptDate `json:"issue_date"`
+	// Its currency (IBT-005). Omitted with `document_number`.
+	Currency    OptString `json:"currency"`
+	GrossAmount OptMoney  `json:"gross_amount"`
+	// The specification it states it follows (IBT-024, CustomizationID). Omitted with `document_number`.
+	Specification OptString `json:"specification"`
 	// The SHA-256 of its bytes as received.
 	SHA256 string `json:"sha256"`
 	// The size of its bytes as received.
@@ -45364,6 +45402,61 @@ func (s *EInvoice) GetCompanyName() NilString {
 // GetStatus returns the value of Status.
 func (s *EInvoice) GetStatus() string {
 	return s.Status
+}
+
+// GetProcessedAt returns the value of ProcessedAt.
+func (s *EInvoice) GetProcessedAt() OptDateTime {
+	return s.ProcessedAt
+}
+
+// GetProcessedFetchOperationID returns the value of ProcessedFetchOperationID.
+func (s *EInvoice) GetProcessedFetchOperationID() OptUUID {
+	return s.ProcessedFetchOperationID
+}
+
+// GetValidatedAgainst returns the value of ValidatedAgainst.
+func (s *EInvoice) GetValidatedAgainst() OptString {
+	return s.ValidatedAgainst
+}
+
+// GetProblemCode returns the value of ProblemCode.
+func (s *EInvoice) GetProblemCode() OptString {
+	return s.ProblemCode
+}
+
+// GetProblemDetail returns the value of ProblemDetail.
+func (s *EInvoice) GetProblemDetail() OptString {
+	return s.ProblemDetail
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *EInvoice) GetDocumentNumber() OptString {
+	return s.DocumentNumber
+}
+
+// GetDocumentKind returns the value of DocumentKind.
+func (s *EInvoice) GetDocumentKind() OptString {
+	return s.DocumentKind
+}
+
+// GetIssueDate returns the value of IssueDate.
+func (s *EInvoice) GetIssueDate() OptDate {
+	return s.IssueDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *EInvoice) GetCurrency() OptString {
+	return s.Currency
+}
+
+// GetGrossAmount returns the value of GrossAmount.
+func (s *EInvoice) GetGrossAmount() OptMoney {
+	return s.GrossAmount
+}
+
+// GetSpecification returns the value of Specification.
+func (s *EInvoice) GetSpecification() OptString {
+	return s.Specification
 }
 
 // GetSHA256 returns the value of SHA256.
@@ -45454,6 +45547,61 @@ func (s *EInvoice) SetCompanyName(val NilString) {
 // SetStatus sets the value of Status.
 func (s *EInvoice) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetProcessedAt sets the value of ProcessedAt.
+func (s *EInvoice) SetProcessedAt(val OptDateTime) {
+	s.ProcessedAt = val
+}
+
+// SetProcessedFetchOperationID sets the value of ProcessedFetchOperationID.
+func (s *EInvoice) SetProcessedFetchOperationID(val OptUUID) {
+	s.ProcessedFetchOperationID = val
+}
+
+// SetValidatedAgainst sets the value of ValidatedAgainst.
+func (s *EInvoice) SetValidatedAgainst(val OptString) {
+	s.ValidatedAgainst = val
+}
+
+// SetProblemCode sets the value of ProblemCode.
+func (s *EInvoice) SetProblemCode(val OptString) {
+	s.ProblemCode = val
+}
+
+// SetProblemDetail sets the value of ProblemDetail.
+func (s *EInvoice) SetProblemDetail(val OptString) {
+	s.ProblemDetail = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *EInvoice) SetDocumentNumber(val OptString) {
+	s.DocumentNumber = val
+}
+
+// SetDocumentKind sets the value of DocumentKind.
+func (s *EInvoice) SetDocumentKind(val OptString) {
+	s.DocumentKind = val
+}
+
+// SetIssueDate sets the value of IssueDate.
+func (s *EInvoice) SetIssueDate(val OptDate) {
+	s.IssueDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *EInvoice) SetCurrency(val OptString) {
+	s.Currency = val
+}
+
+// SetGrossAmount sets the value of GrossAmount.
+func (s *EInvoice) SetGrossAmount(val OptMoney) {
+	s.GrossAmount = val
+}
+
+// SetSpecification sets the value of Specification.
+func (s *EInvoice) SetSpecification(val OptString) {
+	s.Specification = val
 }
 
 // SetSHA256 sets the value of SHA256.

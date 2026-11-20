@@ -4562,8 +4562,19 @@ bytes staying the original; the worker role reads `received_at` and
 `acknowledged_at` for the gauge `erp_einvoices_unacknowledged`, served
 by the cell-wide partial index `einvoice_unacknowledged`; the list's
 fetch filter also matches `changed_fetch_operation_id`
-(`einvoice_by_changed_fetch`). The other
-columns below arrive with the slices that write them (T65c-T65f).
+(`einvoice_by_changed_fetch`). T65c (migrations 000416, 000417) adds
+the processing: `processed_at`, `processed_fetch_operation_id` and
+`validated_against` (the PINT AE release) set together, once, never
+before receipt (`einvoice_processed`); the status `refused` (from
+`received` only, final, the trigger) with `problem_code` and
+`problem_detail` exactly then (`einvoice_problem`); what was read
+(`document_number`, `document_kind`, `issue_date`, `currency` with
+`gross_amount`, `specification`, IBT-024) only once processed
+(`einvoice_read`, `einvoice_read_lengths`), fixed with the problem once
+processed (the trigger); the partial index `einvoice_unprocessed` the
+fetch lists by. A document above 10 MiB is not recorded (T65c As built),
+so `sha256` and `size` stay required. The other columns below arrive
+with the slices that write them (T65d-T65f).
 E2 (migration 000415; ADR-0061 As built E2) adds
 `einvoicing.outgoing_einvoice`: a posted customer invoice or credit memo
 of a UAE company rendered as a PINT AE e-invoice, once per customer
@@ -4574,7 +4585,7 @@ invalid one's customer document fixed (`outgoing_einvoice_transition`).
 
 | Table | Purpose |
 |---|---|
-| `einvoicing.einvoice` | A document received from the tenant's accredited provider (and, in phase 3, one sent): its company and connector, the provider's message id (unique per tenant and connector), the fetch operation that recorded it, direction, format (`pint_ae`), kind (invoice or credit note), the hash and size of the bytes kept write-once in object storage (null for a document refused as too large, which is not kept), `received_at` and `acknowledged_at`, `changed_hash` when the provider redelivered other bytes under the id, the fields read (number, issue date, currency, totals, lines, the seller's TRN fingerprint and last four characters, the supplier once found), its status (`received` → `entered`, `held` or `refused`; `held` → `entered`, `held` again on a retry with the new problem, or `dismissed`) with the problem code and detail exactly when held or refused and the reason exactly when dismissed, the supplier invoice once entered or linked (at most one document per invoice, a partial unique index), and its version |
+| `einvoicing.einvoice` | A document received from the tenant's accredited provider (and, in phase 3, one sent): its company and connector, the provider's message id (unique per tenant and connector), the fetch operation that recorded it, direction, format (`pint_ae`), kind (invoice or credit note), the hash and size of the bytes kept write-once in object storage (a document too large is not recorded, T65c), `received_at` and `acknowledged_at`, `changed_hash` when the provider redelivered other bytes under the id, when, by which fetch and against which PINT AE release it was processed, the fields read (number, kind, issue date, currency, gross and specification from T65c; totals, lines, the seller's TRN fingerprint and last four characters and the supplier once found with T65d), its status (`received` → `entered`, `held` or `refused`; `held` → `entered`, `held` again on a retry with the new problem, or `dismissed`) with the problem code and detail exactly when held or refused and the reason exactly when dismissed, the supplier invoice once entered or linked (at most one document per invoice, a partial unique index), and its version |
 | `einvoicing.outgoing_einvoice` | A posted customer document rendered as a PINT AE e-invoice (E2): its company, customer and customer invoice by id and number (unique per tenant), the billing document it posted from, if any, by id and number, its kind (`invoice` 380 or `credit_note` 381, `outgoing_einvoice_type`), issue date, currency and net, tax and gross amounts, the invoice a credit note credits by number, a credit note's reason (code and text, together and on a credit note only, `outgoing_einvoice_reason`), the specification (CustomizationID), its status (`valid` with the SHA-256, size and object key of its XML and no problem, or `invalid` with the problems of its last render and no XML, `outgoing_einvoice_content`), when it was last rendered and its version; a valid row is final and an invalid one keeps its customer document (trigger); the list's index by `rendered_at` |
 
 ## 3.26 Accounts receivable (`receivables`)

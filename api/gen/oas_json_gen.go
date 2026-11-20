@@ -111911,6 +111911,72 @@ func (s *EInvoice) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.ProcessedAt.Set {
+			e.FieldStart("processed_at")
+			s.ProcessedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.ProcessedFetchOperationID.Set {
+			e.FieldStart("processed_fetch_operation_id")
+			s.ProcessedFetchOperationID.Encode(e)
+		}
+	}
+	{
+		if s.ValidatedAgainst.Set {
+			e.FieldStart("validated_against")
+			s.ValidatedAgainst.Encode(e)
+		}
+	}
+	{
+		if s.ProblemCode.Set {
+			e.FieldStart("problem_code")
+			s.ProblemCode.Encode(e)
+		}
+	}
+	{
+		if s.ProblemDetail.Set {
+			e.FieldStart("problem_detail")
+			s.ProblemDetail.Encode(e)
+		}
+	}
+	{
+		if s.DocumentNumber.Set {
+			e.FieldStart("document_number")
+			s.DocumentNumber.Encode(e)
+		}
+	}
+	{
+		if s.DocumentKind.Set {
+			e.FieldStart("document_kind")
+			s.DocumentKind.Encode(e)
+		}
+	}
+	{
+		if s.IssueDate.Set {
+			e.FieldStart("issue_date")
+			s.IssueDate.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		if s.Currency.Set {
+			e.FieldStart("currency")
+			s.Currency.Encode(e)
+		}
+	}
+	{
+		if s.GrossAmount.Set {
+			e.FieldStart("gross_amount")
+			s.GrossAmount.Encode(e)
+		}
+	}
+	{
+		if s.Specification.Set {
+			e.FieldStart("specification")
+			s.Specification.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("sha256")
 		e.Str(s.SHA256)
 	}
@@ -111948,7 +112014,7 @@ func (s *EInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfEInvoice = [18]string{
+var jsonFieldsNameOfEInvoice = [29]string{
 	0:  "id",
 	1:  "connector_id",
 	2:  "connector_name",
@@ -111958,15 +112024,26 @@ var jsonFieldsNameOfEInvoice = [18]string{
 	6:  "company_code",
 	7:  "company_name",
 	8:  "status",
-	9:  "sha256",
-	10: "size",
-	11: "fetch_operation_id",
-	12: "received_at",
-	13: "acknowledged_at",
-	14: "changed_sha256",
-	15: "changed_at",
-	16: "changed_fetch_operation_id",
-	17: "version",
+	9:  "processed_at",
+	10: "processed_fetch_operation_id",
+	11: "validated_against",
+	12: "problem_code",
+	13: "problem_detail",
+	14: "document_number",
+	15: "document_kind",
+	16: "issue_date",
+	17: "currency",
+	18: "gross_amount",
+	19: "specification",
+	20: "sha256",
+	21: "size",
+	22: "fetch_operation_id",
+	23: "received_at",
+	24: "acknowledged_at",
+	25: "changed_sha256",
+	26: "changed_at",
+	27: "changed_fetch_operation_id",
+	28: "version",
 }
 
 // Decode decodes EInvoice from json.
@@ -111974,7 +112051,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode EInvoice to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -112078,8 +112155,118 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
+		case "processed_at":
+			if err := func() error {
+				s.ProcessedAt.Reset()
+				if err := s.ProcessedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"processed_at\"")
+			}
+		case "processed_fetch_operation_id":
+			if err := func() error {
+				s.ProcessedFetchOperationID.Reset()
+				if err := s.ProcessedFetchOperationID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"processed_fetch_operation_id\"")
+			}
+		case "validated_against":
+			if err := func() error {
+				s.ValidatedAgainst.Reset()
+				if err := s.ValidatedAgainst.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"validated_against\"")
+			}
+		case "problem_code":
+			if err := func() error {
+				s.ProblemCode.Reset()
+				if err := s.ProblemCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"problem_code\"")
+			}
+		case "problem_detail":
+			if err := func() error {
+				s.ProblemDetail.Reset()
+				if err := s.ProblemDetail.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"problem_detail\"")
+			}
+		case "document_number":
+			if err := func() error {
+				s.DocumentNumber.Reset()
+				if err := s.DocumentNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"document_number\"")
+			}
+		case "document_kind":
+			if err := func() error {
+				s.DocumentKind.Reset()
+				if err := s.DocumentKind.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"document_kind\"")
+			}
+		case "issue_date":
+			if err := func() error {
+				s.IssueDate.Reset()
+				if err := s.IssueDate.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"issue_date\"")
+			}
+		case "currency":
+			if err := func() error {
+				s.Currency.Reset()
+				if err := s.Currency.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"currency\"")
+			}
+		case "gross_amount":
+			if err := func() error {
+				s.GrossAmount.Reset()
+				if err := s.GrossAmount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"gross_amount\"")
+			}
+		case "specification":
+			if err := func() error {
+				s.Specification.Reset()
+				if err := s.Specification.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"specification\"")
+			}
 		case "sha256":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.SHA256 = string(v)
@@ -112091,7 +112278,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"sha256\"")
 			}
 		case "size":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int64()
 				s.Size = int64(v)
@@ -112103,7 +112290,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"size\"")
 			}
 		case "fetch_operation_id":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.FetchOperationID = v
@@ -112115,7 +112302,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"fetch_operation_id\"")
 			}
 		case "received_at":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.ReceivedAt = v
@@ -112127,7 +112314,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"received_at\"")
 			}
 		case "acknowledged_at":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				if err := s.AcknowledgedAt.Decode(d, json.DecodeDateTime); err != nil {
 					return err
@@ -112137,7 +112324,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"acknowledged_at\"")
 			}
 		case "changed_sha256":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				if err := s.ChangedSHA256.Decode(d); err != nil {
 					return err
@@ -112147,7 +112334,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"changed_sha256\"")
 			}
 		case "changed_at":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[3] |= 1 << 2
 			if err := func() error {
 				if err := s.ChangedAt.Decode(d, json.DecodeDateTime); err != nil {
 					return err
@@ -112157,7 +112344,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"changed_at\"")
 			}
 		case "changed_fetch_operation_id":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				if err := s.ChangedFetchOperationID.Decode(d); err != nil {
 					return err
@@ -112167,7 +112354,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"changed_fetch_operation_id\"")
 			}
 		case "version":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[3] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -112187,10 +112374,11 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11111111,
-		0b11111111,
-		0b00000011,
+		0b00000001,
+		0b11110000,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
