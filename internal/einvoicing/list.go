@@ -11,8 +11,10 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
@@ -38,16 +40,31 @@ type EInvoice struct {
 	ChangedHash      []byte
 	ChangedAt        *time.Time
 	ChangedFetchedBy *uuid.UUID // the fetch that found them
-	Version          int32
+	// ProcessedAt is when a fetch processed it (T65c), ProcessedBy that
+	// fetch and ValidatedAgainst the release of the rules; nil until then.
+	ProcessedAt      *time.Time
+	ProcessedBy      *uuid.UUID
+	ValidatedAgainst *string
+	// ProblemCode and ProblemDetail are why it was refused; nil otherwise.
+	ProblemCode, ProblemDetail *string
+	// What processing read of it (nil when it could not be read): its
+	// number (IBT-001), kind, issue date (IBT-002), currency (IBT-005),
+	// gross (IBT-112, minor units) and specification (IBT-024).
+	DocumentNumber, DocumentKind, Currency, Specification *string
+	IssueDate                                             *time.Time
+	Gross                                                 *int64
+	Version                                               int32
 }
 
 const einvoiceColumns = `id, connector_id, message_id, receiver, legal_entity_id, status, sha256, size, fetch_operation_id, received_at, acknowledged_at,
-	changed_hash, changed_at, changed_fetch_operation_id, version`
+	changed_hash, changed_at, changed_fetch_operation_id, processed_at, processed_fetch_operation_id, validated_against, problem_code, problem_detail,
+	document_number, document_kind, issue_date, currency, gross_amount, specification, version`
 
 // fields are the destinations of einvoiceColumns, in order.
 func (d *EInvoice) fields() []any {
 	return []any{&d.ID, &d.ConnectorID, &d.MessageID, &d.Receiver, &d.LegalEntityID, &d.Status, &d.SHA256, &d.Size, &d.FetchOperationID, &d.ReceivedAt,
-		&d.AcknowledgedAt, &d.ChangedHash, &d.ChangedAt, &d.ChangedFetchedBy, &d.Version}
+		&d.AcknowledgedAt, &d.ChangedHash, &d.ChangedAt, &d.ChangedFetchedBy, &d.ProcessedAt, &d.ProcessedBy, &d.ValidatedAgainst, &d.ProblemCode,
+		&d.ProblemDetail, &d.DocumentNumber, &d.DocumentKind, &d.IssueDate, &d.Currency, &d.Gross, &d.Specification, &d.Version}
 }
 
 func scanEInvoice(r pgx.Row) (EInvoice, error) {
@@ -206,5 +223,35 @@ func (n names) toAPI(d EInvoice) gen.EInvoice {
 		out.ChangedAt.SetToNull()
 		out.ChangedFetchOperationID.SetToNull()
 	}
+	processedToAPI(d, &out)
 	return out
+}
+
+// processedToAPI sets what processing recorded (T65c): when and against
+// which release, the problem of a refused document, and what it read,
+// each omitted while there is none.
+func processedToAPI(d EInvoice, out *gen.EInvoice) {
+	setOpt(&out.ProcessedAt, d.ProcessedAt)
+	setOpt(&out.ProcessedFetchOperationID, d.ProcessedBy)
+	setOpt(&out.ValidatedAgainst, d.ValidatedAgainst)
+	setOpt(&out.ProblemCode, d.ProblemCode)
+	setOpt(&out.ProblemDetail, d.ProblemDetail)
+	setOpt(&out.DocumentNumber, d.DocumentNumber)
+	setOpt(&out.Specification, d.Specification)
+	setOpt(&out.Currency, d.Currency)
+	setOpt(&out.DocumentKind, d.DocumentKind)
+	if d.IssueDate != nil {
+		out.IssueDate.SetTo(*d.IssueDate)
+	}
+	if d.Gross != nil {
+		exp, _ := currency.SeededExponent(*d.Currency) // the currency was read with its digits, and ref.currency holds it
+		out.GrossAmount.SetTo(apitypes.Money(money.Minor(*d.Gross), *d.Currency, exp))
+	}
+}
+
+// setOpt sets an optional field to v, leaving it unset for nil.
+func setOpt[T any, O interface{ SetTo(T) }](o O, v *T) {
+	if v != nil {
+		o.SetTo(*v)
+	}
 }

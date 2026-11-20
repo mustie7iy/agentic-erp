@@ -313,37 +313,51 @@ func acknowledged(ctx context.Context, tx pgx.Tx, p reqctx.Principal, connector 
 	return nil
 }
 
-// change is what changed of a document: its receipt or its bytes (the
-// processing slices add the changes of status).
+// change is what changed of a document: its receipt, its bytes, its
+// validation (status unchanged) or its refusal (T65c).
 type change int
 
 const (
 	received change = iota
 	bytesChanged
+	validated
+	refused
 )
 
-// recordChange audits a document's change and publishes EInvoiceChanged
-// (api/asyncapi.yaml): its receipt (status_before nil, the action
-// einvoicing.einvoice.received) or a change of its bytes (status_before
-// its status, which does not move; the action
-// einvoicing.einvoice.bytes_changed). Both carry the change of bytes the
-// document holds, if any, and the fetch that found it.
+// changeActions are the audit actions of the changes.
+var changeActions = map[change]string{received: "einvoicing.einvoice.received", bytesChanged: "einvoicing.einvoice.bytes_changed",
+	validated: "einvoicing.einvoice.validated", refused: "einvoicing.einvoice.refused"}
+
+// recordChange audits a document's change and, but for its validation,
+// publishes EInvoiceChanged (api/asyncapi.yaml): its receipt (status_before
+// nil), a change of its bytes (status_before its status, which does not
+// move) or its refusal (status_before received, with its problem code).
+// Every one carries the change of bytes the document holds, if any, the
+// fetch that found it and the problem code, null but for a refusal; never
+// the problem's detail, which may quote the document (ADR-0079). A
+// validation moves no status, so it publishes nothing, as an
+// acknowledgement does not (§12).
 func recordChange(ctx context.Context, d EInvoice, company *Company, what change) error {
 	payload := map[string]any{"einvoice_id": d.ID, "connector_id": d.ConnectorID, "message_id": d.MessageID, "legal_entity_id": d.LegalEntityID,
 		"legal_entity_code": nil, "status": d.Status, "status_before": nil, "sha256": hex.EncodeToString(d.SHA256), "changed_sha256": nil,
-		"changed_fetch_operation_id": d.ChangedFetchedBy, "fetch_operation_id": d.FetchOperationID, "version": d.Version}
+		"changed_fetch_operation_id": d.ChangedFetchedBy, "fetch_operation_id": d.FetchOperationID, "problem_code": d.ProblemCode, "version": d.Version}
 	if company != nil {
 		payload["legal_entity_code"] = company.Code
 	}
 	if d.ChangedHash != nil {
 		payload["changed_sha256"] = hex.EncodeToString(d.ChangedHash)
 	}
-	action := "einvoicing.einvoice.received"
-	if what == bytesChanged {
+	switch what {
+	case received: // status_before stays null: it had none
+	case bytesChanged:
 		payload["status_before"] = d.Status
-		action = "einvoicing.einvoice.bytes_changed"
+	case refused, validated:
+		payload["status_before"] = StatusReceived
 	}
-	return audit.Record(ctx, action, "einvoicing.einvoice", d.ID, payload,
+	if what == validated {
+		return audit.Record(ctx, changeActions[what], "einvoicing.einvoice", d.ID, payload)
+	}
+	return audit.Record(ctx, changeActions[what], "einvoicing.einvoice", d.ID, payload,
 		outbox.Event{Context: "einvoicing", Name: "einvoice_changed", AggregateType: "einvoicing.einvoice", AggregateID: d.ID, Payload: payload})
 }
 
@@ -353,11 +367,13 @@ type Failure struct {
 	ID, Code string
 }
 
-// Counts are what a fetch found, its Operation's result.
+// Counts are what a fetch found, its Operation's result: the documents it
+// recorded, found recorded already or changed, and refused (T65c).
 type Counts struct {
 	Recorded        int `json:"recorded"`
 	AlreadyRecorded int `json:"already_recorded"`
 	Changed         int `json:"changed"`
+	Refused         int `json:"refused"`
 }
 
 // FinishEInvoiceFetch ends the fetch's Operation in the caller's
@@ -392,8 +408,8 @@ func incomplete(operation uuid.UUID, counts Counts, failed []Failure) *problem.P
 		named[i] = f.ID + " (" + f.Code + ")"
 	}
 	return problem.Unprocessable("einvoicing.fetch_incomplete", fmt.Sprintf("The provider's messages %s were not recorded; a message that failed on "+
-		"platform.unavailable is taken again by the next fetch, a refused one is refused again. Recorded %d, already recorded %d, changed %d: GET %s.",
-		strings.Join(named, ", "), counts.Recorded, counts.AlreadyRecorded, counts.Changed, fetchedPath(operation)), errs...)
+		"platform.unavailable is taken again by the next fetch, a refused one is refused again. Recorded %d, already recorded %d, changed %d, "+
+		"refused %d: GET %s.", strings.Join(named, ", "), counts.Recorded, counts.AlreadyRecorded, counts.Changed, counts.Refused, fetchedPath(operation)), errs...)
 }
 
 // FailEInvoiceFetch fails the fetch's Operation with the problem that

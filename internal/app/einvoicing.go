@@ -92,6 +92,10 @@ func (f einvoiceFetches) RecordEInvoice(ctx context.Context, connector, operatio
 	return f.e.RecordEInvoice(ctx, connector, operation, einvoicing.Message{ID: m.ID, Receiver: m.Receiver}, in)
 }
 
+func (f einvoiceFetches) ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in workflows.Within) (int, error) {
+	return f.e.ProcessEInvoices(ctx, connector, operation, in)
+}
+
 func (f einvoiceFetches) QueueEInvoiceFetch(ctx context.Context, operation, connector uuid.UUID, workflowID string) error {
 	return f.e.QueueEInvoiceFetch(ctx, operation, connector, workflowID)
 }
@@ -102,7 +106,7 @@ func (f einvoiceFetches) FinishEInvoiceFetch(ctx context.Context, operation uuid
 		out[i] = einvoicing.Failure{ID: m.ID, Code: m.Code}
 	}
 	return f.e.FinishEInvoiceFetch(ctx, operation, einvoicing.Counts{Recorded: counts.Recorded, AlreadyRecorded: counts.AlreadyRecorded,
-		Changed: counts.Changed}, out)
+		Changed: counts.Changed, Refused: counts.Refused}, out)
 }
 
 func (f einvoiceFetches) FailEInvoiceFetch(ctx context.Context, operation uuid.UUID, why *problem.Problem) error {

@@ -1,0 +1,188 @@
+package einvoicing
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+)
+
+// StatusRefused is a received document refused by validation (ADR-0061
+// §5, §7): kept, never entered, final.
+const StatusRefused = "refused"
+
+// unprocessed is a document of the connector not yet processed, as the
+// process step reads it before its own transaction.
+type unprocessed struct {
+	id  uuid.UUID
+	ref string
+	sum []byte
+}
+
+// ProcessEInvoices processes the connector's received documents not yet
+// processed, oldest first (ADR-0061 §4 Process, §5; T65c): each one's
+// bytes are read from the store with no transaction open, then, in a
+// transaction of its own, the document is read FOR UPDATE where it is
+// still received and unprocessed, validated (Received, then addressed) and
+// either refused, with its problem, the audit record
+// einvoicing.einvoice.refused and EInvoiceChanged, or left received with
+// what it read and the audit record einvoicing.einvoice.validated (no
+// event: its status does not move), for entering (T65d). A document
+// already processed is skipped, so the step runs any number of times; it
+// answers how many documents this fetch refused, counted from the rows, so
+// a step run again after a commit still counts them.
+func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in Within) (int, error) {
+	var c Connector
+	var docs []unprocessed
+	if err := inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, _ reqctx.Principal) error {
+		var err error
+		if c, err = e.Connectors.Provider(ctx, connector); err != nil {
+			return err
+		}
+		docs, err = unprocessedOf(ctx, tx, connector)
+		return err
+	}); err != nil {
+		return 0, err
+	}
+	for _, d := range docs {
+		if err := e.processOne(ctx, c, operation, d, in); err != nil {
+			return 0, err
+		}
+	}
+	var refused int
+	return refused, inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, _ reqctx.Principal) error {
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM einvoicing.einvoice WHERE connector_id = $1 AND processed_fetch_operation_id = $2
+			AND status = 'refused'`, connector, operation).Scan(&refused); err != nil {
+			return fmt.Errorf("einvoicing: count the documents fetch %s refused: %w", operation, err)
+		}
+		return nil
+	})
+}
+
+// unprocessedOf lists the connector's documents not yet processed, oldest
+// received first.
+func unprocessedOf(ctx context.Context, tx pgx.Tx, connector uuid.UUID) ([]unprocessed, error) {
+	rows, _ := tx.Query(ctx, `SELECT id, content_ref, sha256 FROM einvoicing.einvoice WHERE connector_id = $1 AND processed_at IS NULL
+		AND status = 'received' ORDER BY received_at, id`, connector)
+	docs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (unprocessed, error) {
+		var d unprocessed
+		return d, r.Scan(&d.id, &d.ref, &d.sum)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("einvoicing: the documents of connector %s to process: %w", connector, err)
+	}
+	return docs, nil
+}
+
+// processOne validates one document: its bytes read and compared with the
+// hash recorded (a store that holds other bytes fails the step, as the
+// download refuses them), then its row locked and its outcome written.
+func (e *Endpoints) processOne(ctx context.Context, c Connector, operation uuid.UUID, u unprocessed, in Within) error {
+	content, _, err := e.Objects.Get(ctx, u.ref)
+	if err != nil {
+		return fmt.Errorf("einvoicing: read the bytes of e-invoice %s: %w", u.id, err)
+	}
+	if sum := sha256.Sum256(content); !bytes.Equal(sum[:], u.sum) {
+		return fmt.Errorf("einvoicing: the stored bytes of e-invoice %s do not match the SHA-256 recorded", u.id)
+	}
+	read, refusal := Received(content, currency.SeededExponent)
+	return inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal) error {
+		doc, err := scanEInvoice(tx.QueryRow(ctx, `SELECT `+einvoiceColumns+` FROM einvoicing.einvoice WHERE id = $1 AND status = 'received'
+			AND processed_at IS NULL FOR UPDATE`, u.id))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil // processed meanwhile by another fetch
+		}
+		if err != nil {
+			return fmt.Errorf("einvoicing: lock e-invoice %s: %w", u.id, err)
+		}
+		company, err := e.companyOf(ctx, doc)
+		if err != nil {
+			return err
+		}
+		if refusal == nil {
+			if refusal, err = e.addressed(ctx, c, company, read); err != nil {
+				return err
+			}
+		}
+		return e.processed(ctx, tx, p, operation, doc, company, read, refusal)
+	})
+}
+
+// addressed refuses a document not addressed to the company the provider
+// listed it for (ADR-0061 §5 C6): its buyer's electronic address (IBT-049,
+// scheme 0235 and the company's TIN) must be the connector's participant
+// of that company, and its buyer's VAT TRN (IBT-048), checked apart, the
+// number of the company's FTA registration on the issue date (a tax
+// group's for a member, as the registration holds it). Neither TRN is
+// put in the detail.
+func (e *Endpoints) addressed(ctx context.Context, c Connector, company *Company, d Document) (*Refusal, error) {
+	if company == nil {
+		return &Refusal{Code: RefusedNotAddressed, Detail: "The provider listed it for a participant of none of connector " + c.Name + "'s companies."}, nil
+	}
+	endpoint := d.Buyer.EndpointScheme + ":" + d.Buyer.Endpoint
+	if participant := c.Participants[company.Code]; endpoint != participant {
+		return &Refusal{Code: RefusedNotAddressed, Detail: fmt.Sprintf("Its buyer's electronic address (IBT-049) is %s, not company %s's participant %s.",
+			clip(endpoint), company.Code, participant)}, nil
+	}
+	day := d.IssueDate.Format(time.DateOnly)
+	s, err := e.Sales.Seller(ctx, company.ID, d.IssueDate)
+	switch {
+	case err != nil:
+		return nil, err
+	case s.TRN == "":
+		return &Refusal{Code: RefusedNotAddressed, Detail: "Company " + company.Code + " has no FTA registration on " + day + ", its issue date."}, nil
+	case s.TRN != d.Buyer.TRN:
+		return &Refusal{Code: RefusedNotAddressed, Detail: "Its buyer's TRN (IBT-048), ending " + d.Buyer.TRN[len(d.Buyer.TRN)-4:] +
+			", is not the number of company " + company.Code + "'s FTA registration on " + day + ", its issue date."}, nil
+	}
+	return nil, nil
+}
+
+// processed writes the outcome of processing the locked document: refused
+// with its problem, or still received; either way what it read, when, by
+// which fetch and against which release. The update is guarded on the
+// document still unprocessed, which the lock holds.
+func (e *Endpoints) processed(ctx context.Context, tx pgx.Tx, p reqctx.Principal, operation uuid.UUID, doc EInvoice, company *Company, d Document,
+	refusal *Refusal) error {
+	status, code, detail := StatusReceived, (*string)(nil), (*string)(nil)
+	if refusal != nil {
+		status, code, detail = StatusRefused, &refusal.Code, &refusal.Detail
+	}
+	f := readFields(d)
+	after, err := scanEInvoice(tx.QueryRow(ctx, `UPDATE einvoicing.einvoice SET status = $2, problem_code = $3, problem_detail = $4,
+			processed_at = now(), processed_fetch_operation_id = $5, validated_against = $6, document_number = $7, document_kind = $8,
+			issue_date = $9, currency = $10, gross_amount = $11, specification = $12, version = version + 1, updated_by = $13
+		WHERE id = $1 AND status = 'received' AND processed_at IS NULL RETURNING `+einvoiceColumns,
+		doc.ID, status, code, detail, operation, PINTAERelease, f.number, f.kind, f.issued, f.currency, f.gross, f.specification, p.ID))
+	if err != nil {
+		return fmt.Errorf("einvoicing: record the processing of e-invoice %s: %w", doc.ID, err)
+	}
+	if refusal == nil {
+		return recordChange(ctx, after, company, validated)
+	}
+	return recordChange(ctx, after, company, refused)
+}
+
+// read are what a processed document's row keeps of what it says: none of
+// it for a document that could not be read.
+type read struct {
+	number, kind, currency, specification *string
+	issued                                *time.Time
+	gross                                 *int64
+}
+
+func readFields(d Document) read {
+	if d.Number == "" {
+		return read{}
+	}
+	gross := int64(d.TaxInclusive)
+	return read{number: &d.Number, kind: &d.Kind, currency: &d.Currency, specification: &d.Customization, issued: &d.IssueDate, gross: &gross}
+}

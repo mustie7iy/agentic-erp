@@ -3130,23 +3130,34 @@ type Handler interface {
 	// document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as
 	// `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different
 	// bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the
-	// document's version without an event. When the fetch is done its Operation succeeds with the counts
-	// in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and
-	// its `resource` the list of the documents it recorded or found changed
+	// document's version without an event. Then the fetch processes every document of the connector not
+	// processed yet, oldest first (T65c, ADR-0061 §5): it reads it as PINT AE (no DTD, no entity
+	// expanded) and refuses it, `refused` with its `problem_code` and `problem_detail`, an audit record
+	// and EInvoiceChanged, when it is unreadable, not a tax invoice 380 or tax credit note 381 following
+	// PINT AE, lacks a field the ERP reads, states an amount with more decimals than its currency has,
+	// does not add up without any tax rule, or is not addressed to the company (its buyer's electronic
+	// address IBT-049 the company's participant, its buyer's TRN IBT-048 the company's FTA registration on
+	// its issue date); a valid one stays `received`, with what was read (number, kind, issue date,
+	// currency, gross, specification) and the release validated against, for entering (T65d). When the
+	// fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
+	// `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
+	// refused) and its `resource` the list of the documents it recorded or found changed
 	// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
 	// `changed_fetch_operation_id`); a message not recorded fails the Operation with
 	// `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
 	// error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the
 	// store or the database failed (after five tries in the workflow engine, one in process), which the
 	// next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10
-	// MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A
-	// provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is
-	// not an active `einvoice_provider` connector with credentials that resolve is refused before anything
-	// is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
-	// `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`,
-	// `integration.secret_unavailable`); so is, in production, the provider's stand-in or Evatra's `stage`
-	// sandbox (422 `integration.adapter_not_certified`), and an Evatra connector whose credentials are not
-	// a JSON object with `apiKey` and `email` (422 `integration.secret_unavailable`). An Evatra connector
+	// MiB, not recorded, since its bytes cannot be kept), which the next fetch meets again. A failure
+	// processing the documents fails the Operation with `platform.unavailable`, the documents recorded and
+	// left for the next fetch to process. A provider whose messages cannot be listed fails it with
+	// `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with
+	// credentials that resolve is refused before anything is queued (404 `request.not_found`, 422
+	// `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422
+	// `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so
+	// is, in production, the provider's stand-in or Evatra's `stage` sandbox (422
+	// `integration.adapter_not_certified`), and an Evatra connector whose credentials are not a JSON
+	// object with `apiKey` and `email` (422 `integration.secret_unavailable`). An Evatra connector
 	// (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received for each
 	// company's TIN in the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the
 	// acknowledgement is local only and a fetch leaves out what is recorded and acknowledged, and Evatra
@@ -5856,8 +5867,9 @@ type Handler interface {
 	// was received and acknowledged, and the hash of other bytes the provider delivered later under its id
 	// (`changed_sha256`, T65b). Its bytes as received are `getEInvoiceContent`. Filters: company,
 	// connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in
-	// its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is
-	// read by the processing slices (T65c, T65d), which add it here.
+	// its `resource`) and when received. Once processed (T65c) each carries what was read of it (number,
+	// kind, issue date, currency, gross, specification), when, by which fetch and against which release,
+	// and, when refused, its problem code and detail; the supplier and the entered invoice come with T65d.
 	//
 	// GET /v1/e-invoices
 	ListEInvoices(ctx context.Context, params ListEInvoicesParams) (ListEInvoicesRes, error)
