@@ -659,7 +659,7 @@ storage location's.
   refuses one that would leave them apart, so the batches add up to the
   location's stock (`GET /v1/batch-stock`). The flows that carry no batch
   yet refuse a batch-managed material at their first step: a purchase
-  order's stock item, an outbound delivery's item, a stock transport
+  order's stock item, a quotation's or sales order's item, a stock transport
   order, a count and the SAP stock take-over.
   **Later:** batches in those flows, a batch created at goods receipt,
   internal batch numbers, changing a batch's dates, batch status, stock

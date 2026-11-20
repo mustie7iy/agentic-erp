@@ -1183,8 +1183,10 @@ reads a location's stock without a lock for shipping's picking.
   **The flows that carry no batch yet refuse a batch-managed material**
   at the flow's first step, so no document is created that cannot
   complete (review round 1): a purchase order's stock item (422
-  `procurement.invalid_stock_item`, as it is created or changed), an
-  outbound delivery's item (422 `shipping.material_not_usable`), a stock
+  `procurement.invalid_stock_item`, as it is created or changed), a new
+  quotation or sales order item (422 `sales.material_not_usable`; review
+  round 2) and, beneath it, an outbound delivery's item (422
+  `shipping.material_not_usable`), a stock
   transport order (at its creation, `TransportQuantities`) and a count
   document (at its creation; both 422 `inventory.batch_not_supported`,
   which the goods receipt and goods issue also answer beneath), and the

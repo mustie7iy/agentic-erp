@@ -2501,7 +2501,8 @@ type Invoker interface {
 	// §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
 	// its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
 	// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-	// (`x-agent: false`).
+	// (`x-agent: false`). An item of a batch-managed material is refused (422
+	// `sales.material_not_usable`): a delivery carries no batch yet (S2f).
 	//
 	// POST /v1/quotations
 	CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
@@ -2751,7 +2752,9 @@ type Invoker interface {
 	// company's date today in its time zone, with a document number from the company's `sales_order`
 	// number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
 	// are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-	// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+	// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`). An item of a
+	// batch-managed material is refused (422 `sales.material_not_usable`): a delivery carries no batch yet
+	// (S2f).
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
@@ -29526,7 +29529,8 @@ func (c *Client) sendCreatePurchaseOrderChange(ctx context.Context, request *Pur
 // §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
 // its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
 // the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-// (`x-agent: false`).
+// (`x-agent: false`). An item of a batch-managed material is refused (422
+// `sales.material_not_usable`): a delivery carries no batch yet (S2f).
 //
 // POST /v1/quotations
 func (c *Client) CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error) {
@@ -31550,7 +31554,9 @@ func (c *Client) sendCreateRoleAssignment(ctx context.Context, request *RoleAssi
 // company's date today in its time zone, with a document number from the company's `sales_order`
 // number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
 // are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`). An item of a
+// batch-managed material is refused (422 `sales.material_not_usable`): a delivery carries no batch yet
+// (S2f).
 //
 // POST /v1/sales-orders
 func (c *Client) CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error) {
