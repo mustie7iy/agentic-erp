@@ -15413,7 +15413,7 @@ step_einvoice_billing() {
 # third order to 6, and its change confirms all 6.
 step_available_to_promise() {
   heading "Step 148 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives"
-  local hinge sales montreal store first second third tag
+  local hinge sales montreal store first second third
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts
   sales=$(account 4000)

@@ -11,7 +11,8 @@ import (
 // S2j): a sales order's plant is entered with it and never changed by the
 // application; an order item's confirmed quantity is never entered with
 // the item, is set only on an item of a material of a confirmed order
-// that names a plant, at most the item's quantity and not below zero, is
+// that names a plant, at most the item's quantity when set (not when the
+// quantity is lowered later: the change sets it again) and not below zero, is
 // never cleared, and stays at least what is delivered and in delivery of
 // the item. The trigger's rules hold for the owner too.
 func TestSalesAvailabilityRules(t *testing.T) {

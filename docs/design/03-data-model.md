@@ -5653,12 +5653,18 @@ erDiagram
   `confirmed_quantity`, what the availability check confirmed of the
   item in its unit, null until then and for an item it does not check:
   never entered with the item, set only on an item of a material of a
-  confirmed order with a plant, at most the item's `quantity`, never
+  confirmed order with a plant, at most the item's `quantity` when set
+  (a change lowering the quantity sets it again), never
   cleared (`sales_order_item_confirmed_by_check`, for the tables' owner
   too), not below zero nor below what is delivered and in delivery of it
   (`sales_order_item_confirmed`); the application may update it.
   `sales_order_item_promised` indexes the items that promised more than
-  is delivered, by material.
+  is delivered, by material. The same migration adds
+  `sales.delivery_assignment.plant_id`, the plant the delivery ships
+  from (null for an assignment written without it; the existing ones
+  take their delivery's), indexed by `delivery_assignment_by_plant`: what
+  deliveries of orders without a plant hold there counts in its
+  availability.
 - `sales.sales_order_change` (T78d, migration 000355): a change of an
   order, numbered from 1 within it (`sales_order_change_no_positive`,
   `sales_order_change_once`), with the order's version after it

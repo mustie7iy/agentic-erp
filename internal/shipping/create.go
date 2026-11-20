@@ -59,7 +59,7 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Delivery, error) {
 	if err != nil {
 		return Delivery{}, err
 	}
-	ship := sales.ShipInput{OrderID: in.OrderID, DeliveryID: uuid.Must(uuid.NewV7()), Items: in.Items}
+	ship := sales.ShipInput{OrderID: in.OrderID, DeliveryID: uuid.Must(uuid.NewV7()), PlantID: in.PlantID, Items: in.Items}
 	if in.Items == nil {
 		ship.Open = src.eligibleItems()
 	}

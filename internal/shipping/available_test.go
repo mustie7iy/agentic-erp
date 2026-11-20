@@ -118,6 +118,32 @@ func TestConfirmationPromisesWhatIsAvailable(t *testing.T) {
 	})
 }
 
+// TestDeliveriesOfOrdersWithoutAPlantCount: what an outbound delivery
+// from the plant holds of an order that names no plant is not available
+// to an order that does; its goods issue gives it back and takes it out
+// of the stock, so what is available stays.
+func TestDeliveriesOfOrdersWithoutAPlantCount(t *testing.T) {
+	e := setup(t)
+	free := e.order(t, false, e.ofMaterial(e.bracket, "6 BOX"))
+	d, tag := e.Must(201, "POST", deliveries, e.create(free), "")
+	_, got := e.confirmedAt(t, e.p1, e.ofMaterial(e.bracket, "10 BOX"))
+	if c := confirmedOf(t, got); c != "4 BOX" {
+		t.Errorf("with 6 BOX in delivery for an order without a plant: got %s, want 4 BOX of the 200 EA", c)
+	}
+	_, tag = e.Must(200, "POST", deliveries+"/"+d["id"].(string)+":pick", pick("1 6 BOX"), tag)
+	e.issued(t, d["id"].(string), tag)
+	_, got = e.confirmedAt(t, e.p1, e.ofMaterial(e.bracket, "1 BOX"))
+	if c := confirmedOf(t, got); c != "0 BOX" {
+		t.Errorf("after its goods issue: got %s, want 0 BOX: 80 EA left, all promised", c)
+	}
+	var plants string
+	pgtest.Scan(t, `SELECT string_agg(DISTINCT plant_id::text, ',') FROM sales.delivery_assignment WHERE outbound_delivery_id = $1`,
+		[]any{d["id"]}, &plants)
+	if plants != e.p1.String() {
+		t.Errorf("the assignments' plant: got %s, want P1's", plants)
+	}
+}
+
 // TestOrderPlantRefusals: an order's plant is an active plant of its
 // company.
 func TestOrderPlantRefusals(t *testing.T) {

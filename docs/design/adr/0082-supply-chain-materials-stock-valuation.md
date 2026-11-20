@@ -1146,8 +1146,10 @@ reads a location's stock without a lock for shipping's picking.
 
 ### S2j (2026-11-20)
 
-- Migration 000421: `sales.sales_order.plant_id` and
-  `sales.sales_order_item.confirmed_quantity` with their rules (03
+- Migration 000421: `sales.sales_order.plant_id`,
+  `sales.sales_order_item.confirmed_quantity` with their rules and
+  `sales.delivery_assignment.plant_id` (the existing assignments take
+  their delivery's) (03
   §3.16; schema tests in `db/sales_availability_test.go`, the trigger
   also as the owner).
 - **The plant is the order's, optional** (decided by default): a sales
@@ -1159,18 +1161,23 @@ reads a location's stock without a lock for shipping's picking.
   one plant per order is enough for the pilot's one plant per stock site,
   and per-item plants and their determination are Later. An order
   without a plant is not checked and is delivered as before, so
-  existing orders, quotations and order capture are unchanged; its
-  deliveries are not counted in any plant's availability (for the
-  product owner: whether a plant should be required for orders of stock
-  materials).
+  existing orders, quotations and order capture are unchanged. What its
+  outbound deliveries hold at a plant counts in that plant's
+  availability (review round 1): each delivery assignment names the
+  plant its delivery ships from (`ShipInput.PlantID`,
+  `GoodsIssue.PlantID`), and the check counts the held quantities of
+  orders without a plant there. Their confirmed but undelivered
+  quantities are not counted, having no plant (for the product owner:
+  whether a plant should be required for orders of stock materials).
 - **What is available** at confirmation (`confirmSalesOrder`), for each
   item of a material kept in stock: the plant's stock at its storage
   locations in the base unit (`inventory.Endpoints.PlantStock`, a read
   published for this; stock in transit is not counted) less what the
   plant's other confirmed orders confirmed and have not delivered
   (`confirmed_quantity − delivered_quantity` of their standing items, at
-  the material's factor now). What outbound deliveries hold is inside
-  that: a delivery takes from what its order confirmed. Cancelled orders
+  the material's factor now) and what deliveries from the plant hold of
+  orders without a plant, read in one statement. What an order with a
+  plant has in delivery is inside its confirmed quantity. Cancelled orders
   and removed items promise nothing. The items are confirmed in item
   order, each as far as is left, rounded down to six decimals in the
   item's unit: in full, in part or not at all; a shortage refuses
@@ -1188,7 +1195,9 @@ reads a location's stock without a lock for shipping's picking.
   issue committed between the two reads counts out of the stock but
   still in the demand, so it promises less, never more
   (`TestTwoOrdersRaceForTheLastQuantity`, through
-  `apitest.Serialized`).
+  `apitest.Serialized`). The reasoning holds while delivered quantities
+  only rise: a goods issue reversal (602, Later) that lowers one must
+  take the check's lock or count its stock first.
 - **Deliveries take at most what is confirmed** (`OrderItem.open`): an
   item with a confirmed quantity has that, not its ordered quantity,
   open for delivery, less what is delivered and in delivery (422
@@ -1202,7 +1211,13 @@ reads a location's stock without a lock for shipping's picking.
   the plant has it available, so a lowered quantity frees stock and a
   raised one is confirmed as stock arrives (decided by default; SAP
   rechecks a changed item, from memory). Re-confirming items no change
-  touched is back-order processing, Later.
+  touched is back-order processing, Later: until then an item confirmed
+  short is confirmed again only by a change of its quantity (a change to
+  the same quantity is `sales.nothing_changed`), for the product owner.
+  A change that touches no stock item's quantity takes no lock and reads
+  nothing. Confirmed quantities are rounded down to six decimals in the
+  item's unit (`money.FloorQuantity`), so a part of a pack can be
+  confirmed.
 - **Not valued, nothing more promised**: a promise whose unit the
   material no longer has (a unit removed since) cannot be put in the
   base unit; the material then has nothing more available at the plant,

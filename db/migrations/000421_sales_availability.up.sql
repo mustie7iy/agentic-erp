@@ -8,9 +8,12 @@
 -- delivered, and records the item's confirmed quantity, in the item's
 -- unit: what its outbound deliveries may take. An item's confirmed
 -- quantity is set only while its order is confirmed and names a plant,
--- only on an item of a material, never above the item's quantity, never
--- cleared once set, and never below what is delivered and in delivery of
--- it. Expand only (06 §6.4): nullable columns, null on every existing
+-- only on an item of a material, at most the item's quantity when it is
+-- set (a change that lowers the quantity sets it again), never cleared
+-- once set, and never below what is delivered and in delivery of it.
+-- What an outbound delivery holds of an order without a plant counts in
+-- the availability of the plant it ships from: each delivery assignment
+-- names that plant, the existing ones their delivery's. Expand only (06 §6.4): nullable columns, null on every existing
 -- order and item, which the previous version neither reads nor writes.
 ALTER TABLE sales.sales_order
   ADD COLUMN plant_id uuid;    -- tenancy context
@@ -46,8 +49,20 @@ CREATE TRIGGER sales_order_item_confirmed_by_check BEFORE INSERT OR UPDATE OF co
   FOR EACH ROW EXECUTE FUNCTION sales.check_sales_order_item_confirmed();
 GRANT UPDATE (confirmed_quantity) ON sales.sales_order_item TO erp_app;
 
+-- The plant an assignment's delivery ships from (tenancy context), null
+-- for one written without it; the existing assignments take their
+-- delivery's (the insert-only trigger set aside for the backfill).
+ALTER TABLE sales.delivery_assignment
+  ADD COLUMN plant_id uuid;    -- tenancy context
+ALTER TABLE sales.delivery_assignment DISABLE TRIGGER delivery_assignment_immutable;
+UPDATE sales.delivery_assignment a SET plant_id = d.plant_id
+FROM shipping.outbound_delivery d WHERE d.tenant_id = a.tenant_id AND d.id = a.outbound_delivery_id;
+ALTER TABLE sales.delivery_assignment ENABLE TRIGGER delivery_assignment_immutable;
+
 -- What confirmed orders promised of a material at a plant and have not
--- delivered: the availability check's demand.
+-- delivered, and what deliveries of orders without a plant hold there:
+-- the availability check's demand.
+CREATE INDEX delivery_assignment_by_plant ON sales.delivery_assignment (tenant_id, plant_id) WHERE plant_id IS NOT NULL;
 CREATE INDEX sales_order_by_plant ON sales.sales_order (tenant_id, plant_id) WHERE status = 'confirmed' AND plant_id IS NOT NULL;
 CREATE INDEX sales_order_item_promised ON sales.sales_order_item (tenant_id, material_id)
   WHERE confirmed_quantity > delivered_quantity AND removed_in_change IS NULL;

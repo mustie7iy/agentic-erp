@@ -106,8 +106,8 @@ func (e *Endpoints) availability(ctx context.Context, tx pgx.Tx, o Order, items 
 		return nil, nil
 	}
 	stocked, ms, err := e.stockedItems(ctx, items)
-	if err != nil || len(stocked) == 0 {
-		return nil, err
+	if err != nil || !slices.ContainsFunc(stocked, check) {
+		return nil, err // nothing to check: no lock, no read
 	}
 	ids := materialIDs(stocked)
 	if err := lockMaterials(ctx, tx, *o.PlantID, ids); err != nil {
@@ -216,10 +216,14 @@ func (s stockLeft) free(material uuid.UUID) *big.Rat {
 }
 
 // demand is what the confirmed orders of the plant other than o promised
-// of the materials and have not delivered, counted out of a stock of
-// nothing: each item's confirmed quantity less what is delivered of it,
-// in the base unit at the material's factor now. An item that is removed,
-// or that is delivered as far as it was confirmed, promises nothing.
+// of the materials and have not delivered, and what outbound deliveries
+// from the plant hold of orders that name no plant, counted out of a
+// stock of nothing, in one statement: each item's confirmed quantity less
+// what is delivered of it, and each delivery's assignments at the plant
+// (taken, less given back at their goods issue), in the base unit at the
+// material's factor now. An item that is removed, or that is delivered as
+// far as it was confirmed, promises nothing; an order with a plant holds
+// its deliveries within what it confirmed.
 func demand(ctx context.Context, tx pgx.Tx, o Order, ms map[uuid.UUID]materials.Material) (stockLeft, error) {
 	ids := make([]uuid.UUID, 0, len(ms))
 	s := stockLeft{left: map[uuid.UUID]*big.Rat{}, unknown: map[uuid.UUID]bool{}}
@@ -231,11 +235,18 @@ func demand(ctx context.Context, tx pgx.Tx, o Order, ms map[uuid.UUID]materials.
 		Unit     string
 		Quantity string
 	}
-	rows, _ := tx.Query(ctx, `SELECT i.material_id, i.uom_code, trim_scale(sum(i.confirmed_quantity - i.delivered_quantity))::text
-		FROM sales.sales_order_item i JOIN sales.sales_order o ON o.tenant_id = i.tenant_id AND o.id = i.sales_order_id
-		WHERE i.material_id = ANY($1) AND i.confirmed_quantity > i.delivered_quantity AND i.removed_in_change IS NULL
-			AND o.plant_id = $2 AND o.status = 'confirmed' AND o.id <> $3
-		GROUP BY i.material_id, i.uom_code ORDER BY i.material_id, i.uom_code`, ids, *o.PlantID, o.ID)
+	rows, _ := tx.Query(ctx, `SELECT material_id, uom_code, trim_scale(sum(q))::text FROM (
+			SELECT i.material_id, i.uom_code, i.confirmed_quantity - i.delivered_quantity AS q
+			FROM sales.sales_order_item i JOIN sales.sales_order o ON o.tenant_id = i.tenant_id AND o.id = i.sales_order_id
+			WHERE i.material_id = ANY($1) AND i.confirmed_quantity > i.delivered_quantity AND i.removed_in_change IS NULL
+				AND o.plant_id = $2 AND o.status = 'confirmed' AND o.id <> $3
+			UNION ALL
+			SELECT i.material_id, i.uom_code, a.quantity
+			FROM sales.delivery_assignment a
+				JOIN sales.sales_order_item i ON i.tenant_id = a.tenant_id AND i.sales_order_id = a.sales_order_id AND i.item_no = a.order_item_no
+				JOIN sales.sales_order o ON o.tenant_id = a.tenant_id AND o.id = a.sales_order_id
+			WHERE a.plant_id = $2 AND i.material_id = ANY($1) AND o.plant_id IS NULL) promised
+		GROUP BY material_id, uom_code HAVING sum(q) > 0 ORDER BY material_id, uom_code`, ids, *o.PlantID, o.ID)
 	opens, err := pgx.CollectRows(rows, pgx.RowToStructByPos[open])
 	if err != nil {
 		return stockLeft{}, fmt.Errorf("sales: what confirmed orders promised at plant %s: %w", *o.PlantID, err)
@@ -295,7 +306,7 @@ func (s stockLeft) confirm(it OrderItem, m materials.Material) promise {
 	}
 	reach := new(big.Rat).Set(money.ParseRat(it.Delivered))
 	if f, err := m.Factor(it.Unit); err == nil {
-		reach.Add(reach, floorQuantity(new(big.Rat).Quo(s.free(*it.MaterialID), f)))
+		reach.Add(reach, money.FloorQuantity(new(big.Rat).Quo(s.free(*it.MaterialID), f)))
 	} else {
 		reach = kept // a unit that is no longer the material's: nothing more is promised in it
 	}
@@ -304,14 +315,6 @@ func (s stockLeft) confirm(it OrderItem, m materials.Material) promise {
 	it.Confirmed = &p.confirmed
 	s.take(*it.MaterialID, it.promisedOpen(m))
 	return p
-}
-
-// floorQuantity is r rounded down to a quantity's decimals.
-func floorQuantity(r *big.Rat) *big.Rat {
-	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(money.QuantityDecimals), nil)
-	n := new(big.Int).Mul(r.Num(), scale)
-	n.Div(n, r.Denom()) // Euclidean: rounds down for the non-negative r it is given
-	return new(big.Rat).SetFrac(n, scale)
 }
 
 func minRat(a, b *big.Rat) *big.Rat {
