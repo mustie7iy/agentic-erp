@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -83,7 +84,7 @@ func (e *Endpoints) enter(ctx context.Context, tx pgx.Tx, p reqctx.Principal, op
 		return nil
 	}
 	var out entering
-	if d.AccountingTax != nil {
+	if d.Currency != accountingCurrency {
 		out.held = &Refusal{Code: HeldNotInAED, Detail: "The e-invoice is in " + d.Currency + "; its VAT in AED (IBT-111) is kept as it states it " +
 			"for the VAT 201, which a supplier invoice does not hold yet, so enter it by hand."}
 	} else {
@@ -96,8 +97,14 @@ func (e *Endpoints) enter(ctx context.Context, tx pgx.Tx, p reqctx.Principal, op
 	return e.entryDecided(ctx, tx, p, operation, doc, company, out)
 }
 
-// tryEnter calls payables' entering in a savepoint.
+// tryEnter calls payables' entering in a savepoint. The audit entries the
+// entering buffered (a rule's hold among them) are dropped with its
+// rollback, so no record names an invoice that never existed. A problem
+// that asks to be retried (a lock timeout, a serialization failure: one
+// with a Retry-After) is the machinery, not a refusal: it fails the step,
+// the document staying received for the next try.
 func (e *Endpoints) tryEnter(ctx context.Context, tx pgx.Tx, id uuid.UUID, entry Entry) (entering, error) {
+	mark := audit.Mark(ctx)
 	if _, err := tx.Exec(ctx, `SAVEPOINT einvoice_entry`); err != nil {
 		return entering{}, fmt.Errorf("einvoicing: open the savepoint to enter e-invoice %s: %w", id, err)
 	}
@@ -111,12 +118,13 @@ func (e *Endpoints) tryEnter(ctx context.Context, tx pgx.Tx, id uuid.UUID, entry
 		return entering{entered: &entered}, nil
 	}
 	refused := problem.From(err)
-	if refused.Status >= 500 {
+	if refused.Status >= 500 || refused.RetryAfter > 0 {
 		return entering{}, err
 	}
 	if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT einvoice_entry`); err != nil {
 		return entering{}, fmt.Errorf("einvoicing: roll back the refused entering of e-invoice %s: %w", id, err)
 	}
+	audit.DiscardFrom(ctx, mark)
 	return entering{held: &Refusal{Code: refused.Code, Detail: refused.Detail}}, nil
 }
 

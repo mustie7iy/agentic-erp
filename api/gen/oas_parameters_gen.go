@@ -70938,8 +70938,8 @@ type ListEInvoicesParams struct {
 	Status OptString `json:",omitempty,omitzero"`
 	// Only the e-invoices entered as invoices of this supplier (T65d).
 	SupplierID OptUUID `json:",omitempty,omitzero"`
-	// Only the e-invoices this fetch recorded or found changed (its Operation's id, matching
-	// `fetch_operation_id` or `changed_fetch_operation_id`).
+	// Only the e-invoices this fetch recorded, found changed, or entered or held (its Operation's id,
+	// matching `fetch_operation_id`, `changed_fetch_operation_id` or `entry_fetch_operation_id`).
 	FetchOperationID OptUUID `json:",omitempty,omitzero"`
 	// Only e-invoices received at or after this time.
 	ReceivedFrom OptDateTime `json:",omitempty,omitzero"`

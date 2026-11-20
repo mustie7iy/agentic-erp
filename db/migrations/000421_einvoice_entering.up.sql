@@ -43,7 +43,7 @@ ALTER TABLE einvoicing.einvoice
 GRANT UPDATE (entry_at, entry_fetch_operation_id, supplier_invoice_id, supplier_id) ON einvoicing.einvoice TO erp_app;
 
 -- As 000416's, and: a processed document moves from received to entered
--- or held too; what the entering decided (the status, the problem, the
+-- or held (and an unprocessed one alone to refused, as before); what the entering decided (the status, the problem, the
 -- invoice and the fetch) is fixed once decided; refused, entered and held
 -- documents are final (T65f lets people retry, link or dismiss a held
 -- one).
@@ -59,7 +59,7 @@ BEGIN
     END IF;
     RETURN NEW;
   END IF;
-  IF NEW.status <> OLD.status AND NOT (OLD.status = 'received' AND (NEW.status = 'refused'
+  IF NEW.status <> OLD.status AND NOT (OLD.status = 'received' AND ((NEW.status = 'refused' AND OLD.processed_at IS NULL)
       OR (NEW.status IN ('entered', 'held') AND OLD.processed_at IS NOT NULL))) THEN
     RAISE EXCEPTION 'e-invoice % cannot change from % to %', OLD.id, OLD.status, NEW.status
       USING ERRCODE = 'check_violation', CONSTRAINT = 'einvoice_transition';

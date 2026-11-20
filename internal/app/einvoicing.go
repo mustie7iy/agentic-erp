@@ -43,7 +43,7 @@ func (a einvoicePayables) Enter(ctx context.Context, in einvoicing.Entry) (einvo
 	v, err := a.e.EnterEInvoice(ctx, payables.EInvoice{LegalEntityID: in.LegalEntityID, Number: d.Number, IssueDate: d.IssueDate, Currency: d.Currency,
 		Exponent: d.Exponent, OrderReference: d.OrderReference, SellerTRN: d.Seller.TRN, Lines: lines, Tax: d.Tax, Gross: d.TaxInclusive,
 		SHA256: in.SHA256, ObjectRef: in.ContentRef})
-	return einvoicing.Entered{InvoiceID: v.Invoice.ID, SupplierID: v.Invoice.SupplierID}, err
+	return einvoicing.Entered{InvoiceID: v.ID, SupplierID: v.SupplierID}, err
 }
 
 func (a einvoicePayables) Invoices(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]einvoicing.EnteredInvoice, error) {

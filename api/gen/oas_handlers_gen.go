@@ -36982,9 +36982,10 @@ func (s *Server) handleExcludeBankStatementLineRequest(args [2]string, argsEscap
 // Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a
 // message found with other bytes; `refused`: the documents this fetch refused; `entered` and `held`:
 // the documents this fetch entered and held; `waiting`: the connector's documents left unprocessed,
-// waiting for the company's setup) and its `resource` the list of the documents it recorded or found
-// changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
-// `changed_fetch_operation_id`); a message not recorded fails the Operation with
+// waiting for the company's setup) and its `resource` the list of the documents it recorded, found
+// changed, entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as
+// its `changed_fetch_operation_id`, one entered or held, also one an earlier fetch recorded, as its
+// `entry_fetch_operation_id`); a message not recorded fails the Operation with
 // `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
 // error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the
 // store or the database failed (after five tries in the workflow engine, one in process), which the

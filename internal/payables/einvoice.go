@@ -47,13 +47,6 @@ type EInvoiceLine struct {
 	Category, Percent                string
 }
 
-// EnteredEInvoice is the invoice an e-invoice was entered as, with the
-// warnings of its entering (tax codes proposed for a line).
-type EnteredEInvoice struct {
-	Invoice  Invoice
-	Warnings []string
-}
-
 // EnterEInvoice enters a received tax invoice as a supplier invoice with
 // capture's code and no model (ADR-0061 §6): the order from its order
 // reference, whose supplier must hold the seller's TRN as a tax
@@ -67,40 +60,38 @@ type EnteredEInvoice struct {
 // e-invoice with; the caller runs it in a savepoint, since several are
 // raised by the database (supplier_invoice_no_duplicates,
 // supplier_invoice_capture_once).
-func (e *Endpoints) EnterEInvoice(ctx context.Context, d EInvoice) (EnteredEInvoice, error) {
+func (e *Endpoints) EnterEInvoice(ctx context.Context, d EInvoice) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
-		return EnteredEInvoice{}, err
+		return Invoice{}, err
 	}
 	ext, err := extractionOf(d)
 	if err != nil {
-		return EnteredEInvoice{}, err
+		return Invoice{}, err
 	}
 	in, held, err := e.capturedInput(ctx, tx, d.LegalEntityID, ext)
 	if err != nil {
-		return EnteredEInvoice{}, err
+		return Invoice{}, err
 	}
 	if err := e.sellerOf(ctx, in.SupplierID, d.SellerTRN); err != nil {
-		return EnteredEInvoice{}, err
+		return Invoice{}, err
 	}
 	rates := make([]printedTax, len(d.Lines))
 	for i, l := range d.Lines {
 		rates[i] = printedTax{rate: l.Percent, category: l.Category}
 	}
-	proposed, taxHeld, err := e.capturedTax(ctx, tx, &in, rates)
+	// A code proposed for a line is on its item; no one reads its warning
+	// apart, as capture's Operation shows it to the person who captured.
+	_, taxHeld, err := e.capturedTax(ctx, tx, &in, rates)
 	if err != nil {
-		return EnteredEInvoice{}, err
+		return Invoice{}, err
 	}
 	held = strings.TrimSpace(held + " " + taxHeld)
 	if held, err = e.capturedExtensions(ctx, &in, held); err != nil {
-		return EnteredEInvoice{}, err
+		return Invoice{}, err
 	}
-	status, reason, warnings := captureStatus("high", held) // read, not extracted: no confidence to doubt
-	v, err := e.insert(ctx, tx, p, newInvoice{Input: in, source: SourceEInvoice, status: status, holdReason: reason, sha: d.SHA256, objectRef: d.ObjectRef})
-	if err != nil {
-		return EnteredEInvoice{}, err
-	}
-	return EnteredEInvoice{Invoice: v, Warnings: append(warnings, proposed...)}, nil
+	status, reason, _ := captureStatus("high", held) // read, not extracted: no confidence to doubt, so no warning
+	return e.insert(ctx, tx, p, newInvoice{Input: in, source: SourceEInvoice, status: status, holdReason: reason, sha: d.SHA256, objectRef: d.ObjectRef})
 }
 
 // extractionOf is the e-invoice as capture's code reads a document: a tax

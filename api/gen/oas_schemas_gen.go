@@ -45387,7 +45387,8 @@ type EInvoice struct {
 	Specification OptString `json:"specification"`
 	// When a fetch entered or held it (T65d). Omitted until then.
 	EnteredAt OptDateTime `json:"entered_at"`
-	// The fetch that entered or held it: its Operation's id. Omitted with `entered_at`.
+	// The fetch that entered or held it: its Operation's id, which lists the document under
+	// `fetch_operation_id` too. Omitted with `entered_at`.
 	EntryFetchOperationID OptUUID `json:"entry_fetch_operation_id"`
 	// The supplier invoice it was entered as (`getSupplierInvoice`, source `einvoice`, its document this
 	// e-invoice's bytes). Omitted unless entered.

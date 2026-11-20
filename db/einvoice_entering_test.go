@@ -35,6 +35,8 @@ func TestEInvoiceEntering(t *testing.T) {
 		{"held", []string{processedSet, heldSet}, ""},
 		{"entered unprocessed", []string{enteredSet}, "cannot change from received to entered"},
 		{"held unprocessed", []string{heldSet}, "cannot change from received to held"},
+		{"processed, then refused", []string{processedSet, "status = 'refused', problem_code = 'c', problem_detail = 'd'"},
+			"cannot change from received to refused"},
 		{"entered, then held", []string{processedSet, enteredSet, "status = 'held', supplier_invoice_id = NULL, supplier_id = NULL, " +
 			"problem_code = 'c', problem_detail = 'd'"}, "cannot change from entered to held"},
 		{"held, then entered", []string{processedSet, heldSet, "status = 'entered', problem_code = NULL, problem_detail = NULL, " +
@@ -93,6 +95,8 @@ func TestEInvoiceEnteringTrigger(t *testing.T) {
 	need(t)
 	for name, c := range map[string]struct{ set, want string }{
 		"an unprocessed document held": {heldSet, "cannot change from received to held"},
+		"a processed document refused": {processedSet + ", version = version + 1" + ownRow +
+			"; UPDATE einvoicing.einvoice SET status = 'refused', problem_code = 'c', problem_detail = 'd'", "cannot change from received to refused"},
 		"an entered document held": {processedSet + ", version = version + 1" + ownRow + "; UPDATE einvoicing.einvoice SET " + enteredSet +
 			", version = version + 1" + ownRow + "; UPDATE einvoicing.einvoice SET status = 'held'", "cannot change from entered to held"},
 		"an entered document's invoice changed": {processedSet + ", version = version + 1" + ownRow + "; UPDATE einvoicing.einvoice SET " + enteredSet +
@@ -159,7 +163,7 @@ func TestSupplierInvoiceFromEInvoice(t *testing.T) {
 	}
 }
 
-// TestEInvoiceEnteringDown: the down migration refuses, rather than drops,
+// TestEInvoiceEnteringDown: the down migration of 000421 refuses, rather than drops,
 // entered or held e-invoices and invoices entered from them (06 §6.4),
 // reading every tenant's rows.
 func TestEInvoiceEnteringDown(t *testing.T) {

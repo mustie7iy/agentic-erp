@@ -7,14 +7,17 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/rules"
 )
 
 // entering is a receiving scene whose company 5000 has a released order
@@ -298,5 +301,62 @@ func TestEnteredEInvoiceListed(t *testing.T) {
 	held := list(gen.ListEInvoicesParams{Status: gen.NewOptString(einvoicing.StatusHeld)})
 	if len(held) != 1 || held[0].SupplierInvoiceID.Set || held[0].SupplierName.Set || !held[0].EnteredAt.Set {
 		t.Errorf("the held one: got %+v, want GOI-2 with no invoice and when it was held", held)
+	}
+}
+
+// TestEnterEInvoiceRetryable: payables answering a problem that asks to
+// be retried (a lock timeout: 409 request.in_progress with a Retry-After)
+// fails the step rather than holding the document, which stays received
+// for the next fetch (review round 1).
+func TestEnterEInvoiceRetryable(t *testing.T) {
+	s := enteringScene(t)
+	s.srv.Deliver("GOI-1", uaeParticipant, ordered(supplierInvoice("GOI-1"), "4500000001", "10"))
+	op := uuid.Must(uuid.NewV7())
+	s.recordAll(t, op)
+	e := app.EInvoicing(s.cfg)
+	e.Payables = lockedPayables{e.Payables}
+	if _, err := e.ProcessEInvoices(context.Background(), s.connector, op, s.within()); err == nil {
+		t.Fatal("a lock timeout: got no error, want the step to fail")
+	}
+	if got := s.entered(t, "GOI-1", op); got != "received - - false" {
+		t.Errorf("after the lock timeout: got %s, want it left received", got)
+	}
+}
+
+// lockedPayables answers every entering with a lock timeout.
+type lockedPayables struct{ einvoicing.Payables }
+
+func (lockedPayables) Enter(context.Context, einvoicing.Entry) (einvoicing.Entered, error) {
+	return einvoicing.Entered{}, &pgconn.PgError{Code: "55P03", Message: "canceling statement due to lock timeout"}
+}
+
+// TestEnterEInvoiceRolledBackAudit: a rule that holds the new invoice
+// audits that hold inside the savepoint; when the entering is then
+// refused (a duplicate of an invoice entered by hand), the hold's audit
+// entry goes with the rollback, so no record names an invoice that never
+// existed (review round 1).
+func TestEnterEInvoiceRolledBackAudit(t *testing.T) {
+	s := enteringScene(t)
+	row := func(gross string) map[string]any {
+		return map[string]any{"legal_entity_id": "le", "supplier_id": "s", "supplier_reference": "r", "invoice_date": "2026-03-10",
+			"gross_amount": map[string]any{"amount": gross, "currency": "AED"}, "tax_amount": map[string]any{"amount": "0.00", "currency": "AED"}}
+	}
+	fixture.ActivateRules(t, s.f.Tenant.ID, "supplier_invoice", map[string]rules.Rule{"gross_limit": {Expression: `row.gross_amount.minor <= 10000`,
+		Message: "Invoices above 100.00 need a contract.", Cases: []rules.Case{{Row: row("100.00"), Valid: true}, {Row: row("100.01"), Valid: false}}}})
+	pgtest.Exec(t, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference, invoice_date,
+		currency, gross_amount, tax_amount, status, source, created_by, updated_by)
+		VALUES ($1, gen_random_uuid(), 'BYHAND-1', $2, $3, 'GOI-1', '2026-03-10', 'AED', 105000, 5000, 'parked', 'manual', $4, $4)`,
+		s.f.Tenant.ID, s.le, s.f.Supplier, s.f.Tenant.Human.ID)
+	s.srv.Deliver("GOI-1", uaeParticipant, ordered(supplierInvoice("GOI-1"), "4500000001", "10"))
+	op := uuid.Must(uuid.NewV7())
+	s.recordAll(t, op)
+	if _, err := s.e.ProcessEInvoices(context.Background(), s.connector, op, s.within()); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.entered(t, "GOI-1", op); got != "held payables.duplicate_invoice - true" {
+		t.Errorf("GOI-1: got %s, want held as a duplicate", got)
+	}
+	if got := fixture.RuleAudits(t, s.f.Tenant.ID, "payables.supplier_invoice.create"); len(got) != 0 {
+		t.Errorf("rule audits: got %+v, want none for the invoice rolled back", got)
 	}
 }

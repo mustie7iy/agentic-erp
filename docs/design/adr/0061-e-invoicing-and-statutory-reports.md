@@ -1391,8 +1391,8 @@ Built as §6 and the entering half of §4's Process and §7: migrations 000421
 allowing a processed `received` document to move to either and fixing what
 the entering decided; payables' source `einvoice`, whose invoice keeps its
 document's hash as a captured one does), 000422 (the checks validated),
-000423 (`einvoice_to_enter`) and 000424 (`einvoice_held`, cell-wide, for
-the gauge `erp_einvoices_held`); `payables.EnterEInvoice` (`einvoice.go`)
+000423 (`einvoice_to_enter`), 000424 (`einvoice_held`, cell-wide, for
+the gauge `erp_einvoices_held`) and 000425 (`einvoice_by_entry_fetch`); `payables.EnterEInvoice` (`einvoice.go`)
 behind the port `einvoicing.Payables` (`enter.go`), adapted in
 `internal/app/einvoicing.go`. Decided by default:
 
@@ -1405,9 +1405,16 @@ behind the port `einvoicing.Payables` (`enter.go`), adapted in
   credit notes stay `received` for T65e. The step stays idempotent
   (run-twice test): the row is read `FOR UPDATE` where it is still
   `received`, and the fetch's `entered` and `held` counts are read from the
-  rows (`entry_fetch_operation_id`). The list's `fetch_operation_id` filter
-  is unchanged (the recording or changing fetch): a document entered by a
-  later fetch is found by its status.
+  rows (`entry_fetch_operation_id`). The list's `fetch_operation_id` filter,
+  the fetch's `resource`, matches the entering fetch too (migration 000425,
+  `einvoice_by_entry_fetch`), so a fetch's `entered` and `held` lead to
+  their documents, also those an earlier fetch recorded (review round 1).
+  A retryable problem (a lock timeout or serialization failure, one with a
+  Retry-After) fails the step rather than holding the document, and the
+  audit entries buffered inside the savepoint (a rule's hold of the new
+  invoice) are dropped with its rollback (`audit.DiscardFrom`; review
+  round 1). The trigger lets only an unprocessed document be refused, as
+  000416 did.
 - **The savepoint.** `payables.EnterEInvoice` runs in `SAVEPOINT
   einvoice_entry`: a problem below 500 (`problem.From`) rolls it back and
   holds the document with that problem's code and detail (at most 2,000

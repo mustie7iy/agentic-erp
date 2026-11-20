@@ -4598,7 +4598,7 @@ before receipt (`einvoice_processed`); the status `refused` (from
 (`einvoice_read`, `einvoice_read_lengths`), fixed with the problem once
 processed (the trigger); the partial index `einvoice_unprocessed` the
 fetch lists by. A document above 10 MiB is not recorded (T65c As built),
-so `sha256` and `size` stay required. T65d (migrations 000421-000424)
+so `sha256` and `size` stay required. T65d (migrations 000421-000425)
 adds the entering: the statuses `entered` and `held` (from a processed
 `received` only, final until T65f, the trigger), `entry_at` and
 `entry_fetch_operation_id` set together exactly then, never before the
@@ -4608,7 +4608,7 @@ processing (`einvoice_entry`), `supplier_invoice_id` and `supplier_id`
 (`einvoice_problem` widened), what the entering decided fixed (the
 trigger); the partial index `einvoice_to_enter` (processed tax invoices
 still received) and the cell-wide `einvoice_held` the gauge
-`erp_einvoices_held` counts, the worker role reading `status`. The
+`erp_einvoices_held` counts, `einvoice_by_entry_fetch` for the list's fetch filter, the worker role reading `status`. The
 supplier invoice it enters has the source `einvoice` and keeps the
 document's hash and key as a captured one does
 (`supplier_invoice_document_hash`, `supplier_invoice_source_check`). The

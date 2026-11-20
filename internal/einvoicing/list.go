@@ -114,7 +114,7 @@ func (e *Endpoints) ListEInvoices(ctx context.Context, params gen.ListEInvoicesP
 	}
 	q, args := ks.SQL(`SELECT `+einvoiceColumns+` FROM einvoicing.einvoice
 		WHERE ($1::uuid IS NULL OR legal_entity_id = $1) AND ($2::uuid IS NULL OR connector_id = $2) AND ($3 = '' OR status = $3)
-		  AND ($4::uuid IS NULL OR fetch_operation_id = $4 OR changed_fetch_operation_id = $4) AND ($5::timestamptz IS NULL OR received_at >= $5)
+		  AND ($4::uuid IS NULL OR fetch_operation_id = $4 OR changed_fetch_operation_id = $4 OR entry_fetch_operation_id = $4) AND ($5::timestamptz IS NULL OR received_at >= $5)
 		  AND ($6::timestamptz IS NULL OR received_at < $6) AND ($7 OR legal_entity_id = ANY($8)) AND ($9::uuid IS NULL OR supplier_id = $9)`,
 		[]any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.ConnectorID), params.Status.Value,
 			apitypes.Ptr[uuid.UUID](params.FetchOperationID), apitypes.Ptr[time.Time](params.ReceivedFrom), apitypes.Ptr[time.Time](params.ReceivedTo),
