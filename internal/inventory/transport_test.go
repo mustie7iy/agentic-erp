@@ -264,16 +264,26 @@ func TestStockTransportReceiptRefused(t *testing.T) {
 }
 
 // TestStockTransportUnitChanged: an order moves the base quantity it was
-// created with: a factor of its unit changed after the issue leaves the
-// receipt taking out of transit what the issue put in.
+// created with: a factor of its unit changed before the issue leaves the
+// issue moving it, and changed again before the receipt the receipt
+// taking out of transit what the issue put in.
 func TestStockTransportUnitChanged(t *testing.T) {
 	e := setupWith(t, transportPerms...)
 	e.post(t, "561", e.item("40", "EA", nil))
-	issued := e.step(t, e.transport(t, e.transportItem(e.bracket, "1", "BOX", nil)), "postGoodsIssue")
-	_, tag := e.Must(200, "GET", "/v1/materials/"+e.bracket, "", "")
-	c, _ := e.Must(200, "PATCH", "/v1/materials/"+e.bracket, mustJSON(t, map[string]any{"reason": "Boxes of ten now",
-		"alternative_units": []any{map[string]any{"unit": "BOX", "numerator": 10, "denominator": 1}}}), tag)
-	e.Approve(t, c["pending_change_id"].(string))
+	boxes := func(n int) {
+		_, tag := e.Must(200, "GET", "/v1/materials/"+e.bracket, "", "")
+		c, _ := e.Must(200, "PATCH", "/v1/materials/"+e.bracket, mustJSON(t, map[string]any{"reason": "Other boxes",
+			"alternative_units": []any{map[string]any{"unit": "BOX", "numerator": n, "denominator": 1}}}), tag)
+		e.Approve(t, c["pending_change_id"].(string))
+	}
+	o := e.transport(t, e.transportItem(e.bracket, "1", "BOX", nil))
+	boxes(30)
+	issued := e.step(t, o, "postGoodsIssue")
+	issue, _ := e.Must(200, "GET", docs+"/"+issued["issue_document_id"].(string), "", "")
+	if got := e.lines(t, issue); got != "P1:S1 -20 EA (1 BOX); P2:S3 20 EA (1 BOX)" {
+		t.Errorf("the issue after the factor changed: got %s", got)
+	}
+	boxes(10)
 	received := e.step(t, issued, "postGoodsReceipt")
 	receipt, _ := e.Must(200, "GET", docs+"/"+received["receipt_document_id"].(string), "", "")
 	if got := e.lines(t, receipt) + "|" + e.stock(t, e.s3, "") + "|" + e.transit(t); got != "P2:S3 -20 EA (1 BOX); P2:S3 20 EA (1 BOX)|20 EA|0" {

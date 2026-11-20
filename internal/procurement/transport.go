@@ -171,13 +171,9 @@ func (e *Endpoints) numberTransport(ctx context.Context, o *TransportOrder, comp
 	if err != nil {
 		return err
 	}
-	year, err := e.Calendar.FiscalYear(ctx, company, day)
+	year, number, err := e.numberOf(ctx, company, TransportRange, day)
 	if err != nil {
-		return fmt.Errorf("procurement: fiscal year of %s in company %s: %w", day.Format(time.DateOnly), company, err)
-	}
-	number, err := e.Numbers.Next(ctx, company, TransportRange, year)
-	if err != nil {
-		return fmt.Errorf("procurement: number a stock transport order in company %s: %w", company, err)
+		return fmt.Errorf("procurement: number a stock transport order of %s in company %s: %w", day.Format(time.DateOnly), company, err)
 	}
 	o.LegalEntityID, o.OrderDate, o.FiscalYear, o.Number = company, day, year, number
 	return nil
@@ -351,9 +347,8 @@ func (e *Endpoints) recordTransport(ctx context.Context, action string, o Transp
 		items[i] = map[string]any{"item_no": it.ItemNo, "material_id": it.MaterialID, "quantity": it.Quantity, "unit": it.Unit, "base_quantity": it.BaseQuantity,
 			"supplying_storage_location_id": it.SupplyingStorageLocationID, "receiving_storage_location_id": it.ReceivingStorageLocationID}
 	}
-	// audit.Record without events only adds to the unit of work's buffer,
-	// which every request has; its error names the action.
-	return audit.Record(ctx, action, "procurement.stock_transport_order", o.ID, map[string]any{"number": o.Number, "legal_entity_id": o.LegalEntityID,
-		"supplying_plant_id": o.SupplyingPlantID, "receiving_plant_id": o.ReceivingPlantID, "status": o.Status, "items": items,
-		"issue_document_number": o.IssueDocumentNumber, "receipt_document_number": o.ReceiptDocumentNumber})
+	return errs.Wrapf(audit.Record(ctx, action, "procurement.stock_transport_order", o.ID, map[string]any{"number": o.Number,
+		"legal_entity_id": o.LegalEntityID, "supplying_plant_id": o.SupplyingPlantID, "receiving_plant_id": o.ReceivingPlantID, "status": o.Status,
+		"items": items, "issue_document_number": o.IssueDocumentNumber, "receipt_document_number": o.ReceiptDocumentNumber}),
+		"procurement: record %s of stock transport order %s", action, o.Number)
 }
