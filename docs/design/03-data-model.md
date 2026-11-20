@@ -2194,7 +2194,7 @@ described item naming the catalog item of the row it replaced.
 
 The purchase-to-pay event log (T103a, ADR-0080) pages a company's orders by date and id through `purchase_order_by_date` (`tenant_id, legal_entity_id, order_date, id`; migration 000340).
 
-Stock transport orders within a company (S2h, migration 000416; ADR-0082
+Stock transport orders within a company (S2h, migration 000418; ADR-0082
 As built S2h): `procurement.stock_transport_order` (SAP's purchasing
 document type UB, from memory), from a supplying plant to another
 receiving plant (`stock_transport_order_plants`) of its company, numbered
@@ -6764,12 +6764,12 @@ erDiagram
   difference naming its material document and a zero one none, only once
   the item is closed (`count_item_posted`), each set once
   (`count_item_once`).
-- S2h (migrations 000416, 000417): `inventory.material_document` takes
+- S2h (migrations 000418, 000419): `inventory.material_document` takes
   the movement type `351`, a stock transport order's goods issue, which
   names its order's number as its `reference`, as the order's goods
   receipt (a `101`) does (`material_document_movement_type_check`,
   `material_document_reference`, widened NOT VALID and validated by
-  000417). `inventory.movement.in_transit`: the line moves stock in transit
+  000419). `inventory.movement.in_transit`: the line moves stock in transit
   to its storage location of its plant, the receiving one, rather than the
   stock at that location. `inventory.transit_stock` (SAP MARC's TRAME, from memory,
   here per storage location received at): as `inventory.stock`, a row of

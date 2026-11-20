@@ -1069,8 +1069,8 @@ reads a location's stock without a lock for shipping's picking.
 
 ### S2h (2026-11-20)
 
-- Migrations 000416 and 000417: the movement type `351` and its
-  `reference` (widened NOT VALID, validated by 000417);
+- Migrations 000418 and 000419: the movement type `351` and its
+  `reference` (widened NOT VALID, validated by 000419);
   `inventory.movement.in_transit` and `inventory.transit_stock`, which
   `movement_stock` adds a line in transit to instead of the location's
   stock; `count_posting_block` only on lines not in transit;

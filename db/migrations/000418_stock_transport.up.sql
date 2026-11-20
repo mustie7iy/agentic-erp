@@ -14,7 +14,7 @@
 -- material documents inventory's, by id: no foreign key leaves a schema
 -- but ref's (02 §2.1). Expand only (06 §6.4): new tables, a column with a
 -- default the previous version never sets, checks widened NOT VALID
--- (validated by 000417), a movement_stock that does for every movement
+-- (validated by 000419), a movement_stock that does for every movement
 -- the previous version writes what it did, a count block that refuses
 -- what it refused, and permissions the previous version neither reads nor
 -- writes.

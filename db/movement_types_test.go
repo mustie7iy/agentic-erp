@@ -14,8 +14,8 @@ import (
 // migration a material document takes the goods issue's 601 and its
 // reversal 602 beside the count's 701 and 702, and the account
 // determination both the inventory_difference and the
-// inventory_cost_of_goods_sold keys, and S2h's 351 (000416 and 000417).
-// Reverting 000417 and 000416 restores 000411's checks, validated, 351
+// inventory_cost_of_goods_sold keys, and S2h's 351 (000418 and 000419).
+// Reverting 000419 and 000418 restores 000411's checks, validated, 351
 // refused; reverting 000411 and 000410 then restores 000408's checks,
 // validated: 701, 702 and inventory_difference:<class> still taken, 601,
 // 602 and inventory_cost_of_goods_sold:<class> refused.
@@ -29,7 +29,7 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 	defer tx.Rollback(ctx)
 	// clear takes the goods issues and the stock transport orders with
 	// their stock in transit (this test's and those other tests committed)
-	// out of the way of 000416's and 000410's downs, which refuse to revert
+	// out of the way of 000418's and 000410's downs, which refuse to revert
 	// while any exists; rolled back with the rest.
 	clear := func(t *testing.T, transport bool) {
 		t.Helper()
@@ -94,10 +94,10 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 			}
 		}
 	}
-	down(t, true, "000417_validate_stock_transport", "000416_stock_transport")
-	check(t, "after reverting 000417 and 000416", map[string]string{"351": "material_document_movement_type_check"})
+	down(t, true, "000419_validate_stock_transport", "000418_stock_transport")
+	check(t, "after reverting 000419 and 000418", map[string]string{"351": "material_document_movement_type_check"})
 	// 000411's state is validated checks.
-	validated(t, "000417 and 000416", "material_document_movement_type_check", "material_document_reference")
+	validated(t, "000419 and 000418", "material_document_movement_type_check", "material_document_reference")
 	down(t, false, "000411_validate_goods_issue", "000410_goods_issue")
 	check(t, "after reverting 000411 and 000410", map[string]string{"351": "material_document_movement_type_check",
 		"601": "material_document_movement_type_check", "602": "material_document_movement_type_check",

@@ -75,7 +75,7 @@ func (s transportScene) orderItem(no int, material uuid.UUID) stmt {
 		s.tenant, s.order, no, material, id(), s.location)
 }
 
-// TestStockTransportRules (S2h, migrations 000416 and 000417; ADR-0082
+// TestStockTransportRules (S2h, migrations 000418 and 000419; ADR-0082
 // As built S2h): a movement in transit adds to its transit stock row,
 // which starts empty, must exist and never falls below zero, and to the
 // valuation, not to the location's stock, and no count blocks it; a 351
@@ -226,7 +226,7 @@ func TestStockTransportRules(t *testing.T) {
 	})
 }
 
-// TestStockTransportTriggersAsOwner (S2h, migration 000416): past the
+// TestStockTransportTriggersAsOwner (S2h, migration 000418): past the
 // grants, as the owner, an order moves forward only and keeps what it is,
 // and its items are neither changed nor deleted.
 func TestStockTransportTriggersAsOwner(t *testing.T) {
@@ -265,7 +265,7 @@ func TestStockTransportTriggersAsOwner(t *testing.T) {
 	}
 }
 
-// TestStockTransportDownRefused: 000416's down migration refuses to drop
+// TestStockTransportDownRefused: 000418's down migration refuses to drop
 // stock transport orders and stock in transit (06 §6.4: a down migration
 // loses no data).
 func TestStockTransportDownRefused(t *testing.T) {
@@ -281,5 +281,5 @@ func TestStockTransportDownRefused(t *testing.T) {
 		step(`SELECT set_config('app.tenant_id', '', true)`))...); err != nil {
 		t.Fatal(err)
 	}
-	failsWith(t, exec(tx, migrationNamed(t, "000416_stock_transport").Down), "stock transport orders exist")
+	failsWith(t, exec(tx, migrationNamed(t, "000418_stock_transport").Down), "stock transport orders exist")
 }

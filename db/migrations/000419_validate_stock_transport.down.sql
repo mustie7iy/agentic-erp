@@ -1,5 +1,5 @@
 -- A validated check cannot be marked unvalidated again: the down restores
--- 000416's state by adding both checks back NOT VALID.
+-- 000418's state by adding both checks back NOT VALID.
 ALTER TABLE inventory.material_document
   DROP CONSTRAINT material_document_movement_type_check,
   ADD CONSTRAINT material_document_movement_type_check

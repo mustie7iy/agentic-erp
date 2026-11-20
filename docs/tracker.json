@@ -5679,7 +5679,7 @@
      {
       "s": "D",
       "t": "A planner orders stock from one plant to another of the same company; the issue puts it in transit and the receipt takes it out",
-      "r": "S2h · docs/design/plan-supply-chain.md §S2h · ADR-0082 As built S2h · db/migrations/000416, 000417 · procurement.stock_transport_order, _item · inventory.transit_stock · inventory.movement.in_transit · movement type 351 · POST/GET /v1/stock-transport-orders · GET /v1/stock-transport-orders/{id} · :postGoodsIssue · :postGoodsReceipt · inventory.Endpoints.TransportQuantities, IssueForTransport, ReceiveForTransport · procurement.stock_transport.read, .write, .post · walkthrough step_stock_transport",
+      "r": "S2h · docs/design/plan-supply-chain.md §S2h · ADR-0082 As built S2h · db/migrations/000418, 000419 · procurement.stock_transport_order, _item · inventory.transit_stock · inventory.movement.in_transit · movement type 351 · POST/GET /v1/stock-transport-orders · GET /v1/stock-transport-orders/{id} · :postGoodsIssue · :postGoodsReceipt · inventory.Endpoints.TransportQuantities, IssueForTransport, ReceiveForTransport · procurement.stock_transport.read, .write, .post · walkthrough step_stock_transport",
       "src": "po:2026-11-17",
       "c": []
      },
