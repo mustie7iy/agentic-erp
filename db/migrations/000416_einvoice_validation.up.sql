@@ -30,7 +30,7 @@ ALTER TABLE einvoicing.einvoice
   -- Processed once: when, by which fetch and against which rules, together,
   -- never before receipt; a refused document was processed.
   ADD CONSTRAINT einvoice_processed CHECK ((processed_at IS NULL) = (validated_against IS NULL)
-    AND (processed_at IS NULL OR processed_at >= received_at) AND (status = 'received' OR processed_at IS NOT NULL)) NOT VALID,
+    AND (processed_at IS NULL) = (processed_fetch_operation_id IS NULL) AND (processed_at IS NULL OR processed_at >= received_at) AND (status = 'received' OR processed_at IS NOT NULL)) NOT VALID,
   -- A refused document names its problem, code and detail; a received one none.
   ADD CONSTRAINT einvoice_problem CHECK ((problem_code IS NULL) = (problem_detail IS NULL)
     AND (problem_code IS NOT NULL) = (status = 'refused')) NOT VALID,

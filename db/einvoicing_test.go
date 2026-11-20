@@ -243,6 +243,7 @@ func TestEInvoiceProcessing(t *testing.T) {
 	need(t)
 	const row = `INSERT INTO einvoicing.einvoice (tenant_id, id, connector_id, message_id, status, sha256, size, content_ref, fetch_operation_id,
 		created_by, updated_by) VALUES ($1, gen_random_uuid(), gen_random_uuid(), 'M', 'received', sha256('x'::bytea), 1, 'k', gen_random_uuid(), $1, $1)`
+	const proc = "processed_at = now(), processed_fetch_operation_id = gen_random_uuid(), validated_against = 'r'"
 	for _, c := range []struct {
 		name string
 		set  []string
@@ -253,21 +254,21 @@ func TestEInvoiceProcessing(t *testing.T) {
 		{"refused, then processed again", []string{refusedSet, "processed_at = now() + interval '1 hour'"}, "keeps what its processing read and decided"},
 		{"refused, then received again", []string{refusedSet, "status = 'received', problem_code = NULL, problem_detail = NULL"},
 			"cannot change from refused to received"},
-		{"refused without its problem", []string{"status = 'refused', processed_at = now(), validated_against = 'r'"}, "einvoice_problem"},
-		{"a problem without its detail", []string{"status = 'refused', problem_code = 'c', processed_at = now(), validated_against = 'r'"},
+		{"refused without its problem", []string{"status = 'refused', " + proc}, "einvoice_problem"},
+		{"a problem without its detail", []string{"status = 'refused', problem_code = 'c', " + proc},
 			"einvoice_problem"},
-		{"received with a problem", []string{"problem_code = 'c', problem_detail = 'd', processed_at = now(), validated_against = 'r'"},
+		{"received with a problem", []string{"problem_code = 'c', problem_detail = 'd', " + proc},
 			"einvoice_problem"},
 		{"refused unprocessed", []string{"status = 'refused', problem_code = 'c', problem_detail = 'd'"}, "einvoice_processed"},
-		{"processed without its release", []string{"processed_at = now()"}, "einvoice_processed"},
-		{"processed before it was received", []string{"processed_at = now() - interval '1 hour', validated_against = 'r'"}, "einvoice_processed"},
+		{"processed without its release", []string{"processed_at = now(), processed_fetch_operation_id = gen_random_uuid()"}, "einvoice_processed"},
+		{"processed without its fetch", []string{"processed_at = now(), validated_against = 'r'"}, "einvoice_processed"},
+		{"processed before it was received", []string{"processed_at = now() - interval '1 hour', processed_fetch_operation_id = gen_random_uuid(), validated_against = 'r'"}, "einvoice_processed"},
 		{"read unprocessed", []string{"document_number = 'GOI-1'"}, "einvoice_read"},
-		{"a currency without its amount", []string{"processed_at = now(), validated_against = 'r', currency = 'AED'"}, "einvoice_read"},
-		{"an unknown currency", []string{"processed_at = now(), validated_against = 'r', currency = 'XXX', gross_amount = 1"}, "einvoice_currency_fkey"},
-		{"another kind", []string{"processed_at = now(), validated_against = 'r', document_kind = 'debit_note'"}, "einvoice_read_lengths"},
-		{"a detail too long", []string{"status = 'refused', problem_code = 'c', problem_detail = repeat('d', 2001), processed_at = now(), " +
-			"validated_against = 'r'"}, "einvoice_read_lengths"},
-		{"a number too long", []string{"processed_at = now(), validated_against = 'r', document_number = repeat('9', 201)"}, "einvoice_read_lengths"},
+		{"a currency without its amount", []string{proc + ", currency = 'AED'"}, "einvoice_read"},
+		{"an unknown currency", []string{proc + ", currency = 'XXX', gross_amount = 1"}, "einvoice_currency_fkey"},
+		{"another kind", []string{proc + ", document_kind = 'debit_note'"}, "einvoice_read_lengths"},
+		{"a detail too long", []string{"status = 'refused', problem_code = 'c', problem_detail = repeat('d', 2001), " + proc}, "einvoice_read_lengths"},
+		{"a number too long", []string{proc + ", document_number = repeat('9', 201)"}, "einvoice_read_lengths"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			tenant := id()
@@ -289,8 +290,8 @@ func TestEInvoiceProcessing(t *testing.T) {
 		tenant := id()
 		failsWith(t, asApp(t, tenant, func(tx pgx.Tx) error {
 			return exec(tx, `INSERT INTO einvoicing.einvoice (tenant_id, id, connector_id, message_id, status, sha256, size, content_ref,
-				fetch_operation_id, processed_at, validated_against, created_by, updated_by) VALUES ($1, gen_random_uuid(), gen_random_uuid(), 'M',
-				'received', sha256('x'::bytea), 1, 'k', gen_random_uuid(), now(), 'r', $1, $1)`, tenant)
+				fetch_operation_id, processed_at, processed_fetch_operation_id, validated_against, created_by, updated_by) VALUES ($1, gen_random_uuid(),
+				gen_random_uuid(), 'M', 'received', sha256('x'::bytea), 1, 'k', gen_random_uuid(), now(), gen_random_uuid(), 'r', $1, $1)`, tenant)
 		}), "an e-invoice is recorded unprocessed")
 	})
 	t.Run("the checks validated by 000417", func(t *testing.T) {

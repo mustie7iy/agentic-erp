@@ -80,6 +80,8 @@ func TestReceivedRefusals(t *testing.T) {
 			RefusedMissingField, "IBT-115"},
 		{"three decimals", strings.Replace(invoice, `<cbc:PayableAmount currencyID="USD">3100.00`, `<cbc:PayableAmount currencyID="USD">3100.000`, 1),
 			RefusedPrecision, "IBT-115 has more decimals than USD's"},
+		{"VAT in AED of three decimals", strings.Replace(invoice, `<cbc:TaxAmount currencyID="AED">367.25`, `<cbc:TaxAmount currencyID="AED">367.250`, 1),
+			RefusedPrecision, "IBT-111 has more decimals than AED's"},
 		{"lines not their total", strings.Replace(invoice, `<cbc:LineExtensionAmount currencyID="USD">3000.00`,
 			`<cbc:LineExtensionAmount currencyID="USD">3000.01`, 1), RefusedInconsistent, "The lines' net amounts sum to 3,000.00 USD, not the 3,000.01 USD"},
 		{"net and VAT not the gross", strings.Replace(invoice, `<cbc:TaxInclusiveAmount currencyID="USD">3100.00`,

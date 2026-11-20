@@ -52,7 +52,7 @@ type EInvoice struct {
 	// gross (IBT-112, minor units) and specification (IBT-024).
 	DocumentNumber, DocumentKind, Currency, Specification *string
 	IssueDate                                             *time.Time
-	Gross                                                 *int64
+	Gross                                                 *money.Minor
 	Version                                               int32
 }
 
@@ -245,7 +245,7 @@ func processedToAPI(d EInvoice, out *gen.EInvoice) {
 	}
 	if d.Gross != nil {
 		exp, _ := currency.SeededExponent(*d.Currency) // the currency was read with its digits, and ref.currency holds it
-		out.GrossAmount.SetTo(apitypes.Money(money.Minor(*d.Gross), *d.Currency, exp))
+		out.GrossAmount.SetTo(apitypes.Money(*d.Gross, *d.Currency, exp))
 	}
 }
 

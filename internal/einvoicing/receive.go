@@ -59,7 +59,7 @@ func Received(content []byte, exponent func(string) (int, bool)) (Document, *Ref
 		errors.As(err, &fe) // document answers *FieldError; another error it may answer is named as a field
 		if fe.Precision {
 			return Document{}, &Refusal{Code: RefusedPrecision, Detail: fmt.Sprintf("%s has more decimals than %s's minor unit: %s.", fe.Term,
-				u.Currency, clip(fe.Err.Error()))}
+				fe.Currency, clip(fe.Err.Error()))}
 		}
 		return Document{}, missingFields([]string{fe.Term + " (" + clip(fe.Err.Error()) + ")"})
 	}

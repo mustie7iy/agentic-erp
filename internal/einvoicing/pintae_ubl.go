@@ -128,7 +128,7 @@ func (a *amounts) of(v ublAmount, term string) money.Minor {
 	}
 	m, err := parseAmount(v.Value, a.exp)
 	if err != nil {
-		a.err = &FieldError{Term: term, Precision: errors.Is(err, errPrecision), Err: err}
+		a.err = &FieldError{Term: term, Currency: a.currency, Precision: errors.Is(err, errPrecision), Err: err}
 	}
 	return m
 }

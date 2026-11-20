@@ -108,9 +108,10 @@ func (s *scene) recordAll(t *testing.T, operation uuid.UUID) {
 // connector not processed yet as PINT AE (ADR-0061 §4, §5; T65c): a valid
 // one stays received with what it says, the release validated against and
 // an audit record but no event; a malformed one, one addressed to another
-// TRN, one listed for none of the companies and one issued before the
-// company's FTA registration are refused with their reasons, each audited
-// and published. Run twice, the step changes and publishes nothing again
+// TRN or electronic address and one listed for none of the companies are
+// refused with their reasons, each audited and published; one issued
+// before the company's FTA registration, or once the connector names no
+// participant of the company, is left unprocessed for a later fetch. Run twice, the step changes and publishes nothing again
 // and still counts the refusals as this fetch's; a later fetch finds
 // nothing to process.
 func TestProcessEInvoices(t *testing.T) {
@@ -131,8 +132,8 @@ func TestProcessEInvoices(t *testing.T) {
 	s.recordAll(t, op)
 	ctx := context.Background()
 	for run := range 2 {
-		if refused, err := s.e.ProcessEInvoices(ctx, s.connector, op, s.within()); err != nil || refused != 5 {
-			t.Fatalf("run %d: got %d refused (%v), want 5", run+1, refused, err)
+		if refused, err := s.e.ProcessEInvoices(ctx, s.connector, op, s.within()); err != nil || refused != 4 {
+			t.Fatalf("run %d: got %d refused (%v), want 4", run+1, refused, err)
 		}
 	}
 	for message, want := range map[string]string{
@@ -140,7 +141,7 @@ func TestProcessEInvoices(t *testing.T) {
 		"BAD":   "refused einvoicing.unreadable - - - - - " + einvoicing.PINTAERelease + " true",
 		"GOI-2": "refused einvoicing.not_addressed_to_company GOI-2 invoice 2026-03-10 AED 105000 " + einvoicing.PINTAERelease + " true",
 		"GOI-3": "refused einvoicing.not_addressed_to_company GOI-3 invoice 2026-03-10 AED 105000 " + einvoicing.PINTAERelease + " true",
-		"GOI-4": "refused einvoicing.not_addressed_to_company GOI-4 invoice 2025-12-31 AED 105000 " + einvoicing.PINTAERelease + " true",
+		"GOI-4": "received - - - - - - - false",
 		"GOI-5": "refused einvoicing.not_addressed_to_company GOI-5 invoice 2026-03-10 AED 105000 " + einvoicing.PINTAERelease + " true",
 	} {
 		if got := s.processed(t, message, op); got != want {
@@ -148,14 +149,14 @@ func TestProcessEInvoices(t *testing.T) {
 		}
 	}
 	details := map[string]string{}
-	for _, m := range []string{"GOI-2", "GOI-3", "GOI-4", "GOI-5"} {
+	for _, m := range []string{"GOI-2", "GOI-3", "GOI-5"} {
 		var d string
 		pgtest.Scan(t, `SELECT problem_detail FROM einvoicing.einvoice WHERE tenant_id = $1 AND message_id = $2`, []any{s.f.Tenant.ID, m}, &d)
 		details[m] = d
 	}
 	for message, want := range map[string]string{
 		"GOI-2": "a participant of none of connector Gulf provider's companies", "GOI-3": "ending 9993, is not the number of company 5000's FTA registration",
-		"GOI-4": "has no FTA registration on 2025-12-31", "GOI-5": "is 0235:1009999999, not company 5000's participant 0235:1002345678",
+		"GOI-5": "is 0235:1009999999, not company 5000's participant 0235:1002345678",
 	} {
 		if !strings.Contains(details[message], want) || strings.Contains(details[message], sellerTRN) {
 			t.Errorf("%s's detail: got %q, want it naming %q and no TRN in clear", message, details[message], want)
@@ -168,15 +169,28 @@ func TestProcessEInvoices(t *testing.T) {
 			refusals = append(refusals, e["message_id"].(string)+" "+e["status_before"].(string)+" "+e["problem_code"].(string))
 		}
 	}
-	if len(refusals) != 5 || refusals[0] != "BAD received einvoicing.unreadable" {
+	if len(refusals) != 4 || refusals[0] != "BAD received einvoicing.unreadable" {
 		t.Errorf("EInvoiceChanged of the refusals: got %v, want one per refused document, BAD's first", refusals)
 	}
 	var validatedAudits, refusedAudits int
 	pgtest.Scan(t, `SELECT count(*) FILTER (WHERE action = 'einvoicing.einvoice.validated'), count(*) FILTER (WHERE action = 'einvoicing.einvoice.refused')
 		FROM audit.audit_event WHERE tenant_id = $1 AND actor_id = $2`, []any{s.f.Tenant.ID, einvoicing.FetcherActor}, &validatedAudits, &refusedAudits)
-	if validatedAudits != 1 || refusedAudits != 5 {
-		t.Errorf("audit records: got %d validated and %d refused, want 1 and 5, once each", validatedAudits, refusedAudits)
+	if validatedAudits != 1 || refusedAudits != 4 {
+		t.Errorf("audit records: got %d validated and %d refused, want 1 and 4, once each", validatedAudits, refusedAudits)
 	}
+	t.Run("a gap in the company's setup leaves it for later", func(t *testing.T) {
+		s.srv.Deliver("GOI-6", uaeParticipant, einvoicing.RenderPINTAE(supplierInvoice("GOI-6")))
+		later := uuid.Must(uuid.NewV7())
+		s.recordAll(t, later) // recorded for 5000, whose participant the connector then no longer names
+		pgtest.Exec(t, `UPDATE integration.connector SET settings = jsonb_set(settings, '{participants}', '{"2000": "0235:2000000000"}'), version = version + 1
+			WHERE id = $1`, s.connector)
+		if _, err := s.e.ProcessEInvoices(ctx, s.connector, later, s.within()); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.processed(t, "GOI-6", later); got != "received - - - - - - - false" {
+			t.Errorf("the company's participant gone: got %s, want it left unprocessed", got)
+		}
+	})
 	if refused, err := s.e.ProcessEInvoices(ctx, s.connector, uuid.Must(uuid.NewV7()), s.within()); err != nil || refused != 0 {
 		t.Errorf("a later fetch: got %d refused (%v), want none, nothing left to process", refused, err)
 	}
@@ -235,16 +249,19 @@ func TestProcessEInvoicesFailures(t *testing.T) {
 	s.recordAll(t, op)
 	t.Run("the store failing", func(t *testing.T) {
 		e := app.EInvoicing(s.cfg)
-		e.Objects = blobstore.Dir{Root: t.TempDir()}
-		if _, err := e.ProcessEInvoices(ctx, s.connector, op, s.within()); !errors.Is(err, blobstore.ErrNotFound) {
+		e.Objects = failingGet{s.store}
+		if _, err := e.ProcessEInvoices(ctx, s.connector, op, s.within()); err == nil || !strings.Contains(err.Error(), "store down") {
 			t.Errorf("got %v, want the store's error", err)
 		}
 	})
-	t.Run("the store holding other bytes", func(t *testing.T) {
-		e := app.EInvoicing(s.cfg)
-		e.Objects = otherBytes{s.store}
-		if _, err := e.ProcessEInvoices(ctx, s.connector, op, s.within()); err == nil || !strings.Contains(err.Error(), "do not match") {
-			t.Errorf("got %v, want the bytes refused", err)
+	t.Run("the store holding other bytes or none", func(t *testing.T) {
+		for name, store := range map[string]blobstore.Store{"other bytes": otherBytes{Store: s.store}, "none": blobstore.Dir{Root: t.TempDir()}} {
+			e := app.EInvoicing(s.cfg)
+			e.Objects = store
+			_, err := e.ProcessEInvoices(ctx, s.connector, op, s.within())
+			if p := problem.From(err); p.Code != "einvoicing.document_changed" || strings.Count(p.Detail, "-") < 8 {
+				t.Errorf("%s: got %v, want einvoicing.document_changed naming both documents", name, err)
+			}
 		}
 	})
 	t.Run("a disabled connector", func(t *testing.T) {
@@ -308,11 +325,47 @@ func (r *racing) Get(ctx context.Context, key string) ([]byte, string, error) {
 	return r.Store.Get(ctx, key)
 }
 
-// otherBytes is a store whose every document has other bytes than those
-// kept.
-type otherBytes struct{ blobstore.Store }
+// TestProcessEInvoicesGoesOn: a document whose stored bytes are gone does
+// not stop the others; the step then fails naming it, with a problem no
+// retry repairs (einvoicing.document_changed).
+func TestProcessEInvoicesGoesOn(t *testing.T) {
+	s := receiving(t)
+	s.srv.Deliver("LOST", uaeParticipant, []byte("lost bytes"))
+	s.srv.Deliver("GOI-1", uaeParticipant, einvoicing.RenderPINTAE(supplierInvoice("GOI-1")))
+	op := uuid.Must(uuid.NewV7())
+	s.recordAll(t, op)
+	e := app.EInvoicing(s.cfg)
+	e.Objects = otherBytes{Store: s.store, only: "lost bytes"}
+	_, err := e.ProcessEInvoices(context.Background(), s.connector, op, s.within())
+	if problem.From(err).Code != "einvoicing.document_changed" {
+		t.Errorf("got %v, want einvoicing.document_changed", err)
+	}
+	if got := s.processed(t, "GOI-1", op); !strings.HasPrefix(got, "received - GOI-1") || !strings.HasSuffix(got, " true") {
+		t.Errorf("the other document: got %s, want it processed", got)
+	}
+	if got := s.processed(t, "LOST", op); got != "received - - - - - - - false" {
+		t.Errorf("the lost document: got %s, want it left unprocessed", got)
+	}
+}
+
+// failingGet is a store whose reads fail.
+type failingGet struct{ blobstore.Store }
+
+func (failingGet) Get(context.Context, string) ([]byte, string, error) {
+	return nil, "", errors.New("store down")
+}
+
+// otherBytes is a store whose documents have other bytes than those kept:
+// every one, or only the one of the bytes only.
+type otherBytes struct {
+	blobstore.Store
+	only string
+}
 
 func (o otherBytes) Get(ctx context.Context, key string) ([]byte, string, error) {
 	b, ct, err := o.Store.Get(ctx, key)
+	if o.only != "" && string(b) != o.only {
+		return b, ct, err
+	}
 	return append(b, ' '), ct, err
 }

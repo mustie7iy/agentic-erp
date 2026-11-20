@@ -136,6 +136,7 @@ func ParsePINTAE(content []byte, exponent func(string) (int, bool)) (Document, e
 // einvoicing.amount_precision and einvoicing.missing_field).
 type FieldError struct {
 	Term      string
+	Currency  string // an amount's currency, for Precision
 	Precision bool
 	Err       error
 }

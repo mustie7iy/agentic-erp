@@ -1285,8 +1285,12 @@ IBT-013 and the order line IBT-132). Decided by default:
   and written. The step is idempotent (run-twice test): a processed
   document is never processed again, and the fetch's `refused` count is
   read from the rows (`processed_fetch_operation_id`), so a step run
-  again after its commit counts the same. A processing that outlasts its
-  five tries fails the fetch with `platform.unavailable`, the documents
+  again after its commit counts the same. One document's failure does not
+  stop the others (review round 1): a document whose stored bytes are gone
+  or differ is left unprocessed and the step then fails with
+  `einvoicing.document_changed` naming each (no retry repairs it, so the
+  fetch fails with it at once); any other failure fails the step for its
+  five tries, then the fetch with `platform.unavailable`, the documents
   recorded and left for the next fetch; a connector refused since fails
   it with its problem.
 - **What a valid document keeps.** It stays `received` (T65d enters it),
@@ -1321,7 +1325,21 @@ IBT-013 and the order line IBT-132). Decided by default:
   none of the connector's companies; the buyer's IBT-049 endpoint not the
   connector's participant of the company it was listed for; or IBT-048,
   checked apart, not the number of the company's FTA registration on the
-  issue date, a tax group's for a member as the registration holds it).
+  issue date, a tax group's for a member as the registration holds it). A
+  gap in the ERP's own setup refuses no supplier's document for good
+  (review round 1): when the connector no longer names a participant of
+  the company, or the company holds no FTA registration on the issue
+  date, the document is left unprocessed (no write) and a fetch after the
+  setup is completed processes it.
+- **The other mandatory fields of C3 are not refused**: IBT-034 (the
+  seller's electronic address), the seller's and buyer's names and
+  postal addresses (line 1, city, subdivision, country), IBT-023 and
+  IBT-081 are the Ministry's list for the issuer, which the issuer's
+  provider validates before delivery; the ERP neither reads them to enter
+  the invoice (T65d) nor decides on them, so a document lacking them is
+  received, not refused. Decided by default (refusing a statutory document
+  over a field the buyer does not use was judged worse), for the product
+  owner to overrule; the published Schematron (C7) would check them.
   Allowances, charges and prepaid amounts (IBT-107, IBT-108, IBT-113)
   are not read, so IBT-109 is not compared with IBT-106 nor IBT-115 with
   IBT-112; the order reference, a credit note's invoice reference and the

@@ -6,12 +6,16 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -52,10 +56,8 @@ func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation u
 	}); err != nil {
 		return 0, err
 	}
-	for _, d := range docs {
-		if err := e.processOne(ctx, c, operation, d, in); err != nil {
-			return 0, err
-		}
+	if err := e.processAll(ctx, c, operation, docs, in); err != nil {
+		return 0, err
 	}
 	var refused int
 	return refused, inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, _ reqctx.Principal) error {
@@ -66,6 +68,38 @@ func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation u
 		return nil
 	})
 }
+
+// processAll processes each document; one that fails does not stop the
+// others (as one message's failure does not stop a fetch's recording).
+// Afterwards a document whose stored bytes are gone or differ, which no
+// retry repairs, fails the step with einvoicing.document_changed naming
+// each; any other failure (the store or the database) with its error, for
+// the step's retries.
+func (e *Endpoints) processAll(ctx context.Context, c Connector, operation uuid.UUID, docs []unprocessed, in Within) error {
+	var failed []error
+	var changed []string
+	for _, d := range docs {
+		err := e.processOne(ctx, c, operation, d, in)
+		switch {
+		case errors.Is(err, errStoredBytes):
+			changed = append(changed, d.id.String())
+		case err != nil:
+			failed = append(failed, err)
+		}
+	}
+	if len(failed) > 0 {
+		return errors.Join(failed...)
+	}
+	if len(changed) > 0 {
+		return problem.Conflict("einvoicing.document_changed", "The stored bytes of e-invoices "+strings.Join(changed, ", ")+
+			" are gone or do not match the SHA-256 recorded when they were received; they are not processed, the others were.")
+	}
+	return nil
+}
+
+// errStoredBytes is a document whose stored bytes are gone or are not
+// those recorded: no retry repairs it.
+var errStoredBytes = errors.New("the stored bytes are gone or not those recorded")
 
 // unprocessedOf lists the connector's documents not yet processed, oldest
 // received first.
@@ -87,11 +121,14 @@ func unprocessedOf(ctx context.Context, tx pgx.Tx, connector uuid.UUID) ([]unpro
 // download refuses them), then its row locked and its outcome written.
 func (e *Endpoints) processOne(ctx context.Context, c Connector, operation uuid.UUID, u unprocessed, in Within) error {
 	content, _, err := e.Objects.Get(ctx, u.ref)
-	if err != nil {
+	switch {
+	case errors.Is(err, blobstore.ErrNotFound):
+		return fmt.Errorf("einvoicing: read the bytes of e-invoice %s: %w", u.id, errStoredBytes)
+	case err != nil:
 		return fmt.Errorf("einvoicing: read the bytes of e-invoice %s: %w", u.id, err)
 	}
 	if sum := sha256.Sum256(content); !bytes.Equal(sum[:], u.sum) {
-		return fmt.Errorf("einvoicing: the stored bytes of e-invoice %s do not match the SHA-256 recorded", u.id)
+		return fmt.Errorf("einvoicing: e-invoice %s: %w", u.id, errStoredBytes)
 	}
 	read, refusal := Received(content, currency.SeededExponent)
 	return inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal) error {
@@ -108,8 +145,9 @@ func (e *Endpoints) processOne(ctx context.Context, c Connector, operation uuid.
 			return err
 		}
 		if refusal == nil {
-			if refusal, err = e.addressed(ctx, c, company, read); err != nil {
-				return err
+			var later bool
+			if refusal, later, err = e.addressed(ctx, c, company, read); err != nil || later {
+				return err // later: left unprocessed for a fetch once the setup is complete
 			}
 		}
 		return e.processed(ctx, tx, p, operation, doc, company, read, refusal)
@@ -122,28 +160,36 @@ func (e *Endpoints) processOne(ctx context.Context, c Connector, operation uuid.
 // of that company, and its buyer's VAT TRN (IBT-048), checked apart, the
 // number of the company's FTA registration on the issue date (a tax
 // group's for a member, as the registration holds it). Neither TRN is
-// put in the detail.
-func (e *Endpoints) addressed(ctx context.Context, c Connector, company *Company, d Document) (*Refusal, error) {
+// put in the detail. A gap in the ERP's own setup is no ground to refuse
+// the supplier's document for good: when the connector no longer names a
+// participant of the company, or the company holds no FTA registration on
+// the issue date, the document is left unprocessed (later), and a fetch
+// after the setup is completed processes it.
+func (e *Endpoints) addressed(ctx context.Context, c Connector, company *Company, d Document) (*Refusal, bool, error) {
 	if company == nil {
-		return &Refusal{Code: RefusedNotAddressed, Detail: "The provider listed it for a participant of none of connector " + c.Name + "'s companies."}, nil
+		return &Refusal{Code: RefusedNotAddressed, Detail: "The provider listed it for a participant of none of connector " + c.Name + "'s companies."},
+			false, nil
 	}
 	endpoint := d.Buyer.EndpointScheme + ":" + d.Buyer.Endpoint
-	if participant := c.Participants[company.Code]; endpoint != participant {
+	participant, ok := c.Participants[company.Code]
+	switch {
+	case !ok:
+		return nil, true, nil
+	case endpoint != participant:
 		return &Refusal{Code: RefusedNotAddressed, Detail: fmt.Sprintf("Its buyer's electronic address (IBT-049) is %s, not company %s's participant %s.",
-			clip(endpoint), company.Code, participant)}, nil
+			clip(endpoint), company.Code, participant)}, false, nil
 	}
-	day := d.IssueDate.Format(time.DateOnly)
 	s, err := e.Sales.Seller(ctx, company.ID, d.IssueDate)
 	switch {
 	case err != nil:
-		return nil, err
+		return nil, false, err
 	case s.TRN == "":
-		return &Refusal{Code: RefusedNotAddressed, Detail: "Company " + company.Code + " has no FTA registration on " + day + ", its issue date."}, nil
+		return nil, true, nil
 	case s.TRN != d.Buyer.TRN:
 		return &Refusal{Code: RefusedNotAddressed, Detail: "Its buyer's TRN (IBT-048), ending " + d.Buyer.TRN[len(d.Buyer.TRN)-4:] +
-			", is not the number of company " + company.Code + "'s FTA registration on " + day + ", its issue date."}, nil
+			", is not the number of company " + company.Code + "'s FTA registration on " + d.IssueDate.Format(time.DateOnly) + ", its issue date."}, false, nil
 	}
-	return nil, nil
+	return nil, false, nil
 }
 
 // processed writes the outcome of processing the locked document: refused
@@ -176,13 +222,13 @@ func (e *Endpoints) processed(ctx context.Context, tx pgx.Tx, p reqctx.Principal
 type read struct {
 	number, kind, currency, specification *string
 	issued                                *time.Time
-	gross                                 *int64
+	gross                                 *money.Minor
 }
 
 func readFields(d Document) read {
 	if d.Number == "" {
 		return read{}
 	}
-	gross := int64(d.TaxInclusive)
+	gross := d.TaxInclusive
 	return read{number: &d.Number, kind: &d.Kind, currency: &d.Currency, specification: &d.Customization, issued: &d.IssueDate, gross: &gross}
 }

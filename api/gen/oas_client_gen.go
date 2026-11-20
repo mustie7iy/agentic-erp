@@ -3171,7 +3171,10 @@ type Invoker interface {
 	// next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10
 	// MiB, not recorded, since its bytes cannot be kept), which the next fetch meets again. A failure
 	// processing the documents fails the Operation with `platform.unavailable`, the documents recorded and
-	// left for the next fetch to process. A provider whose messages cannot be listed fails it with
+	// left for the next fetch to process; a document whose stored bytes are gone or differ fails it with
+	// `einvoicing.document_changed` naming it, the others processed. A document whose company the
+	// connector no longer names, or which is dated before the company's FTA registration, is left
+	// unprocessed until the setup is completed. A provider whose messages cannot be listed fails it with
 	// `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with
 	// credentials that resolve is refused before anything is queued (404 `request.not_found`, 422
 	// `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422
@@ -36289,7 +36292,10 @@ func (c *Client) sendExcludeBankStatementLine(ctx context.Context, request *Reas
 // next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10
 // MiB, not recorded, since its bytes cannot be kept), which the next fetch meets again. A failure
 // processing the documents fails the Operation with `platform.unavailable`, the documents recorded and
-// left for the next fetch to process. A provider whose messages cannot be listed fails it with
+// left for the next fetch to process; a document whose stored bytes are gone or differ fails it with
+// `einvoicing.document_changed` naming it, the others processed. A document whose company the
+// connector no longer names, or which is dated before the company's FTA registration, is left
+// unprocessed until the setup is completed. A provider whose messages cannot be listed fails it with
 // `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with
 // credentials that resolve is refused before anything is queued (404 `request.not_found`, 422
 // `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422

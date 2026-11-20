@@ -9,7 +9,7 @@ ALTER TABLE einvoicing.einvoice
     AND document_kind IN ('invoice', 'credit_note')) NOT VALID,
   DROP CONSTRAINT einvoice_processed,
   ADD CONSTRAINT einvoice_processed CHECK ((processed_at IS NULL) = (validated_against IS NULL)
-    AND (processed_at IS NULL OR processed_at >= received_at) AND (status = 'received' OR processed_at IS NOT NULL)) NOT VALID,
+    AND (processed_at IS NULL) = (processed_fetch_operation_id IS NULL) AND (processed_at IS NULL OR processed_at >= received_at) AND (status = 'received' OR processed_at IS NOT NULL)) NOT VALID,
   DROP CONSTRAINT einvoice_problem,
   ADD CONSTRAINT einvoice_problem CHECK ((problem_code IS NULL) = (problem_detail IS NULL)
     AND (problem_code IS NOT NULL) = (status = 'refused')) NOT VALID,
