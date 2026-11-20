@@ -108851,6 +108851,13 @@ type SalesOrder struct {
 	// The day the customer asks to be delivered on; absent when none is asked for. Changed by
 	// `changeSalesOrder`.
 	RequestedDeliveryDate OptDate `json:"requested_delivery_date"`
+	// The plant the order delivers from (`plant_id` of `createSalesOrder`, S2j): where its items of a
+	// material kept in stock are checked for availability and shipped from. Absent when it names none.
+	PlantID OptUUID `json:"plant_id"`
+	// The plant's code; absent, as `plant_id` is, when the order names none.
+	PlantCode OptString `json:"plant_code"`
+	// The plant's name, as it is now; absent, as `plant_id` is, when the order names none.
+	PlantName OptString `json:"plant_name"`
 	// How many changes the order has had (`changeSalesOrder`); they are listed by `listSalesOrderChanges`.
 	Changes int32 `json:"changes"`
 	// Why the order was cancelled; absent unless `status` is `cancelled`.
@@ -108984,6 +108991,21 @@ func (s *SalesOrder) GetStatus() string {
 // GetRequestedDeliveryDate returns the value of RequestedDeliveryDate.
 func (s *SalesOrder) GetRequestedDeliveryDate() OptDate {
 	return s.RequestedDeliveryDate
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *SalesOrder) GetPlantID() OptUUID {
+	return s.PlantID
+}
+
+// GetPlantCode returns the value of PlantCode.
+func (s *SalesOrder) GetPlantCode() OptString {
+	return s.PlantCode
+}
+
+// GetPlantName returns the value of PlantName.
+func (s *SalesOrder) GetPlantName() OptString {
+	return s.PlantName
 }
 
 // GetChanges returns the value of Changes.
@@ -109144,6 +109166,21 @@ func (s *SalesOrder) SetStatus(val string) {
 // SetRequestedDeliveryDate sets the value of RequestedDeliveryDate.
 func (s *SalesOrder) SetRequestedDeliveryDate(val OptDate) {
 	s.RequestedDeliveryDate = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *SalesOrder) SetPlantID(val OptUUID) {
+	s.PlantID = val
+}
+
+// SetPlantCode sets the value of PlantCode.
+func (s *SalesOrder) SetPlantCode(val OptString) {
+	s.PlantCode = val
+}
+
+// SetPlantName sets the value of PlantName.
+func (s *SalesOrder) SetPlantName(val OptString) {
+	s.PlantName = val
 }
 
 // SetChanges sets the value of Changes.
@@ -109905,6 +109942,12 @@ type SalesOrderCreate struct {
 	// The day the customer asks to be delivered on: the order's date, the company's date today, or later
 	// (422 `sales.invalid_requested_delivery_date`). Absent: none is asked for.
 	RequestedDeliveryDate OptDate `json:"requested_delivery_date"`
+	// The plant the order delivers from (S2j): an active org unit of kind `plant` of the order's company
+	// (`GET /v1/org-units/{id}`; 422 `sales.plant_invalid`), with or without `quotation_id`. Its
+	// confirmation checks the availability of the items of a material kept in stock there, and its
+	// outbound deliveries ship from it. Kept as entered. Absent: none, and nothing is checked for
+	// availability.
+	PlantID OptUUID `json:"plant_id"`
 	// The items, numbered in this order from 1. Required without `quotation_id`, refused with it.
 	Items []SalesItemCreate `json:"items"`
 }
@@ -109937,6 +109980,11 @@ func (s *SalesOrderCreate) GetPaymentTermCode() OptString {
 // GetRequestedDeliveryDate returns the value of RequestedDeliveryDate.
 func (s *SalesOrderCreate) GetRequestedDeliveryDate() OptDate {
 	return s.RequestedDeliveryDate
+}
+
+// GetPlantID returns the value of PlantID.
+func (s *SalesOrderCreate) GetPlantID() OptUUID {
+	return s.PlantID
 }
 
 // GetItems returns the value of Items.
@@ -109972,6 +110020,11 @@ func (s *SalesOrderCreate) SetPaymentTermCode(val OptString) {
 // SetRequestedDeliveryDate sets the value of RequestedDeliveryDate.
 func (s *SalesOrderCreate) SetRequestedDeliveryDate(val OptDate) {
 	s.RequestedDeliveryDate = val
+}
+
+// SetPlantID sets the value of PlantID.
+func (s *SalesOrderCreate) SetPlantID(val OptUUID) {
+	s.PlantID = val
 }
 
 // SetItems sets the value of Items.
@@ -110082,6 +110135,11 @@ type SalesOrderItem struct {
 	// ADR-0083 §4), in the item's unit: the item's quantity is not changed below what is delivered and in
 	// delivery, and the item is not removed nor its order cancelled while it is more than zero.
 	InDeliveryQuantity Quantity `json:"in_delivery_quantity"`
+	// What the availability check confirmed of the item (S2j, `confirmSalesOrder`), in the item's unit: at
+	// most `quantity`, and what its outbound deliveries take at most, with `delivered_quantity` and
+	// `in_delivery_quantity` never above it. Absent for an item not checked: one of an order without a
+	// plant or not yet confirmed, or one not of a material kept in stock.
+	ConfirmedQuantity OptQuantity `json:"confirmed_quantity"`
 	// The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's
 	// unit; at most `delivered_quantity`.
 	BilledQuantity Quantity `json:"billed_quantity"`
@@ -110177,6 +110235,11 @@ func (s *SalesOrderItem) GetDeliveredQuantity() Quantity {
 // GetInDeliveryQuantity returns the value of InDeliveryQuantity.
 func (s *SalesOrderItem) GetInDeliveryQuantity() Quantity {
 	return s.InDeliveryQuantity
+}
+
+// GetConfirmedQuantity returns the value of ConfirmedQuantity.
+func (s *SalesOrderItem) GetConfirmedQuantity() OptQuantity {
+	return s.ConfirmedQuantity
 }
 
 // GetBilledQuantity returns the value of BilledQuantity.
@@ -110277,6 +110340,11 @@ func (s *SalesOrderItem) SetDeliveredQuantity(val Quantity) {
 // SetInDeliveryQuantity sets the value of InDeliveryQuantity.
 func (s *SalesOrderItem) SetInDeliveryQuantity(val Quantity) {
 	s.InDeliveryQuantity = val
+}
+
+// SetConfirmedQuantity sets the value of ConfirmedQuantity.
+func (s *SalesOrderItem) SetConfirmedQuantity(val OptQuantity) {
+	s.ConfirmedQuantity = val
 }
 
 // SetBilledQuantity sets the value of BilledQuantity.

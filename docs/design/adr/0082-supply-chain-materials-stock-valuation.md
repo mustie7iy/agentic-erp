@@ -1143,3 +1143,75 @@ reads a location's stock without a lock for shipping's picking.
 - **Not built** (Later, plan §S2h): partial issues and receipts,
   reversals (352, 102), cancelling an open order, a delivery between the
   plants, a list of stock in transit, intercompany transfers (S2i).
+
+### S2j (2026-11-20)
+
+- Migration 000421: `sales.sales_order.plant_id` and
+  `sales.sales_order_item.confirmed_quantity` with their rules (03
+  §3.16; schema tests in `db/sales_availability_test.go`, the trigger
+  also as the owner).
+- **The plant is the order's, optional** (decided by default): a sales
+  order names the plant it delivers from (`plant_id` of
+  `createSalesOrder`, an active plant of its company, 422
+  `sales.plant_invalid`), with or without a quotation, kept as entered.
+  SAP determines a delivering plant per item (VBAP-WERKS, from the
+  customer-material info, the customer or the material, from memory);
+  one plant per order is enough for the pilot's one plant per stock site,
+  and per-item plants and their determination are Later. An order
+  without a plant is not checked and is delivered as before, so
+  existing orders, quotations and order capture are unchanged; its
+  deliveries are not counted in any plant's availability (for the
+  product owner: whether a plant should be required for orders of stock
+  materials).
+- **What is available** at confirmation (`confirmSalesOrder`), for each
+  item of a material kept in stock: the plant's stock at its storage
+  locations in the base unit (`inventory.Endpoints.PlantStock`, a read
+  published for this; stock in transit is not counted) less what the
+  plant's other confirmed orders confirmed and have not delivered
+  (`confirmed_quantity − delivered_quantity` of their standing items, at
+  the material's factor now). What outbound deliveries hold is inside
+  that: a delivery takes from what its order confirmed. Cancelled orders
+  and removed items promise nothing. The items are confirmed in item
+  order, each as far as is left, rounded down to six decimals in the
+  item's unit: in full, in part or not at all; a shortage refuses
+  nothing (SAP's one-time delivery confirms what is there, from memory).
+  The check is of stock on hand, so it confirms the same for the
+  requested delivery date as for today; nothing stores a confirmed date
+  (checking rules with replenishment lead time are Later). An order
+  blocked for credit keeps its confirmation, which counts.
+- **Two orders racing for the last quantity confirm it once**: the check
+  takes a transaction advisory lock per material and plant
+  (`sales.availability:<tenant>:<plant>:<material>`), in the materials'
+  uuid order, after the order's row lock and the credit check's customer
+  lock, which every caller takes in that order; a goods issue takes none
+  of them, so no cycle. It reads the demand before the stock: a goods
+  issue committed between the two reads counts out of the stock but
+  still in the demand, so it promises less, never more
+  (`TestTwoOrdersRaceForTheLastQuantity`, through
+  `apitest.Serialized`).
+- **Deliveries take at most what is confirmed** (`OrderItem.open`): an
+  item with a confirmed quantity has that, not its ordered quantity,
+  open for delivery, less what is delivered and in delivery (422
+  `sales.exceeds_open_quantity` names what is confirmed); the database
+  keeps delivered and in delivery within it. A delivery of an order with
+  a plant ships from that plant (422 `shipping.plant_mismatch`), so its
+  goods issue takes the stock the check counted.
+- **A change of a confirmed order checks again** the items it adds and
+  those whose quantity it changes, in the same way: an item keeps what it
+  had confirmed, up to its new quantity, and has more confirmed as far as
+  the plant has it available, so a lowered quantity frees stock and a
+  raised one is confirmed as stock arrives (decided by default; SAP
+  rechecks a changed item, from memory). Re-confirming items no change
+  touched is back-order processing, Later.
+- **Not valued, nothing more promised**: a promise whose unit the
+  material no longer has (a unit removed since) cannot be put in the
+  base unit; the material then has nothing more available at the plant,
+  and an item in such a unit keeps what it had.
+- Audited in the confirmation's and the change's records (`availability`:
+  the plant and each item checked, with its material, quantity, unit and
+  confirmed quantity before and after); no new event or permission:
+  confirming stays `sales.order.confirm`, human-only.
+- Walkthrough step 148, `step_available_to_promise`.
+- **Not built** (Later, plan §S2j): checking rules with replenishment
+  lead time and planned receipts, back-order processing, product
+  allocation, global ATP across plants, per-item plants.

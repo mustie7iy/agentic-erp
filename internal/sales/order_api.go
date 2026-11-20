@@ -17,17 +17,29 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// orderRefs reads what the orders name by id.
+// orderRefs reads what the orders name by id, their plants (S2j)
+// among them.
 func (e *Endpoints) orderRefs(ctx context.Context, orders []Order) (references, error) {
 	docs := make([]named, len(orders))
+	var plants []uuid.UUID
 	for i, o := range orders {
 		items := make([]Item, len(o.Items))
 		for j, it := range o.Items {
 			items[j] = it.Item
 		}
 		docs[i] = named{legalEntity: o.LegalEntityID, customer: o.CustomerID, items: items}
+		if o.PlantID != nil {
+			plants = append(plants, *o.PlantID)
+		}
 	}
-	return e.references(ctx, docs)
+	refs, err := e.references(ctx, docs)
+	if err != nil || len(plants) == 0 {
+		return refs, err
+	}
+	if refs.plants, err = e.LegalEntities.OrgUnits(ctx, plants); err != nil {
+		return references{}, fmt.Errorf("sales: plants of %d orders: %w", len(orders), err)
+	}
+	return refs, nil
 }
 
 // orderAPI is a sales order as the API gives it, with what it names by
@@ -47,6 +59,10 @@ func orderAPI(o Order, refs references) gen.SalesOrder {
 	if o.CreditReleasedAt != nil {
 		out.CreditReleasedAt.SetTo(*o.CreditReleasedAt)
 	}
+	if o.PlantID != nil {
+		plant := refs.plants[*o.PlantID] // a stored order's plant exists
+		out.PlantID, out.PlantCode, out.PlantName = gen.NewOptUUID(*o.PlantID), gen.NewOptString(plant.Code), gen.NewOptString(plant.Name)
+	}
 	if c := o.Capture; c != nil {
 		captured := gen.SalesOrderCaptured{UploadID: c.UploadID, CustomerReference: c.CustomerReference, CustomerMatchedBy: c.CustomerMatchedBy,
 			Confidence: c.Confidence, Items: make([]gen.SalesOrderCapturedItem, len(c.Items))}
@@ -64,6 +80,9 @@ func orderAPI(o Order, refs references) gen.SalesOrder {
 			DeliveredQuantity: gen.Quantity{Value: it.Delivered, Unit: it.Unit}, InDeliveryQuantity: gen.Quantity{Value: it.InDelivery, Unit: it.Unit},
 			BilledQuantity:   gen.Quantity{Value: it.Billed, Unit: it.Unit},
 			ReturnedQuantity: gen.Quantity{Value: it.Returned, Unit: it.Unit}, RemovedInChange: apitypes.OptInt32(it.RemovedInChange)}
+		if it.Confirmed != nil {
+			out.Items[i].ConfirmedQuantity = gen.NewOptQuantity(gen.Quantity{Value: *it.Confirmed, Unit: it.Unit})
+		}
 	}
 	return out
 }
@@ -81,7 +100,8 @@ func (e *Endpoints) orderAnswer(ctx context.Context, o Order) (gen.SalesOrder, e
 func (e *Endpoints) CreateSalesOrder(ctx context.Context, req *gen.SalesOrderCreate, _ gen.CreateSalesOrderParams) (gen.CreateSalesOrderRes, error) {
 	in := OrderInput{QuotationID: apitypes.Ptr[uuid.UUID](req.QuotationID), LegalEntityID: apitypes.Ptr[uuid.UUID](req.LegalEntityID),
 		CustomerID: apitypes.Ptr[uuid.UUID](req.CustomerID), Currency: apitypes.Ptr[string](req.Currency),
-		PaymentTermCode: apitypes.Ptr[string](req.PaymentTermCode), DeliveryDate: apitypes.Ptr[time.Time](req.RequestedDeliveryDate)}
+		PaymentTermCode: apitypes.Ptr[string](req.PaymentTermCode), DeliveryDate: apitypes.Ptr[time.Time](req.RequestedDeliveryDate),
+		PlantID: apitypes.Ptr[uuid.UUID](req.PlantID)}
 	if req.Items != nil {
 		in.Items = itemInputs(req.Items)
 	}

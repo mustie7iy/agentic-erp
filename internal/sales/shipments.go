@@ -125,10 +125,15 @@ func shippable(o Order) error {
 	return nil
 }
 
-// open is what is open of an order item to deliver: what was ordered
-// less what is delivered and what outbound deliveries hold.
+// open is what is open of an order item to deliver: what was ordered,
+// or for an item the availability check confirmed what it confirmed
+// (S2j), less what is delivered and what outbound deliveries hold.
 func (it OrderItem) open() *big.Rat {
-	open := new(big.Rat).Sub(money.ParseRat(it.Quantity), money.ParseRat(it.Delivered))
+	promised := it.Quantity
+	if it.Confirmed != nil {
+		promised = *it.Confirmed
+	}
+	open := new(big.Rat).Sub(money.ParseRat(promised), money.ParseRat(it.Delivered))
 	return open.Sub(open, money.ParseRat(it.InDelivery))
 }
 

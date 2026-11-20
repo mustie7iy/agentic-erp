@@ -707,6 +707,18 @@ deliveries) and confirms what is available on the requested date.
 time, back-order processing, product allocation, global ATP across
 plants.
 
+- **Detailed** (lane atp, 2026-11-20; ADR-0082 As built S2j, decided by
+  default): the order names its plant (`plant_id`, optional, kept);
+  confirming checks each item of a material kept in stock against the
+  plant's stock (inventory's `PlantStock`) less the other confirmed
+  orders' confirmed and undelivered quantities, under a lock per
+  material and plant, and confirms in full, in part or nothing
+  (`confirmed_quantity`); deliveries take at most that, from the order's
+  plant; a change rechecks the items it adds or changes. Per-item plants
+  join the Later list.
+- **As built** (2026-11-20): ADR-0082 As built S2j, migration 000421,
+  walkthrough step 148.
+
 ### S2k MRP net requirements
 
 **Capability.** A planning run per plant computes net requirements
