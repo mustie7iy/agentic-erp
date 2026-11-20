@@ -272,8 +272,11 @@ jobs:
         run: make build
       - name: Tests in short mode (without the race detector)
         # Short mode leaves out the performance budgets, which the author
-        # ran (scripts/ci-local.sh) and main's manual run runs.
-        run: go test -short -count=1 ./...
+        # ran (scripts/ci-local.sh) and main's manual run runs. The package
+        # limit is 20 minutes, not go test's default 10: internal/integration
+        # alone took 537 s after batch 83 and over 600 s after batch 84's SAP
+        # stock tests (PR #135); splitting it is backlogged.
+        run: go test -short -count=1 -timeout 20m ./...
 
   test:
     needs: changes
