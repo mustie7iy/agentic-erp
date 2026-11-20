@@ -2239,7 +2239,7 @@ erDiagram
     text kind "invoice | credit_memo | subsequent_debit | subsequent_credit"
     uuid reference_invoice_id
     uuid purchase_order_id
-    text source "manual | capture | edi | migration"
+    text source "manual | capture | edi | migration | einvoice"
     uuid journal_entry_id
     uuid reversal_entry_id
     uuid workflow_request_id
@@ -4598,8 +4598,22 @@ before receipt (`einvoice_processed`); the status `refused` (from
 (`einvoice_read`, `einvoice_read_lengths`), fixed with the problem once
 processed (the trigger); the partial index `einvoice_unprocessed` the
 fetch lists by. A document above 10 MiB is not recorded (T65c As built),
-so `sha256` and `size` stay required. The other columns below arrive
-with the slices that write them (T65d-T65f).
+so `sha256` and `size` stay required. T65d (migrations 000421-000424)
+adds the entering: the statuses `entered` and `held` (from a processed
+`received` only, final until T65f, the trigger), `entry_at` and
+`entry_fetch_operation_id` set together exactly then, never before the
+processing (`einvoice_entry`), `supplier_invoice_id` and `supplier_id`
+(payables' and partner's, no foreign key) exactly when entered
+(`einvoice_entered`), the problem exactly when refused or held
+(`einvoice_problem` widened), what the entering decided fixed (the
+trigger); the partial index `einvoice_to_enter` (processed tax invoices
+still received) and the cell-wide `einvoice_held` the gauge
+`erp_einvoices_held` counts, the worker role reading `status`. The
+supplier invoice it enters has the source `einvoice` and keeps the
+document's hash and key as a captured one does
+(`supplier_invoice_document_hash`, `supplier_invoice_source_check`). The
+other columns below arrive with the slices that write them (T65e, T65f;
+the lines and totals read are not stored, the bytes being kept).
 E2 (migration 000415; ADR-0061 As built E2) adds
 `einvoicing.outgoing_einvoice`: a posted customer invoice or credit memo
 of a UAE company rendered as a PINT AE e-invoice, once per customer

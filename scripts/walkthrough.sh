@@ -5297,7 +5297,7 @@ uae_return() {
 # malformed e-invoice and one whose buyer's TRN is not the company's are
 # refused with their reasons.
 step_einvoice() {
-  heading "Step 43 — E-invoices fetched: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged, validated as PINT AE, downloaded as received, a redelivery with other bytes recorded as its change once; a malformed one and one addressed to another TRN refused with their reasons"
+  heading "Step 43 — E-invoices fetched: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged, validated as PINT AE and entered as a supplier invoice on its order, posted after the three-way match, downloaded as received, a redelivery with other bytes recorded as its change once; a malformed one and one addressed to another TRN refused with their reasons, one naming no order held"
   local connector op doc sum changed
   as ada
   say "The UAE company $AE receives its suppliers' e-invoices through an accredited provider (ADR-0049, ADR-0061). No"
@@ -5309,9 +5309,11 @@ step_einvoice() {
   api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter), \(.settings.format), participants \(.settings.participants | to_entries | map("\(.key) \(.value)") | join(", "))"' \
     createConnector -body "{\"kind\": \"einvoice_provider\", \"name\": \"Maple Gulf e-invoicing\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"standin\", \"base_url\": \"https://$PROVIDER_ADDR\", \"participants\": {\"$AE\": \"0235:$AE_TIN\"}, \"format\": \"pint_ae\"}}"
   connector=$(field .id)
+  einvoice_order
   say "Gulf Office Interiors sends its next invoice as a PINT AE e-invoice; the provider holds it for Maple Gulf Trading's"
-  say "participant, 0235: and its TIN (an illustrative document of one standard-rated line):"
-  pint_ae_invoice GOI-2001 "$AE_TRN" >"$WORK/provider/inbox/GOI-2001.xml"
+  say "participant, 0235: and its TIN (an illustrative document of one standard-rated line, four of the desks on order"
+  say "$AE_ORDER, its line 1):"
+  pint_ae_invoice GOI-2001 "$AE_TRN" "$AE_ORDER" 1 >"$WORK/provider/inbox/GOI-2001.xml"
   printf '0235:%s\n' "$AE_TIN" >"$WORK/provider/inbox/GOI-2001.receiver"
   sum=$(shasum -a 256 "$WORK/provider/inbox/GOI-2001.xml" | cut -d' ' -f1)
   say "  message GOI-2001 for walkthrough:$AE, SHA-256 ${sum:0:16}…"
@@ -5322,18 +5324,22 @@ step_einvoice() {
   wait_op
   op=$(field .id)
   excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded); its documents at \(.resource)"'
-  expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "1 0"
+  expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded) \(.result.entered)"')" "1 0 1"
   api 200 '.items[] | "  \(.message_id) for \(.company_code) \(.company_name): \(.status), \(.size) bytes, received through \(.connector_name), acknowledged \(.acknowledged_at != null)"' \
     listEInvoices -p "fetch_operation_id=$op"
-  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.status)"] | join(", ")')" "GOI-2001 $AE received"
+  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.status)"] | join(", ")')" "GOI-2001 $AE entered"
   say "The fetch validated it (T65c): read as PINT AE, its fields present, its amounts of two decimals adding up, its buyer"
-  say "the company's participant and FTA registration; it stays received, for entering, with what was read:"
-  excerpt '.items[0] | "  \(.document_number), \(.document_kind) of \(.issue_date), \(.gross_amount.amount) \(.gross_amount.currency), \(.specification), validated against \(.validated_against)"'
+  say "the company's participant and FTA registration; and entered it (T65d) as a supplier invoice, by capture's rules"
+  say "without a model: the order its order reference names, whose supplier holds the seller's TRN, its line on the"
+  say "order's line 1 with that item's unit and tax code V5, category S at 5% as the line states:"
+  excerpt '.items[0] | "  \(.document_number), \(.document_kind) of \(.issue_date), \(.gross_amount.amount) \(.gross_amount.currency), \(.specification), validated against \(.validated_against)",
+    "  entered as supplier invoice \(.supplier_invoice_number) (\(.supplier_invoice_status)) of \(.supplier_name), reference \(.supplier_reference)"'
   expect "what the validation read" "$(field '.items[0] | "\(.status) \(.document_number) \(.document_kind) \(.gross_amount.amount) \(.gross_amount.currency) \(.problem_code // "-")"')" \
-    "received GOI-2001 invoice 1050.00 AED -"
+    "entered GOI-2001 invoice 1050.00 AED -"
   expect "its bytes, the stand-in's" "$(field '.items[0].sha256')" "$sum"
   expect "acknowledged to the provider" "$(field '.items[0].acknowledged_at != null')" true
   doc=$(field '.items[0].id')
+  einvoice_entered "$(field '.items[0].supplier_invoice_id')" "$sum"
   [ -s "$WORK/provider/inbox/GOI-2001.acknowledged" ] || fail "the stand-in recorded no acknowledgement of GOI-2001"
   say "The provider loses the acknowledgement and lists GOI-2001 again; the next fetch does not record it twice, and"
   say "acknowledges it again:"
@@ -5357,20 +5363,24 @@ step_einvoice() {
 # provider after 0235: (ADR-0061 §5 C6).
 AE_TRN=100123456789003
 AE_TIN=${AE_TRN:0:10}
+# AE_ORDER is the UAE company's purchase order of Gulf Office Interiors'
+# desks (einvoice_order, step 43), which its e-invoices name (IBT-013).
+AE_ORDER=''
 
 # pint_ae_invoice writes Gulf Office Interiors' PINT AE tax invoice NUMBER
 # to the buyer TRN (an illustrative document, dated today): one line of
 # four desks, 1,000.00 AED with 50.00 VAT at 5%, the buyer's electronic
-# address 0235: and the UAE company's TIN.
+# address 0235: and the UAE company's TIN; naming the purchase order ORDER
+# (IBT-013) and its line LINE (IBT-132) when given.
 pint_ae_invoice() {
-  local number=$1 trn=$2
+  local number=$1 trn=$2 order=${3:-} line=${4:-}
   printf '<?xml version="1.0" encoding="UTF-8"?>\n'
   printf '<!-- Illustrative only: a supplier'"'"'s PINT AE tax invoice. -->\n'
   printf '<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">'
   printf '<cbc:CustomizationID>urn:peppol:pint:billing-1@ae-1</cbc:CustomizationID><cbc:ProfileID>urn:peppol:bis:billing</cbc:ProfileID>'
   printf '<cbc:ProfileExecutionID>00000000</cbc:ProfileExecutionID><cbc:ID>%s</cbc:ID><cbc:IssueDate>%s</cbc:IssueDate>' "$number" "$TODAY"
   printf '<cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode><cbc:DocumentCurrencyCode>AED</cbc:DocumentCurrencyCode>'
-  printf '<cac:OrderReference><cbc:ID>4500000001</cbc:ID></cac:OrderReference>'
+  [ -z "$order" ] || printf '<cac:OrderReference><cbc:ID>%s</cbc:ID></cac:OrderReference>' "$order"
   printf '<cac:AccountingSupplierParty><cac:Party><cbc:EndpointID schemeID="0235">1005555555</cbc:EndpointID>'
   printf '<cac:PostalAddress><cbc:StreetName>Sheikh Zayed Road</cbc:StreetName><cbc:CityName>Dubai</cbc:CityName><cbc:CountrySubentity>DXB</cbc:CountrySubentity><cac:Country><cbc:IdentificationCode>AE</cbc:IdentificationCode></cac:Country></cac:PostalAddress>'
   printf '<cac:PartyTaxScheme><cbc:CompanyID>100555555500003</cbc:CompanyID><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:PartyTaxScheme>'
@@ -5385,7 +5395,7 @@ pint_ae_invoice() {
   printf '<cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="AED">1000.00</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="AED">1000.00</cbc:TaxExclusiveAmount>'
   printf '<cbc:TaxInclusiveAmount currencyID="AED">1050.00</cbc:TaxInclusiveAmount><cbc:PayableAmount currencyID="AED">1050.00</cbc:PayableAmount></cac:LegalMonetaryTotal>'
   printf '<cac:InvoiceLine><cbc:ID>1</cbc:ID><cbc:InvoicedQuantity unitCode="C62">4</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="AED">1000.00</cbc:LineExtensionAmount>'
-  printf '<cac:OrderLineReference><cbc:LineID>10</cbc:LineID></cac:OrderLineReference>'
+  [ -z "$line" ] || printf '<cac:OrderLineReference><cbc:LineID>%s</cbc:LineID></cac:OrderLineReference>' "$line"
   printf '<cac:Item><cbc:Description>Oak desk, 160 cm</cbc:Description><cbc:Name>Desk</cbc:Name><cac:ClassifiedTaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>5</cbc:Percent><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:ClassifiedTaxCategory></cac:Item>'
   printf '<cac:Price><cbc:PriceAmount currencyID="AED">250.00</cbc:PriceAmount></cac:Price></cac:InvoiceLine></Invoice>\n'
 }
@@ -5394,7 +5404,8 @@ pint_ae_invoice() {
 # provider delivers a malformed e-invoice and one whose buyer's TRN is not
 # the company's FTA registration; a fetch refuses both with their reasons
 # (einvoicing.unreadable, einvoicing.not_addressed_to_company), counts
-# them, and leaves the valid GOI-2001 received.
+# them, and leaves GOI-2001 as entered. T65d's: a valid one naming no
+# purchase order, GOI-2005, is held with payables.capture_needs_order.
 einvoice_refusals() {
   local connector=$1 doc=$2 op
   say "The provider delivers two more for the company: GOI-2003, cut off in transit (not well-formed XML), and GOI-2004,"
@@ -5403,18 +5414,84 @@ einvoice_refusals() {
   pint_ae_invoice GOI-2003 "$AE_TRN" >"$WORK/provider/GOI-2003.whole.xml"
   head -c 900 "$WORK/provider/GOI-2003.whole.xml" >"$WORK/provider/inbox/GOI-2003.xml"
   pint_ae_invoice GOI-2004 100999999900003 >"$WORK/provider/inbox/GOI-2004.xml"
-  printf '0235:%s\n' "$AE_TIN" | tee "$WORK/provider/inbox/GOI-2003.receiver" >"$WORK/provider/inbox/GOI-2004.receiver"
+  say "A third, GOI-2005, is valid but names no purchase order (IBT-013): entering it as capture would is refused, so it is"
+  say "held for a person, with the reason (a person enters it by hand or links it, T65f), and nothing of it is entered:"
+  pint_ae_invoice GOI-2005 "$AE_TRN" >"$WORK/provider/inbox/GOI-2005.xml"
+  printf '0235:%s\n' "$AE_TIN" | tee "$WORK/provider/inbox/GOI-2003.receiver" "$WORK/provider/inbox/GOI-2004.receiver" >"$WORK/provider/inbox/GOI-2005.receiver"
   api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
   wait_op
   op=$(field .id)
-  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded), refused \(.result.refused)"'
-  expect "the refusing fetch's counts" "$(field '"\(.result.recorded) \(.result.refused)"')" "2 2"
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded), refused \(.result.refused), entered \(.result.entered), held \(.result.held)"'
+  expect "the refusing fetch's counts" "$(field '"\(.result.recorded) \(.result.refused) \(.result.entered) \(.result.held)"')" "3 2 0 1"
   api 200 '.items[] | "  \(.message_id): \(.status) \(.problem_code): \(.problem_detail)"' listEInvoices -p "fetch_operation_id=$op" -p "status=refused"
   expect "the refusals" "$(field '[.items[] | "\(.message_id) \(.problem_code)"] | sort | join(", ")')" \
     "GOI-2003 einvoicing.unreadable, GOI-2004 einvoicing.not_addressed_to_company"
   expect "no TRN in the reason" "$(field '[.items[].problem_detail | contains("100999999900003") or contains("'"$AE_TRN"'")] | any')" false
+  api 200 '.items[] | "  \(.message_id): \(.status) \(.problem_code): \(.problem_detail)"' listEInvoices -p "connector_id=$connector" -p "status=held"
+  expect "the held one" "$(field '[.items[] | "\(.message_id) \(.problem_code) \(.supplier_invoice_id // "-")"] | join(", ")')" \
+    "GOI-2005 payables.capture_needs_order -"
   QUIET=1 api 200 '' getEInvoice -p "id=$doc"
-  expect "GOI-2001 still received" "$(field '"\(.status) \(.problem_code // "-")"')" "received -"
+  expect "GOI-2001 still entered" "$(field '"\(.status) \(.problem_code // "-")"')" "entered -"
+}
+
+# einvoice_order is T65d's setup in step_einvoice: Alex records Gulf Office
+# Interiors' TRN, its tax identifier (AE_TRN), approved by Carla, so an
+# e-invoice's seller (IBT-031) is found as the order's supplier; Ben orders
+# eight desks at 250.00 AED with V5 (category S at 5%) for the UAE company,
+# released, and receives them. AE_ORDER is the order's number, which the
+# supplier's e-invoices name (IBT-013).
+einvoice_order() {
+  local ae supplier expense po
+  as alex
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listBusinessPartners -p "name_prefix=Gulf Office Interiors" -p role=supplier
+  supplier=$(field '.items[0].id')
+  say "Gulf Office Interiors' TRN is on its e-invoices; Alex records it as the supplier's tax identifier, and Carla"
+  say "approves the change, so the supplier of an order is checked against the seller an e-invoice names:"
+  api 201 '"partner change \(.id): \(.status)"' createPartnerChange \
+    -body "{\"partner_id\": \"$supplier\", \"kind\": \"update\", \"reason\": \"TRN confirmed on the supplier's tax registration certificate\", \"payload\": {\"tax_identifiers\": [{\"scheme\": \"AE_TRN\", \"value\": \"100555555500003\"}]}}"
+  approve carla "$(field .workflow_request_id)" "TRN checked against the FTA's register"
+  as ben
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  expense=$(field '.items[] | select(.number == "6000") | .id')
+  say "Ben orders eight oak desks from Gulf Office Interiors for $AE, standard-rated input VAT V5, and receives them:"
+  api 201 '"purchase order \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount), \(.tax_code)")' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"currency\": \"AED\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [{\"description\": \"Oak desk, 160 cm\", \"quantity\": {\"value\": \"8\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"250.00\", \"currency\": \"AED\"}, \"account_id\": \"$expense\", \"tax_code\": \"V5\"}]}"
+  po=$(field .id)
+  AE_ORDER=$(field .document_number)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Office fit-out budgeted"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  fi
+  expect "the UAE order's status" "$(field .status)" released
+  api 201 '"goods receipt \(.document_number // .id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$ae\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"8\", \"unit\": \"EA\"}}]}"
+  as ada
+}
+
+# einvoice_entered INVOICE SUM is T65d's evidence in step_einvoice: the
+# supplier invoice GOI-2001 was entered as, parked with source einvoice on
+# the order's item with its code V5, its document the e-invoice's bytes
+# (SHA-256 SUM); Alex runs the three-way match and posts it.
+einvoice_entered() {
+  local invoice=$1 sum=$2
+  as alex
+  api 200 '"\(.document_number) \(.supplier_reference): \(.status), source \(.source), \(.gross_amount.amount) \(.gross_amount.currency)", (.items[] | "  item \(.item_no): \(.quantity) \(.unit), \(.amount.amount), \(.tax_code)")' \
+    getSupplierInvoice -p "id=$invoice"
+  expect "the entered invoice" "$(field '"\(.supplier_reference) \(.status) \(.source) \(.gross_amount.amount) \(.tax_amount.amount) \([.items[].tax_code] | join(","))"')" \
+    "GOI-2001 parked einvoice 1050.00 50.00 V5"
+  show curl -s -H "Authorization: Bearer …" "\$ERP_API_URL/v1/supplier-invoices/$invoice/document" "| shasum -a 256"
+  expect "the invoice's document, the e-invoice as received" \
+    "$(curl -s -H "Authorization: Bearer $ERP_TOKEN" "$ERP_API_URL/v1/supplier-invoices/$invoice/document" | shasum -a 256 | cut -d' ' -f1)" "$sum"
+  say "The desks were received; the three-way match is clean, and Alex posts the invoice as any other:"
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$invoice"
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the e-invoice's invoice posted" "$(field .status)" posted
+  as alex
 }
 
 # einvoice_original is T65b's part of step_einvoice: the e-invoice
@@ -15095,7 +15172,7 @@ goods_issue_margin() {
 # keeps no acknowledgement); its download is the document; a second fetch
 # leaves it out, recorded and acknowledged.
 step_evatra_inbound() {
-  heading "Step 144 — E-invoices received through Evatra: the UAE company connected to Evatra's sandbox, a supplier's PINT AE e-invoice listed by the company's TIN, read in Base64, recorded once and acknowledged locally, downloaded as received; a second fetch leaves it out"
+  heading "Step 144 — E-invoices received through Evatra: the UAE company connected to Evatra's sandbox, a supplier's PINT AE e-invoice listed by the company's TIN, read in Base64, recorded once and acknowledged locally, entered as a draft supplier invoice, downloaded as received; a second fetch leaves it out"
   local connector op doc sum tin
   tin=1001234567
   as ada
@@ -15109,9 +15186,9 @@ step_evatra_inbound() {
   api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter) \(.settings.environment), Evatra company \(.settings.company_id), participants \(.settings.participants | to_entries | map("\(.key) \(.value)") | join(", "))"' \
     createConnector -body "{\"kind\": \"einvoice_provider\", \"name\": \"Maple Gulf on Evatra\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"evatra\", \"environment\": \"stage\", \"company_id\": \"WALK-AE-5000\", \"participants\": {\"$AE\": \"0235:$tin\"}, \"format\": \"pint_ae\"}}"
   connector=$(field .id)
-  say "Gulf Office Interiors sends its invoice GOI-2002 as a PINT AE e-invoice; Evatra receives it for 0235:$tin (an"
-  say "illustrative document; entering it as a supplier invoice is T65d):"
-  pint_ae_invoice GOI-2002 "$AE_TRN" >"$WORK/provider/evatra/EVA-77001.xml"
+  say "Gulf Office Interiors sends its invoice GOI-2002, the other four desks of order $AE_ORDER, as a PINT AE e-invoice;"
+  say "Evatra receives it for 0235:$tin (an illustrative document):"
+  pint_ae_invoice GOI-2002 "$AE_TRN" "$AE_ORDER" 1 >"$WORK/provider/evatra/EVA-77001.xml"
   printf '0235:%s\n' "$tin" >"$WORK/provider/evatra/EVA-77001.receiver"
   sum=$(shasum -a 256 "$WORK/provider/evatra/EVA-77001.xml" | cut -d' ' -f1)
   say "  Evatra's document EVA-77001 for 0235:$tin, SHA-256 ${sum:0:16}…"
@@ -15126,8 +15203,15 @@ step_evatra_inbound() {
   expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "1 0"
   api 200 '.items[] | "  \(.message_id) for \(.company_code) \(.company_name) (\(.receiver)): \(.status), \(.size) bytes, through \(.connector_name), acknowledged \(.acknowledged_at != null)"' \
     listEInvoices -p "fetch_operation_id=$op"
-  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.receiver) \(.status)"] | join(", ")')" "EVA-77001 $AE 0235:$tin received"
+  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.receiver) \(.status)"] | join(", ")')" "EVA-77001 $AE 0235:$tin entered"
   expect "validated through the same path (T65c)" "$(field '.items[0] | "\(.document_number) \(.validated_against != null) \(.problem_code // "-")"')" "GOI-2002 true -"
+  say "and entered through the same path (T65d), a draft supplier invoice on the order's other four desks, for Alex to"
+  say "match and post:"
+  excerpt '.items[0] | "  entered as supplier invoice \(.supplier_invoice_number) (\(.supplier_invoice_status)) of \(.supplier_name), reference \(.supplier_reference)"'
+  expect "the draft invoice" "$(field '.items[0] | "\(.supplier_reference) \(.supplier_invoice_status) \(.supplier_name)"')" "GOI-2002 parked Gulf Office Interiors"
+  QUIET=1 api 200 '' getSupplierInvoice -p "id=$(field '.items[0].supplier_invoice_id')"
+  expect "its source" "$(field '"\(.source) \(.gross_amount.amount) \([.items[].tax_code] | join(","))"')" "einvoice 1050.00 V5"
+  QUIET=1 api 200 '' listEInvoices -p "fetch_operation_id=$op"
   expect "its bytes, Evatra's decoded" "$(field '.items[0].sha256')" "$sum"
   expect "acknowledged locally" "$(field '.items[0].acknowledged_at != null')" true
   doc=$(field '.items[0].id')

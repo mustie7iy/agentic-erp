@@ -173,7 +173,7 @@ func (e *Endpoints) processOne(ctx context.Context, c Connector, operation uuid.
 				return err // later: left unprocessed for a fetch once the setup is complete
 			}
 		} else if refusal != nil { // valid when processed, refused by the rules since: held for a person, never refused after the fact
-			return e.entryDecided(ctx, tx, p, operation, doc, company, entering{held: problem.Unprocessable(refusal.Code, refusal.Detail)})
+			return e.entryDecided(ctx, tx, p, operation, doc, company, entering{held: refusal})
 		}
 		return e.enter(ctx, tx, p, operation, u, doc, company, read)
 	})

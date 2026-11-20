@@ -63,10 +63,10 @@ type EnteredInvoice struct {
 }
 
 // entering is the outcome of entering one document: the invoice, or the
-// problem that holds it.
+// code and detail of the problem that holds it.
 type entering struct {
 	entered *Entered
-	held    *problem.Problem
+	held    *Refusal
 }
 
 // enter enters the locked, valid document as a supplier invoice (ADR-0061
@@ -84,8 +84,8 @@ func (e *Endpoints) enter(ctx context.Context, tx pgx.Tx, p reqctx.Principal, op
 	}
 	var out entering
 	if d.AccountingTax != nil {
-		out.held = problem.Unprocessable(HeldNotInAED, "The e-invoice is in "+d.Currency+"; its VAT in AED (IBT-111) is kept as it states it "+
-			"for the VAT 201, which a supplier invoice does not hold yet, so enter it by hand.")
+		out.held = &Refusal{Code: HeldNotInAED, Detail: "The e-invoice is in " + d.Currency + "; its VAT in AED (IBT-111) is kept as it states it " +
+			"for the VAT 201, which a supplier invoice does not hold yet, so enter it by hand."}
 	} else {
 		var err error
 		entry := Entry{LegalEntityID: company.ID, Document: d, SHA256: u.sum, ContentRef: u.ref}
@@ -110,14 +110,14 @@ func (e *Endpoints) tryEnter(ctx context.Context, tx pgx.Tx, id uuid.UUID, entry
 		}
 		return entering{entered: &entered}, nil
 	}
-	held := problem.From(err)
-	if held.Status >= 500 {
+	refused := problem.From(err)
+	if refused.Status >= 500 {
 		return entering{}, err
 	}
 	if _, err := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT einvoice_entry`); err != nil {
 		return entering{}, fmt.Errorf("einvoicing: roll back the refused entering of e-invoice %s: %w", id, err)
 	}
-	return entering{held: held}, nil
+	return entering{held: &Refusal{Code: refused.Code, Detail: refused.Detail}}, nil
 }
 
 // entryDecided writes the outcome of the entering on the locked document:

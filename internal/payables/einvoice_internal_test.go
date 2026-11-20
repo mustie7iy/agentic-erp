@@ -18,7 +18,9 @@ type taxNumbers struct {
 	err  error
 }
 
-func (n taxNumbers) HasTaxNumber(context.Context, uuid.UUID, string) (bool, error) { return n.held, n.err }
+func (n taxNumbers) HasTaxNumber(context.Context, uuid.UUID, string) (bool, error) {
+	return n.held, n.err
+}
 
 // TestSellerOf: the seller's TRN not held by the order's supplier is
 // refused naming at most its last four characters; the partner context

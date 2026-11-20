@@ -1382,3 +1382,104 @@ IBT-013 and the order line IBT-132). Decided by default:
   received documents as the Ministry's list says (C3) though optional in
   EN 16931; the UBL paths of BTAE-08/BTAE-10 (C5), not read; the
   Schematron's licence (C7).
+
+### T65d: entering e-invoices as supplier invoices (adr:ADR-0061 · po:2026-11-09)
+
+Built as §6 and the entering half of §4's Process and §7: migrations 000421
+(the statuses `entered` and `held`, `entry_at`, `entry_fetch_operation_id`,
+`supplier_invoice_id` and `supplier_id`, the checks NOT VALID, the trigger
+allowing a processed `received` document to move to either and fixing what
+the entering decided; payables' source `einvoice`, whose invoice keeps its
+document's hash as a captured one does), 000422 (the checks validated),
+000423 (`einvoice_to_enter`) and 000424 (`einvoice_held`, cell-wide, for
+the gauge `erp_einvoices_held`); `payables.EnterEInvoice` (`einvoice.go`)
+behind the port `einvoicing.Payables` (`enter.go`), adapted in
+`internal/app/einvoicing.go`. Decided by default:
+
+- **Where it runs.** In the processing transaction, right after a document
+  is found valid (§4: check it and enter it), so the fetch that records a
+  tax invoice enters it; a tax invoice validated by a fetch before T65d
+  (processed, still `received`) is entered by the next fetch without being
+  validated again, and one whose bytes the rules refuse by then is held with
+  that refusal rather than refused after its validation (both tested). Tax
+  credit notes stay `received` for T65e. The step stays idempotent
+  (run-twice test): the row is read `FOR UPDATE` where it is still
+  `received`, and the fetch's `entered` and `held` counts are read from the
+  rows (`entry_fetch_operation_id`). The list's `fetch_operation_id` filter
+  is unchanged (the recording or changing fetch): a document entered by a
+  later fetch is found by its status.
+- **The savepoint.** `payables.EnterEInvoice` runs in `SAVEPOINT
+  einvoice_entry`: a problem below 500 (`problem.From`) rolls it back and
+  holds the document with that problem's code and detail (at most 2,000
+  characters), in the outer transaction, which commits; any other error
+  fails the step for its retries, the document staying validated and
+  received for the next fetch (tested with payables failing). Tested with
+  the refusal the database raises, `supplier_invoice_no_duplicates`
+  (`payables.duplicate_invoice`), beside capture's own refusals. Entering a
+  parked invoice opens no approval, so nothing in the savepoint registers
+  an after-commit step its rollback would leave behind.
+- **Capture's code.** The document is read as capture reads an extraction
+  (`extractionOf`: a tax invoice, its amounts in its currency's digits, the
+  order line IBT-132 as the item number, confidence high) and entered with
+  `capturedInput`, `capturedTax`, `capturedExtensions` and `captureStatus`,
+  then `insert` with source `einvoice`. An IBT-132 that is not an item
+  number holds it (`payables.unreadable_document`), as capture refuses a
+  line naming no item. Its document is the e-invoice's bytes as kept: the
+  invoice's `capture_object_ref` and `capture_sha256` are the e-invoice's
+  key and hash (the same object, no copy), so `getSupplierInvoiceDocument`
+  serves the XML.
+- **The seller.** The order's supplier must hold the seller's TRN (IBT-031)
+  as a tax identifier, whatever its scheme, compared by its keyed
+  fingerprint (`partner.Payees.HasTaxNumber`, never opening one); otherwise
+  the document is held with `payables.einvoice_seller_unknown`, the detail
+  naming the TRN's last four characters only.
+- **Tax codes by category.** `capturedTax` takes each line's rate with its
+  VAT category (IBT-151): only the input codes of that category are
+  considered, so the order item's code stands when it has the line's
+  category and charges its rate; else the one code that does is proposed
+  (the invoice parked with it); with none or several the invoice is entered
+  `on_hold` naming them (V5 and VB5 both charge S at 5% in the UAE pack, so
+  an order item without a code holds it, tested). A reverse-charge line
+  (AE) is matched among the AE codes by the same rule: `charged` leaves out
+  the self-assessed components, so an AE line's rate is compared with what
+  the supplier charges. Capture's own documents state no category and are
+  matched as before.
+- **A tax invoice not in AED is held** (`einvoicing.tax_currency_not_entered`)
+  rather than entered: C5 asks its VAT be kept in AED as it states it
+  (IBT-111, reconciled per line with BTAE-08, whose UBL path is not read
+  yet) for the VAT 201, and a supplier invoice converts its tax at the tax
+  date's rate (ADR-0049 §8) with no field for a stated local tax. A person
+  enters it by hand (T65f links it). The rest of C5 is the tracker leaf
+  "E-invoices not in AED entered with their VAT in AED" (split:T65d).
+- **The fetch's company access** (security posture, for the product owner
+  to overrule). The fetch's system principal (`einvoicing.Fetcher`, no
+  principal row) acts, while it enters a document, for the company the
+  document is addressed to and no other: `authz.ActingFor`, which
+  `authz.Companies` answers for a system principal only (a person's or
+  agent's access is never widened by it); payables' reads and writes then
+  apply company access as for any caller.
+- **The list and the event.** `GET /v1/e-invoices` and `/{id}` carry, once
+  entered, the invoice's id, number, supplier reference and status and its
+  supplier's id and name, read live per page (payables' `Invoices.Sources`,
+  partner's `Names`), and `entered_at` with the entering fetch for entered
+  and held documents; the filter `supplier_id` (the stored supplier of an
+  entered document). EInvoiceChanged is published for `entered` and `held`
+  (status_before `received`) and carries `supplier_invoice_id` (added within
+  v1); the audit records are `einvoicing.einvoice.entered` and `.held`;
+  SupplierInvoiceCaptured is published as today, with source `einvoice`.
+  The tax codes proposed on entering are on the invoice's items; their
+  warnings are not kept apart.
+- **The gauge.** `erp_einvoices_held` counts the documents held, cell-wide
+  as the worker role, reading `status` alone.
+- **The walkthrough.** `step_einvoice` (step 43): Alex records Gulf Office
+  Interiors' TRN, approved by Carla; Ben orders eight desks with V5 for 5000
+  and receives them; GOI-2001, naming the order and its line 1, is validated
+  and entered on the first fetch, a parked invoice of source `einvoice` with
+  V5, its document the XML (hash compared), matched clean and posted;
+  GOI-2005, naming no order, is held with `payables.capture_needs_order`.
+  `step_evatra_inbound` (step 144): Evatra's GOI-2002, the other four
+  desks, is entered as a parked invoice through the same path.
+- **For the specialist:** whether IBT-152 on a reverse-charge (AE) line is
+  0 (as EN 16931's BR-AE-05 has it, from memory) or the rate self-assessed;
+  BTAE-08's and BTAE-10's UBL paths (C5), which the entering of documents
+  not in AED needs.
