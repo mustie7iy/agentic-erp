@@ -5062,6 +5062,13 @@
        },
        {
         "s": "T",
+        "t": "fix: a sales order made from a quotation re-checks each item's account, tax code and tax jurisdiction on the order's date, as an order entered directly is checked, rather than copying the quotation's items as they were checked on the quotation's date",
+        "r": "internal/sales/orders.go fromQuotation · ADR-0067 §4 · ADR-0067 As built, the emirate on a sales item",
+        "src": "review:batch85",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "later: sales order variants: cancelling an order with deliveries (a reason for rejection per item), sales organizations and sales areas, partner functions, order types, schedule lines and requested delivery dates per item, incompletion checks, approval, the order confirmation as a document, custom fields, taking open orders over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T78b, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
@@ -5723,6 +5730,13 @@
       "t": "Net revenue by profitability segment shows each customer and item key's cost of sales from the goods issues of the period and its margin",
       "r": "S2b2 · docs/design/plan-supply-chain.md §S2b2 · ADR-0083 §6 and As built · ADR-0075 As built S2b2 · sales.Segment.Cost, .Margin · ProfitabilityRow/Totals cost_of_sales, margin · includes_cost true · walkthrough step_goods_issue (goods_issue_margin)",
       "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: GET /v1/outbound-deliveries filters by the delivery's number, so a document's reference finds its delivery as GET /v1/stock-transport-orders?number= finds its order",
+      "r": "listOutboundDeliveries · ADR-0083 · ADR-0082 As built S2h (review round 1)",
+      "src": "review:batch85",
       "c": []
      },
      {
