@@ -27370,7 +27370,6 @@ paths:
         - integration.invalid_settings
         - integration.not_an_einvoice_provider
         - integration.secret_required
-        - integration.secret_unavailable
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -27820,8 +27819,6 @@ paths:
         - integration.invalid_settings
         - integration.not_an_einvoice_provider
         - integration.secret_required
-        - integration.secret_unavailable
-        - request.reference_not_found
         - request.version_mismatch
       parameters:
         - $ref: "#/components/parameters/Id"
