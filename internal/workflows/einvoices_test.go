@@ -24,6 +24,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets/vaulttest"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
@@ -126,7 +127,7 @@ func TestFetchEInvoicesWorkflow(t *testing.T) {
 	if err := s.runEInvoiceFetch(t, first); err != nil {
 		t.Fatalf("the fetch: %v", err)
 	}
-	if got := fetchOutcome(t, first); got != `succeeded {"changed": 0, "recorded": 2, "already_recorded": 0}` {
+	if got := fetchOutcome(t, first); got != `succeeded {"changed": 0, "refused": 2, "waiting": 0, "recorded": 2, "already_recorded": 0}` {
 		t.Errorf("the fetch: got %s, want both recorded", got)
 	}
 	s.srv.Fail("POST /messages/MSG-1/acknowledge", 1) // lost once: the activity's retry acknowledges it
@@ -181,7 +182,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("round: got %d %v, want the fetch ended", n, err)
 	}
-	if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "recorded": 1, "already_recorded": 0}` {
+	if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 1, "waiting": 0, "recorded": 1, "already_recorded": 0}` {
 		t.Errorf("the fetch: got %s, want MSG-1 recorded", got)
 	}
 	t.Run("failures", func(t *testing.T) {
@@ -217,7 +218,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 		if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 			t.Errorf("the next round: got %d %v, want the fetch carried out", n, err)
 		}
-		if got := fetchOutcome(t, stuck); got != `succeeded {"changed": 0, "recorded": 0, "already_recorded": 0}` {
+		if got := fetchOutcome(t, stuck); got != `succeeded {"changed": 0, "refused": 0, "waiting": 0, "recorded": 0, "already_recorded": 0}` {
 			t.Errorf("the fetch after the next round: got %s, want it succeeded", got)
 		}
 	})
@@ -235,7 +236,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 		if _, err := w.RunOnce(ctx); err != nil {
 			t.Fatalf("round: %v", err)
 		}
-		if got := fetchOutcome(t, again); got != `succeeded {"changed": 0, "recorded": 0, "already_recorded": 1}` {
+		if got := fetchOutcome(t, again); got != `succeeded {"changed": 0, "refused": 0, "waiting": 0, "recorded": 0, "already_recorded": 1}` {
 			t.Errorf("the next fetch: got %s, want MSG-2 already recorded", got)
 		}
 	})
@@ -245,7 +246,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 		begins := 0
 		s.f.Begin = func(ctx context.Context, scope database.Scope) (pgx.Tx, error) {
 			if scope.TenantID == s.e.Tenant.ID {
-				if begins++; begins > 1 { // the listing's transaction, then the finish's
+				if begins++; begins > 3 { // the listing's transaction and the processing's two (nothing to process), then the finish's
 					return nil, errors.New("database down")
 				}
 			}
@@ -261,7 +262,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 		if _, err := w.RunOnce(ctx); err != nil {
 			t.Errorf("the next round: got %v, want no error", err)
 		}
-		if got := fetchOutcome(t, left); got != `succeeded {"changed": 0, "recorded": 0, "already_recorded": 0}` {
+		if got := fetchOutcome(t, left); got != `succeeded {"changed": 0, "refused": 0, "waiting": 0, "recorded": 0, "already_recorded": 0}` {
 			t.Errorf("the fetch after the next round: got %s, want it succeeded", got)
 		}
 	})
@@ -310,5 +311,72 @@ func TestDispatcherStartsFetches(t *testing.T) {
 	pgtest.Scan(t, `SELECT workflow_id FROM platform.operation WHERE id = $1`, []any{in.OperationID}, &workflowID)
 	if workflowID != want {
 		t.Errorf("the Operation's workflow: got %s, want %s", workflowID, want)
+	}
+}
+
+// processFailing is the einvoicing port with its processing step failing
+// with err.
+type processFailing struct {
+	workflows.EInvoices
+	err error
+}
+
+func (p processFailing) ProcessEInvoices(context.Context, uuid.UUID, uuid.UUID, workflows.Within) (workflows.EInvoiceProcessed, error) {
+	return workflows.EInvoiceProcessed{}, p.err
+}
+
+// TestFetchEInvoicesProcessing (T65c): after recording, the workflow
+// processes the connector's documents and counts those it refused; a
+// processing that outlasts its tries fails the fetch with
+// platform.unavailable, the documents recorded for the next fetch to
+// process; a connector refused since fails it with its problem; a fetch
+// started before T65c (the version marker absent) ends without the step.
+func TestFetchEInvoicesProcessing(t *testing.T) {
+	s := einvoiceSetup(t)
+	s.srv.Deliver("MSG-1", fetchParticipant, einvoicetest.Invoice("INV-1"))
+	t.Run("a fetch started before T65c", func(t *testing.T) {
+		in := s.queue(t, true)
+		var suite testsuite.WorkflowTestSuite
+		env := workflowEnv(&suite)
+		env.RegisterWorkflowWithOptions(workflows.FetchEInvoices, sdkworkflow.RegisterOptions{Name: workflows.EInvoiceFetchWorkflow})
+		env.RegisterActivity(s.f)
+		env.OnGetVersion("einvoice-process", sdkworkflow.DefaultVersion, 1).Return(sdkworkflow.DefaultVersion)
+		env.ExecuteWorkflow(workflows.EInvoiceFetchWorkflow, in)
+		if err := env.GetWorkflowError(); err != nil {
+			t.Fatal(err)
+		}
+		var unprocessed int
+		pgtest.Scan(t, `SELECT count(*) FROM einvoicing.einvoice WHERE tenant_id = $1 AND processed_at IS NULL`, []any{s.e.Tenant.ID}, &unprocessed)
+		if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 0, "waiting": 0, "recorded": 1, "already_recorded": 0}` || unprocessed != 1 {
+			t.Errorf("got %s with %d unprocessed, want MSG-1 recorded and left unprocessed", got, unprocessed)
+		}
+	})
+	for name, c := range map[string]struct {
+		err  error
+		code string
+	}{
+		"processing failing":          {errors.New("database down"), "platform.unavailable"},
+		"the connector refused since": {problem.Conflict("integration.connector_disabled", "The connector is disabled."), "integration.connector_disabled"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := *s.f
+			f.Fetches = processFailing{EInvoices: s.f.Fetches, err: c.err}
+			in := s.queue(t, true)
+			var suite testsuite.WorkflowTestSuite
+			env := workflowEnv(&suite)
+			env.RegisterWorkflowWithOptions(workflows.FetchEInvoices, sdkworkflow.RegisterOptions{Name: workflows.EInvoiceFetchWorkflow})
+			env.RegisterActivity(&f)
+			env.ExecuteWorkflow(workflows.EInvoiceFetchWorkflow, in)
+			if got := fetchOutcome(t, in); got != "failed "+c.code {
+				t.Errorf("got %s (workflow error %v), want failed %s", got, env.GetWorkflowError(), c.code)
+			}
+		})
+	}
+	in := s.queue(t, true)
+	if err := s.runEInvoiceFetch(t, in); err != nil {
+		t.Fatal(err)
+	}
+	if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 1, "waiting": 0, "recorded": 0, "already_recorded": 0}` {
+		t.Errorf("the next fetch: got %s, want MSG-1 processed and refused", got)
 	}
 }

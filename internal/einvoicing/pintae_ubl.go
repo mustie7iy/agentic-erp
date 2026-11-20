@@ -2,7 +2,9 @@ package einvoicing
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
@@ -28,6 +30,7 @@ type ublDocument struct {
 	TaxCurrency     string      `xml:"TaxCurrencyCode"`
 	Discrepancy     *ublReason  `xml:"DiscrepancyResponse"`
 	BillingRef      string      `xml:"BillingReference>InvoiceDocumentReference>ID"`
+	OrderRef        string      `xml:"OrderReference>ID"`
 	Seller          ublParty    `xml:"AccountingSupplierParty>Party"`
 	Buyer           ublParty    `xml:"AccountingCustomerParty>Party"`
 	PaymentMeans    string      `xml:"PaymentMeans>PaymentMeansCode"`
@@ -94,6 +97,7 @@ type ublQuantity struct {
 
 type ublLine struct {
 	ID          string      `xml:"ID"`
+	OrderLine   string      `xml:"OrderLineReference>LineID"`
 	Invoiced    ublQuantity `xml:"InvoicedQuantity"`
 	Credited    ublQuantity `xml:"CreditedQuantity"`
 	Net         ublAmount   `xml:"LineExtensionAmount"`
@@ -105,8 +109,9 @@ type ublLine struct {
 }
 
 // amounts parses a document's amounts, each in the document's currency,
-// with exp digits: an amount in another currency or of other digits is a
-// malformed field.
+// with at most exp decimals (fewer are an XML Schema decimal's, padded):
+// an amount in another currency or not a decimal is a malformed field, one
+// of more decimals a field of too much precision (FieldError.Precision).
 type amounts struct {
 	currency string
 	exp      int
@@ -118,24 +123,56 @@ func (a *amounts) of(v ublAmount, term string) money.Minor {
 		return 0
 	}
 	if v.Currency != a.currency {
-		a.err = fmt.Errorf("einvoicing: PINT AE %s is in %q, not the document's %s", term, v.Currency, a.currency)
+		a.err = &FieldError{Term: term, Err: fmt.Errorf("in %q, not the document's %s", v.Currency, a.currency)}
 		return 0
 	}
-	m, err := money.ParseAmount(v.Value, a.exp)
+	m, err := parseAmount(v.Value, a.exp)
 	if err != nil {
-		a.err = fmt.Errorf("einvoicing: PINT AE %s: %w", term, err)
+		a.err = &FieldError{Term: term, Currency: a.currency, Precision: errors.Is(err, errPrecision), Err: err}
 	}
 	return m
+}
+
+// xsdDecimal checks an XML Schema decimal (a leading sign, digits, a
+// point; not the trailing sign money's grammar also reads) and answers it
+// trimmed.
+func xsdDecimal(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if _, err := money.ParseDecimalRat(s); err != nil || strings.HasSuffix(s, "-") {
+		return "", fmt.Errorf("%q is not a decimal", raw)
+	}
+	return s, nil
+}
+
+// errPrecision is an amount with more decimals than its currency's minor
+// unit, zeros included (ADR-0061 §5: einvoicing.amount_precision).
+var errPrecision = errors.New("more decimals than the currency's minor unit")
+
+// parseAmount reads an XML Schema decimal amount (digits, a sign, at most
+// exp decimals; fewer are padded) into minor units.
+func parseAmount(raw string, exp int) (money.Minor, error) {
+	s, err := xsdDecimal(raw)
+	if err != nil {
+		return 0, err
+	}
+	if _, frac, _ := strings.Cut(s, "."); len(frac) > exp {
+		return 0, fmt.Errorf("amount %q: %w", raw, errPrecision)
+	}
+	m, err := money.ParseDecimal(s, exp)
+	if err != nil {
+		return 0, fmt.Errorf("amount %q: %w", raw, err)
+	}
+	return m, nil
 }
 
 // document turns the UBL into a Document.
 func (u ublDocument) document(exponent func(string) (int, bool)) (Document, error) {
 	exp, ok := exponent(u.Currency)
 	if !ok {
-		return Document{}, fmt.Errorf("einvoicing: PINT AE IBT-005: unknown currency %q", u.Currency)
+		return Document{}, &FieldError{Term: "IBT-005", Err: fmt.Errorf("unknown currency %q", u.Currency)}
 	}
 	d := Document{Number: u.ID, Currency: u.Currency, TaxCurrency: u.TaxCurrency, Customization: u.Customization, Profile: u.Profile,
-		TransactionType: u.ProfileExec, Reference: u.BillingRef, Seller: u.Seller.party(), Buyer: u.Buyer.party(),
+		TransactionType: u.ProfileExec, Reference: u.BillingRef, OrderReference: u.OrderRef, Seller: u.Seller.party(), Buyer: u.Buyer.party(),
 		PaymentMeans: u.PaymentMeans, Exponent: exp}
 	d.Kind, d.TypeCode = KindTaxInvoice, u.InvoiceType
 	lines := u.InvoiceLines
@@ -166,14 +203,14 @@ func (u ublDocument) document(exponent func(string) (int, bool)) (Document, erro
 func (u ublDocument) dates() (time.Time, *time.Time, error) {
 	issued, err := time.Parse(time.DateOnly, u.IssueDate)
 	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("einvoicing: PINT AE IBT-002: %w", err)
+		return time.Time{}, nil, &FieldError{Term: "IBT-002", Err: err}
 	}
 	if u.DueDate == "" {
 		return issued, nil, nil
 	}
 	due, err := time.Parse(time.DateOnly, u.DueDate)
 	if err != nil {
-		return time.Time{}, nil, fmt.Errorf("einvoicing: PINT AE IBT-009: %w", err)
+		return time.Time{}, nil, &FieldError{Term: "IBT-009", Err: err}
 	}
 	return issued, &due, nil
 }
@@ -193,7 +230,7 @@ func (u ublDocument) taxes(d *Document, a *amounts, exponent func(string) (int, 
 		}
 		exp, ok := exponent(t.Amount.Currency)
 		if !ok {
-			return fmt.Errorf("einvoicing: PINT AE IBT-111: unknown currency %q", t.Amount.Currency)
+			return &FieldError{Term: "IBT-111", Err: fmt.Errorf("unknown currency %q", t.Amount.Currency)}
 		}
 		other := &amounts{currency: t.Amount.Currency, exp: exp}
 		tax := other.of(t.Amount, "IBT-111")
@@ -216,6 +253,6 @@ func (l ublLine) line(a *amounts, kind string) Line {
 	if kind == KindTaxCreditNote {
 		q = l.Credited
 	}
-	return Line{ID: l.ID, Quantity: q.Value, Unit: q.Unit, Net: a.of(l.Net, "IBT-131"), Price: a.of(l.Price, "IBT-146"),
+	return Line{ID: l.ID, OrderLine: l.OrderLine, Quantity: q.Value, Unit: q.Unit, Net: a.of(l.Net, "IBT-131"), Price: a.of(l.Price, "IBT-146"),
 		Name: l.Name, Description: l.Description, Category: l.Category, Percent: l.Percent}
 }

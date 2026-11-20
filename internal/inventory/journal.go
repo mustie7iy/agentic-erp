@@ -72,7 +72,7 @@ func (a *accounts) of(ctx context.Context, kind, class string) (uuid.UUID, error
 // cost center. A line of no value posts nothing.
 func (e *Endpoints) entryLines(ctx context.Context, in posting, vals map[valuationKey]*Valuation, r refs) ([]ledger.PostingLine, error) {
 	a := e.accounts(in.company.ID, in.company.Code)
-	mt := movementTypes[in.movementType]
+	mt := in.mt()
 	var out []ledger.PostingLine
 	add := func(kind, class string, amount money.Minor, line ledger.PostingLine) error {
 		if amount == 0 {
@@ -112,7 +112,7 @@ func (e *Endpoints) entryLines(ctx context.Context, in posting, vals map[valuati
 // accounting document (from memory).
 // The valuations are of the company's currency, which they were created in.
 func (e *Endpoints) post(ctx context.Context, in posting, id uuid.UUID, number string, vals map[valuationKey]*Valuation, r refs) (entryRef, error) {
-	if movementTypes[in.movementType].transfer == betweenStorageLocations {
+	if in.mt().transfer == betweenStorageLocations {
 		return entryRef{}, nil
 	}
 	lines, err := e.entryLines(ctx, in, vals, r)
@@ -123,7 +123,7 @@ func (e *Endpoints) post(ctx context.Context, in posting, id uuid.UUID, number s
 	if k := counterKinds[in.movementType]; k == config.InventoryReceipt || k == config.InventoryInitialEntry {
 		docType = "WE"
 	}
-	text := "Material document " + number + " (" + in.movementType + " " + movementTypes[in.movementType].name + ")"
+	text := "Material document " + number + " (" + in.movementType + " " + in.mt().name + ")"
 	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: in.company.ID, DocumentType: docType, DocumentDate: in.day, PostingDate: in.day,
 		Currency: in.company.LocalCurrency, Reference: &number, HeaderText: &text, SourceContext: "inventory", SourceDocumentID: id, Lines: lines})
 	if err != nil {

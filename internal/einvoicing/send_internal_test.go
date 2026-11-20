@@ -18,13 +18,13 @@ func TestSendBounds(t *testing.T) {
 			t.Errorf("pollWait(%d): got %v, want %v", polls, got, want)
 		}
 	}
-	if got := clip("short", 10); got != "short" {
+	if got := clipBytes("short", 10); got != "short" {
 		t.Errorf("clip of a short text: got %q, want it whole", got)
 	}
-	if got := clip(strings.Repeat("é", 6), 4); got != "éé" {
+	if got := clipBytes(strings.Repeat("é", 6), 4); got != "éé" {
 		t.Errorf("clip on a boundary: got %q, want two characters", got)
 	}
-	if got := clip(strings.Repeat("é", 6), 5); got != "éé" {
+	if got := clipBytes(strings.Repeat("é", 6), 5); got != "éé" {
 		t.Errorf("clip at a character boundary: got %q, want two characters", got)
 	}
 	if _, err := submissions(context.Background(), []uuid.UUID{uuid.New()}); err == nil {

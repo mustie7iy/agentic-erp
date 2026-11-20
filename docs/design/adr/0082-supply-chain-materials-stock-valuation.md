@@ -1066,3 +1066,80 @@ number) and `602` (its reversal, in the database's rules, posted by no one
 yet); a valuation class's `cost_of_goods_sold` account (SAP GBB VAX, from
 memory), an expense, which a 601's value posts against. `Endpoints.Held`
 reads a location's stock without a lock for shipping's picking.
+
+### S2h (2026-11-20)
+
+- Migrations 000418 and 000419: the movement type `351` and its
+  `reference` (widened NOT VALID, validated by 000419);
+  `inventory.movement.in_transit` and `inventory.transit_stock`, which
+  `movement_stock` adds a line in transit to instead of the location's
+  stock; `count_posting_block` only on lines not in transit;
+  `procurement.stock_transport_order` and `_item`; the permissions
+  `procurement.stock_transport.read`, `.write` and `.post`. Rules of 03
+  §3.8 and §3.35 under schema tests (`db/stock_transport_test.go`, the
+  order's trigger also as the owner, the down's refusal).
+- **The order is procurement's** (the plan's "order type in procurement";
+  SAP's purchasing document type UB, from memory), a table of its own
+  rather than a purchase order: it has no supplier, prices, approval or
+  GR/IR. It is numbered from the company's own `stock_transport_order`
+  range (fixture `TO`; no country pack ships one yet, the walkthrough's
+  pilot settings add Maple's), as each new document type is. Decided by
+  default.
+- **Checked by inventory as its goods issue will be** (`Endpoints.
+  TransportQuantities`, published beside `IssueForTransport` and
+  `ReceiveForTransport`): both plants active plants of one company the
+  caller may act in, the material active, stocked, extended to both and
+  kept at both storage locations, its quantity exact in its base unit; a
+  material once per order. The stock and valuations are checked only at
+  the goods issue.
+- **Goods issue (351)**, through `IssueForTransport` in the order's
+  transaction, the order's row locked first (nothing locks valuations or
+  stock before an order, so no cycle; `TestStockTransportsInOppositeOrder`):
+  each item is a transfer between plants (S1c's 301) whose receiving line
+  is in transit to the receiving storage location: valued at the
+  receiving plant at what the issue took (at a standard price its
+  quantity at the price, the rest a price difference), posted as `WA`
+  between the plants' stock accounts, so the receiving plant's valuation
+  holds the stock in transit (SAP's 351 within a company values it in the
+  receiving plant, from memory: for the specialist). A count of the
+  supplying location blocks the issue; one of the receiving location
+  does not (no count blocks stock in transit).
+- **Goods receipt (101)**, through `ReceiveForTransport`: each item's
+  quantity leaves the stock in transit (409 `inventory.insufficient_stock`
+  when less is in transit, `transit_stock_not_negative` beneath) and
+  enters the receiving storage location, a transfer within the receiving
+  plant's valuation (as a 311), so nothing is posted. Its movement type is
+  SAP's 101 (from memory), named "Goods receipt for a stock transport
+  order" on the document, which lines in transit tell from a purchase
+  order's 101. A material blocked since the issue is still received (its
+  stock is the company's already); a count of the receiving location
+  blocks it.
+- **The base quantity is fixed at creation** (review round 1): the order
+  keeps each item's quantity in the base unit as converted then, and its
+  goods issue and receipt move exactly that (`TransportItem.BaseQuantity`),
+  the lines showing the unit ordered: an alternative unit's factor a
+  material change sets or removes since moves nothing else, so the
+  receipt takes out of transit what the issue put in
+  (`TestStockTransportUnitChanged`).
+- **The order moves whole** (`open`, `in_transit`, `received`), one goods
+  issue of every item and then one goods receipt, each step under the
+  order's row lock and `If-Match`, guarded by the status and version read
+  (409 `procurement.stock_transport_issued`,
+  `procurement.stock_transport_not_in_transit`). Neither document is
+  reversed (409 `inventory.reverse_stock_transport`); neither is posted by
+  `POST /v1/material-documents` (422 `inventory.unknown_movement_type`).
+  Audited at each step (`procurement.stock_transport_order.create`,
+  `.goods_issue`, `.goods_receipt`); no event of the order, as for count
+  documents: its stock moves by the material documents, which publish
+  `MaterialDocumentPosted` with each line's `in_transit` (not required,
+  ADR-0041). Writes are human-only (`x-agent: false`); no agent's
+  never-list names them, as no agent posts goods movements.
+- **Stock in transit is no location's stock**: `GET /v1/stock` (now and
+  as at a day) leaves its lines out; the order's items answer what is in
+  transit (`in_transit_quantity`), and a material document's lines which
+  are in transit. A document's `reference` finds its order through
+  `GET /v1/stock-transport-orders?number=` (review round 1).
+- Walkthrough step 146, `step_stock_transport`.
+- **Not built** (Later, plan §S2h): partial issues and receipts,
+  reversals (352, 102), cancelling an open order, a delivery between the
+  plants, a list of stock in transit, intercompany transfers (S2i).

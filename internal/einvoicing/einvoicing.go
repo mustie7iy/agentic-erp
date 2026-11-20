@@ -31,9 +31,14 @@
 // adapter (Evatra: its login and token, its received documents' listing
 // and content; acknowledgement local only); the stand-in (StandIn) stays
 // for tests and the walkthrough, and production refuses it. The ERP polls
-// and opens no endpoint for a provider (ADR-0061 Q3). Validation,
-// entering, credit notes and people's resolution of held documents follow
-// in T65c-T65f, sending in E3-E4.
+// and opens no endpoint for a provider (ADR-0061 Q3).
+//
+// T65c validates (ADR-0061 §4, §5): after recording, a fetch processes
+// its connector's documents not processed yet (ProcessEInvoices), reading
+// each as PINT AE (Received: no DTD, no entity) and refusing it with its
+// problem, or leaving it received with what it read for entering.
+// Entering, credit notes and people's resolution of held documents follow
+// in T65d-T65f, sending in E3-E4.
 package einvoicing
 
 import (
@@ -52,7 +57,8 @@ import (
 // KindFetch is the kind of a fetch's Operation (ADR-0061 §4).
 const KindFetch = "einvoicing.fetch"
 
-// Statuses of an e-invoice (ADR-0061 §7); T65a records documents only.
+// Statuses of an e-invoice (ADR-0061 §7): received, and refused
+// (StatusRefused, T65c).
 const (
 	StatusReceived = "received"
 )

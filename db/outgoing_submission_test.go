@@ -9,7 +9,7 @@ import (
 )
 
 // submissionRow inserts a queued submission of the scene's valid
-// e-invoice (migration 000416_outgoing_submissions; ADR-0061 As built E3):
+// e-invoice (migration 000421_outgoing_submissions; ADR-0061 As built E3):
 // $1 tenant, $2 id, $3 e-invoice, $4 business type, $5 actor.
 const submissionRow = `INSERT INTO einvoicing.outgoing_submission (tenant_id, id, outgoing_einvoice_id, legal_entity_id, connector_id, operation_id,
 	filename, business_type, status, next_check_at, requested_by, created_by, updated_by)
@@ -127,7 +127,7 @@ func TestOutgoingSubmissionRules(t *testing.T) {
 	}
 }
 
-// TestOutgoingSubmissionsDownRefused: 000416's down migration refuses to
+// TestOutgoingSubmissionsDownRefused: 000421's down migration refuses to
 // drop submissions (06 §6.4: a down migration loses no data).
 func TestOutgoingSubmissionsDownRefused(t *testing.T) {
 	need(t)
@@ -142,7 +142,7 @@ func TestOutgoingSubmissionsDownRefused(t *testing.T) {
 		step(`SELECT set_config('app.tenant_id', '', true)`), step(`SAVEPOINT owner`), step(`SET LOCAL ROLE erp_owner`)); err != nil {
 		t.Fatal(err)
 	}
-	down := migrationNamed(t, "000416_outgoing_submissions").Down
+	down := migrationNamed(t, "000421_outgoing_submissions").Down
 	failsWith(t, exec(tx, down), "row-level security")
 	if err := all(tx, step(`ROLLBACK TO SAVEPOINT owner`), step(`RESET ROLE`)); err != nil {
 		t.Fatal(err)

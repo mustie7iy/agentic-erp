@@ -123,7 +123,8 @@ func (e *Endpoints) PostBilling(ctx context.Context, id uuid.UUID, ifMatch func(
 // receivables and posts it (ADR-0067 §9): the document's company,
 // customer and currency, the billing date as invoice date, the order's
 // payment term, an item per item of the document with its description,
-// account, amount and tax code, and the document as its source. An
+// account, amount, tax code and tax jurisdiction, and the document as its
+// source. An
 // amount goes as the decimal string of its minor units, which receivables
 // reads back exactly, so the invoice's net amounts are the document's to
 // the minor unit. The invoice posts at the version it was entered at: no
@@ -135,7 +136,7 @@ func (e *Endpoints) invoice(ctx context.Context, b BillingDocument, postingDate 
 		Source: &receivables.Source{ID: b.ID, Number: b.DocumentNumber}}
 	for i, it := range b.Items {
 		in.Items[i] = receivables.ItemInput{Description: &it.Description, AccountID: it.AccountID,
-			Net: receivables.Amount{Value: it.Net.Plain(b.Exponent), Currency: b.Currency}, TaxCode: it.TaxCode}
+			Net: receivables.Amount{Value: it.Net.Plain(b.Exponent), Currency: b.Currency}, TaxCode: it.TaxCode, TaxJurisdiction: it.TaxJurisdiction}
 	}
 	draft, err := e.Invoices.CreateInvoice(ctx, in)
 	if err != nil {

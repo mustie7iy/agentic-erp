@@ -2194,6 +2194,31 @@ described item naming the catalog item of the row it replaced.
 
 The purchase-to-pay event log (T103a, ADR-0080) pages a company's orders by date and id through `purchase_order_by_date` (`tenant_id, legal_entity_id, order_date, id`; migration 000340).
 
+Stock transport orders within a company (S2h, migration 000418; ADR-0082
+As built S2h): `procurement.stock_transport_order` (SAP's purchasing
+document type UB, from memory), from a supplying plant to another
+receiving plant (`stock_transport_order_plants`) of its company, numbered
+from the company's `stock_transport_order` range of its order date's
+fiscal year, 1 to 40 characters, once per company and year
+(`stock_transport_order_number_once`); `status` (`open`, `in_transit`,
+`received`; `stock_transport_order_status_check`); once issued its goods
+issue's material document, number and day, all three together and
+exactly when it is no longer open (`stock_transport_order_issued`), once
+received its goods receipt's the same way (`stock_transport_order_received`);
+what it is and its issue never change and its status moves from open to
+in transit to received alone (`stock_transport_order_fixed`, a trigger
+also for the owner); the application updates its status, steps,
+`version` and `updated_by` alone, and never deletes it.
+`procurement.stock_transport_order_item`: items 1 to 100
+(`stock_transport_order_item_no_check`) of an order
+(`stock_transport_order_item_order_fkey`), a material once per order
+(`stock_transport_order_item_material_once`, 422
+`procurement.stock_transport_material_repeated`), its quantity in the unit
+ordered and in the base unit, both above zero, from a storage location of
+the supplying plant to one of the receiving plant; insert-only
+(`stock_transport_order_item_insert_only`). Plants, storage locations,
+materials and material documents are other contexts', by id.
+
 ## 3.9 Accounts payable (`payables`)
 
 ```mermaid
@@ -4562,8 +4587,19 @@ bytes staying the original; the worker role reads `received_at` and
 `acknowledged_at` for the gauge `erp_einvoices_unacknowledged`, served
 by the cell-wide partial index `einvoice_unacknowledged`; the list's
 fetch filter also matches `changed_fetch_operation_id`
-(`einvoice_by_changed_fetch`). The other
-columns below arrive with the slices that write them (T65c-T65f).
+(`einvoice_by_changed_fetch`). T65c (migrations 000416, 000417) adds
+the processing: `processed_at`, `processed_fetch_operation_id` and
+`validated_against` (the PINT AE release) set together, once, never
+before receipt (`einvoice_processed`); the status `refused` (from
+`received` only, final, the trigger) with `problem_code` and
+`problem_detail` exactly then (`einvoice_problem`); what was read
+(`document_number`, `document_kind`, `issue_date`, `currency` with
+`gross_amount`, `specification`, IBT-024) only once processed
+(`einvoice_read`, `einvoice_read_lengths`), fixed with the problem once
+processed (the trigger); the partial index `einvoice_unprocessed` the
+fetch lists by. A document above 10 MiB is not recorded (T65c As built),
+so `sha256` and `size` stay required. The other columns below arrive
+with the slices that write them (T65d-T65f).
 E2 (migration 000415; ADR-0061 As built E2) adds
 `einvoicing.outgoing_einvoice`: a posted customer invoice or credit memo
 of a UAE company rendered as a PINT AE e-invoice, once per customer
@@ -4571,7 +4607,7 @@ document (`outgoing_einvoice_once`), valid with its XML kept write-once
 (hash, size and object key) or invalid with the problems of its last
 render and no XML (`outgoing_einvoice_content`), a valid one final and an
 invalid one's customer document fixed (`outgoing_einvoice_transition`).
-E3 (migration 000416; ADR-0061 As built E3) adds
+E3 (migration 000421; ADR-0061 As built E3) adds
 `einvoicing.outgoing_submission`: a valid e-invoice's submission to its
 accredited provider, once per e-invoice (`outgoing_submission_once`), the
 outbox of the send written with its Operation, moved only as the send
@@ -4579,7 +4615,7 @@ workflow moves it (`outgoing_submission_transition`).
 
 | Table | Purpose |
 |---|---|
-| `einvoicing.einvoice` | A document received from the tenant's accredited provider (and, in phase 3, one sent): its company and connector, the provider's message id (unique per tenant and connector), the fetch operation that recorded it, direction, format (`pint_ae`), kind (invoice or credit note), the hash and size of the bytes kept write-once in object storage (null for a document refused as too large, which is not kept), `received_at` and `acknowledged_at`, `changed_hash` when the provider redelivered other bytes under the id, the fields read (number, issue date, currency, totals, lines, the seller's TRN fingerprint and last four characters, the supplier once found), its status (`received` → `entered`, `held` or `refused`; `held` → `entered`, `held` again on a retry with the new problem, or `dismissed`) with the problem code and detail exactly when held or refused and the reason exactly when dismissed, the supplier invoice once entered or linked (at most one document per invoice, a partial unique index), and its version |
+| `einvoicing.einvoice` | A document received from the tenant's accredited provider (and, in phase 3, one sent): its company and connector, the provider's message id (unique per tenant and connector), the fetch operation that recorded it, direction, format (`pint_ae`), kind (invoice or credit note), the hash and size of the bytes kept write-once in object storage (a document too large is not recorded, T65c), `received_at` and `acknowledged_at`, `changed_hash` when the provider redelivered other bytes under the id, when, by which fetch and against which PINT AE release it was processed, the fields read (number, kind, issue date, currency, gross and specification from T65c; totals, lines, the seller's TRN fingerprint and last four characters and the supplier once found with T65d), its status (`received` → `entered`, `held` or `refused`; `held` → `entered`, `held` again on a retry with the new problem, or `dismissed`) with the problem code and detail exactly when held or refused and the reason exactly when dismissed, the supplier invoice once entered or linked (at most one document per invoice, a partial unique index), and its version |
 | `einvoicing.outgoing_einvoice` | A posted customer document rendered as a PINT AE e-invoice (E2): its company, customer and customer invoice by id and number (unique per tenant), the billing document it posted from, if any, by id and number, its kind (`invoice` 380 or `credit_note` 381, `outgoing_einvoice_type`), issue date, currency and net, tax and gross amounts, the invoice a credit note credits by number, a credit note's reason (code and text, together and on a credit note only, `outgoing_einvoice_reason`), the specification (CustomizationID), its status (`valid` with the SHA-256, size and object key of its XML and no problem, or `invalid` with the problems of its last render and no XML, `outgoing_einvoice_content`), when it was last rendered and its version; a valid row is final and an invalid one keeps its customer document (trigger); the list's index by `rendered_at` |
 | `einvoicing.outgoing_submission` | A valid outgoing e-invoice's submission to the company's accredited provider (E3): its e-invoice (foreign key, one submission each), company, connector and the Operation of the send asked for last, its filename (the e-invoice's number) and business type (`B2B` or `B2G`), its status (`queued`, `sending`, `submitted`, `completed`, `failed`; the moves the send makes, `outgoing_submission_transition`, and what names the e-invoice fixed), the provider's status and tracking id (required once submitted, `outgoing_submission_tracked`) and the tracking ids it failed to send, the calls made (`attempts`), the sends again after SENDING_FAILED (`resends`), the status reads (`polls`), whether a call was made before (`look_up`, the duplicate guard), its next check (exactly while in progress, `outgoing_submission_due`), its problem (exactly when failed, `outgoing_submission_problem`), when it was submitted and completed (exactly when completed, `outgoing_submission_completed`), who asked and its version; the list's filter index by status |
 
@@ -5315,6 +5351,13 @@ context's `material_id` (by id, no foreign key out of the schema), whose
 number is then its `item_key` (`quotation_item_material_key`,
 `sales_order_item_material_key`: a material item has a key). An order
 item keeps its material: the application may not update the column.
+From migration 000420 (ADR-0067 As built, the emirate on a sales item)
+an item whose output tax code levies its lines' subdivision (the UAE's
+S5) names its `tax_jurisdiction` (ISO 3166-2, `AE-DU`), only with a tax
+code and in that form (`quotation_item_tax_jurisdiction`,
+`sales_order_item_tax_jurisdiction`); an order item keeps it, as it
+keeps its tax code, and the customer invoice its billing posts carries
+it to the item (`receivables.customer_invoice_item.tax_jurisdiction`).
 
 ```mermaid
 erDiagram
@@ -5344,6 +5387,7 @@ erDiagram
     bigint net_amount "the value less the discounts"
     uuid account_id "ledger, revenue as a rule"
     text tax_code "optional output tax code"
+    text tax_jurisdiction "ISO 3166-2, with a code levying it (000420)"
   }
   quotation ||--o| sales_order : "gives one"
   sales_order ||--|{ sales_order_item : "has"
@@ -6734,6 +6778,24 @@ erDiagram
   difference naming its material document and a zero one none, only once
   the item is closed (`count_item_posted`), each set once
   (`count_item_once`).
+- S2h (migrations 000418, 000419): `inventory.material_document` takes
+  the movement type `351`, a stock transport order's goods issue, which
+  names its order's number as its `reference`, as the order's goods
+  receipt (a `101`) does (`material_document_movement_type_check`,
+  `material_document_reference`, widened NOT VALID and validated by
+  000419). `inventory.movement.in_transit`: the line moves stock in transit
+  to its storage location of its plant, the receiving one, rather than the
+  stock at that location. `inventory.transit_stock` (SAP MARC's TRAME, from memory,
+  here per storage location received at): as `inventory.stock`, a row of
+  no quantity written before its first movement
+  (`transit_stock_from_movements`), once per material, plant and storage
+  location (`transit_stock_once`), never below zero
+  (`transit_stock_not_negative`, 409 `inventory.insufficient_stock`),
+  changed only by its movements: `movement_stock` adds a line in transit
+  to it instead of the location's stock, and to the plant's valuation as
+  every line, so stock in transit is the receiving plant's valuated stock
+  and no location's. No count blocks a line in transit
+  (`count_posting_block` fires only on the others).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,

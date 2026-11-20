@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -97,7 +97,8 @@ const billingSelect = `SELECT b.id, b.document_number, b.legal_entity_id, b.cust
 		b.journal_entry_year, b.journal_entry_id,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'item_key', t.item_key, 'material_id', t.material_id, 'description', t.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', t.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
-			'price_source', i.price_source, 'conditions', i.conditions, 'net_amount', i.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code, 'order_item_no', i.order_item_no,
+			'price_source', i.price_source, 'conditions', i.conditions, 'net_amount', i.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code,
+			'tax_jurisdiction', t.tax_jurisdiction, 'order_item_no', i.order_item_no,
 			'credited_amount', (SELECT coalesce(sum(c.net_amount), 0) FROM sales.credit_memo_request_item c JOIN sales.credit_memo_request r
 				ON r.tenant_id = c.tenant_id AND r.id = c.request_id
 				WHERE c.tenant_id = i.tenant_id AND c.billing_document_id = i.billing_document_id AND c.billing_item_no = i.item_no AND r.status = 'posted')) ORDER BY i.item_no)
@@ -261,24 +262,27 @@ func billedAmounts(ctx context.Context, tx pgx.Tx, orderID uuid.UUID) (map[int32
 // billCheck refuses a billing document one of whose items can no longer
 // be billed on the billing date (422 sales.order_item_not_billable naming
 // sales_order_id): its account can no longer be posted in the company,
-// or its tax code is no output tax code of the company with a rate on
-// that date. An order's items were checked when they were entered, on
-// the order's or the quotation's date, and are not changed in the first
-// version, so such an order cannot be billed on that date; the document
-// is refused here rather than created and never posted. The ledger is
-// asked about each account and tax code once.
+// its tax code is no output tax code of the company with a rate on that
+// date, or its tax jurisdiction is not one that code levies then (none
+// where the code levies its items' subdivision, or one it does not levy;
+// ADR-0067 As built, the emirate on a sales item). An order's items were
+// checked when they were entered, on the order's or the quotation's date,
+// and are not changed in the first version, so such an order cannot be
+// billed on that date; the document is refused here rather than created
+// and never posted. The ledger is asked about each account and tax code
+// once.
 type billCheck struct {
 	e        *Endpoints
 	o        Order
 	date     time.Time
-	accounts map[uuid.UUID]bool // postable in the company
-	codes    map[string]bool    // output tax codes in force on the billing date
+	accounts map[uuid.UUID]bool        // postable in the company
+	codes    map[string]ledger.TaxCode // output tax codes in force on the billing date
 }
 
 // billableOn checks the items of a billing document of the order dated
 // date (billCheck).
 func (e *Endpoints) billableOn(ctx context.Context, o Order, items []BillingItem, date time.Time) error {
-	c := billCheck{e: e, o: o, date: date, accounts: map[uuid.UUID]bool{}, codes: map[string]bool{}}
+	c := billCheck{e: e, o: o, date: date, accounts: map[uuid.UUID]bool{}, codes: map[string]ledger.TaxCode{}}
 	for _, it := range items {
 		if err := c.account(ctx, it); err != nil {
 			return err
@@ -314,19 +318,28 @@ func (c billCheck) account(ctx context.Context, it BillingItem) error {
 
 // taxCode requires the item's tax code, when it has one, to be an output
 // tax code of the company with a rate in force on the billing date, which
-// is the tax date (ADR-0063 §4).
+// is the tax date (ADR-0063 §4), and its tax jurisdiction to be one that
+// code levies then (ledger.TaxCode.CheckJurisdiction): the order's date
+// checked both, and the configuration may have changed since (the
+// emirate guard's list).
 func (c billCheck) taxCode(ctx context.Context, it BillingItem) error {
-	if it.TaxCode == nil || c.codes[*it.TaxCode] {
-		return nil
+	if it.TaxCode == nil {
+		return nil // an order item names a jurisdiction only with a code (sales_order_item_tax_jurisdiction)
 	}
-	t, ok, err := c.e.Accounts.TaxCode(ctx, c.o.LegalEntityID, *it.TaxCode, c.date)
+	t, ok, err := c.e.outputCodeOn(ctx, c.codes, c.o.LegalEntityID, *it.TaxCode, c.date)
 	if err != nil {
 		return fmt.Errorf("sales: tax code %s of item %d of sales order %s: %w", *it.TaxCode, it.OrderItemNo, c.o.ID, err)
 	}
-	if !ok || t.Direction != config.TaxOutput {
+	if !ok {
 		return c.refuse(it, "its tax code "+*it.TaxCode+" is not an output tax code of the legal entity with a rate on that date")
 	}
-	c.codes[*it.TaxCode] = true
+	switch fault, _ := t.CheckJurisdiction(it.TaxJurisdiction); fault {
+	case ledger.JurisdictionOK:
+	case ledger.JurisdictionRequired:
+		return c.refuse(it, "its tax code "+*it.TaxCode+" levies the tax of the subdivision each item names, and the item names none")
+	default:
+		return c.refuse(it, "its tax code "+*it.TaxCode+" does not levy its tax jurisdiction "+*it.TaxJurisdiction+" on that date")
+	}
 	return nil
 }
 

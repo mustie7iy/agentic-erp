@@ -149,14 +149,14 @@ func (e *Endpoints) complete(ctx context.Context, tx pgx.Tx, s submission, co Co
 // provider answered, kept) and fails its Operation with it.
 func (e *Endpoints) fail(ctx context.Context, tx pgx.Tx, s submission, co Company, p *problem.Problem, kept outcome) error {
 	if _, err := e.move(ctx, tx, s, co, `status = 'failed', problem_code = $3, problem_detail = $4, provider_status = coalesce($5, provider_status),
-		tracking_id = coalesce($6, tracking_id), next_check_at = NULL`, p.Code, clip(p.Detail, 1000), kept.status, kept.tracking); err != nil {
+		tracking_id = coalesce($6, tracking_id), next_check_at = NULL`, p.Code, clipBytes(p.Detail, 1000), kept.status, kept.tracking); err != nil {
 		return err
 	}
 	return e.endOperation(ctx, s.OperationID, uuid.Nil, p)
 }
 
-// clip is text at most n bytes long, cut at a character boundary.
-func clip(text string, n int) string {
+// clipBytes is text at most n bytes long, cut at a character boundary.
+func clipBytes(text string, n int) string {
 	if len(text) <= n {
 		return text
 	}

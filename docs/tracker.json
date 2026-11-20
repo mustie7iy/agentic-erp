@@ -2790,9 +2790,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "E-invoice validation and refusals: the process activity (FOR UPDATE, only from received); parsing without DTD or entities; the PINT AE fields read, citing the specification the specialist or provider supplies; decimals; lines summing to the net and net plus tax to the gross (no tax-rate check: P5 at posting); the buyer a company of the connector with its FTA registration's TRN; refused with einvoicing.unreadable, unsupported_document, missing_field, amount_precision, totals_inconsistent, not_addressed_to_company, document_too_large; a fuzz test of the parser; an nfr budget of the processing transaction; walkthrough: a malformed e-invoice and one addressed to another TRN refused with their reasons, the valid one still received; the specification and fields as the UAE tax specialist cited them (po:2026-11-09, C1-C7; ADR-0061 §5, answered): PINT AE Billing, published by OpenPeppol for the Ministry of Finance (UBL 2.1; the release validated against and the document's IBT-024 recorded), each field read by its business term [H] and UBL path [M], only invoice 380 and credit note 381 [M], IBT-006 and IBT-111 required when IBT-005 is not AED; the buyer judged by the IBT-049 endpoint (scheme 0235 and the company's TIN, the first 10 digits of its own Corporate Tax TRN, a VAT group member's own and not the representative's, which the configuration carries where the company's VAT TRN is its group's) and IBT-048 checked apart rather than required to equal it digit for digit; the published Schematron vendored only once its licence is read",
-        "r": "ADR-0061 §4, §5, §14 · T65c · ADR-0061 §5 (answered, C1-C7)",
+        "r": "ADR-0061 §4, §5, §14 · T65c · ADR-0061 §5 (answered, C1-C7) · db/migrations/000416, 000417 · einvoicing.ProcessEInvoices · einvoicing.Received · einvoicing.PINTAERelease · einvoicing.FieldError · workflow FetchEInvoices einvoice-process · FuzzReceived · TestProcessEInvoiceBudget · walkthrough step_einvoice (einvoice_refusals), step_evatra_inbound · ADR-0061 As built T65c (a document too large not recorded)",
         "src": "adr:ADR-0061 · po:2026-11-09",
         "c": []
        },
@@ -2845,16 +2845,16 @@
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
           "t": "UAE emirate on sales items and billing documents: a sales document's item carries the emirate of its supply, so a UAE billing document can bill the standard-rated code S5 (which levies each line's emirate) instead of being refused sales.tax_jurisdiction_not_supported, and E2 renders the billing document's customer invoice; until then E2 renders only customer invoices and credit memos entered in receivables (batch 85)",
-          "r": "ADR-0061 As built E2 (Gaps found) · ADR-0049 · T75 · coordinator plan einvoicing-evatra E2",
+          "r": "migration 000420 (sales.quotation_item.tax_jurisdiction, sales.sales_order_item.tax_jurisdiction) · ledger.TaxCode.RefuseItemJurisdiction · sales.tax_jurisdiction_required, sales.tax_jurisdiction_not_levied · TestSalesItemJurisdiction · TestBillingJurisdictionRechecked · TestSalesItemJurisdictionRules · walkthrough step_einvoice_billing (step 147) · ADR-0067 As built (The emirate on a sales item) · ADR-0061 As built E2 (Gaps found, closed) · ADR-0063 As built (The emirate on the item) · ADR-0049 §7 As built",
           "src": "review:batch84",
           "c": []
          },
          {
           "s": "D",
           "t": "E3 Sending: the outbox to a submission row written before the call, then Evatra's POST /invoice/send-document-async (base64Document, invoiceType UAE_PINT, businessType B2B or B2G, invoiceSource ERP); the port's Send and Status; status by polling GET /invoice/document-status/{trackingId} in a workflow per submission with backoff; after a lost answer the document looked up (document-process/search by filename) before any resend; resend of SENDING_FAILED, PERMANENT_FAILED to a worklist; a worklist of billing documents not transmitted within 14 business days of the UAE company's calendar; walkthrough step_einvoice_send",
-          "r": "migration 000416 · einvoicing.outgoing_submission · sendOutgoingEInvoice · listEInvoiceTransmissionDeadlines · listOutgoingEInvoices transmission_status · OutgoingEInvoiceTransmissionChanged · einvoicing.AdvanceSubmission · einvoicing.Evatra Send, Status · workflow SendEInvoice · workflows.EInvoiceSender · receivables.IssuedInvoices · einvoicetest.Evatra send-document-async, document-status, document-process/search · walkthrough step_einvoice_send (step 146) · ADR-0061 §3, §9, §11 and As built E3 · coordinator plan einvoicing-evatra E3, defaults 3, 4, 9",
+          "r": "migration 000421 · einvoicing.outgoing_submission · sendOutgoingEInvoice · listEInvoiceTransmissionDeadlines · listOutgoingEInvoices transmission_status · OutgoingEInvoiceTransmissionChanged · einvoicing.AdvanceSubmission · einvoicing.Evatra Send, Status · workflow SendEInvoice · workflows.EInvoiceSender · receivables.IssuedInvoices · einvoicetest.Evatra send-document-async, document-status, document-process/search · walkthrough step_einvoice_send (step 146) · ADR-0061 §3, §9, §11 and As built E3 · coordinator plan einvoicing-evatra E3, defaults 3, 4, 9",
           "src": "po:2026-11-19",
           "c": []
          },
@@ -5069,6 +5069,13 @@
        },
        {
         "s": "T",
+        "t": "fix: a sales order made from a quotation re-checks each item's account, tax code and tax jurisdiction on the order's date, as an order entered directly is checked, rather than copying the quotation's items as they were checked on the quotation's date",
+        "r": "internal/sales/orders.go fromQuotation · ADR-0067 §4 · ADR-0067 As built, the emirate on a sales item",
+        "src": "review:batch85",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "later: sales order variants: cancelling an order with deliveries (a reason for rejection per item), sales organizations and sales areas, partner functions, order types, schedule lines and requested delivery dates per item, incompletion checks, approval, the order confirmation as a document, custom fields, taking open orders over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T78b, Later",
         "src": "po:2026-11-10 · design:03 §3.16",
@@ -5684,9 +5691,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "A planner orders stock from one plant to another of the same company; the issue puts it in transit and the receipt takes it out",
-      "r": "S2h · docs/design/plan-supply-chain.md §S2h · ADR-0082",
+      "r": "S2h · docs/design/plan-supply-chain.md §S2h · ADR-0082 As built S2h · db/migrations/000418, 000419 · procurement.stock_transport_order, _item · inventory.transit_stock · inventory.movement.in_transit · movement type 351 · POST/GET /v1/stock-transport-orders · GET /v1/stock-transport-orders/{id} · :postGoodsIssue · :postGoodsReceipt · inventory.Endpoints.TransportQuantities, IssueForTransport, ReceiveForTransport · procurement.stock_transport.read, .write, .post · walkthrough step_stock_transport",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -5730,6 +5737,13 @@
       "t": "Net revenue by profitability segment shows each customer and item key's cost of sales from the goods issues of the period and its margin",
       "r": "S2b2 · docs/design/plan-supply-chain.md §S2b2 · ADR-0083 §6 and As built · ADR-0075 As built S2b2 · sales.Segment.Cost, .Margin · ProfitabilityRow/Totals cost_of_sales, margin · includes_cost true · walkthrough step_goods_issue (goods_issue_margin)",
       "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: GET /v1/outbound-deliveries filters by the delivery's number, so a document's reference finds its delivery as GET /v1/stock-transport-orders?number= finds its order",
+      "r": "listOutboundDeliveries · ADR-0083 · ADR-0082 As built S2h (review round 1)",
+      "src": "review:batch85",
       "c": []
      },
      {

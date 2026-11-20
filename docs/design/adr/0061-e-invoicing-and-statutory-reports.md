@@ -1254,7 +1254,11 @@ default:
   each line's emirate; until it can, the UAE company's standard-rated
   sales e-invoiced here are customer invoices entered in receivables. The
   walkthrough therefore renders a customer invoice and a credit memo, not
-  a billing document.
+  a billing document. (Closed in batch 85: ADR-0067 As built, the emirate
+  on a sales item; step 147 renders a billing document's customer invoice
+  as a valid 380. E2 needed no change: it renders the parties' emirates
+  from their addresses and the VAT by category from the invoice's tax
+  items.)
 - **The walkthrough.** `step_einvoice_render` (step 145, after E1's
   `step_evatra_inbound` and before `step_close`): Ada gives 5000 a customer reconciliation account and its
   postal address in Dubai (one governed change); Ruth creates a UAE
@@ -1268,7 +1272,7 @@ default:
 
 ### E3: sending (po:2026-11-19, plan einvoicing-evatra.md)
 
-Built as §9 for sending: migration 000416 (`einvoicing.outgoing_submission`,
+Built as §9 for sending: migration 000421 (`einvoicing.outgoing_submission`,
 the permission `einvoicing.outgoing.send`, given to no role as E2's),
 `POST /v1/outgoing-e-invoices/{id}:send` (`sendOutgoingEInvoice`,
 human-only, an Operation of kind `einvoicing.send`), the e-invoice's
@@ -1421,3 +1425,120 @@ answers the three calls below. Decided by default:
   business days count UAE public holidays (the company's calendar is
   used) and whether a reversed invoice still needs its e-invoice (not
   listed here).
+
+### T65c: validation and refusals (adr:ADR-0061 · po:2026-11-09)
+
+Built as §4's Process and §5: migrations 000416 (the processing's
+columns, the status `refused`, the checks NOT VALID, the trigger allowing
+`received` to `refused` only and fixing what processing read and decided,
+the partial index `einvoice_unprocessed`) and 000417 (the checks
+validated); the activity `ProcessEInvoices` (`process.go`) and the
+receiving side's reading of PINT AE (`receive.go`, `Received`) on E2's
+parser (`ParsePINTAE`, which gains `FieldError`, the order reference
+IBT-013 and the order line IBT-132). Decided by default:
+
+- **Where it runs.** After a fetch records its messages, the workflow
+  `FetchEInvoices` (a version marker, `einvoice-process`, so a fetch
+  started before it ends without the step) and the in-process fetcher
+  process every document of the connector not processed yet, oldest
+  received first, whichever fetch recorded it: each one's bytes read from
+  the store with no transaction open and compared with the recorded
+  SHA-256 (other bytes fail the step), then, in a transaction of its own,
+  the row read `FOR UPDATE` where it is still `received` and unprocessed
+  (another fetch's processing meanwhile is skipped, tested), validated
+  and written. The step is idempotent (run-twice test): a processed
+  document is never processed again, and the fetch's `refused` count is
+  read from the rows (`processed_fetch_operation_id`), so a step run
+  again after its commit counts the same. One document's failure does not
+  stop the others (review round 1): a document whose stored bytes are gone
+  or differ is left unprocessed and the step then fails with
+  `einvoicing.document_changed` naming each (no retry repairs it, so the
+  fetch fails with it at once); any other failure fails the step for its
+  five tries, then the fetch with `platform.unavailable`, the documents
+  recorded and left for the next fetch; a connector refused since fails
+  it with its problem.
+- **What a valid document keeps.** It stays `received` (T65d enters it),
+  with `processed_at`, the processing fetch, the release validated
+  against (`PINTAERelease`, "PINT AE Billing 1.0.4", the release the
+  coordinator's plan read on 2026-11-19; C2 cites 1.0.0 and 1.0.1, so the
+  release is for the specialist to confirm before go-live) and what was
+  read: number (IBT-001), kind, issue date, currency, gross (IBT-112) and
+  its specification identifier (IBT-024). A valid document's processing
+  is audited (`einvoicing.einvoice.validated`) and publishes no event, as
+  its status does not move; a refusal is audited
+  (`einvoicing.einvoice.refused`) and publishes EInvoiceChanged with
+  `problem_code` (added within v1), never the detail, which may quote the
+  document.
+- **The checks, in order** (§5, C3-C6; each field by its business term,
+  as the specialist cited them): `unreadable` (not well-formed, a DTD or
+  an entity: Go's strict decoder after a scan refusing any directive, so
+  no entity is ever expanded); `unsupported_document` (the root not a UBL
+  2.1 `Invoice` with type 380 or `CreditNote` with 381, or a
+  CustomizationID other than PINT AE's: a self-billed 389 and the other
+  codes stay refused, C4); `missing_field`, naming every term missing or
+  malformed (IBT-024, IBT-003, IBT-001 at most 200 characters, IBT-002,
+  IBT-005, IBT-031 and IBT-048 as 15 digits, IBT-049 with its scheme,
+  IBT-106, IBT-109, IBT-110, IBT-112, IBT-115, the VAT breakdown IBG-23
+  with IBT-116 to IBT-119, a line, and per line IBT-153, IBT-154,
+  IBT-129, IBT-130, IBT-131, IBT-151 and IBT-152; IBT-006 and IBT-111 when
+  IBT-005 is not AED, C5); `amount_precision` (more decimals than the
+  currency's minor unit, zeros included; fewer are an XML Schema
+  decimal's and read); `totals_inconsistent` (the lines' IBT-131 to
+  IBT-106, IBT-109 + IBT-110 to IBT-112, the subtotals' IBT-117 to
+  IBT-110, naming the figures); `not_addressed_to_company` (C6: listed for
+  none of the connector's companies; the buyer's IBT-049 endpoint not the
+  connector's participant of the company it was listed for; or IBT-048,
+  checked apart, not the number of the company's FTA registration on the
+  issue date, a tax group's for a member as the registration holds it). A
+  gap in the ERP's own setup refuses no supplier's document for good
+  (review round 1): when the connector no longer names a participant of
+  the company, or the company holds no FTA registration on the issue
+  date, the document is left unprocessed (no write) and a fetch after the
+  setup is completed processes it; the fetch's result counts the
+  connector's documents still `waiting` (review round 2), so the gap is
+  seen.
+- **The other mandatory fields of C3 are not refused**: IBT-034 (the
+  seller's electronic address), the seller's and buyer's names and
+  postal addresses (line 1, city, subdivision, country), IBT-023 and
+  IBT-081 are the Ministry's list for the issuer, which the issuer's
+  provider validates before delivery; the ERP neither reads them to enter
+  the invoice (T65d) nor decides on them, so a document lacking them is
+  received, not refused. Decided by default (refusing a statutory document
+  over a field the buyer does not use was judged worse), for the product
+  owner to overrule; the published Schematron (C7) would check them.
+  Allowances, charges and prepaid amounts (IBT-107, IBT-108, IBT-113)
+  are not read, so IBT-109 is not compared with IBT-106 nor IBT-115 with
+  IBT-112; the order reference, a credit note's invoice reference and the
+  order-line reference are read but not required (C4: a credit note
+  naming no invoice goes to a person, T65e). A detail quotes at most 80
+  characters of any value the document gives and never a TRN in clear
+  (the last four of the stated one).
+- **The round trip E2 deferred.** What `RenderPINTAE` writes,
+  `Received` accepts (a tax invoice in USD with its VAT in AED and a tax
+  credit note in AED, `TestReceivedRoundTrip`); E2's parser now reads an
+  amount of fewer decimals than the currency's (an XML Schema decimal),
+  which E2 never renders.
+- **A document too large is not recorded** (§5 asked it recorded refused
+  without its bytes): `sha256` and `size` are required in the contract's
+  EInvoice and the event, so recording one without them would break
+  their consumers within /v1; the fetch keeps failing on it by name
+  (`messages.{id}` `einvoicing.document_too_large`), which a person takes
+  up with the provider. Recorded here for the product owner to overrule.
+- **Not built:** the published Schematron (C7: its licence not read; no
+  network in the lane), so validation is the ERP's own rules above;
+  entering (T65d).
+- **Budget.** `TestProcessEInvoiceBudget`: one document processed beside
+  10,000 processed before, p95 250 ms (measured median 22 ms, p95 34 ms
+  at scale 1 and 52 ms at scale 2, load 34).
+- **The walkthrough.** `step_einvoice` (step 43): GOI-2001, now a PINT AE
+  tax invoice to 5000's participant `0235:` and its TIN, is validated and
+  stays received with what was read; GOI-2003 cut off in transit and
+  GOI-2004 to another TRN are refused (`einvoicing.unreadable`,
+  `einvoicing.not_addressed_to_company`), counted `refused` 2, no TRN in
+  their details. `step_evatra_inbound` (step 144): Evatra's GOI-2002 is
+  validated through the same path.
+- **For the specialist:** the release to validate against (1.0.4 per the
+  plan; C2's 1.0.0/1.0.1); whether IBT-154 (description) is mandatory on
+  received documents as the Ministry's list says (C3) though optional in
+  EN 16931; the UBL paths of BTAE-08/BTAE-10 (C5), not read; the
+  Schematron's licence (C7).

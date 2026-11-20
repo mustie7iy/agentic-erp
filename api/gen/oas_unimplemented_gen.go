@@ -762,17 +762,18 @@ func (UnimplementedHandler) CancelSupplierInvoice(ctx context.Context, req *Reas
 // one without takes its item key's price record valid on the order's date (`price_list`, T80a), and
 // one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`).
 // The currency is the one printed, else the company's. Every item takes the revenue account
-// (`account_id`) and output tax code (`tax_code`) of the request, which a document does not name;
-// their refusals name those fields. What an order created by hand refuses is refused alike. The order
-// is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read
-// (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives
-// one order: the same upload captured again into the same company answers the same order; into another
-// company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take
-// longer than a synchronous answer, so this returns an Operation, completed within the request, whose
-// `resource` is the order and whose `result` names it with any warning (a confidence below high).
-// Audited and published as SalesOrderChanged, as an order created by hand. Human-only
-// (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with
-// `createSalesOrderUpload`, which asks the same permission.
+// (`account_id`), output tax code (`tax_code`) and tax jurisdiction (`tax_jurisdiction`) of the
+// request, which a document does not name; their refusals name those fields. What an order created by
+// hand refuses is refused alike. The order is always a `draft`, numbered and dated as
+// `createSalesOrder` makes one, and keeps what capture read (`capture`); a person checks and confirms
+// it (`:confirm`); capture never confirms. One upload gives one order: the same upload captured again
+// into the same company answers the same order; into another company it is refused as used (422
+// `payables.upload_used`), naming no order. Extraction can take longer than a synchronous answer, so
+// this returns an Operation, completed within the request, whose `resource` is the order and whose
+// `result` names it with any warning (a confidence below high). Audited and published as
+// SalesOrderChanged, as an order created by hand. Human-only (`x-agent: false`): an agent or a service
+// cannot capture an order. The upload is started with `createSalesOrderUpload`, which asks the same
+// permission.
 //
 // POST /v1/sales-orders:capture
 func (UnimplementedHandler) CaptureSalesOrder(ctx context.Context, req *SalesOrderCaptureRequest, params CaptureSalesOrderParams) (r CaptureSalesOrderRes, _ error) {
@@ -823,11 +824,12 @@ func (UnimplementedHandler) ChangeMaterialPrice(ctx context.Context, req *Materi
 // the unit price given, in the order's currency, with its price unit; what is not given stays. A
 // changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the
 // order's date: an entered price stays entered, an item priced from the price records takes the record
-// valid on that date again, with the pricing procedure's discounts; its account and tax code are
-// checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's
-// quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming
-// `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price
-// (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
+// valid on that date again, with the pricing procedure's discounts; its account, tax code and tax
+// jurisdiction, which stay, are checked again on that date (422 `sales.account_not_postable`,
+// `sales.unknown_tax_code`, `sales.tax_jurisdiction_required`, `sales.tax_jurisdiction_not_levied`).
+// An item's quantity is never below what is delivered of it (422 `sales.quantity_below_delivered`
+// naming `items[i].quantity.value`), and an item of which something is billed keeps its quantity and
+// price (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first
 // (`cancelBillingDocument`). A confirmed order's revenue contract (`getRevenueContract`) follows the
 // change by itself, shortly after it (ADR-0068, As built T81e). `requested_delivery_date` is on or
 // after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. From T78e a
@@ -1524,12 +1526,14 @@ func (UnimplementedHandler) CreateAuditEvidenceExport(ctx context.Context, req *
 // year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company
 // without the range). An order's items are not changed in the first version, so an order one of whose
 // billed items names an account that can no longer be posted in the company, or a tax code that is no
-// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
-// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
-// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
-// `version` moves. Amounts are net; nothing is posted until the document is posted
-// (`postBillingDocument`). Audited, and published as BillingDocumentChanged. A retry with the same
-// `Idempotency-Key` answers the document created. Human-only (`x-agent: false`).
+// output tax code of the company with a rate on the billing date, or a tax jurisdiction its code does
+// not levy on that date (none where the code levies its items' subdivision, the UAE's S5 each emirate,
+// or one the code does not levy), cannot be billed on that date (422 `sales.order_item_not_billable`
+// naming `sales_order_id`, with the item in the message). The document is created `created`; each
+// order item's `billed_quantity` rises by what was billed and the order's `version` moves. Amounts are
+// net; nothing is posted until the document is posted (`postBillingDocument`). Audited, and published
+// as BillingDocumentChanged. A retry with the same `Idempotency-Key` answers the document created.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/billing-documents
 func (UnimplementedHandler) CreateBillingDocument(ctx context.Context, req *BillingDocumentCreate, params CreateBillingDocumentParams) (r CreateBillingDocumentRes, _ error) {
@@ -2425,7 +2429,8 @@ func (UnimplementedHandler) CreateMaterial(ctx context.Context, req *MaterialCre
 // neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
 // `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`)
 // by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by
-// `postOutboundDeliveryGoodsIssue` and a count's differences (`701`, `702`) by
+// `postOutboundDeliveryGoodsIssue`, a stock transport order's goods issue (`351`) by
+// `postStockTransportGoodsIssue` and a count's differences (`701`, `702`) by
 // `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted
 // on the company's date today in its time zone and numbered from its `material_document` range of that
 // date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range`
@@ -2817,12 +2822,13 @@ func (UnimplementedHandler) CreatePurchaseOrderChange(ctx context.Context, req *
 // price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
 // account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
 // naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
-// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies
-// the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales
-// document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is
-// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
-// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or
-// `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
+// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code
+// that levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is
+// levied in, `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or
+// none, 422 `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's
+// `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's
+// minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`,
+// or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
 // their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`),
 // each discount of the procedure recorded for the item's key and valid on the quotation's date, the
 // customer's before the general one, is taken off an item priced from the price records, in the
@@ -3273,6 +3279,30 @@ func (UnimplementedHandler) CreateStatisticalKeyFigurePosting(ctx context.Contex
 	return r, ht.ErrNotImplemented
 }
 
+// CreateStockTransportOrder implements createStockTransportOrder operation.
+//
+// Creates a stock transport order (ADR-0082 As built S2h; SAP ME21N with document type UB, from
+// memory): a planner orders materials from a storage location of the supplying plant to one of the
+// receiving plant, another plant of the same company. Each item is checked as its goods issue will be:
+// the plants active plants of one company the caller may act in (422 `inventory.plant_invalid`,
+// `inventory.mixed_companies`; the same plant twice, 422 `inventory.same_location`), the material an
+// active material kept in stock (422 `inventory.material_invalid`, `inventory.material_not_usable`,
+// `inventory.material_not_stocked`) extended to both plants (422 `inventory.plant_not_extended`) and
+// kept at both storage locations, each active under its plant (422
+// `inventory.storage_location_invalid`, `inventory.storage_location_not_extended`), its quantity
+// positive (422 `inventory.invalid_quantity`) in one of its units (422 `inventory.unknown_unit`) and
+// exact in its base unit (422 `inventory.inexact_quantity`); a material is ordered once per order (422
+// `procurement.stock_transport_material_repeated`). Nothing is checked of the stock: the goods issue
+// takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range
+// of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
+// `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/stock-transport-orders
+func (UnimplementedHandler) CreateStockTransportOrder(ctx context.Context, req *StockTransportOrderCreate, params CreateStockTransportOrderParams) (r CreateStockTransportOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateSupplierInvoice implements createSupplierInvoice operation.
 //
 // Creates a parked supplier invoice. The same supplier reference for the same supplier is refused with
@@ -3645,8 +3675,18 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 // document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as
 // `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different
 // bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the
-// document's version without an event. When the fetch is done its Operation succeeds with the counts
-// in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and
+// document's version without an event. Then the fetch processes every document of the connector not
+// processed yet, oldest first (T65c, ADR-0061 §5): it reads it as PINT AE (no DTD, no entity
+// expanded) and refuses it, `refused` with its `problem_code` and `problem_detail`, an audit record
+// and EInvoiceChanged, when it is unreadable, not a tax invoice 380 or tax credit note 381 following
+// PINT AE, lacks a field the ERP reads, states an amount with more decimals than its currency has,
+// does not add up without any tax rule, or is not addressed to the company (its buyer's electronic
+// address IBT-049 the company's participant, its buyer's TRN IBT-048 the company's FTA registration on
+// its issue date); a valid one stays `received`, with what was read (number, kind, issue date,
+// currency, gross, specification) and the release validated against, for entering (T65d). When the
+// fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
+// `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
+// refused; `waiting`: the connector's documents left unprocessed, waiting for the company's setup) and
 // its `resource` the list of the documents it recorded or found changed
 // (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
 // `changed_fetch_operation_id`); a message not recorded fails the Operation with
@@ -3654,25 +3694,30 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 // error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the
 // store or the database failed (after five tries in the workflow engine, one in process), which the
 // next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10
-// MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A
-// provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is
-// not an active `einvoice_provider` connector naming a `secret_ref` is refused before anything is
-// queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
-// `integration.connector_disabled`, 422 `integration.secret_required`,
-// `integration.invalid_settings`); so is, in production, the provider's stand-in or Evatra's `stage`
-// sandbox (422 `integration.adapter_not_certified`). Its credentials are resolved from the vault by
-// the fetch's first step, with no transaction open (ADR-0061 As built E3), not by this request:
-// credentials that do not resolve, or an Evatra connector's that are not a JSON object with `apiKey`
-// and `email`, fail the Operation with `integration.secret_unavailable`. An Evatra connector (adapter
-// `evatra`) logs in to Evatra with them, lists the documents Evatra received for each company's TIN in
-// the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the acknowledgement
-// is local only and a fetch leaves out what is recorded and acknowledged, and Evatra refusing the
-// credentials fails the fetch with `integration.secret_unavailable`. A server without object storage
-// refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the
-// provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active
-// `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default
-// 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the
-// workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
+// MiB, not recorded, since its bytes cannot be kept), which the next fetch meets again. A failure
+// processing the documents fails the Operation with `platform.unavailable`, the documents recorded and
+// left for the next fetch to process; a document whose stored bytes are gone or differ fails it with
+// `einvoicing.document_changed` naming it, the others processed. A document whose company the
+// connector no longer names, or which is dated before the company's FTA registration, is left
+// unprocessed until the setup is completed. A provider whose messages cannot be listed fails it with
+// `platform.unavailable`. A connector that is not an active `einvoice_provider` connector naming a
+// `secret_ref` is refused before anything is queued (404 `request.not_found`, 422
+// `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422
+// `integration.secret_required`, `integration.invalid_settings`); so is, in production, the provider's
+// stand-in or Evatra's `stage` sandbox (422 `integration.adapter_not_certified`). Its credentials are
+// resolved from the vault by the fetch's first step, with no transaction open (ADR-0061 As built E3),
+// not by this request: credentials that do not resolve, or an Evatra connector's that are not a JSON
+// object with `apiKey` and `email`, fail the Operation with `integration.secret_unavailable`. An
+// Evatra connector (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received
+// for each company's TIN in the last 60 days and reads each in Base64; Evatra keeps no
+// acknowledgement, so the acknowledgement is local only and a fetch leaves out what is recorded and
+// acknowledged, and Evatra refusing the credentials fails the fetch with
+// `integration.secret_unavailable`. A server without object storage refuses every fetch (503
+// `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides
+// fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider`
+// connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch
+// an Operation of the same kind created by the fetcher, carried out as the workflow
+// `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
 //
 // POST /v1/e-invoices:fetch
 func (UnimplementedHandler) FetchEInvoices(ctx context.Context, req *EInvoiceFetch, params FetchEInvoicesParams) (r FetchEInvoicesRes, _ error) {
@@ -6049,6 +6094,19 @@ func (UnimplementedHandler) GetStatisticalKeyFigure(ctx context.Context, params 
 	return r, ht.ErrNotImplemented
 }
 
+// GetStockTransportOrder implements getStockTransportOrder operation.
+//
+// One stock transport order (ADR-0082 As built S2h) with its company by code, its plants and storage
+// locations by code and name, its status, the material documents of its goods issue and receipt, and
+// its items, each naming its material by number, its quantity in the unit ordered and in the base
+// unit, and what of it is in transit. An order of a company the caller may not act in is not found
+// (404).
+//
+// GET /v1/stock-transport-orders/{id}
+func (UnimplementedHandler) GetStockTransportOrder(ctx context.Context, params GetStockTransportOrderParams) (r GetStockTransportOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetSupplierInvoice implements getSupplierInvoice operation.
 //
 // Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
@@ -7076,8 +7134,9 @@ func (UnimplementedHandler) ListEInvoiceTransmissionDeadlines(ctx context.Contex
 // was received and acknowledged, and the hash of other bytes the provider delivered later under its id
 // (`changed_sha256`, T65b). Its bytes as received are `getEInvoiceContent`. Filters: company,
 // connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in
-// its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is
-// read by the processing slices (T65c, T65d), which add it here.
+// its `resource`) and when received. Once processed (T65c) each carries what was read of it (number,
+// kind, issue date, currency, gross, specification), when, by which fetch and against which release,
+// and, when refused, its problem code and detail; the supplier and the entered invoice come with T65d.
 //
 // GET /v1/e-invoices
 func (UnimplementedHandler) ListEInvoices(ctx context.Context, params ListEInvoicesParams) (r ListEInvoicesRes, _ error) {
@@ -8228,6 +8287,17 @@ func (UnimplementedHandler) ListStock(ctx context.Context, params ListStockParam
 	return r, ht.ErrNotImplemented
 }
 
+// ListStockTransportOrders implements listStockTransportOrders operation.
+//
+// The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as
+// `getStockTransportOrder` gives it, the latest first. Filtered by company, number, supplying or
+// receiving plant and status. Sortable by: `created_at`.
+//
+// GET /v1/stock-transport-orders
+func (UnimplementedHandler) ListStockTransportOrders(ctx context.Context, params ListStockTransportOrdersParams) (r ListStockTransportOrdersRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListSupplierInvoices implements listSupplierInvoices operation.
 //
 // Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
@@ -9034,6 +9104,52 @@ func (UnimplementedHandler) PostPhysicalInventoryDifferences(ctx context.Context
 //
 // POST /v1/revaluation-runs
 func (UnimplementedHandler) PostRevaluationRun(ctx context.Context, req *RevaluationPreviewRequest, params PostRevaluationRunParams) (r PostRevaluationRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PostStockTransportGoodsIssue implements postStockTransportGoodsIssue operation.
+//
+// Posts an open stock transport order's goods issue (ADR-0082 As built S2h; SAP's 351, from memory),
+// once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order no longer `open`,
+// 409 `procurement.stock_transport_issued`). Every item's quantity leaves its supplying storage
+// location and is in transit to its receiving storage location, as one material document of movement
+// type `351` (`issue_document_id`), posted on the company's date today in its time zone and numbered
+// from its `material_document` range, its `reference` the order's number; its lines in transit
+// (`in_transit`) are neither plant's stock (`listStock`) but the receiving plant's valuation. Each
+// item is checked as at the order's creation, the material active and valued in both plants (422
+// `inventory.no_valuation`), the supplying location's stock enough (409
+// `inventory.insufficient_stock`) and counted by no open physical inventory document (409
+// `inventory.posting_blocked`). The issue takes the supplying stock's value as an issue does, and the
+// stock in transit is worth what it took (at a standard price in the receiving plant, its quantity at
+// the price, the rest a price difference), posted in one WA journal entry between the valuation
+// classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422
+// `ledger.period_not_open`). The order is `in_transit`. Audited, and published as
+// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/stock-transport-orders/{id}:postGoodsIssue
+func (UnimplementedHandler) PostStockTransportGoodsIssue(ctx context.Context, params PostStockTransportGoodsIssueParams) (r PostStockTransportGoodsIssueRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// PostStockTransportGoodsReceipt implements postStockTransportGoodsReceipt operation.
+//
+// Posts the goods receipt of a stock transport order in transit (ADR-0082 As built S2h; SAP's 101 for
+// the order, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an
+// order not `in_transit`, 409 `procurement.stock_transport_not_in_transit`). Every item's quantity
+// leaves the stock in transit to its receiving storage location and enters that location's stock, as
+// one material document of movement type `101` (`receipt_document_id`), posted on the company's date
+// today and numbered from its `material_document` range, its `reference` the order's number: the
+// storage location still active (422 `inventory.storage_location_invalid`), the material kept there
+// (422 `inventory.storage_location_not_extended`; a material blocked since the issue is still
+// received), and no open physical inventory document counting it there (409
+// `inventory.posting_blocked`). It stays in the receiving plant's valuation, so it moves no value and
+// posts no journal entry. The order is `received` and changes no more. Audited, and published as
+// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/stock-transport-orders/{id}:postGoodsReceipt
+func (UnimplementedHandler) PostStockTransportGoodsReceipt(ctx context.Context, params PostStockTransportGoodsReceiptParams) (r PostStockTransportGoodsReceiptRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -10174,7 +10290,8 @@ func (UnimplementedHandler) ReverseJournalEntry(ctx context.Context, req OptJour
 // its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
 // it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
 // nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet
-// (409 `inventory.reverse_goods_issue`), nor a count's differences (409 `inventory.reverse_count`: a
+// (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or receipt yet (409
+// `inventory.reverse_stock_transport`), nor a count's differences (409 `inventory.reverse_count`: a
 // new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so
 // it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`,
 // naming the material, the location and both quantities). It is refused, as a posting is, while an

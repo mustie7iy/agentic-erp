@@ -18,15 +18,28 @@ import (
 )
 
 // stockKey is what a stock row is of: a material at a storage location of
-// a plant.
+// a plant, or in transit to it (inventory.transit_stock, S2h).
 type stockKey struct {
 	material, plant, location uuid.UUID
+	transit                   bool
 }
 
-// compare orders stock keys as PostgreSQL orders their uuids (bytewise),
-// the order every posting locks stock rows in.
+// compare orders stock keys as every posting locks their rows: the stock
+// at locations before the stock in transit, each as PostgreSQL orders
+// their uuids (bytewise).
 func (k stockKey) compare(o stockKey) int {
-	return cmp.Or(bytes.Compare(k.material[:], o.material[:]), bytes.Compare(k.plant[:], o.plant[:]), bytes.Compare(k.location[:], o.location[:]))
+	return cmp.Or(compareBool(k.transit, o.transit), bytes.Compare(k.material[:], o.material[:]), bytes.Compare(k.plant[:], o.plant[:]),
+		bytes.Compare(k.location[:], o.location[:]))
+}
+
+func compareBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
 }
 
 // maxStock is the least quantity a quantity column refuses: 10^14, a
@@ -54,7 +67,7 @@ func takeStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.
 	if err != nil {
 		return err
 	}
-	if err := blocked(ctx, tx, keys, r); err != nil {
+	if err := blocked(ctx, tx, atLocations(keys), r); err != nil {
 		return err
 	}
 	for _, l := range lines {
@@ -72,36 +85,59 @@ func takeStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.
 	return nil
 }
 
-func keyOf(l Line) stockKey { return stockKey{l.MaterialID, l.PlantID, l.StorageLocationID} }
+func keyOf(l Line) stockKey {
+	return stockKey{l.MaterialID, l.PlantID, l.StorageLocationID, l.InTransit}
+}
+
+// atLocations are the keys of the stock at locations, without the stock
+// in transit, which no count blocks.
+func atLocations(keys []stockKey) []stockKey {
+	return slices.DeleteFunc(slices.Clone(keys), func(k stockKey) bool { return k.transit })
+}
 
 // lockStock writes the stock rows of the keys a posting moves the first
-// time, with no quantity, and locks every one, in the keys' order; it
-// answers each row's quantity.
+// time, with no quantity, and locks every one, in the keys' order: the
+// stock at locations (inventory.stock), then the stock in transit
+// (inventory.transit_stock). It answers each row's quantity.
 func lockStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.UUID, keys []stockKey) (map[stockKey]*big.Rat, error) {
+	out := map[stockKey]*big.Rat{}
+	at := atLocations(keys)
+	if err := lockRows(ctx, tx, p, company, "stock", at, out); err != nil {
+		return nil, err
+	}
+	if transit := slices.DeleteFunc(slices.Clone(keys), func(k stockKey) bool { return !k.transit }); len(transit) > 0 {
+		return out, lockRows(ctx, tx, p, company, "transit_stock", transit, out)
+	}
+	return out, nil
+}
+
+// lockRows writes and locks the rows of keys, all of one kind, in table
+// (inventory.stock or inventory.transit_stock), adding their quantities
+// to out.
+func lockRows(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.UUID, table string, keys []stockKey, out map[stockKey]*big.Rat) error {
 	ids, ms, plants, locations := make([]uuid.UUID, len(keys)), make([]uuid.UUID, len(keys)), make([]uuid.UUID, len(keys)), make([]uuid.UUID, len(keys))
 	for i, k := range keys {
 		ids[i], ms[i], plants[i], locations[i] = uuid.Must(uuid.NewV7()), k.material, k.plant, k.location
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO inventory.stock (tenant_id, id, legal_entity_id, material_id, plant_id, storage_location_id)
+	name := pgx.Identifier{"inventory", table}.Sanitize()
+	if _, err := tx.Exec(ctx, `INSERT INTO `+name+` (tenant_id, id, legal_entity_id, material_id, plant_id, storage_location_id)
 		SELECT $1, x.id, $2, x.m, x.p, x.s FROM unnest($3::uuid[], $4::uuid[], $5::uuid[], $6::uuid[]) WITH ORDINALITY AS x (id, m, p, s, n)
 		ORDER BY x.n ON CONFLICT (tenant_id, material_id, plant_id, storage_location_id) DO NOTHING`,
 		p.TenantID, company, ids, ms, plants, locations); err != nil {
-		return nil, fmt.Errorf("inventory: stock rows of %d locations: %w", len(keys), err)
+		return fmt.Errorf("inventory: %s rows of %d locations: %w", table, len(keys), err)
 	}
-	rows, _ := tx.Query(ctx, `SELECT s.material_id, s.plant_id, s.storage_location_id, s.quantity::text FROM inventory.stock s
+	rows, _ := tx.Query(ctx, `SELECT s.material_id, s.plant_id, s.storage_location_id, s.quantity::text FROM `+name+` s
 		JOIN unnest($1::uuid[], $2::uuid[], $3::uuid[]) AS x (m, p, l) ON s.material_id = x.m AND s.plant_id = x.p AND s.storage_location_id = x.l
 		ORDER BY s.material_id, s.plant_id, s.storage_location_id FOR UPDATE OF s`, ms, plants, locations)
-	out := map[stockKey]*big.Rat{}
-	var k stockKey
+	k := stockKey{transit: table == "transit_stock"}
 	var q string
-	_, err := pgx.ForEachRow(rows, []any{&k.material, &k.plant, &k.location, &q}, func() error {
+	if _, err := pgx.ForEachRow(rows, []any{&k.material, &k.plant, &k.location, &q}, func() error {
 		out[k] = money.ParseRat(q)
 		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("inventory: lock the stock of %d locations: %w", len(keys), err)
+	}); err != nil {
+		return fmt.Errorf("inventory: lock the %s of %d locations: %w", table, len(keys), err)
 	}
-	return out, nil
+	return nil
 }
 
 // shortage is the refusal of a posting that takes more of a location's
@@ -109,14 +145,21 @@ func lockStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.
 // quantities.
 func (r refs) shortage(k stockKey, have, move *big.Rat) error {
 	m := r.materials[k.material]
-	takes := new(big.Rat).Neg(move)
-	return problem.Conflict("inventory.insufficient_stock", fmt.Sprintf("Material %s %s has %s %s at %s when the document's line takes %s, "+
+	takes, where := new(big.Rat).Neg(move), "at "+r.where(k)
+	if k.transit {
+		where = r.where(k)
+	}
+	return problem.Conflict("inventory.insufficient_stock", fmt.Sprintf("Material %s %s has %s %s %s when the document's line takes %s, "+
 		"more than that.",
-		m.Number, m.Description, money.PlainQuantity(have), m.BaseUnit, r.where(k), money.PlainQuantity(takes)))
+		m.Number, m.Description, money.PlainQuantity(have), m.BaseUnit, where, money.PlainQuantity(takes)))
 }
 
 // where names a stock's location by its plant's and storage location's
-// codes.
+// codes, and stock in transit as on its way there.
 func (r refs) where(k stockKey) string {
-	return strings.Join([]string{"plant", r.units[k.plant].Code, "storage location", r.units[k.location].Code}, " ")
+	at := strings.Join([]string{"plant", r.units[k.plant].Code, "storage location", r.units[k.location].Code}, " ")
+	if k.transit {
+		return "in transit to " + at
+	}
+	return at
 }

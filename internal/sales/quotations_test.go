@@ -36,8 +36,8 @@ var perms = []string{"sales.quotation.read", "sales.quotation.write", "sales.ord
 const far = "2099-12-31"
 
 // env is a configured tenant whose company 2000 (EUR, dated in Toronto's
-// time zone) has the output tax codes A1 (19%) and AJ (levying its lines'
-// subdivision) on account 230000 beside the fixture's input code V1, the
+// time zone) has the output tax codes A1 (19%), AJ (levying its lines'
+// subdivision) and AL (levying it in DE-BY and DE-BE alone) on account 230000 beside the fixture's input code V1, the
 // customer reconciliation account 120000, the number range journal_dr of
 // the entries customer invoices post, and a customer set up in the
 // company on 120000 with the payment term NT30.
@@ -54,15 +54,15 @@ func outputCodes(doc *config.Config) {
 	de.TimeZone = "America/Toronto"
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "230000", Name: "Output tax", Type: config.Liability},
 		config.Account{Number: "120000", Name: "Trade receivables", Type: config.Asset, CustomerReconciliation: true})
-	output := func(code string, onLine bool) config.TaxCode {
+	output := func(code string, onLine bool, subdivisions ...string) config.TaxCode {
 		c := config.TaxComponent{Key: "vat", AccountKey: config.KeyOutput, Account: "230000",
-			Rates: []config.TaxRate{{RatePercent: "19", ValidFrom: "2026-01-01"}}}
+			Rates: []config.TaxRate{{RatePercent: "19", ValidFrom: "2026-01-01"}}, Subdivisions: subdivisions}
 		if onLine {
 			c.Jurisdiction, c.JurisdictionOnLine = "DE", true
 		}
 		return config.TaxCode{Code: code, Description: "Output tax " + code, Direction: config.TaxOutput, Components: []config.TaxComponent{c}}
 	}
-	de.TaxCodes = append(de.TaxCodes, output("A1", false), output("AJ", true))
+	de.TaxCodes = append(de.TaxCodes, output("A1", false), output("AJ", true), output("AL", true, "DE-BY", "DE-BE"))
 	// The entries customer invoices post draw their numbers from journal_dr (T79b), credit memos' from journal_dg (T85d).
 	for _, y := range fixture.Years() {
 		doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "journal_dr", FiscalYear: y, First: 100000, Last: 999999},
@@ -109,9 +109,9 @@ func (e env) partner(t *testing.T, number, name, status string, roles ...string)
 // line is an item as a test names it; the zero value's fields take the
 // defaults of item.
 type line struct {
-	quantity, unit, price, currency, code, key string
-	priceUnit                                  int
-	account                                    uuid.UUID
+	quantity, unit, price, currency, code, key, jurisdiction string
+	priceUnit                                                int
+	account                                                  uuid.UUID
 }
 
 // item is the JSON of an item: by default 1 EA at the price in EUR on the
@@ -135,6 +135,9 @@ func (e env) item(l line) string {
 	}
 	if l.key != "" {
 		extra += fmt.Sprintf(`, "item_key": %q`, l.key)
+	}
+	if l.jurisdiction != "" {
+		extra += fmt.Sprintf(`, "tax_jurisdiction": %q`, l.jurisdiction)
 	}
 	if l.priceUnit != 0 {
 		extra += fmt.Sprintf(`, "price_unit": %d`, l.priceUnit)
@@ -400,7 +403,18 @@ func TestQuotationRefusals(t *testing.T) {
 		{"an account of no company", e.body(e.customer, far, ok, e.item(line{account: uuid.New()})), 422, "sales.account_not_postable", "items[1].account_id"},
 		{"an unknown tax code", e.body(e.customer, far, e.item(line{code: "ZZ"})), 422, "sales.unknown_tax_code", "items[0].tax_code"},
 		{"an input tax code", e.body(e.customer, far, ok, e.item(line{code: "V1"})), 422, "sales.unknown_tax_code", "items[1].tax_code"},
-		{"a code levying its lines' subdivision", e.body(e.customer, far, e.item(line{code: "AJ"})), 422, "sales.tax_jurisdiction_not_supported", "items[0].tax_code"},
+		{"a code levying its lines' subdivision without a jurisdiction", e.body(e.customer, far, ok, e.item(line{code: "AJ"})), 422,
+			"sales.tax_jurisdiction_required", "items[1].tax_jurisdiction"},
+		{"a jurisdiction its code does not levy", e.body(e.customer, far, e.item(line{code: "A1", jurisdiction: "DE-BY"})), 422,
+			"sales.tax_jurisdiction_not_levied", "items[0].tax_jurisdiction"},
+		{"a jurisdiction without a code", e.body(e.customer, far, e.item(line{jurisdiction: "DE-BY"})), 422, "sales.tax_jurisdiction_not_levied",
+			"items[0].tax_jurisdiction"},
+		{"a jurisdiction of another country", e.body(e.customer, far, e.item(line{code: "AJ", jurisdiction: "FR-75"})), 422,
+			"sales.tax_jurisdiction_not_levied", "items[0].tax_jurisdiction"},
+		{"a jurisdiction its code does not list", e.body(e.customer, far, e.item(line{code: "AL", jurisdiction: "DE-HH"})), 422,
+			"sales.tax_jurisdiction_not_levied", "items[0].tax_jurisdiction"},
+		{"a jurisdiction not in the form of a subdivision's code", e.body(e.customer, far, e.item(line{code: "AJ", jurisdiction: "Bavaria"})), 400,
+			"request.invalid_body", nil},
 		{"an item's value out of range", e.body(e.customer, far, e.item(line{quantity: "99999999999999", price: "10000000000000000.00"})), 422, "sales.amount_too_large", "items"},
 		{"a net value out of range", e.body(e.customer, far, e.item(huge), e.item(huge)), 422, "sales.amount_too_large", "items"},
 	}

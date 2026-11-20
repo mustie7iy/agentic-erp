@@ -196,8 +196,9 @@ func (s *StandIn) Fetch(ctx context.Context, id string) ([]byte, error) {
 	return resp.Body, nil
 }
 
-// tooLarge refuses a document above MaxDocument: it is not recorded (T65c
-// records it refused, ADR-0061 §5), and the fetch names it.
+// tooLarge refuses a document above MaxDocument: it is not recorded, as
+// its bytes cannot be kept, and the fetch names it (ADR-0061 As built
+// T65c).
 func tooLarge(id string) error {
 	return problem.Unprocessable("einvoicing.document_too_large", fmt.Sprintf("Message %s is larger than %d bytes.", id, MaxDocument))
 }
