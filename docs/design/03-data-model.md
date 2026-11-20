@@ -2194,6 +2194,31 @@ described item naming the catalog item of the row it replaced.
 
 The purchase-to-pay event log (T103a, ADR-0080) pages a company's orders by date and id through `purchase_order_by_date` (`tenant_id, legal_entity_id, order_date, id`; migration 000340).
 
+Stock transport orders within a company (S2h, migration 000416; ADR-0082
+As built S2h): `procurement.stock_transport_order` (SAP's purchasing
+document type UB, from memory), from a supplying plant to another
+receiving plant (`stock_transport_order_plants`) of its company, numbered
+from the company's `stock_transport_order` range of its order date's
+fiscal year, 1 to 40 characters, once per company and year
+(`stock_transport_order_number_once`); `status` (`open`, `in_transit`,
+`received`; `stock_transport_order_status_check`); once issued its goods
+issue's material document, number and day, all three together and
+exactly when it is no longer open (`stock_transport_order_issued`), once
+received its goods receipt's the same way (`stock_transport_order_received`);
+what it is and its issue never change and its status moves from open to
+in transit to received alone (`stock_transport_order_fixed`, a trigger
+also for the owner); the application updates its status, steps,
+`version` and `updated_by` alone, and never deletes it.
+`procurement.stock_transport_order_item`: items 1 to 100
+(`stock_transport_order_item_no_check`) of an order
+(`stock_transport_order_item_order_fkey`), a material once per order
+(`stock_transport_order_item_material_once`, 422
+`procurement.stock_transport_material_repeated`), its quantity in the unit
+ordered and in the base unit, both above zero, from a storage location of
+the supplying plant to one of the receiving plant; insert-only
+(`stock_transport_order_item_insert_only`). Plants, storage locations,
+materials and material documents are other contexts', by id.
+
 ## 3.9 Accounts payable (`payables`)
 
 ```mermaid
@@ -6728,6 +6753,24 @@ erDiagram
   difference naming its material document and a zero one none, only once
   the item is closed (`count_item_posted`), each set once
   (`count_item_once`).
+- S2h (migrations 000416, 000417): `inventory.material_document` takes
+  the movement type `351`, a stock transport order's goods issue, which
+  names its order's number as its `reference`, as the order's goods
+  receipt (a `101`) does (`material_document_movement_type_check`,
+  `material_document_reference`, widened NOT VALID and validated by
+  000417). `inventory.movement.in_transit`: the line moves stock in transit
+  to its storage location of its plant, the receiving one, rather than the
+  stock at that location. `inventory.transit_stock` (SAP MARC's UMLMC,
+  here per storage location received at): as `inventory.stock`, a row of
+  no quantity written before its first movement
+  (`transit_stock_from_movements`), once per material, plant and storage
+  location (`transit_stock_once`), never below zero
+  (`transit_stock_not_negative`, 409 `inventory.insufficient_stock`),
+  changed only by its movements: `movement_stock` adds a line in transit
+  to it instead of the location's stock, and to the plant's valuation as
+  every line, so stock in transit is the receiving plant's valuated stock
+  and no location's. No count blocks a line in transit
+  (`count_posting_block` fires only on the others).
 - `inventory.outbox`, `inventory.inbox`: the context's events
   (`MaterialDocumentPosted`, `MaterialPriceChanged`).
 - Permissions `inventory.movement.post`, `inventory.stock.read`,
