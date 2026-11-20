@@ -118,6 +118,10 @@ type Endpoints struct {
 	// (S1e).
 	Materials Materials
 	Movements Movements
+	// Transports and Units check and move stock transport orders and name
+	// their plants and storage locations (S2h).
+	Transports Transports
+	Units      OrgUnits
 	// Now dates requisitions in their company's time zone (T72n5); nil
 	// means the wall clock. Tests fix it.
 	Now func() time.Time

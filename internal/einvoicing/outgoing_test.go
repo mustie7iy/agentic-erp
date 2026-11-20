@@ -37,7 +37,7 @@ const (
 )
 
 var outgoingPerms = []string{"receivables.invoice.read", "receivables.invoice.write", "receivables.invoice.post", "einvoicing.outgoing.read",
-	"einvoicing.outgoing.render"}
+	"einvoicing.outgoing.render", "einvoicing.einvoice.read"}
 
 // uae is a tenant with Maple Gulf Trading (5000, AE, AED) on the UAE
 // pack's tax codes, its FTA registration and its postal address in

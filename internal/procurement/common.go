@@ -268,11 +268,18 @@ func (e *Endpoints) todayOf(ctx context.Context, le uuid.UUID) (time.Time, *time
 // number allocates the next document number of the type for the date's
 // fiscal year.
 func (e *Endpoints) number(ctx context.Context, le uuid.UUID, documentType string, date time.Time) (string, error) {
+	_, n, err := e.numberOf(ctx, le, documentType, date)
+	return n, err
+}
+
+// numberOf is number with the fiscal year it is of.
+func (e *Endpoints) numberOf(ctx context.Context, le uuid.UUID, documentType string, date time.Time) (int16, string, error) {
 	year, err := e.Calendar.FiscalYear(ctx, le, date)
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
-	return e.Numbers.Next(ctx, le, documentType, year)
+	n, err := e.Numbers.Next(ctx, le, documentType, year)
+	return year, n, err
 }
 
 // keyedItems validates what a contract's and an RFQ's items share, since

@@ -130,7 +130,7 @@ func (e *Endpoints) markCredited(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 // T85d): the request's company, customer and currency, the date as its
 // date and posting date, no payment term of its own (it keeps the
 // invoice's, ADR-0063 §7), an item per item of the request with the
-// billing item's description, revenue account and tax code, its net
+// billing item's description, revenue account, tax code and jurisdiction, its net
 // amount and its share of the tax the invoice's item bore (creditTax),
 // and the request as its source. It posts at the version it was entered
 // at: no one else can have read it, it being of this transaction. It is
@@ -145,7 +145,7 @@ func (e *Endpoints) creditMemo(ctx context.Context, tx pgx.Tx, r CreditMemoReque
 		Source: &receivables.Source{ID: r.ID, Number: r.DocumentNumber}}
 	for i, it := range r.Items {
 		in.Items[i] = receivables.ItemInput{Description: &it.Description, AccountID: it.AccountID,
-			Net: receivables.Amount{Value: it.Net.Plain(r.Exponent), Currency: r.Currency}, TaxCode: it.TaxCode, Tax: &taxes[i]}
+			Net: receivables.Amount{Value: it.Net.Plain(r.Exponent), Currency: r.Currency}, TaxCode: it.TaxCode, TaxJurisdiction: it.TaxJurisdiction, Tax: &taxes[i]}
 	}
 	lead := "Credit memo request " + r.DocumentNumber + " cannot be posted as a customer credit memo: "
 	draft, err := e.Invoices.CreateInvoice(ctx, in)

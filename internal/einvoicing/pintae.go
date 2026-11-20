@@ -55,6 +55,7 @@ type Document struct {
 	Profile         string     // IBT-023
 	TransactionType string     // BTAE-02, eight flags
 	Reference       string     // IBT-025, the invoice a credit note corrects
+	OrderReference  string     // IBT-013, a received document's purchase order
 	Reason          *Reason    // BTAE-03, a credit note's
 	Seller, Buyer   Party
 	PaymentMeans    string // IBT-081
@@ -94,9 +95,10 @@ type Address struct {
 // Line is an invoice line (IBG-25): its id (IBT-126), quantity and unit
 // (IBT-129, IBT-130), net amount (IBT-131), net price (IBT-146), item name
 // and description (IBT-153, IBT-154) and VAT category and rate (IBT-151,
-// IBT-152).
+// IBT-152); a received line names its order line (IBT-132) if any.
 type Line struct {
 	ID                string
+	OrderLine         string // IBT-132, a received line's order line
 	Quantity, Unit    string
 	Net, Price        money.Minor
 	Name, Description string
@@ -118,18 +120,43 @@ var errDTD = errors.New("the document declares a DTD")
 // (ADR-0061 §5): parsed strictly, refusing any DTD, so no entity is
 // expanded, its amounts in the minor units of its currency, whose digits
 // exponent gives (false: an unknown currency). It reads what the format
-// renders; what is missing stays empty for the rules (Check) to name.
+// renders; what is missing stays empty for the rules (Check) to name. A
+// field it cannot read is a *FieldError naming its business term.
 func ParsePINTAE(content []byte, exponent func(string) (int, bool)) (Document, error) {
-	if err := noDirectives(content); err != nil {
+	u, err := decodeUBL(content)
+	if err != nil {
 		return Document{}, err
+	}
+	return u.document(exponent)
+}
+
+// FieldError is a field of a PINT AE document that could not be read: its
+// business term, and whether it is an amount with more decimals than its
+// currency's minor unit (Precision) rather than malformed (ADR-0061 §5:
+// einvoicing.amount_precision and einvoicing.missing_field).
+type FieldError struct {
+	Term      string
+	Currency  string // an amount's currency, for Precision
+	Precision bool
+	Err       error
+}
+
+func (e *FieldError) Error() string { return "einvoicing: PINT AE " + e.Term + ": " + e.Err.Error() }
+
+func (e *FieldError) Unwrap() error { return e.Err }
+
+// decodeUBL reads the XML into its UBL binding, refusing a DTD first.
+func decodeUBL(content []byte) (ublDocument, error) {
+	if err := noDirectives(content); err != nil {
+		return ublDocument{}, err
 	}
 	var u ublDocument
 	d := xml.NewDecoder(bytes.NewReader(content))
 	d.Strict = true
 	if err := d.Decode(&u); err != nil {
-		return Document{}, fmt.Errorf("einvoicing: parse PINT AE: %w", err)
+		return ublDocument{}, fmt.Errorf("einvoicing: parse PINT AE: %w", err)
 	}
-	return u.document(exponent)
+	return u, nil
 }
 
 // noDirectives refuses a document with a directive (<!DOCTYPE ...>) before

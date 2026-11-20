@@ -695,7 +695,9 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   supplier-side today, and a customer cash discount on such a code will
   need it. (Since the product owner's decision of 2026-11-12,
   `ledger.PostingLine` carries `TaxJurisdiction` and a customer invoice's
-  items name it: ADR-0063 As built, "The emirate on the item";
+  items name it: ADR-0063 As built, "The emirate on the item", and from
+  batch 85 a sales document's items and the invoice its billing posts:
+  ADR-0067 As built, "The emirate on a sales item";
   `TaxCode.CheckJurisdiction` is the one check of a line's and an item's.
   A cash discount's correction and a down payment's transfer still carry
   none.) **Rolling upgrade (06 §6.4):** 000150 is additive and runs ahead

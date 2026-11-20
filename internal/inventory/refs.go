@@ -90,7 +90,7 @@ func (e *Endpoints) record(ctx context.Context, action string, d Document, r ref
 		line := map[string]any{"line_no": l.LineNo, "item_no": l.ItemNo, "material_id": l.MaterialID, "material_number": m.Number,
 			"plant_id": l.PlantID, "plant_code": r.units[l.PlantID].Code, "storage_location_id": l.StorageLocationID,
 			"storage_location_code": r.units[l.StorageLocationID].Code, "quantity": l.Quantity, "unit": m.BaseUnit, "cost_center_id": l.CostCenterID,
-			"cost_center_code": nil}
+			"cost_center_code": nil, "in_transit": l.InTransit}
 		if l.CostCenterID != nil {
 			line["cost_center_code"] = r.centers[*l.CostCenterID].Code
 		}

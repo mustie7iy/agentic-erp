@@ -181,8 +181,9 @@ func TestBuildFindings(t *testing.T) {
 }
 
 // TestParseRefusals: a document with a DTD, malformed XML, an empty one,
-// unknown currencies, an amount of another currency or digits and dates
-// that are not dates are not read.
+// unknown currencies, an amount of another currency, more decimals than
+// its currency's or not a decimal, and dates that are not dates are not
+// read; an amount of fewer decimals is (an XML Schema decimal, T65c).
 func TestParseRefusals(t *testing.T) {
 	good := string(RenderPINTAE(valid(t)))
 	cases := map[string]string{
@@ -195,8 +196,9 @@ func TestParseRefusals(t *testing.T) {
 		"an issue date":               strings.Replace(good, "<cbc:IssueDate>2026-03-10", "<cbc:IssueDate>10.03.2026", 1),
 		"a due date":                  strings.Replace(good, "<cbc:DueDate>2026-04-09", "<cbc:DueDate>soon", 1),
 		"an unknown tax currency":     strings.Replace(good, `currencyID="AED"`, `currencyID="ZZZ"`, 1),
-		"a tax amount in AED of one digit": strings.Replace(good, `<cbc:TaxAmount currencyID="AED">367.25`,
-			`<cbc:TaxAmount currencyID="AED">367.2`, 1),
+		"a tax amount in AED of three decimals": strings.Replace(good, `<cbc:TaxAmount currencyID="AED">367.25`,
+			`<cbc:TaxAmount currencyID="AED">367.250`, 1),
+		"an amount not a decimal": strings.Replace(good, `>3000.00<`, `>3,000<`, 1),
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -208,8 +210,16 @@ func TestParseRefusals(t *testing.T) {
 			}
 		})
 	}
+	d, err := ParsePINTAE([]byte(strings.Replace(good, `<cbc:TaxAmount currencyID="AED">367.25`, `<cbc:TaxAmount currencyID="AED">367.2`, 1)),
+		currency.SeededExponent)
+	if err != nil || d.AccountingTax == nil || *d.AccountingTax != 36720 {
+		t.Errorf("a tax amount in AED of one decimal: got %v (%v), want 36720", d.AccountingTax, err)
+	}
 	if _, err := ParsePINTAE([]byte(strings.Replace(good, "<cbc:DueDate>2026-04-09</cbc:DueDate>", "", 1)), currency.SeededExponent); err != nil {
 		t.Errorf("without a due date: got %v, want none", err)
+	}
+	if _, err := ParsePINTAE([]byte(cases["an amount of three decimals"]), currency.SeededExponent); !errors.Is(err, errPrecision) {
+		t.Errorf("three decimals: got %v, want errPrecision", err)
 	}
 	if !errors.Is(noDirectives([]byte(cases["a DTD"])), errDTD) {
 		t.Error("a DTD: got another error, want errDTD")

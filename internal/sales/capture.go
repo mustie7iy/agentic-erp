@@ -73,11 +73,11 @@ type CapturedItem struct {
 }
 
 // CaptureInput is an order capture as a person asks for it: the company,
-// the upload, and the revenue account and output tax code every item of
-// the order takes (a document names neither).
+// the upload, and the revenue account, output tax code and tax
+// jurisdiction every item of the order takes (a document names none).
 type CaptureInput struct {
 	LegalEntityID, UploadID, AccountID uuid.UUID
-	TaxCode                            *string
+	TaxCode, TaxJurisdiction           *string
 }
 
 // CaptureOrder reads the upload's purchase order into a draft sales order,
@@ -191,7 +191,8 @@ func (e *Endpoints) capturedOrder(ctx context.Context, in CaptureInput, local st
 		Items: make([]CapturedItem, len(ext.Items))}
 	items := make([]ItemInput, len(ext.Items))
 	for i, it := range ext.Items {
-		items[i] = ItemInput{Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, AccountID: in.AccountID, TaxCode: in.TaxCode}
+		items[i] = ItemInput{Description: it.Description, Quantity: it.Quantity, Unit: it.Unit, AccountID: in.AccountID, TaxCode: in.TaxCode,
+			TaxJurisdiction: in.TaxJurisdiction}
 		source := PriceList
 		if it.ItemKey != "" {
 			items[i].ItemKey = &it.ItemKey
@@ -255,12 +256,12 @@ func containsPartner(found []partner.Found, id uuid.UUID) bool {
 	return false
 }
 
-// capturedItemField matches an order item's account or tax code field, which a
-// capture request gives once for every item.
-var capturedItemField = regexp.MustCompile(`^items\[\d+\]\.(account_id|tax_code)$`)
+// capturedItemField matches an order item's account, tax code or tax
+// jurisdiction field, which a capture request gives once for every item.
+var capturedItemField = regexp.MustCompile(`^items\[\d+\]\.(account_id|tax_code|tax_jurisdiction)$`)
 
 // fieldsOfCapture names, in a refusal of the captured order, the capture
-// request's account_id and tax_code where the order's item fields stand
+// request's account_id, tax_code and tax_jurisdiction where the order's item fields stand
 // for them; an item's other fields name the document's item by its place.
 // The problem is copied, never changed: its maker may keep it (as
 // asPosting does).

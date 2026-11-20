@@ -25,7 +25,11 @@
 // stock items and their reversals through it (ReceiveForOrder,
 // ReverseForOrder), their value on the GR/IR entry procurement posts, and
 // payables the price differences of their invoices on a moving-priced
-// stock (InvoiceDifferences; ADR-0082 §2-§3 and As built S1e).
+// stock (InvoiceDifferences; ADR-0082 §2-§3 and As built S1e). Stock
+// transport orders move stock between a company's plants through it, the
+// goods issue into stock in transit at the receiving plant and the goods
+// receipt out of it (IssueForTransport, ReceiveForTransport; As built
+// S2h).
 package inventory
 
 import (
@@ -75,6 +79,10 @@ type movementType struct {
 	// delivery: an outbound delivery's goods issue, which shipping posts
 	// (IssueForDelivery, ADR-0083 §5), never a person here.
 	delivery bool
+	// transport: a stock transport order's goods issue into stock in
+	// transit, which procurement posts (IssueForTransport, S2h), never a
+	// person here, and which is not reversed yet.
+	transport bool
 }
 
 // movementTypes are the forward movement types a person posts and their
@@ -83,7 +91,10 @@ type movementType struct {
 // (ReceiveForOrder, ReverseForOrder), a count's differences, which
 // PostDifferences posts (S2d), and an outbound delivery's goods issue,
 // which shipping posts (IssueForDelivery; its reversal, 602, is named
-// for the database's rule and posted by no one yet, ADR-0083).
+// for the database's rule and posted by no one yet, ADR-0083), and a
+// stock transport order's goods issue, which procurement posts
+// (IssueForTransport, S2h; its receipt is a 101 of its own kind,
+// transportReceipt).
 var movementTypes = map[string]movementType{
 	"101": {name: "Goods receipt for a purchase order", sign: 1, reversal: "102", order: true},
 	"102": {name: "Reversal of a goods receipt for a purchase order", sign: -1, reverses: "101", order: true},
@@ -99,6 +110,7 @@ var movementTypes = map[string]movementType{
 	"312": {name: "Reversal of a transfer between storage locations", sign: 1, transfer: betweenStorageLocations, reverses: "311"},
 	"301": {name: "Transfer between plants", sign: -1, transfer: betweenPlants, reversal: "302"},
 	"302": {name: "Reversal of a transfer between plants", sign: 1, transfer: betweenPlants, reverses: "301"},
+	"351": {name: "Goods issue for a stock transport order", sign: -1, transfer: betweenPlants, transport: true},
 	"601": {name: "Goods issue for a delivery", sign: -1, reversal: "602", delivery: true},
 	"602": {name: "Reversal of a goods issue for a delivery", sign: 1, reverses: "601", delivery: true},
 	"701": {name: "Physical inventory surplus", sign: 1, count: true},
@@ -201,6 +213,10 @@ type Line struct {
 	EntryQuantity     string     `json:"entry_quantity"`
 	EntryUnit         string     `json:"entry_unit"`
 	CostCenterID      *uuid.UUID `json:"cost_center_id"`
+	// InTransit says the line moves stock in transit to its storage
+	// location of its plant, the receiving one of a stock transport order
+	// (S2h), rather than the stock at that location.
+	InTransit bool `json:"in_transit"`
 	// Amount is what the line moves in value, in the valuation's
 	// currency, signed as its quantity is, and Difference what it is
 	// valued at beyond that: its price difference (S1d).

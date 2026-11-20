@@ -30,8 +30,8 @@
 364 internal/web/e2e
 360 internal/payments
 331 internal/payables
-215 internal/procurement
-181 internal/sales
+400 internal/procurement
+260 internal/sales
 178 internal/closing
 167 internal/workflows
 130 internal/analytics/store
@@ -66,3 +66,10 @@
 # some 600 s a run on a 4-vCPU runner: run apart, its three runs (1800 s,
 # above SPLIT) are three pieces.
 600 internal/integration TestMigratedStockDatabaseFailures
+# internal/procurement and internal/sales (batch 85, S2h's stock transport
+# orders and the emirate on sales items): one local race run of the batch,
+# two packages at a time beside other lanes, took 361 s and 315 s, against
+# 617 s for internal/web and 514 s for internal/ledger, weighted 514 and
+# 407 from GitHub: 1.2 and 1.26 times a runner's time, so about 300 s and
+# 260 s a run; the S2h lane measured procurement at 533 s a run under a
+# heavier load, so it is raised to 400 (three runs 1200 s, not split).

@@ -60,7 +60,7 @@ func orderAPI(o Order, refs references) gen.SalesOrder {
 		base := itemAPI(it.Item, o.Currency, o.Exponent, refs)
 		out.Items[i] = gen.SalesOrderItem{ItemNo: base.ItemNo, ItemKey: base.ItemKey, MaterialID: base.MaterialID, Description: base.Description, Quantity: base.Quantity,
 			UnitPrice: base.UnitPrice, PriceUnit: base.PriceUnit, PriceSource: base.PriceSource, Conditions: base.Conditions, NetAmount: base.NetAmount, AccountID: base.AccountID,
-			AccountNumber: base.AccountNumber, AccountName: base.AccountName, TaxCode: base.TaxCode,
+			AccountNumber: base.AccountNumber, AccountName: base.AccountName, TaxCode: base.TaxCode, TaxJurisdiction: base.TaxJurisdiction,
 			DeliveredQuantity: gen.Quantity{Value: it.Delivered, Unit: it.Unit}, InDeliveryQuantity: gen.Quantity{Value: it.InDelivery, Unit: it.Unit},
 			BilledQuantity:   gen.Quantity{Value: it.Billed, Unit: it.Unit},
 			ReturnedQuantity: gen.Quantity{Value: it.Returned, Unit: it.Unit}, RemovedInChange: apitypes.OptInt32(it.RemovedInChange)}
@@ -100,7 +100,7 @@ func (e *Endpoints) CreateSalesOrder(ctx context.Context, req *gen.SalesOrderCre
 // CaptureSalesOrder implements POST /v1/sales-orders:capture.
 func (e *Endpoints) CaptureSalesOrder(ctx context.Context, req *gen.SalesOrderCaptureRequest, _ gen.CaptureSalesOrderParams) (gen.CaptureSalesOrderRes, error) {
 	op, err := e.CaptureOrder(ctx, CaptureInput{LegalEntityID: req.LegalEntityID, UploadID: req.UploadID, AccountID: req.AccountID,
-		TaxCode: apitypes.Ptr[string](req.TaxCode)})
+		TaxCode: apitypes.Ptr[string](req.TaxCode), TaxJurisdiction: apitypes.Ptr[string](req.TaxJurisdiction)})
 	if err != nil {
 		return nil, err
 	}

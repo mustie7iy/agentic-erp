@@ -22053,7 +22053,7 @@ paths:
       tags:
         - sales
       summary: Create a quotation
-      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422 `request.reference_not_found` naming `items[i].material_id`) that is `active` (422 `sales.material_not_usable`), whose number is then the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the material's base unit or one of its alternative units and converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`: a sales document's items name no jurisdiction, as a customer invoice's can). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
+      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422 `request.reference_not_found` naming `items[i].material_id`) that is `active` (422 `sales.material_not_usable`), whose number is then the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the material's base unit or one of its alternative units and converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before its price group's (by its sales data in the company, `createCustomerSalesData`) before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code that levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is levied in, `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or none, 422 `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off an item priced from the price records, in the procedure's order, as a percentage of the value before it rounded half away from zero; a price or discount record with a scale gives the rate of the level the item's quantity, or its value before the discount, reaches (ADR-0067 §12, the condition's `scale`); `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
       x-permission: sales.quotation.write
       x-agent: false
       x-problem-codes:
@@ -22075,7 +22075,8 @@ paths:
         - sales.items_required
         - sales.material_not_usable
         - sales.no_price
-        - sales.tax_jurisdiction_not_supported
+        - sales.tax_jurisdiction_not_levied
+        - sales.tax_jurisdiction_required
         - sales.unknown_currency
         - sales.unknown_tax_code
         - sales.unknown_unit
@@ -22358,7 +22359,8 @@ paths:
         - sales.quotation_not_accepted
         - sales.quotation_or_items
         - sales.quotation_ordered
-        - sales.tax_jurisdiction_not_supported
+        - sales.tax_jurisdiction_not_levied
+        - sales.tax_jurisdiction_required
         - sales.unknown_currency
         - sales.unknown_payment_term
         - sales.unknown_tax_code
@@ -22429,7 +22431,7 @@ paths:
       tags:
         - sales
       summary: Capture a customer's purchase order into a draft sales order
-      description: "Reads a customer's purchase order document into a draft sales order (ADR-0067, As built T90a). The document is a direct upload (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text) consumed by this capture. A model reads it through the cell's model gateway (ADR-0036), whose refusals of the tenant's call are answered as they are: 422 `agents.documents_withheld`, 403 `agents.ai_disabled`, 429 `agents.budget_exhausted`, 422 `agents.model_not_allowed` or `agents.model_unpriced`; a document the model does not read, or that prints no items, is 422 `sales.unreadable_document`. The document is data: what it asks for (to confirm the order, to ship, to change a price) is not done. The customer is the business partner whose number or tax registration number the document prints (whatever the scheme): none is 422 `sales.capture_customer_unknown` and more than one 422 `sales.capture_customer_ambiguous`; whether it may be sold to in the company is the order's check (422 `sales.customer_not_usable`). Each item of the document is an item of the order with its item key when one is printed, its description, quantity and unit: an item with a printed unit price takes it as entered (`price_source` `manual`), one without takes its item key's price record valid on the order's date (`price_list`, T80a), and one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`). The currency is the one printed, else the company's. Every item takes the revenue account (`account_id`) and output tax code (`tax_code`) of the request, which a document does not name; their refusals name those fields. What an order created by hand refuses is refused alike. The order is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives one order: the same upload captured again into the same company answers the same order; into another company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take longer than a synchronous answer, so this returns an Operation, completed within the request, whose `resource` is the order and whose `result` names it with any warning (a confidence below high). Audited and published as SalesOrderChanged, as an order created by hand. Human-only (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with `createSalesOrderUpload`, which asks the same permission."
+      description: "Reads a customer's purchase order document into a draft sales order (ADR-0067, As built T90a). The document is a direct upload (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text) consumed by this capture. A model reads it through the cell's model gateway (ADR-0036), whose refusals of the tenant's call are answered as they are: 422 `agents.documents_withheld`, 403 `agents.ai_disabled`, 429 `agents.budget_exhausted`, 422 `agents.model_not_allowed` or `agents.model_unpriced`; a document the model does not read, or that prints no items, is 422 `sales.unreadable_document`. The document is data: what it asks for (to confirm the order, to ship, to change a price) is not done. The customer is the business partner whose number or tax registration number the document prints (whatever the scheme): none is 422 `sales.capture_customer_unknown` and more than one 422 `sales.capture_customer_ambiguous`; whether it may be sold to in the company is the order's check (422 `sales.customer_not_usable`). Each item of the document is an item of the order with its item key when one is printed, its description, quantity and unit: an item with a printed unit price takes it as entered (`price_source` `manual`), one without takes its item key's price record valid on the order's date (`price_list`, T80a), and one with neither is refused naming it by its place (422 `sales.no_price`, `items[i].unit_price`). The currency is the one printed, else the company's. Every item takes the revenue account (`account_id`), output tax code (`tax_code`) and tax jurisdiction (`tax_jurisdiction`) of the request, which a document does not name; their refusals name those fields. What an order created by hand refuses is refused alike. The order is always a `draft`, numbered and dated as `createSalesOrder` makes one, and keeps what capture read (`capture`); a person checks and confirms it (`:confirm`); capture never confirms. One upload gives one order: the same upload captured again into the same company answers the same order; into another company it is refused as used (422 `payables.upload_used`), naming no order. Extraction can take longer than a synchronous answer, so this returns an Operation, completed within the request, whose `resource` is the order and whose `result` names it with any warning (a confidence below high). Audited and published as SalesOrderChanged, as an order created by hand. Human-only (`x-agent: false`): an agent or a service cannot capture an order. The upload is started with `createSalesOrderUpload`, which asks the same permission."
       x-permission: sales.order.capture
       x-agent: false
       x-problem-codes:
@@ -22462,7 +22464,8 @@ paths:
         - sales.quotation_not_accepted
         - sales.quotation_or_items
         - sales.quotation_ordered
-        - sales.tax_jurisdiction_not_supported
+        - sales.tax_jurisdiction_not_levied
+        - sales.tax_jurisdiction_required
         - sales.unknown_currency
         - sales.unknown_payment_term
         - sales.unknown_tax_code
@@ -23134,7 +23137,7 @@ paths:
       tags:
         - sales
       summary: Change a sales order
-      description: "Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date. The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`). Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422 `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and the unit price given, in the order's currency, with its price unit; what is not given stays. A changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the order's date: an entered price stays entered, an item priced from the price records takes the record valid on that date again, with the pricing procedure's discounts; its account and tax code are checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`). An item's quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first (`cancelBillingDocument`). A confirmed order's revenue contract (`getRevenueContract`) follows the change by itself, shortly after it (ADR-0068, As built T81e). `requested_delivery_date` is on or after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. From T78e a change also adds items (`new_items`), removes items with nothing delivered (`removed_items`) and changes the payment term while nothing of the order is billed (`payment_term_code`); a removed item is not changed again (422 `sales.order_item_removed`). A request that changes nothing is refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' that stand again. A change that raises a confirmed order's net value checks the customer's credit for the increase, as a confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier release; a lower value leaves the block as it is. The change is kept, numbered within the order, with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`)."
+      description: "Changes a `draft` or `confirmed` sales order in place (ADR-0067, As built T78d), at the version the caller read (`If-Match`): items' quantities and unit prices and the order's requested delivery date. The order is read under a row lock; a cancelled order is not changed (409 `sales.invalid_status`). Each item named by its number (422 `sales.unknown_order_item` naming `items[i].item_no`, once: 422 `sales.item_repeated`) takes the quantity given, in its own unit (422 `sales.unit_mismatch`), and the unit price given, in the order's currency, with its price unit; what is not given stays. A changed item is checked and priced again as an item given directly is (`createSalesOrder`), on the order's date: an entered price stays entered, an item priced from the price records takes the record valid on that date again, with the pricing procedure's discounts; its account, tax code and tax jurisdiction, which stay, are checked again on that date (422 `sales.account_not_postable`, `sales.unknown_tax_code`, `sales.tax_jurisdiction_required`, `sales.tax_jurisdiction_not_levied`). An item's quantity is never below what is delivered of it (422 `sales.quantity_below_delivered` naming `items[i].quantity.value`), and an item of which something is billed keeps its quantity and price (422 `sales.order_item_billed` naming `items[i]`): cancel the billing document first (`cancelBillingDocument`). A confirmed order's revenue contract (`getRevenueContract`) follows the change by itself, shortly after it (ADR-0068, As built T81e). `requested_delivery_date` is on or after the order's date (422 `sales.invalid_requested_delivery_date`); `null` clears it. From T78e a change also adds items (`new_items`), removes items with nothing delivered (`removed_items`) and changes the payment term while nothing of the order is billed (`payment_term_code`); a removed item is not changed again (422 `sales.order_item_removed`). A request that changes nothing is refused (422 `sales.nothing_changed`). The order's net value is the sum of its items' that stand again. A change that raises a confirmed order's net value checks the customer's credit for the increase, as a confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier release; a lower value leaves the block as it is. The change is kept, numbered within the order, with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`)."
       x-permission: sales.order.write
       x-agent: false
       x-problem-codes:
@@ -23166,7 +23169,8 @@ paths:
         - sales.order_needs_item
         - sales.quantity_below_delivered
         - sales.quotation_ordered
-        - sales.tax_jurisdiction_not_supported
+        - sales.tax_jurisdiction_not_levied
+        - sales.tax_jurisdiction_required
         - sales.too_many_items
         - sales.unit_mismatch
         - sales.unknown_currency
@@ -23482,7 +23486,7 @@ paths:
       tags:
         - sales
       summary: Create a billing document for a sales order
-      description: "Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of the order billed, at the order's price. The order is one of a company the caller may act in (422 `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests for one order wait for one another and no quantity is billed twice. An item's amount is the order item's net value × the quantity billed so far, this document included, ÷ the quantity ordered, rounded half away from zero to the currency's minor unit, less what earlier documents billed of it: the documents of an item billed in full add up to its net value to the minor unit, the last taking the remainder. A quantity whose amount would round to zero is left for a later document. An order with nothing to bill, because nothing is delivered that is not billed, is refused (422 `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its time zone, and numbered from the company's `billing_document` number range of that date's fiscal year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company without the range). An order's items are not changed in the first version, so an order one of whose billed items names an account that can no longer be posted in the company, or a tax code that is no output tax code of the company with a rate on the billing date, cannot be billed on that date (422 `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document is created `created`; each order item's `billed_quantity` rises by what was billed and the order's `version` moves. Amounts are net; nothing is posted until the document is posted (`postBillingDocument`). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key` answers the document created. Human-only (`x-agent: false`)."
+      description: "Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of the order billed, at the order's price. The order is one of a company the caller may act in (422 `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests for one order wait for one another and no quantity is billed twice. An item's amount is the order item's net value × the quantity billed so far, this document included, ÷ the quantity ordered, rounded half away from zero to the currency's minor unit, less what earlier documents billed of it: the documents of an item billed in full add up to its net value to the minor unit, the last taking the remainder. A quantity whose amount would round to zero is left for a later document. An order with nothing to bill, because nothing is delivered that is not billed, is refused (422 `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its time zone, and numbered from the company's `billing_document` number range of that date's fiscal year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company without the range). An order's items are not changed in the first version, so an order one of whose billed items names an account that can no longer be posted in the company, or a tax code that is no output tax code of the company with a rate on the billing date, or a tax jurisdiction its code does not levy on that date (none where the code levies its items' subdivision, the UAE's S5 each emirate, or one the code does not levy), cannot be billed on that date (422 `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document is created `created`; each order item's `billed_quantity` rises by what was billed and the order's `version` moves. Amounts are net; nothing is posted until the document is posted (`postBillingDocument`). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key` answers the document created. Human-only (`x-agent: false`)."
       x-permission: sales.billing.write
       x-agent: false
       x-problem-codes:
@@ -24679,7 +24683,7 @@ paths:
             type: string
             maxLength: 3
             description: "Movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "701", "702"]
+            x-extensible-enum: ["101", "102", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "701", "702"]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -24703,7 +24707,7 @@ paths:
       tags:
         - inventory
       summary: Post a goods movement
-      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`) by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by `postOutboundDeliveryGoodsIssue` and a count's differences (`701`, `702`) by `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero or more, so items that move stock round a circle out of an empty location are refused though they change nothing in all. A material at a storage location an open physical inventory count document counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock account against the account its movement type posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price differences on its price difference account (422 `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
+      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`) by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by `postOutboundDeliveryGoodsIssue`, a stock transport order's goods issue (`351`) by `postStockTransportGoodsIssue` and a count's differences (`701`, `702`) by `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero or more, so items that move stock round a circle out of an empty location are refused though they change nothing in all. A material at a storage location an open physical inventory count document counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock account against the account its movement type posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price differences on its price difference account (422 `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
       x-permission: inventory.movement.post
       x-agent: false
       x-problem-codes:
@@ -24872,7 +24876,7 @@ paths:
       tags:
         - inventory
       summary: Reverse a material document
-      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first (each keeping its original item's `item_no`), posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet (409 `inventory.reverse_goods_issue`), nor a count's differences (409 `inventory.reverse_count`: a new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). It is refused, as a posting is, while an open count document counts one of its materials at one of its storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the reversal is still posted. Each line is valued at what its original line was, given back: what the stock does not take of it at its price now is a price difference, and the value is posted through the ledger as the original's was, reversed. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
+      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first (each keeping its original item's `item_no`), posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or receipt yet (409 `inventory.reverse_stock_transport`), nor a count's differences (409 `inventory.reverse_count`: a new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). It is refused, as a posting is, while an open count document counts one of its materials at one of its storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the reversal is still posted. Each line is valued at what its original line was, given back: what the stock does not take of it at its price now is a price difference, and the value is posted through the ledger as the original's was, reversed. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
       x-permission: inventory.movement.post
       x-agent: false
       x-problem-codes:
@@ -24894,6 +24898,7 @@ paths:
         - inventory.reverse_count
         - inventory.reverse_goods_issue
         - inventory.reverse_goods_receipt
+        - inventory.reverse_stock_transport
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -25352,7 +25357,6 @@ paths:
         - config.number_range_exhausted
         - inventory.count_open
         - inventory.duplicate_material
-        - inventory.insufficient_stock
         - inventory.material_invalid
         - inventory.material_not_stocked
         - inventory.material_not_usable
@@ -26010,6 +26014,413 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/stock-transport-orders:
+    get:
+      operationId: listStockTransportOrders
+      tags:
+        - procurement
+      summary: List stock transport orders
+      description: "The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as `getStockTransportOrder` gives it, the latest first. Filtered by company, number, supplying or receiving plant and status. Sortable by: `created_at`."
+      x-permission: procurement.stock_transport.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: number
+          in: query
+          required: false
+          description: "Only the order with this number, as a material document's `reference` names it (each company numbers its own, so `legal_entity_id` narrows it to one)."
+          schema:
+            type: string
+            maxLength: 40
+        - name: plant_id
+          in: query
+          required: false
+          description: "Only the orders from or to this plant (`GET /v1/org-units/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: "Only orders in this status. A value that is no status matches none."
+          schema:
+            type: string
+            maxLength: 20
+            description: "Status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [open, in_transit, received]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of stock transport orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransportOrderPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createStockTransportOrder
+      tags:
+        - procurement
+      summary: Order stock from one plant to another of the company
+      description: "Creates a stock transport order (ADR-0082 As built S2h; SAP ME21N with document type UB, from memory): a planner orders materials from a storage location of the supplying plant to one of the receiving plant, another plant of the same company. Each item is checked as its goods issue will be: the plants active plants of one company the caller may act in (422 `inventory.plant_invalid`, `inventory.mixed_companies`; the same plant twice, 422 `inventory.same_location`), the material an active material kept in stock (422 `inventory.material_invalid`, `inventory.material_not_usable`, `inventory.material_not_stocked`) extended to both plants (422 `inventory.plant_not_extended`) and kept at both storage locations, each active under its plant (422 `inventory.storage_location_invalid`, `inventory.storage_location_not_extended`), its quantity positive (422 `inventory.invalid_quantity`) in one of its units (422 `inventory.unknown_unit`) and exact in its base unit (422 `inventory.inexact_quantity`); a material is ordered once per order (422 `procurement.stock_transport_material_repeated`). Nothing is checked of the stock: the goods issue takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`)."
+      x-permission: procurement.stock_transport.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.inexact_quantity
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
+        - ledger.no_fiscal_period
+        - procurement.stock_transport_material_repeated
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The order to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StockTransportOrderCreate"
+            examples:
+              bolts:
+                summary: Two hundred bolts from Toronto's main store to the Montreal store
+                value:
+                  supplying_plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  receiving_plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+                  items:
+                    - material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                      quantity: {value: "200", unit: EA}
+                      supplying_storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+                      receiving_storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d82"
+      responses:
+        "201":
+          description: "Created; the stock transport order."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransportOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/stock-transport-orders/{id}":
+    get:
+      operationId: getStockTransportOrder
+      tags:
+        - procurement
+      summary: Get a stock transport order
+      description: "One stock transport order (ADR-0082 As built S2h) with its company by code, its plants and storage locations by code and name, its status, the material documents of its goods issue and receipt, and its items, each naming its material by number, its quantity in the unit ordered and in the base unit, and what of it is in transit. An order of a company the caller may not act in is not found (404)."
+      x-permission: procurement.stock_transport.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The stock transport order.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransportOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/stock-transport-orders/{id}:postGoodsIssue":
+    post:
+      operationId: postStockTransportGoodsIssue
+      tags:
+        - procurement
+      summary: Post the goods issue of a stock transport order
+      description: "Posts an open stock transport order's goods issue (ADR-0082 As built S2h; SAP's 351, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order no longer `open`, 409 `procurement.stock_transport_issued`). Every item's quantity leaves its supplying storage location and is in transit to its receiving storage location, as one material document of movement type `351` (`issue_document_id`), posted on the company's date today in its time zone and numbered from its `material_document` range, its `reference` the order's number; its lines in transit (`in_transit`) are neither plant's stock (`listStock`) but the receiving plant's valuation. Each item is checked as at the order's creation, the material active and valued in both plants (422 `inventory.no_valuation`), the supplying location's stock enough (409 `inventory.insufficient_stock`) and counted by no open physical inventory document (409 `inventory.posting_blocked`). The issue takes the supplying stock's value as an issue does, and the stock in transit is worth what it took (at a standard price in the receiving plant, its quantity at the price, the rest a price difference), posted in one WA journal entry between the valuation classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422 `ledger.period_not_open`). The order is `in_transit`. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it. Human-only (`x-agent: false`)."
+      x-permission: procurement.stock_transport.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.currency_mismatch
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - procurement.stock_transport_issued
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The stock transport order, in transit.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransportOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/stock-transport-orders/{id}:postGoodsReceipt":
+    post:
+      operationId: postStockTransportGoodsReceipt
+      tags:
+        - procurement
+      summary: Post the goods receipt of a stock transport order
+      description: "Posts the goods receipt of a stock transport order in transit (ADR-0082 As built S2h; SAP's 101 for the order, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order not `in_transit`, 409 `procurement.stock_transport_not_in_transit`). Every item's quantity leaves the stock in transit to its receiving storage location and enters that location's stock, as one material document of movement type `101` (`receipt_document_id`), posted on the company's date today and numbered from its `material_document` range, its `reference` the order's number: the storage location still active (422 `inventory.storage_location_invalid`), the material kept there (422 `inventory.storage_location_not_extended`; a material blocked since the issue is still received), and no open physical inventory document counting it there (409 `inventory.posting_blocked`). It stays in the receiving plant's valuation, so it moves no value and posts no journal entry. The order is `received` and changes no more. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it. Human-only (`x-agent: false`)."
+      x-permission: procurement.stock_transport.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.currency_mismatch
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.unknown_unit
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - procurement.stock_transport_not_in_transit
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The stock transport order, received.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransportOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/revenue-contracts/{id}/schedule":
     get:
       operationId: getRevenueSchedule
@@ -26314,9 +26725,9 @@ paths:
         - receivables.reference_not_allowed
         - receivables.tax_changed
         # receivables.tax_jurisdiction_not_levied and .tax_jurisdiction_required are the item's jurisdiction's refusals (ADR-0063),
-        # listed for every operation that enters a customer invoice; posting a billing document is not expected to reach them, sales
-        # refusing an item whose code levies its lines' subdivision (sales.tax_jurisdiction_not_supported) and its items naming none,
-        # unless the code's configuration came to levy it between the order's date and the posting.
+        # listed for every operation that enters a customer invoice; posting a billing document is not expected to reach them, the
+        # order's items naming a jurisdiction exactly where their codes levy one (sales.tax_jurisdiction_required, _not_levied) and
+        # billing checking it again on the billing date, unless the code's configuration changes between the billing and the posting.
         - receivables.tax_jurisdiction_not_levied
         - receivables.tax_jurisdiction_required
         - receivables.unknown_currency
@@ -27361,7 +27772,7 @@ paths:
       tags:
         - einvoicing
       summary: Fetch e-invoices from the provider now
-      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`), the request audited in the caller's name (`einvoicing.fetch.request`, the Operation its object, with the connector), and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in or Evatra's `stage` sandbox (422 `integration.adapter_not_certified`), and an Evatra connector whose credentials are not a JSON object with `apiKey` and `email` (422 `integration.secret_unavailable`). An Evatra connector (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received for each company's TIN in the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the acknowledgement is local only and a fetch leaves out what is recorded and acknowledged, and Evatra refusing the credentials fails the fetch with `integration.secret_unavailable`. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
+      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`), the request audited in the caller's name (`einvoicing.fetch.request`, the Operation its object, with the connector), and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. Then the fetch processes every document of the connector not processed yet, oldest first (T65c, ADR-0061 §5): it reads it as PINT AE (no DTD, no entity expanded) and refuses it, `refused` with its `problem_code` and `problem_detail`, an audit record and EInvoiceChanged, when it is unreadable, not a tax invoice 380 or tax credit note 381 following PINT AE, lacks a field the ERP reads, states an amount with more decimals than its currency has, does not add up without any tax rule, or is not addressed to the company (its buyer's electronic address IBT-049 the company's participant, its buyer's TRN IBT-048 the company's FTA registration on its issue date); a valid one stays `received`, with what was read (number, kind, issue date, currency, gross, specification) and the release validated against, for entering (T65d). When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch refused; `waiting`: the connector's documents left unprocessed, waiting for the company's setup) and its `resource` the list of the documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded, since its bytes cannot be kept), which the next fetch meets again. A failure processing the documents fails the Operation with `platform.unavailable`, the documents recorded and left for the next fetch to process; a document whose stored bytes are gone or differ fails it with `einvoicing.document_changed` naming it, the others processed. A document whose company the connector no longer names, or which is dated before the company's FTA registration, is left unprocessed until the setup is completed. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in or Evatra's `stage` sandbox (422 `integration.adapter_not_certified`), and an Evatra connector whose credentials are not a JSON object with `apiKey` and `email` (422 `integration.secret_unavailable`). An Evatra connector (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received for each company's TIN in the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the acknowledgement is local only and a fetch leaves out what is recorded and acknowledged, and Evatra refusing the credentials fails the fetch with `integration.secret_unavailable`. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
       x-permission: einvoicing.einvoice.manage
       x-agent: false
       x-problem-codes:
@@ -27421,7 +27832,7 @@ paths:
       tags:
         - einvoicing
       summary: List e-invoices
-      description: "The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest received first: those of the companies the caller may act in, and, to a caller who may act in every company, those addressed to none of the connector's companies. Each carries its connector by id and name, its company by id, code and name, the provider's message id and the participant it was listed for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it, when it was received and acknowledged, and the hash of other bytes the provider delivered later under its id (`changed_sha256`, T65b). Its bytes as received are `getEInvoiceContent`. Filters: company, connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d), which add it here."
+      description: "The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest received first: those of the companies the caller may act in, and, to a caller who may act in every company, those addressed to none of the connector's companies. Each carries its connector by id and name, its company by id, code and name, the provider's message id and the participant it was listed for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it, when it was received and acknowledged, and the hash of other bytes the provider delivered later under its id (`changed_sha256`, T65b). Its bytes as received are `getEInvoiceContent`. Filters: company, connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. Once processed (T65c) each carries what was read of it (number, kind, issue date, currency, gross, specification), when, by which fetch and against which release, and, when refused, its problem code and detail; the supplier and the entered invoice come with T65d."
       x-permission: einvoicing.einvoice.read
       x-problem-codes:
         - request.invalid_order_by
@@ -61916,6 +62327,7 @@ components:
         price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the unit price refers to; 1 when absent. It is sent with `unit_price` alone: a price from the price records comes with its own, so an item that sends `price_unit` without `unit_price` is refused (422 `request.validation_failed` naming `items[i].price_unit`)."}
         account_id: {type: string, format: uuid, description: "The revenue account the item credits when it is billed: one that can be posted in the company (`GET /v1/accounts`)."}
         tax_code: {type: string, minLength: 1, maxLength: 20, description: "An output tax code of the company with a rate in force on the document's date; absent: the item bears no tax. The tax is calculated when the item is billed."}
+        tax_jurisdiction: {type: string, pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$", description: "The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`; ADR-0049 §7, ADR-0067 As built, the emirate on a sales item): for a UAE sale, the emirate the VAT 201's boxes 1a-1g report it in. Required with a tax code whose component levies its lines' subdivision (the UAE's `S5`; 422 `sales.tax_jurisdiction_required`), a subdivision of that component's country and, where the component lists the subdivisions it accepts, one of them; with any other code, or none, it is refused (422 `sales.tax_jurisdiction_not_levied`). Both name `items[i].tax_jurisdiction`. It is entered, not derived from an address. The customer invoice its billing posts names it on the item.", example: AE-DU}
     SalesItem:
       type: object
       description: "An item of a quotation (ADR-0067 §3), with its net value."
@@ -61943,6 +62355,7 @@ components:
         account_number: {type: string, description: "The account's number.", readOnly: true}
         account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
         tax_code: {type: string, description: "The item's output tax code; absent: it bears no tax.", readOnly: true}
+        tax_jurisdiction: {type: string, description: "The province or emirate the item's tax is levied in (ISO 3166-2, `AE-DU`), as entered; absent unless its tax code levies its lines' subdivision. A billing document's item has its order item's, which the customer invoice it posts names.", readOnly: true}
     SalesCondition:
       type: object
       description: "A condition applied to a sales item by the pricing procedure (ADR-0067 §11): the price, or a discount taken off the value before it."
@@ -62245,6 +62658,7 @@ components:
         upload_id: {type: string, format: uuid, description: "A direct upload of the document (`createSalesOrderUpload`: purpose `sales_order`, a PDF or plain text, at most 50 MB), consumed by this capture. An upload that does not exist, or that another tenant started, is 404 `request.not_found`; 422 `payables.upload_empty` when nothing was uploaded to it yet, `payables.upload_purpose` when it is for another purpose; captured again into the same company, it answers the order it gave; into another, 422 `payables.upload_used`."}
         account_id: {type: string, format: uuid, description: "The revenue account every item of the order is billed to (`GET /v1/accounts/{id}`): postable in the company (422 `sales.account_not_postable`)."}
         tax_code: {type: string, maxLength: 20, description: "The output tax code every item is billed with: an output tax code of the company in force on the order's date (422 `sales.unknown_tax_code`); absent, the items have none."}
+        tax_jurisdiction: {type: string, pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$", description: "The province or emirate every item's tax is levied in (ISO 3166-2, `AE-DU`; `SalesItemCreate`'s `tax_jurisdiction`): required with a `tax_code` that levies its lines' subdivision (422 `sales.tax_jurisdiction_required`), refused with any other code or none (422 `sales.tax_jurisdiction_not_levied`); both name `tax_jurisdiction`.", example: AE-DU}
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
           upload_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5df1"
@@ -62999,6 +63413,7 @@ components:
         account_number: {type: string, description: "The account's number.", readOnly: true}
         account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
         tax_code: {type: string, description: "The billing item's output tax code, which the credit memo's tax is calculated with; absent when the item has none.", readOnly: true}
+        tax_jurisdiction: {type: string, description: "The sales order item's province or emirate (ISO 3166-2, `AE-DU`), which the credit memo's item names; absent unless its tax code levies its lines' subdivision.", readOnly: true}
     CreditMemoRequest:
       description: "A credit memo request (sales, ADR-0067, As built T85c, T85d): what a sales administrator asks to be credited to the customer of a posted billing document's items, for a returns order's received quantities at their billed amount or as an amount per item with a reason. Amounts are net; the tax is the customer credit memo's. It is `open` until a sales manager approves or rejects it, once; an approved request is posted once as a customer credit memo (`postCreditMemoRequest`), which it then names. Its `version` moves with the decision and the posting."
       allOf:
@@ -64073,7 +64488,7 @@ components:
     MaterialDocumentLine:
       type: object
       description: "A line of a material document (SAP MSEG): one stock effect of an item at a storage location, in the material's base unit, signed (a receipt positive, an issue negative)."
-      required: [line_no, item_no, material_id, material_number, material_description, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, quantity, entry_quantity]
+      required: [line_no, item_no, material_id, material_number, material_description, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, quantity, entry_quantity, in_transit]
       properties:
         line_no: {type: integer, format: int32, description: "The line's number in the document, from 1.", readOnly: true}
         item_no: {type: integer, format: int32, description: "The item of the request it stands for, from 1: a transfer's item has two lines; on a reversal, the original's item.", readOnly: true}
@@ -64090,6 +64505,7 @@ components:
         entry_quantity: {$ref: "#/components/schemas/Quantity", description: "The item's quantity as it was entered, positive, in the unit it was entered in.", readOnly: true}
         cost_center_id: {type: string, format: uuid, description: "The cost center of an issue to a cost center or a scrapping; absent on other lines.", readOnly: true}
         cost_center_code: {type: string, description: "The cost center's code; absent with it.", readOnly: true}
+        in_transit: {type: boolean, description: "Whether the line moves stock in transit to its storage location of its plant (a stock transport order's, S2h: into transit on its goods issue, 351, out of it on its goods receipt, 101) rather than the stock at that location; stock in transit is in the plant's valuation but in no location's stock (`listStock`).", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "What the line moves in value on the material's valuation in the plant, signed as its quantity is (S1d); absent on a document posted before materials were valued.", readOnly: true}
         price_difference: {$ref: "#/components/schemas/Money", description: "What the line is valued at beyond `amount`: a standard-priced receipt's or transfer's price difference, or what a reversal gives back beyond the stock's value (S1d); absent with `amount`.", readOnly: true}
     MaterialDocument:
@@ -64104,7 +64520,7 @@ components:
         fiscal_year: {type: integer, format: int32, description: "The fiscal year of its posting date, which its number is of.", readOnly: true}
         movement_type:
           type: string
-          x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "701", "702"]
+          x-extensible-enum: ["101", "102", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "701", "702"]
           description: "Its movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         movement_type_name: {type: string, description: "What the movement type is, in English.", readOnly: true}
@@ -64117,7 +64533,7 @@ components:
         journal_entry_id: {type: string, format: uuid, description: "The journal entry that posted its value (`GET /v1/journal-entries/{id}`); absent when it moved none.", readOnly: true}
         journal_entry_year: {type: integer, format: int32, description: "That entry's fiscal year; absent with it.", readOnly: true}
         journal_entry_number: {type: string, description: "That entry's document number; absent with it.", readOnly: true}
-        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). Absent on every other document.", readOnly: true}
+        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number` (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on every other document.", readOnly: true}
         lines:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocumentLine"}
@@ -64403,6 +64819,132 @@ components:
           type: array
           items: {$ref: "#/components/schemas/OutboundDelivery"}
           description: The outbound deliveries on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    StockTransportOrderItemInput:
+      type: object
+      description: "An item of a stock transport order to create: a quantity of a material from a storage location of the supplying plant to one of the receiving plant."
+      required: [material_id, quantity, supplying_storage_location_id, receiving_storage_location_id]
+      additionalProperties: false
+      properties:
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`)."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity ordered, positive, in one of the material's units."}
+        supplying_storage_location_id: {type: string, format: uuid, description: "The storage location it is issued from, under the supplying plant."}
+        receiving_storage_location_id: {type: string, format: uuid, description: "The storage location it is received at, under the receiving plant."}
+    StockTransportOrderCreate:
+      type: object
+      description: "A stock transport order to create: the supplying and receiving plants, two plants of one company, and its items."
+      required: [supplying_plant_id, receiving_plant_id, items]
+      additionalProperties: false
+      properties:
+        supplying_plant_id: {type: string, format: uuid, description: "The plant the stock is issued from (`GET /v1/org-units/{id}`)."}
+        receiving_plant_id: {type: string, format: uuid, description: "The plant it is received at, another plant of the same company."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: "#/components/schemas/StockTransportOrderItemInput"}
+          description: "Its items, a material once each."
+    StockTransportOrderItem:
+      type: object
+      description: "An item of a stock transport order: a quantity of a material from a storage location of the supplying plant to one of the receiving plant."
+      required: [item_no, material_id, material_number, material_description, quantity, base_quantity, in_transit_quantity, supplying_storage_location_id, supplying_storage_location_code, supplying_storage_location_name, receiving_storage_location_id, receiving_storage_location_code, receiving_storage_location_name]
+      properties:
+        item_no: {type: integer, format: int32, description: "The item's number in the order, from 1.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
+        material_number: {type: string, description: "The material's number.", readOnly: true}
+        material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity ordered, in the unit it was ordered in.", readOnly: true}
+        base_quantity: {$ref: "#/components/schemas/Quantity", description: "The same in the material's base unit, which its stock is kept in.", readOnly: true}
+        in_transit_quantity: {$ref: "#/components/schemas/Quantity", description: "What of it is in transit, in the base unit: the base quantity from its goods issue until its goods receipt, zero before and after.", readOnly: true}
+        supplying_storage_location_id: {type: string, format: uuid, description: "The storage location it is issued from.", readOnly: true}
+        supplying_storage_location_code: {type: string, description: "That storage location's code.", readOnly: true}
+        supplying_storage_location_name: {type: string, description: "That storage location's name, as it is now.", readOnly: true}
+        receiving_storage_location_id: {type: string, format: uuid, description: "The storage location it is received at.", readOnly: true}
+        receiving_storage_location_code: {type: string, description: "That storage location's code.", readOnly: true}
+        receiving_storage_location_name: {type: string, description: "That storage location's name, as it is now.", readOnly: true}
+    StockTransportOrder:
+      type: object
+      description: "A stock transport order within a company (SAP's purchasing document type UB, from memory): materials ordered from one plant to another of the same company, issued into stock in transit and received out of it. Never deleted; it changes only by its goods issue and receipt."
+      required: [id, number, legal_entity_id, company_code, fiscal_year, order_date, supplying_plant_id, supplying_plant_code, supplying_plant_name, receiving_plant_id, receiving_plant_code, receiving_plant_name, status, items, version, created_at, created_by, updated_at, updated_by]
+      properties:
+        id: {type: string, format: uuid, readOnly: true, description: "The order's id."}
+        number: {type: string, description: "Its number in its company's `stock_transport_order` range of its fiscal year.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company of its plants.", readOnly: true}
+        company_code: {type: string, description: "That company's code.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of its order date, which its number is of.", readOnly: true}
+        order_date: {type: string, format: date, description: "The company's date it was created on.", readOnly: true}
+        supplying_plant_id: {type: string, format: uuid, description: "The plant it is issued from.", readOnly: true}
+        supplying_plant_code: {type: string, description: "That plant's code.", readOnly: true}
+        supplying_plant_name: {type: string, description: "That plant's name, as it is now.", readOnly: true}
+        receiving_plant_id: {type: string, format: uuid, description: "The plant it is received at.", readOnly: true}
+        receiving_plant_code: {type: string, description: "That plant's code.", readOnly: true}
+        receiving_plant_name: {type: string, description: "That plant's name, as it is now.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [open, in_transit, received]
+          description: "`open` until its goods issue, `in_transit` until its goods receipt, then `received`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        issue_document_id: {type: string, format: uuid, description: "Its goods issue's material document (351, `GET /v1/material-documents/{id}`), whose `journal_entry_id` moved the value to the receiving plant; absent while it is open.", readOnly: true}
+        issue_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
+        issue_date: {type: string, format: date, description: "The company's date its goods issue was posted on; absent with it.", readOnly: true}
+        receipt_document_id: {type: string, format: uuid, description: "Its goods receipt's material document (101); absent until it is received.", readOnly: true}
+        receipt_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
+        receipt_date: {type: string, format: date, description: "The company's date its goods receipt was posted on; absent with it.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/StockTransportOrderItem"}
+          description: "Its items, by item number."
+          readOnly: true
+        version: {type: integer, format: int32, description: "Its version, which every change moves (`If-Match`).", readOnly: true}
+        created_at: {type: string, format: date-time, readOnly: true, description: "When it was created."}
+        created_by: {type: string, format: uuid, readOnly: true, description: "Who created it."}
+        updated_at: {type: string, format: date-time, readOnly: true, description: "When it last changed."}
+        updated_by: {type: string, format: uuid, readOnly: true, description: "Who last changed it."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e21"
+          number: TO000001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          fiscal_year: 2026
+          order_date: "2026-11-20"
+          supplying_plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          supplying_plant_code: P100
+          supplying_plant_name: Toronto plant
+          receiving_plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          receiving_plant_code: P200
+          receiving_plant_name: Montreal plant
+          status: in_transit
+          issue_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          issue_document_number: MD000007
+          issue_date: "2026-11-20"
+          items:
+            - item_no: 1
+              material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+              material_number: MA000002
+              material_description: Hex bolt M10
+              quantity: {value: "200", unit: EA}
+              base_quantity: {value: "200", unit: EA}
+              in_transit_quantity: {value: "200", unit: EA}
+              supplying_storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+              supplying_storage_location_code: SL01
+              supplying_storage_location_name: Main store
+              receiving_storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d82"
+              receiving_storage_location_code: SL03
+              receiving_storage_location_name: Montreal store
+          version: 2
+          created_at: "2026-11-20T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-20T10:20:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    StockTransportOrderPage:
+      type: object
+      description: One page of stock transport orders.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/StockTransportOrder"}
+          description: The stock transport orders on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     MaterialValuationCreate:
       type: object
@@ -65476,7 +66018,24 @@ components:
         legal_entity_id: {type: [string, 'null'], format: uuid, description: "The connector's company of that participant; null when the document is addressed to none of them."}
         company_code: {type: [string, 'null'], description: "The company's code; null with `legal_entity_id`."}
         company_name: {type: [string, 'null'], description: "The company's name; null with `legal_entity_id`."}
-        status: {type: string, description: "Open enum: received (recorded, not yet processed). The processing slices add entered, held, refused and dismissed (ADR-0061 §7)."}
+        status: {type: string, description: "Open enum: received (recorded; once processed, read as a PINT AE document and found valid, waiting to be entered) or refused (T65c: read and refused by validation, `problem_code` and `problem_detail` saying why; kept, never entered, final). The later slices add entered, held and dismissed (ADR-0061 §7)."}
+        processed_at: {type: string, format: date-time, description: "When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing it or leaving it received. Omitted until then; every fetch processes the documents of its connector not processed yet."}
+        processed_fetch_operation_id: {type: string, format: uuid, description: "The fetch that processed it: its Operation's id. Omitted with `processed_at`."}
+        validated_against: {type: string, description: "The release of the PINT AE rules it was validated against (ADR-0061 §5 C2), such as `PINT AE Billing 1.0.4`. Omitted with `processed_at`."}
+        problem_code:
+          type: string
+          x-extensible-enum: [einvoicing.unreadable, einvoicing.unsupported_document, einvoicing.missing_field, einvoicing.amount_precision, einvoicing.totals_inconsistent, einvoicing.not_addressed_to_company]
+          description: "Why it was refused (ADR-0061 §5): unreadable (not well-formed XML, or declaring a DTD or an entity, never expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by its business term), amount_precision (an amount with more decimals than its currency's minor unit), totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT total, with the figures), not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        problem_detail: {type: string, maxLength: 2000, description: "What was found, for a person to take up with the supplier (no TRN in clear). Omitted unless refused."}
+        document_number: {type: string, description: "The document's number as it states it (IBT-001). Omitted until processed, and for a document that could not be read."}
+        document_kind:
+          type: string
+          x-extensible-enum: [invoice, credit_note]
+          description: "invoice (a tax invoice, 380) or credit_note (a tax credit note, 381). Omitted with `document_number`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        issue_date: {type: string, format: date, description: "Its issue date (IBT-002). Omitted with `document_number`."}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "Its currency (IBT-005). Omitted with `document_number`."}
+        gross_amount: {$ref: "#/components/schemas/Money"}
+        specification: {type: string, description: "The specification it states it follows (IBT-024, CustomizationID). Omitted with `document_number`."}
         sha256: {type: string, pattern: "^[0-9a-f]{64}$", description: The SHA-256 of its bytes as received, hex.}
         size: {type: integer, format: int64, description: The size of its bytes as received.}
         fetch_operation_id: {type: string, format: uuid, description: "The fetch that recorded it: its Operation's id."}

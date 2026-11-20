@@ -220,6 +220,13 @@ func TestCaptureOrderRefusals(t *testing.T) {
 		}, 422, "sales.account_not_postable", "account_id", false},
 		{"an unknown tax code", reader{ext: purchaseOrder()}, func(e env, upload string) string { return e.captureBody(upload, `, "tax_code": "ZZ"`) },
 			422, "sales.unknown_tax_code", "tax_code", false},
+		{"a code levying its lines' subdivision without a jurisdiction", reader{ext: purchaseOrder()},
+			func(e env, upload string) string { return e.captureBody(upload, `, "tax_code": "AJ"`) }, 422, "sales.tax_jurisdiction_required", "tax_jurisdiction", false},
+		{"a jurisdiction its code does not levy", reader{ext: purchaseOrder()},
+			func(e env, upload string) string {
+				return e.captureBody(upload, `, "tax_code": "A1", "tax_jurisdiction": "DE-BY"`)
+			},
+			422, "sales.tax_jurisdiction_not_levied", "tax_jurisdiction", false},
 		{"without a model", nil, nil, 503, "platform.unavailable", "", false},
 		{"an unknown upload", reader{ext: purchaseOrder()}, func(e env, _ string) string { return e.captureBody(uuid.NewString(), "") },
 			404, "request.not_found", "", false},

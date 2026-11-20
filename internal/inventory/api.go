@@ -19,7 +19,7 @@ import (
 // lines name.
 func documentAPI(d Document, r refs) gen.MaterialDocument {
 	out := gen.MaterialDocument{ID: d.ID, Number: d.Number, LegalEntityID: d.LegalEntityID, CompanyCode: r.companies[d.LegalEntityID].Code,
-		FiscalYear: int32(d.FiscalYear), MovementType: d.MovementType, MovementTypeName: movementTypes[d.MovementType].name, PostingDate: d.PostingDate,
+		FiscalYear: int32(d.FiscalYear), MovementType: d.MovementType, MovementTypeName: d.typeName(), PostingDate: d.PostingDate,
 		HeaderText: apitypes.OptString(d.HeaderText), ReversalOfID: apitypes.OptUUID(d.ReversalOfID), ReversalOfNumber: apitypes.OptString(d.ReversalOfNumber),
 		ReversedByID: apitypes.OptUUID(d.ReversedByID), ReversedByNumber: apitypes.OptString(d.ReversedByNumber), CreatedAt: d.CreatedAt, CreatedBy: d.CreatedBy,
 		JournalEntryID: apitypes.OptUUID(d.EntryID), JournalEntryNumber: apitypes.OptString(d.EntryNumber), Reference: apitypes.OptString(d.Reference),
@@ -32,7 +32,7 @@ func documentAPI(d Document, r refs) gen.MaterialDocument {
 		line := gen.MaterialDocumentLine{LineNo: int32(l.LineNo), ItemNo: int32(l.ItemNo), MaterialID: l.MaterialID, MaterialNumber: m.Number,
 			MaterialDescription: m.Description, PlantID: l.PlantID, PlantCode: plant.Code, PlantName: plant.Name, StorageLocationID: l.StorageLocationID,
 			StorageLocationCode: loc.Code, StorageLocationName: loc.Name, Quantity: gen.Quantity{Value: l.Quantity, Unit: m.BaseUnit},
-			EntryQuantity: gen.Quantity{Value: l.EntryQuantity, Unit: l.EntryUnit}, CostCenterID: apitypes.OptUUID(l.CostCenterID)}
+			EntryQuantity: gen.Quantity{Value: l.EntryQuantity, Unit: l.EntryUnit}, CostCenterID: apitypes.OptUUID(l.CostCenterID), InTransit: l.InTransit}
 		if l.CostCenterID != nil {
 			line.CostCenterCode = gen.NewOptString(r.centers[*l.CostCenterID].Code)
 		}
@@ -188,7 +188,7 @@ func (e *Endpoints) ListStock(ctx context.Context, params gen.ListStockParams) (
 				CASE WHEN $1::date IS NULL THEN s.quantity ELSE (SELECT coalesce(sum(m.quantity), 0) FROM inventory.movement m
 					JOIN inventory.material_document d ON d.tenant_id = m.tenant_id AND d.id = m.material_document_id
 					WHERE m.tenant_id = s.tenant_id AND m.material_id = s.material_id AND m.plant_id = s.plant_id
-						AND m.storage_location_id = s.storage_location_id AND d.posting_date <= $1) END AS qty
+						AND m.storage_location_id = s.storage_location_id AND NOT m.in_transit AND d.posting_date <= $1) END AS qty
 			FROM inventory.stock s WHERE ($2 OR s.legal_entity_id = ANY($3)) AND ($4::uuid IS NULL OR s.material_id = $4)
 				AND ($5::uuid IS NULL OR s.plant_id = $5) AND ($6::uuid IS NULL OR s.storage_location_id = $6)) x
 		WHERE qty <> 0`, []any{asOf, a.All, a.IDs, material, plant, loc})
