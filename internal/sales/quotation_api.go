@@ -83,7 +83,7 @@ func itemInputs(items []gen.SalesItemCreate) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
 		out[i] = ItemInput{ItemKey: apitypes.Ptr[string](it.ItemKey), MaterialID: apitypes.Ptr[uuid.UUID](it.MaterialID), Description: it.Description.Value, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit,
-			PriceUnit: it.PriceUnit.Or(0), AccountID: it.AccountID, TaxCode: apitypes.Ptr[string](it.TaxCode)}
+			PriceUnit: it.PriceUnit.Or(0), AccountID: it.AccountID, TaxCode: apitypes.Ptr[string](it.TaxCode), TaxJurisdiction: apitypes.Ptr[string](it.TaxJurisdiction)}
 		if p, ok := it.UnitPrice.Get(); ok {
 			out[i].UnitPrice = &Amount{Value: p.Amount, Currency: p.Currency}
 		}
@@ -125,7 +125,7 @@ func itemAPI(it Item, currency string, exp int, refs references) gen.SalesItem {
 	return gen.SalesItem{ItemNo: it.ItemNo, ItemKey: apitypes.OptString(it.ItemKey), MaterialID: apitypes.OptUUID(it.MaterialID), Description: it.Description,
 		Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, currency, exp), PriceUnit: it.PriceUnit,
 		PriceSource: it.PriceSource, Conditions: conditions, NetAmount: apitypes.Money(it.Net, currency, exp), AccountID: it.AccountID, AccountNumber: account.Number, AccountName: account.Name,
-		TaxCode: apitypes.OptString(it.TaxCode)}
+		TaxCode: apitypes.OptString(it.TaxCode), TaxJurisdiction: apitypes.OptString(it.TaxJurisdiction)}
 }
 
 // quotationAPI is a quotation as the API gives it, with what it names by

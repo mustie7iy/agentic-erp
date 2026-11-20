@@ -94,6 +94,30 @@ func (t TaxCode) CheckJurisdiction(j *string) (JurisdictionFault, TaxComponent) 
 	return JurisdictionOK, c
 }
 
+// RefuseItemJurisdiction is CheckJurisdiction's refusal of the
+// jurisdiction j that a subledger document's item carrying the code
+// names, nil for none: the zero TaxCode is an item without a code. A
+// customer invoice's item and a sales document's are held to it alike
+// (ADR-0063 As built, the emirate on the item; ADR-0067 As built, the
+// emirate on a sales item), each with its context's codes: required when
+// the code levies its items' subdivision and the item names none,
+// notLevied when it names one the code does not levy; both are 422
+// naming field. nil when the item names one exactly as its code asks.
+func (t TaxCode) RefuseItemJurisdiction(j *string, field, required, notLevied string) error {
+	switch fault, c := t.CheckJurisdiction(j); fault {
+	case JurisdictionOK: // named, or not, as the item's code asks
+	case JurisdictionRequired:
+		return problem.Invalid(required, field, "Tax code "+t.Code+
+			" levies the tax of the subdivision each item names: name the province or emirate ("+c.Jurisdiction+"-…).")
+	case JurisdictionNotLevied:
+		return problem.Invalid(notLevied, field, "Jurisdiction "+*j+
+			" is not one the item's tax code levies: an item names one only with a code that levies its lines' subdivision, and one of that code's country.")
+	case JurisdictionNotAccepted:
+		return problem.Invalid(notLevied, field, "Tax code "+t.Code+" does not levy jurisdiction "+*j+": it levies "+strings.Join(c.Subdivisions, ", ")+".")
+	}
+	return nil
+}
+
 // checkJurisdictions requires a line's jurisdiction exactly where its
 // code's component levies the line's subdivision (422
 // ledger.jurisdiction_required), and then one of that component's country

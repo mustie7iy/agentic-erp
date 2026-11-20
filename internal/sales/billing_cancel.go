@@ -173,8 +173,8 @@ func (e *Endpoints) cancellation(ctx context.Context, b BillingDocument, given *
 // customer and currency, the cancellation's date as its date and posting
 // date, the invoice as the one it credits (it keeps the invoice's payment
 // term), the invoice's items one for one, each with the billing item's
-// description, account, amount and tax code and the tax the invoice's
-// item bore, so the credit memo's net, tax and gross are the invoice's to
+// description, account, amount and tax code and the tax and jurisdiction
+// the invoice's item bore, so the credit memo's net, tax and gross are the invoice's to
 // the minor unit; the cancellation is its source. Receivables posts Cr the
 // customer's reconciliation account, Dr each item's account and output
 // tax. A refusal names the document and its fields (asPosting).
@@ -189,7 +189,8 @@ func (e *Endpoints) reversal(ctx context.Context, c *cancelling, b BillingDocume
 	for i, it := range b.Items {
 		tax := invoice.Items[i].Tax // the invoice's items are the document's one for one (T79b)
 		in.Items[i] = receivables.ItemInput{Description: &it.Description, AccountID: it.AccountID,
-			Net: receivables.Amount{Value: it.Net.Plain(b.Exponent), Currency: b.Currency}, TaxCode: it.TaxCode, Tax: &tax}
+			Net: receivables.Amount{Value: it.Net.Plain(b.Exponent), Currency: b.Currency}, TaxCode: it.TaxCode,
+			TaxJurisdiction: invoice.Items[i].TaxJurisdiction, Tax: &tax}
 	}
 	lead := "Billing document " + b.DocumentNumber + " cannot be cancelled by a customer credit memo: "
 	draft, err := e.Invoices.CreateInvoice(ctx, in)

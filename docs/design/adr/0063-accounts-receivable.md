@@ -852,7 +852,9 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   `sales.tax_jurisdiction_not_supported`, so the invoice T79b's posting
   enters (batch 71: merged after it) has no item that must name a
   jurisdiction and names none; passing the emirate through sales is a
-  later slice.
+  later slice. (Built in batch 85: ADR-0067 As built, the emirate on a
+  sales item; the item's check is `ledger.TaxCode.RefuseItemJurisdiction`,
+  shared with sales, its refusals and fields unchanged.)
 
 ### T75f Partial payment: residual items and payment differences within tolerance (migrations 000350, 000351)
 The first variant of §6 (product owner 16–17 November 2026: variants

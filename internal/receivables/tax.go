@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"strings"
 	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -132,27 +131,18 @@ func (e *Endpoints) outputCode(ctx context.Context, le tenancy.Entity, date time
 
 // jurisdiction holds the tax jurisdiction item i names to its tax code,
 // the zero code for an item without one, as the ledger holds a line's
-// (ledger.TaxCode.CheckJurisdiction; ADR-0049 §7, ADR-0063 §4 As built):
-// a code whose component levies the subdivision its lines name (one code
-// for every emirate) needs the item's (422
+// (ledger.TaxCode.RefuseItemJurisdiction; ADR-0049 §7, ADR-0063 §4 As
+// built): a code whose component levies the subdivision its lines name
+// (one code for every emirate) needs the item's (422
 // receivables.tax_jurisdiction_required), a subdivision of the
 // component's country and, where the component lists those it accepts,
 // one of them; an item of any other code, or of none, names no
 // jurisdiction (422 receivables.tax_jurisdiction_not_levied). Each names
 // items[i].tax_jurisdiction.
 func jurisdiction(i int, it Item, code ledger.TaxCode) error {
-	field := fmt.Sprintf("items[%d].tax_jurisdiction", i)
-	switch fault, c := code.CheckJurisdiction(it.TaxJurisdiction); fault {
-	case ledger.JurisdictionOK: // named, or not, as the item's code asks
-	case ledger.JurisdictionRequired:
-		return problem.Invalid("receivables.tax_jurisdiction_required", field, "Tax code "+code.Code+
-			" levies the tax of the subdivision each item names: name the province or emirate ("+c.Jurisdiction+"-…).")
-	case ledger.JurisdictionNotLevied:
-		return problem.Invalid("receivables.tax_jurisdiction_not_levied", field, "Jurisdiction "+*it.TaxJurisdiction+
-			" is not one the item's tax code levies: an item names one only with a code that levies its lines' subdivision, and one of that code's country.")
-	case ledger.JurisdictionNotAccepted:
-		return problem.Invalid("receivables.tax_jurisdiction_not_levied", field, "Tax code "+code.Code+" does not levy jurisdiction "+
-			*it.TaxJurisdiction+": it levies "+strings.Join(c.Subdivisions, ", ")+".")
+	if err := code.RefuseItemJurisdiction(it.TaxJurisdiction, fmt.Sprintf("items[%d].tax_jurisdiction", i),
+		"receivables.tax_jurisdiction_required", "receivables.tax_jurisdiction_not_levied"); err != nil {
+		return fmt.Errorf("receivables: jurisdiction of item %d: %w", i+1, err)
 	}
 	return nil
 }

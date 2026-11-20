@@ -45,6 +45,9 @@ type CreditItem struct {
 	Net            money.Minor `json:"net_amount"`
 	AccountID      uuid.UUID   `json:"account_id"`
 	TaxCode        *string     `json:"tax_code"`
+	// TaxJurisdiction is the order item's, which the credit memo's item
+	// names (ADR-0067 As built, the emirate on a sales item).
+	TaxJurisdiction *string `json:"tax_jurisdiction"`
 }
 
 // CreditMemoRequest is a row of sales.credit_memo_request with its items:
@@ -119,7 +122,7 @@ const requestSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.cust
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'billing_item_no', i.billing_item_no, 'order_item_no', d.order_item_no,
 			'item_key', t.item_key, 'description', t.description, 'unit', t.uom_code, 'quantity', trim_scale(i.quantity)::text,
 			'billed_quantity', trim_scale(d.quantity)::text, 'billed_amount', d.net_amount, 'net_amount', i.net_amount,
-			'account_id', t.account_id, 'tax_code', t.tax_code) ORDER BY i.item_no)
+			'account_id', t.account_id, 'tax_code', t.tax_code, 'tax_jurisdiction', t.tax_jurisdiction) ORDER BY i.item_no)
 		 FROM sales.credit_memo_request_item i
 		 JOIN sales.billing_document_item d ON d.tenant_id = i.tenant_id AND d.billing_document_id = i.billing_document_id AND d.item_no = i.billing_item_no
 		 JOIN sales.sales_order_item t ON t.tenant_id = d.tenant_id AND t.sales_order_id = d.sales_order_id AND t.item_no = d.order_item_no

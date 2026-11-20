@@ -513,7 +513,8 @@ Taken in T80f (§13):
 - **The emirate on a sales item** (product owner; scope): as on a customer
   invoice (ADR-0063, Questions), the UAE's one-code-for-every-emirate
   output codes are refused; selling under them needs a jurisdiction per
-  item. Not built, no leaf added.
+  item. Built in batch 85 (review:batch84): As built, the emirate on a
+  sales item.
 
 ## As built
 
@@ -557,7 +558,8 @@ Taken in T80f (§13):
   (`items[i].account_id`); a tax code that is no output code of the
   company with a rate on the quotation's date `sales.unknown_tax_code`
   (`items[i].tax_code`); one levying its lines' subdivision
-  `sales.tax_jurisdiction_not_supported`; an unknown currency
+  `sales.tax_jurisdiction_not_supported` (until migration 000416: As
+  built, the emirate on a sales item); an unknown currency
   `sales.unknown_currency`; values out of range `sales.amount_too_large`
   (`items`); no fiscal year for the date `ledger.no_fiscal_period`; no
   number range `config.no_number_range`. Answering: 409
@@ -2128,3 +2130,74 @@ document, each item with its cost. What outbound deliveries hold of an
 item (`in_delivery_quantity`) is open to no other delivery, and an order
 change, an item's removal and the order's cancellation are refused below
 or while it holds it.
+
+### The emirate on a sales item (review:batch84; migration 000416)
+
+A UAE company sells through sales orders under its standard-rated code
+`S5`, whose component levies each line's emirate (ADR-0049 §7: one code
+for every emirate, the VAT 201's boxes 1a-1g), so its billing documents
+post and E2 renders them (ADR-0061 As built E2, Gaps found, closed).
+- An item of a quotation, a sales order, an order change's new items or
+  a captured order (the request's, for every item, as its `tax_code` is)
+  names `tax_jurisdiction` (ISO 3166-2, `AE-DU`), held to its tax code by
+  the ledger's rule (`ledger.TaxCode.RefuseItemJurisdiction`, which
+  receivables' customer invoice items now share; ADR-0063 As built, the
+  emirate on the item): required with a code whose component levies its
+  lines' subdivision (422 `sales.tax_jurisdiction_required`), a
+  subdivision of the component's country and, where the component lists
+  the subdivisions it accepts (the emirate guard), one of them; refused
+  with any other code or none (422 `sales.tax_jurisdiction_not_levied`).
+  Both name `items[i].tax_jurisdiction` (`new_items[i]…` for an order
+  change, `tax_jurisdiction` for a capture); the contract's pattern
+  refuses another form, 400 `request.invalid_body`.
+  `sales.tax_jurisdiction_not_supported` is gone with the refusal it
+  named.
+- Migration 000416: `sales.quotation_item.tax_jurisdiction` and
+  `sales.sales_order_item.tax_jurisdiction`, nullable, only with a tax
+  code and in the form of a subdivision's code
+  (`quotation_item_tax_jurisdiction`,
+  `sales_order_item_tax_jurisdiction`; `TestSalesItemJurisdictionRules`).
+  An order item keeps it as it keeps its tax code (the column is not
+  among the application's grants, 000355); an order from a quotation
+  takes its items', an order change keeps a kept item's and checks it
+  again on the order's date, and a billing document's and a credit memo
+  request's items read it from the order item.
+- Billing: `createBillingDocument` holds each item's jurisdiction to its
+  code again on the billing date, the configuration having possibly
+  changed since the order's (422 `sales.order_item_not_billable` naming
+  the order and its item). Posting enters the customer invoice's items
+  with it, so the item's revenue line and its tax line in the ledger name
+  the emirate and the VAT 201 reads the sale there; a credit memo
+  request's credit memo names the order item's, a cancellation's credit
+  memo the cancelled invoice's item's.
+- **Decided by default:** (1) the jurisdiction is entered on the item,
+  not defaulted from an address. The lane brief asked for a default from
+  the ship-to address (ADR-0049's calculator port names one); no ship-to
+  address exists (a partner's address purposes are legal, remit_to,
+  order_from and ship_from), and ADR-0049 §11 As built, signed off on
+  2026-11-09, reads boxes 1a-1g by the emirate of the fixed establishment
+  that made the supply, which whoever posts it states; ADR-0063 As built
+  (decided by default 2) entered it on a customer invoice's item for that
+  reason. A default from the customer's address would report a sale in
+  the customer's emirate. Which emirate a sales item defaults to, if any,
+  is a question for the tax specialist and the product owner. (2) One
+  jurisdiction per item, as on a customer invoice: the order has no
+  header default. (3) The events carry totals, not items (§9), so none
+  names the jurisdiction.
+- Rolling upgrade (06 §6.4): 000416 is additive. An instance of the
+  previous release still refuses such a code at entry (422
+  `sales.tax_jurisdiction_not_supported`), shows no `tax_jurisdiction`,
+  and would bill an order item of such a code only for receivables to
+  refuse the posting (422 `receivables.tax_jurisdiction_required`):
+  nothing posts without its emirate. The down migration drops the
+  columns; a posted billing document keeps its jurisdictions on its
+  customer invoice and journal lines.
+- Tests: `TestSalesItemJurisdiction`, `TestOrderChangeKeepsJurisdiction`,
+  `TestCaptureOrderJurisdiction`, `TestBillingJurisdictionRechecked`,
+  `TestQuotationRefusals`, `TestCaptureOrderRefusals` (sales);
+  `TestSalesItemJurisdictionRules` (db). Walkthrough step 147,
+  `step_einvoice_billing`: Sally orders desks for step 145's Dubai
+  customer under S5, refused without its emirate and ordered with AE-DU;
+  the delivery is billed and posted, the customer invoice's item and its
+  entry's revenue and tax lines naming AE-DU, and the invoice renders as
+  a valid PINT AE tax invoice 380.

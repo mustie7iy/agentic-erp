@@ -38089,6 +38089,12 @@ func (s *BillingDocumentItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("order_item_no")
 		e.Int32(s.OrderItemNo)
 	}
@@ -38098,7 +38104,7 @@ func (s *BillingDocumentItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfBillingDocumentItem = [16]string{
+var jsonFieldsNameOfBillingDocumentItem = [17]string{
 	0:  "item_no",
 	1:  "item_key",
 	2:  "material_id",
@@ -38113,8 +38119,9 @@ var jsonFieldsNameOfBillingDocumentItem = [16]string{
 	11: "account_number",
 	12: "account_name",
 	13: "tax_code",
-	14: "order_item_no",
-	15: "credited_amount",
+	14: "tax_jurisdiction",
+	15: "order_item_no",
+	16: "credited_amount",
 }
 
 // Decode decodes BillingDocumentItem from json.
@@ -38122,7 +38129,7 @@ func (s *BillingDocumentItem) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode BillingDocumentItem to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -38288,8 +38295,18 @@ func (s *BillingDocumentItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
 			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
+			}
 		case "order_item_no":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.OrderItemNo = int32(v)
@@ -38301,7 +38318,7 @@ func (s *BillingDocumentItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"order_item_no\"")
 			}
 		case "credited_amount":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				if err := s.CreditedAmount.Decode(d); err != nil {
 					return err
@@ -38319,9 +38336,10 @@ func (s *BillingDocumentItem) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11111001,
-		0b11011111,
+		0b10011111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -95843,9 +95861,15 @@ func (s *CreditMemoRequestItem) encodeFields(e *jx.Encoder) {
 			s.TaxCode.Encode(e)
 		}
 	}
+	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfCreditMemoRequestItem = [13]string{
+var jsonFieldsNameOfCreditMemoRequestItem = [14]string{
 	0:  "item_no",
 	1:  "billing_item_no",
 	2:  "order_item_no",
@@ -95859,6 +95883,7 @@ var jsonFieldsNameOfCreditMemoRequestItem = [13]string{
 	10: "account_number",
 	11: "account_name",
 	12: "tax_code",
+	13: "tax_jurisdiction",
 }
 
 // Decode decodes CreditMemoRequestItem from json.
@@ -96013,6 +96038,16 @@ func (s *CreditMemoRequestItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
+			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
 			}
 		default:
 			return d.Skip()
@@ -268691,9 +268726,15 @@ func (s *SalesItem) encodeFields(e *jx.Encoder) {
 			s.TaxCode.Encode(e)
 		}
 	}
+	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfSalesItem = [14]string{
+var jsonFieldsNameOfSalesItem = [15]string{
 	0:  "item_no",
 	1:  "item_key",
 	2:  "material_id",
@@ -268708,6 +268749,7 @@ var jsonFieldsNameOfSalesItem = [14]string{
 	11: "account_number",
 	12: "account_name",
 	13: "tax_code",
+	14: "tax_jurisdiction",
 }
 
 // Decode decodes SalesItem from json.
@@ -268881,6 +268923,16 @@ func (s *SalesItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
 			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -268991,9 +269043,15 @@ func (s *SalesItemCreate) encodeFields(e *jx.Encoder) {
 			s.TaxCode.Encode(e)
 		}
 	}
+	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfSalesItemCreate = [8]string{
+var jsonFieldsNameOfSalesItemCreate = [9]string{
 	0: "item_key",
 	1: "material_id",
 	2: "description",
@@ -269002,6 +269060,7 @@ var jsonFieldsNameOfSalesItemCreate = [8]string{
 	5: "price_unit",
 	6: "account_id",
 	7: "tax_code",
+	8: "tax_jurisdiction",
 }
 
 // Decode decodes SalesItemCreate from json.
@@ -269009,7 +269068,7 @@ func (s *SalesItemCreate) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode SalesItemCreate to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -269095,6 +269154,16 @@ func (s *SalesItemCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
 			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
+			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
 		}
@@ -269104,8 +269173,9 @@ func (s *SalesItemCreate) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b01001000,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -269812,13 +269882,20 @@ func (s *SalesOrderCaptureRequest) encodeFields(e *jx.Encoder) {
 			s.TaxCode.Encode(e)
 		}
 	}
+	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfSalesOrderCaptureRequest = [4]string{
+var jsonFieldsNameOfSalesOrderCaptureRequest = [5]string{
 	0: "legal_entity_id",
 	1: "upload_id",
 	2: "account_id",
 	3: "tax_code",
+	4: "tax_jurisdiction",
 }
 
 // Decode decodes SalesOrderCaptureRequest from json.
@@ -269875,6 +269952,16 @@ func (s *SalesOrderCaptureRequest) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
+			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -271470,6 +271557,12 @@ func (s *SalesOrderItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxJurisdiction.Set {
+			e.FieldStart("tax_jurisdiction")
+			s.TaxJurisdiction.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("delivered_quantity")
 		s.DeliveredQuantity.Encode(e)
 	}
@@ -271493,7 +271586,7 @@ func (s *SalesOrderItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesOrderItem = [19]string{
+var jsonFieldsNameOfSalesOrderItem = [20]string{
 	0:  "item_no",
 	1:  "item_key",
 	2:  "material_id",
@@ -271508,11 +271601,12 @@ var jsonFieldsNameOfSalesOrderItem = [19]string{
 	11: "account_number",
 	12: "account_name",
 	13: "tax_code",
-	14: "delivered_quantity",
-	15: "in_delivery_quantity",
-	16: "billed_quantity",
-	17: "returned_quantity",
-	18: "removed_in_change",
+	14: "tax_jurisdiction",
+	15: "delivered_quantity",
+	16: "in_delivery_quantity",
+	17: "billed_quantity",
+	18: "returned_quantity",
+	19: "removed_in_change",
 }
 
 // Decode decodes SalesOrderItem from json.
@@ -271686,8 +271780,18 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_code\"")
 			}
+		case "tax_jurisdiction":
+			if err := func() error {
+				s.TaxJurisdiction.Reset()
+				if err := s.TaxJurisdiction.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_jurisdiction\"")
+			}
 		case "delivered_quantity":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				if err := s.DeliveredQuantity.Decode(d); err != nil {
 					return err
@@ -271697,7 +271801,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"delivered_quantity\"")
 			}
 		case "in_delivery_quantity":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				if err := s.InDeliveryQuantity.Decode(d); err != nil {
 					return err
@@ -271707,7 +271811,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"in_delivery_quantity\"")
 			}
 		case "billed_quantity":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				if err := s.BilledQuantity.Decode(d); err != nil {
 					return err
@@ -271717,7 +271821,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"billed_quantity\"")
 			}
 		case "returned_quantity":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				if err := s.ReturnedQuantity.Decode(d); err != nil {
 					return err
@@ -271747,8 +271851,8 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11111001,
-		0b11011111,
-		0b00000011,
+		0b10011111,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
