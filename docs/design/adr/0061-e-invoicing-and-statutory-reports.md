@@ -1516,7 +1516,11 @@ emulation answers the four calls below, scripted per filename
   the step keeps the status it found as awaited (`tax_data_awaited`) and
   goes on reading until the status moves from it, bounded by the 500
   reads, so an outcome Evatra shows only later (a TDD_REJECTED after the
-  retry) is still read (review round 1). A call that fails is tried again after
+  retry) is still read (review round 1); the transmission shows it
+  (`tax_data_awaited`), another request is refused meanwhile (409
+  `einvoicing.tax_data_request_pending`), the `tax_data_status` filter
+  leaves it out, and it is cleared once no longer followed (review
+  round 2). A call that fails is tried again after
   1, 5, 15 and 60 minutes; a 4xx other than 401 and 429 refuses it
   (`einvoicing.tax_data_refused`), the fifth failure fails it
   (`einvoicing.provider_unavailable`), a connector refused since fails it

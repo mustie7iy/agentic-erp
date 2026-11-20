@@ -368,7 +368,8 @@ func (n outgoingNames) transmissionAPI(s submission) gen.OutgoingEInvoiceTransmi
 		Attempts: int32(s.Attempts), Resends: int32(s.Resends), NextCheckAt: nilTime(s.NextCheckAt), SubmittedAt: nilTime(s.SubmittedAt),
 		CompletedAt: nilTime(s.CompletedAt), DeliveryStatus: nilString(s.DeliveryStatus), DeliveryDetail: nilString(s.DeliveryDetail),
 		DeliveredAt: nilTime(s.DeliveredAt), DeliveryOutcome: nilString(s.Outcome), TaxDataStatus: nilString(s.TaxDataStatus),
-		TaxDataAt: nilTime(s.TaxDataAt), TaxDataRequest: nilString(s.TaxDataRequest), FollowCheckAt: nilTime(s.FollowCheckAt), Version: s.Version}
+		TaxDataAt: nilTime(s.TaxDataAt), TaxDataRequest: nilString(s.TaxDataRequest),
+		TaxDataAwaited: nilString(s.TaxDataAwaited), FollowCheckAt: nilTime(s.FollowCheckAt), Version: s.Version}
 	if s.ProblemCode != nil {
 		out.Problem.SetTo(gen.OutgoingEInvoiceTransmissionProblem{Code: *s.ProblemCode, Detail: *s.ProblemDetail})
 	} else {
@@ -458,7 +459,7 @@ func (e *Endpoints) ListOutgoingEInvoices(ctx context.Context, params gen.ListOu
 		  AND ($7 = '' OR (SELECT `+deliveryOutcome+` FROM einvoicing.outgoing_submission s, einvoicing.outgoing_einvoice x
 		    WHERE s.tenant_id = o.tenant_id AND s.outgoing_einvoice_id = o.id AND x.tenant_id = o.tenant_id AND x.id = o.id) = $7)
 		  AND ($8 = '' OR EXISTS (SELECT FROM einvoicing.outgoing_submission s WHERE s.tenant_id = o.tenant_id AND s.outgoing_einvoice_id = o.id
-		    AND s.tax_data_status = $8))`,
+		    AND s.tax_data_status = $8 AND s.tax_data_awaited IS NULL))`,
 		[]any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerInvoiceID), params.Status.Value, access.All, access.IDs,
 			string(params.TransmissionStatus.Value), params.DeliveryOutcome.Value, params.TaxDataStatus.Value})
 	rows, _ := tx.Query(ctx, q, args...)

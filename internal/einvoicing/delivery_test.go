@@ -232,6 +232,11 @@ func TestTaxDataOutcomeLater(t *testing.T) {
 		t.Errorf("still TDD_FAILED after the call: got %+v, want a read again in a minute", step)
 	}
 	check(t, "made, awaited", words(operation(t, retry), s.delivery(t, id)), "succeeded /v1/outgoing-e-invoices/"+id+" - ACCEPTANCE accepted TDD_FAILED <nil>")
+	got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
+	check(t, "shown awaited", got["transmission"].(map[string]any)["tax_data_awaited"], "TDD_FAILED")
+	s.f.Problem(409, "einvoicing.tax_data_request_pending", "POST", "/v1/outgoing-e-invoices/"+id+":retryTaxData", "", s.tag(t, id))
+	failed, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices?tax_data_status=TDD_FAILED", "", "")
+	check(t, "not among those to send again", len(failed["items"].([]any)), 0)
 	var tenants []uuid.UUID
 	err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_worker", ReadOnly: true}, func(_ context.Context, tx pgx.Tx) error {
 		var err error
@@ -246,6 +251,8 @@ func TestTaxDataOutcomeLater(t *testing.T) {
 		t.Errorf("moved to TDD_REJECTED: got %+v, want done", step)
 	}
 	check(t, "rejected by the authority", s.delivery(t, id), "ACCEPTANCE rejected TDD_REJECTED <nil>")
+	got, _ = s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
+	check(t, "no longer awaited", got["transmission"].(map[string]any)["tax_data_awaited"], nil)
 	if err := pgtest.Pool(t).InTx(context.Background(), database.Scope{Role: "erp_worker", ReadOnly: true}, func(_ context.Context, tx pgx.Tx) error {
 		_, err := einvoicing.FollowedTenants(context.Background(), &pgtest.FailingTx{Tx: tx, FailAt: 1}, s.clock())
 		return err

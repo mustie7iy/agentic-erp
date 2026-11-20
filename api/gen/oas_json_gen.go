@@ -207008,6 +207008,10 @@ func (s *OutgoingEInvoiceTransmission) encodeFields(e *jx.Encoder) {
 		s.TaxDataRequest.Encode(e)
 	}
 	{
+		e.FieldStart("tax_data_awaited")
+		s.TaxDataAwaited.Encode(e)
+	}
+	{
 		e.FieldStart("follow_check_at")
 		s.FollowCheckAt.Encode(e, json.EncodeDateTime)
 	}
@@ -207017,7 +207021,7 @@ func (s *OutgoingEInvoiceTransmission) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfOutgoingEInvoiceTransmission = [22]string{
+var jsonFieldsNameOfOutgoingEInvoiceTransmission = [23]string{
 	0:  "connector_id",
 	1:  "connector_name",
 	2:  "operation_id",
@@ -207038,8 +207042,9 @@ var jsonFieldsNameOfOutgoingEInvoiceTransmission = [22]string{
 	17: "tax_data_status",
 	18: "tax_data_at",
 	19: "tax_data_request",
-	20: "follow_check_at",
-	21: "version",
+	20: "tax_data_awaited",
+	21: "follow_check_at",
+	22: "version",
 }
 
 // Decode decodes OutgoingEInvoiceTransmission from json.
@@ -207265,8 +207270,18 @@ func (s *OutgoingEInvoiceTransmission) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_data_request\"")
 			}
-		case "follow_check_at":
+		case "tax_data_awaited":
 			requiredBitSet[2] |= 1 << 4
+			if err := func() error {
+				if err := s.TaxDataAwaited.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_data_awaited\"")
+			}
+		case "follow_check_at":
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				if err := s.FollowCheckAt.Decode(d, json.DecodeDateTime); err != nil {
 					return err
@@ -207276,7 +207291,7 @@ func (s *OutgoingEInvoiceTransmission) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"follow_check_at\"")
 			}
 		case "version":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -207299,7 +207314,7 @@ func (s *OutgoingEInvoiceTransmission) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11111111,
 		0b11111111,
-		0b00111111,
+		0b01111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

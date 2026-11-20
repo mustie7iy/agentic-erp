@@ -122606,11 +122606,12 @@ func (s *Server) handleRetireEntryTemplateRequest(args [1]string, argsEscaped bo
 // Cancelling the Operation drops a request not yet made (a call under way, or its backoff, is waited
 // for); it stays `cancelled`. The caller acts at the ETag it read (`If-Match`, the e-invoice's `etag`,
 // 412 otherwise). Refused: an e-invoice whose transmission is not completed (409
-// `einvoicing.not_transmitted`) or has a request not yet made (409
-// `einvoicing.tax_data_request_pending`); a connector that can no longer send for the company, as
-// `sendOutgoingEInvoice` refuses one. An e-invoice of a company the caller may not act in is not found
-// (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
-// §13). Refused besides: a tax data document not failed (409 `einvoicing.tax_data_not_failed`).
+// `einvoicing.not_transmitted`) or has a request not yet made, or made and its outcome awaited
+// (`tax_data_awaited`; 409 `einvoicing.tax_data_request_pending`); a connector that can no longer send
+// for the company, as `sendOutgoingEInvoice` refuses one. An e-invoice of a company the caller may not
+// act in is not found (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data
+// document (ADR-0061 §13). Refused besides: a tax data document not failed (409
+// `einvoicing.tax_data_not_failed`).
 //
 // POST /v1/outgoing-e-invoices/{id}:retryTaxData
 func (s *Server) handleRetryOutgoingEInvoiceTaxDataRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -138861,12 +138862,12 @@ func (s *Server) handleWithdrawChangeRequestRequest(args [1]string, argsEscaped 
 // Cancelling the Operation drops a request not yet made (a call under way, or its backoff, is waited
 // for); it stays `cancelled`. The caller acts at the ETag it read (`If-Match`, the e-invoice's `etag`,
 // 412 otherwise). Refused: an e-invoice whose transmission is not completed (409
-// `einvoicing.not_transmitted`) or has a request not yet made (409
-// `einvoicing.tax_data_request_pending`); a connector that can no longer send for the company, as
-// `sendOutgoingEInvoice` refuses one. An e-invoice of a company the caller may not act in is not found
-// (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
-// §13). Refused besides: a tax data document not reported, failed, rejected or being withdrawn (409
-// `einvoicing.tax_data_not_withdrawable`).
+// `einvoicing.not_transmitted`) or has a request not yet made, or made and its outcome awaited
+// (`tax_data_awaited`; 409 `einvoicing.tax_data_request_pending`); a connector that can no longer send
+// for the company, as `sendOutgoingEInvoice` refuses one. An e-invoice of a company the caller may not
+// act in is not found (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data
+// document (ADR-0061 §13). Refused besides: a tax data document not reported, failed, rejected or
+// being withdrawn (409 `einvoicing.tax_data_not_withdrawable`).
 //
 // POST /v1/outgoing-e-invoices/{id}:withdrawTaxData
 func (s *Server) handleWithdrawOutgoingEInvoiceTaxDataRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

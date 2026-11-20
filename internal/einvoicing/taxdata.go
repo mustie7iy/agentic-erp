@@ -94,15 +94,20 @@ func (e *Endpoints) requestTaxData(ctx context.Context, id uuid.UUID, ifMatch, r
 }
 
 // requestable refuses a request the locked submission, completed, cannot
-// take: read at another ETag than the caller's, a request not yet made, or
-// a tax data document the request does not apply to.
+// take: read at another ETag than the caller's, a request not yet made or
+// made and its outcome awaited, or a tax data document the request does
+// not apply to.
 func requestable(o OutgoingEInvoice, s submission, ifMatch string, applies func(OutgoingEInvoice, string) error) error {
 	if err := etag.Check(ifMatch, o.Version+s.Version); err != nil {
 		return err
 	}
-	if s.TaxDataRequest != nil { // completed, as read before the lock: completed is final
+	switch { // completed, as read before the lock: completed is final
+	case s.TaxDataRequest != nil:
 		return problem.Conflict("einvoicing.tax_data_request_pending", "The "+*s.TaxDataRequest+" of e-invoice "+o.CustomerInvoiceNumber+
 			"'s tax data document is not made yet; follow operation "+s.OperationID.String()+".")
+	case s.TaxDataAwaited != nil: // made, its outcome not shown yet: a second request would ask twice
+		return problem.Conflict("einvoicing.tax_data_request_pending", "The last request of e-invoice "+o.CustomerInvoiceNumber+
+			"'s tax data document is made and its outcome not reported yet (still "+*s.TaxDataAwaited+"); it is read until it moves.")
 	}
 	return applies(o, deref(s.TaxDataStatus))
 }

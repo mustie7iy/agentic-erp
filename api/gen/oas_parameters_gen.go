@@ -91660,7 +91660,8 @@ type ListOutgoingEInvoicesParams struct {
 	// it is transmitted.
 	DeliveryOutcome OptString `json:",omitempty,omitzero"`
 	// Only e-invoices transmitted whose tax data document is in this status
-	// (`transmission.tax_data_status`, As built E4): TDD_FAILED lists those to send again
+	// (`transmission.tax_data_status`, As built E4) and whose last request's outcome is not awaited
+	// (`transmission.tax_data_awaited` null): TDD_FAILED lists those to send again
 	// (`retryOutgoingEInvoiceTaxData`).
 	TaxDataStatus OptString `json:",omitempty,omitzero"`
 	// Maximum number of items to return. Defaults to 50, maximum 500.

@@ -198,13 +198,16 @@ func TestDeliveryReadFailures(t *testing.T) {
 		t.Errorf("the read failing: got %+v, want a read again in two minutes", step)
 	}
 	check(t, "kept", s.delivery(t, id), "ACKNOWLEDGING pending <nil> <nil>")
-	pgtest.Exec(t, `UPDATE einvoicing.outgoing_submission SET follow_polls = 499, version = version + 1 WHERE outgoing_einvoice_id = $1`, id)
+	pgtest.Exec(t, `UPDATE einvoicing.outgoing_submission SET follow_polls = 499, tax_data_status = 'TDD_FAILED', tax_data_at = now(), tax_data_awaited = 'TDD_FAILED',
+		version = version + 1
+		WHERE outgoing_einvoice_id = $1`, id)
 	s.later(2 * time.Minute)
 	if step := s.advance(t, id, send); !step.Done {
 		t.Errorf("the 500th read: got %+v, want done", step)
 	}
 	got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
-	check(t, "no longer followed", got["transmission"].(map[string]any)["follow_check_at"], nil)
+	tr := got["transmission"].(map[string]any)
+	check(t, "no longer followed nor awaited", words(tr["follow_check_at"], tr["tax_data_awaited"]), "<nil> <nil>")
 }
 
 // TestEvatraDeliveryAnswers: the adapter reads Evatra's message level

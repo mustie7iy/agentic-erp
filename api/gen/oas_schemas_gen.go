@@ -84060,6 +84060,11 @@ type OutgoingEInvoiceTransmission struct {
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
 	// /v1.
 	TaxDataRequest NilString `json:"tax_data_request"`
+	// After a person's request was made at the provider, the tax data document's status the call found
+	// while the provider has not shown the outcome yet: it is read until the status moves, and another
+	// request is refused meanwhile (409 `einvoicing.tax_data_request_pending`); null otherwise, and once
+	// no longer followed.
+	TaxDataAwaited NilString `json:"tax_data_awaited"`
 	// When what Peppol and the authority report of it is next read once completed (from 30 seconds after
 	// completion, doubling to an hour; after a request made, until the tax data document's status moves
 	// from the one the call found); null before completion and once both statuses are final or 500 reads
@@ -84170,6 +84175,11 @@ func (s *OutgoingEInvoiceTransmission) GetTaxDataRequest() NilString {
 	return s.TaxDataRequest
 }
 
+// GetTaxDataAwaited returns the value of TaxDataAwaited.
+func (s *OutgoingEInvoiceTransmission) GetTaxDataAwaited() NilString {
+	return s.TaxDataAwaited
+}
+
 // GetFollowCheckAt returns the value of FollowCheckAt.
 func (s *OutgoingEInvoiceTransmission) GetFollowCheckAt() NilDateTime {
 	return s.FollowCheckAt
@@ -84278,6 +84288,11 @@ func (s *OutgoingEInvoiceTransmission) SetTaxDataAt(val NilDateTime) {
 // SetTaxDataRequest sets the value of TaxDataRequest.
 func (s *OutgoingEInvoiceTransmission) SetTaxDataRequest(val NilString) {
 	s.TaxDataRequest = val
+}
+
+// SetTaxDataAwaited sets the value of TaxDataAwaited.
+func (s *OutgoingEInvoiceTransmission) SetTaxDataAwaited(val NilString) {
+	s.TaxDataAwaited = val
 }
 
 // SetFollowCheckAt sets the value of FollowCheckAt.

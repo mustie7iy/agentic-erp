@@ -184,9 +184,12 @@ func (w *EInvoiceSender) RunOnce(ctx context.Context) (int, error) {
 			return nil, err
 		}
 		followed, err := s.Sends.FollowedEInvoiceTenants(ctx, tx, now)
+		if err != nil {
+			return nil, err
+		}
 		all := slices.Concat(sending, followed)
 		slices.SortFunc(all, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
-		return slices.Compact(all), err
+		return slices.Compact(all), nil
 	}
 	sends, err := unfinishedRunsOf(ctx, s.begin, s.AppRole, s.WorkerRole, EInvoiceSendKind, tenants, func(ctx context.Context, tx pgx.Tx) (map[uuid.UUID]uuid.UUID, error) {
 		return s.Sends.UnfinishedEInvoiceSends(ctx, tx, now)

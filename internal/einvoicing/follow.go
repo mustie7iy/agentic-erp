@@ -131,7 +131,8 @@ func (e *Endpoints) followed(ctx context.Context, tx pgx.Tx, s submission, co Co
 // after the backoff, none once both statuses are final or after maxPolls
 // reads; after a request made, not before the tax data document's status
 // moves from the one the call left (tax_data_awaited: the provider may
-// show the outcome later). A read that failed, or that the connector or
+// show the outcome later; no longer awaited once no longer followed). A
+// read that failed, or that the connector or
 // the provider refused, records nothing but the count.
 func (e *Endpoints) delivered(ctx context.Context, tx pgx.Tx, s submission, co Company, d Delivery, callErr error) (Step, error) {
 	now := clock.Now(e.Now)
@@ -151,7 +152,7 @@ func (e *Endpoints) delivered(ctx context.Context, tx pgx.Tx, s submission, co C
 	return e.move(ctx, tx, s, co, `delivery_status = $3, delivery_detail = $4,
 		delivered_at = CASE WHEN (delivery_status, delivery_detail) IS DISTINCT FROM ($3, $4) THEN $5 ELSE delivered_at END, tax_data_status = $6,
 		tax_data_at = CASE WHEN tax_data_status IS DISTINCT FROM $6 THEN $5 ELSE tax_data_at END, follow_polls = follow_polls + 1, follow_check_at = $7,
-		tax_data_awaited = CASE WHEN $8 THEN tax_data_awaited END`, response, detail, now, taxData, next, awaiting)
+		tax_data_awaited = CASE WHEN $8 AND $7::timestamptz IS NOT NULL THEN tax_data_awaited END`, response, detail, now, taxData, next, awaiting)
 }
 
 // endRequest ends a person's request of the tax data document: cleared,
