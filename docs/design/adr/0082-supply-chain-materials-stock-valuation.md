@@ -1181,11 +1181,17 @@ reads a location's stock without a lock for shipping's picking.
   is Later); a reversal moves its original's batches. The lines and
   `MaterialDocumentPosted` (not required) name the batch by id and number.
   **The flows that carry no batch yet refuse a batch-managed material**
-  (422 `inventory.batch_not_supported`): a purchase order's goods receipt
-  (101), an outbound delivery's goods issue (601), a stock transport
-  order (at its creation, `TransportQuantities`), a count document (at
-  its creation) and the SAP stock take-over (561 without a batch,
-  `inventory.batch_required`), each Later; the plan's slice names the
+  at the flow's first step, so no document is created that cannot
+  complete (review round 1): a purchase order's stock item (422
+  `procurement.invalid_stock_item`, as it is created or changed), an
+  outbound delivery's item (422 `shipping.material_not_usable`), a stock
+  transport order (at its creation, `TransportQuantities`) and a count
+  document (at its creation; both 422 `inventory.batch_not_supported`,
+  which the goods receipt and goods issue also answer beneath), and the
+  SAP stock take-over (561 without a batch, `inventory.batch_required`),
+  each Later; a batch-managed material is created once no pre-S2f
+  version serves (a stock row an earlier version writes is not
+  batch-managed); the plan's slice names the
   batch on movements and stock, which the person's goods movements
   carry. Decided by default.
 - **Stock by batch beside the location's**, not a wider stock key:

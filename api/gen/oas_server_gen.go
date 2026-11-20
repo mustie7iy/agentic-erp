@@ -2253,7 +2253,8 @@ type Handler interface {
 	// `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of
 	// the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and
 	// published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery
-	// created. Human-only (`x-agent: false`).
+	// created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
+	// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
 	//
 	// POST /v1/outbound-deliveries
 	CreateOutboundDelivery(ctx context.Context, req *OutboundDeliveryCreate, params CreateOutboundDeliveryParams) (CreateOutboundDeliveryRes, error)

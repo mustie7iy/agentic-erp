@@ -43,15 +43,22 @@ func batchSetup(t *testing.T) batchEnv {
 // the bracket is, valued in P1 and P2.
 func (e env) batchMaterial(t *testing.T, description string) string {
 	t.Helper()
+	id := e.batchManaged(t, description)
+	e.value(t, id, e.p1, "moving_average", "1.00")
+	e.value(t, id, e.p2, "moving_average", "1.00")
+	return id
+}
+
+// batchManaged creates an active batch-managed raw material kept where the
+// bracket is, valued nowhere.
+func (e env) batchManaged(t *testing.T, description string) string {
+	t.Helper()
 	m, _ := e.Must(201, "POST", "/v1/materials", mustJSON(t, map[string]any{"legal_entity_id": e.DE, "description": description, "base_unit": "EA",
 		"material_type": "raw_material", "material_group": "SEALANTS", "confirm_duplicate": true, "batch_managed": true, "plants": []any{
 			map[string]any{"plant_id": e.p1, "storage_location_ids": []any{e.s1, e.s2}},
 			map[string]any{"plant_id": e.p2, "storage_location_ids": []any{e.s3}}}}), "")
 	e.Approve(t, m["pending_change_id"].(string))
-	id := m["id"].(string)
-	e.value(t, id, e.p1, "moving_average", "1.00")
-	e.value(t, id, e.p2, "moving_average", "1.00")
-	return id
+	return m["id"].(string)
 }
 
 // batch creates a batch of the material; no expiry when expiry is "".
@@ -106,9 +113,14 @@ func TestBatchMaster(t *testing.T) {
 	if s := fmt.Sprintf("%v %v %v %v", got["number"], got["material_id"] == e.sealant, got["manufacture_date"], got["expiry_date"]); s != "L1 true 2026-11-01 2027-05-01" {
 		t.Errorf("the batch: got %s, want L1 of the sealant made 2026-11-01, expiring 2027-05-01", s)
 	}
-	if tag == "" || got["material_number"] == "" || got["material_description"] != "Thread sealant" {
-		t.Errorf("the batch's tag and material: got %q %v %v, want a tag and the sealant by number and description", tag, got["material_number"],
-			got["material_description"])
+	if tag == "" {
+		t.Error("the batch's ETag: got none, want one")
+	}
+	if got["material_number"] == "" {
+		t.Error("the batch's material number: got none, want the sealant's")
+	}
+	if got["material_description"] != "Thread sealant" {
+		t.Errorf("the batch's material description: got %v, want Thread sealant", got["material_description"])
 	}
 	if l2, _ := e.Must(200, "GET", batches+"/"+e.l2, "", ""); l2["expiry_date"] != nil {
 		t.Errorf("L2's expiry: got %v, want none", l2["expiry_date"])

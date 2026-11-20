@@ -658,9 +658,9 @@ storage location's.
   stay as they are; the database adds a batch's movement to both and
   refuses one that would leave them apart, so the batches add up to the
   location's stock (`GET /v1/batch-stock`). The flows that carry no batch
-  yet refuse a batch-managed material (422 `inventory.batch_not_supported`):
-  a purchase order's goods receipt, an outbound delivery's goods issue, a
-  stock transport order, a count and the SAP stock take-over.
+  yet refuse a batch-managed material at their first step: a purchase
+  order's stock item, an outbound delivery's item, a stock transport
+  order, a count and the SAP stock take-over.
   **Later:** batches in those flows, a batch created at goods receipt,
   internal batch numbers, changing a batch's dates, batch status, stock
   by batch as at a date, transfer to another batch (309).

@@ -63,6 +63,7 @@ func TestStockItemOrders(t *testing.T) {
 		t.Errorf("stock item: got %s, want %s", got, want)
 	}
 	pending := e.material(t, "Washer", "trading_good", false)
+	sealant := e.batchMaterial(t, "Thread sealant")
 	for _, c := range []struct {
 		name, currency string
 		over           map[string]any
@@ -76,6 +77,7 @@ func TestStockItemOrders(t *testing.T) {
 		{"a plant of another company", "EUR", map[string]any{"plant_id": e.p3, "storage_location_id": e.s4}, "procurement.invalid_org_unit", "items[0].plant_id"},
 		{"an unknown material", "EUR", map[string]any{"material_id": uuid.New()}, "procurement.invalid_stock_item", "items[0].material_id"},
 		{"a pending material", "EUR", map[string]any{"material_id": pending}, "procurement.invalid_stock_item", "items[0].material_id"},
+		{"a batch-managed material", "EUR", map[string]any{"material_id": sealant}, "procurement.invalid_stock_item", "items[0].material_id"},
 		{"a storage location it is not kept at", "EUR", map[string]any{"storage_location_id": e.s3}, "procurement.invalid_stock_item",
 			"items[0].storage_location_id"},
 		{"a unit it does not have", "EUR", map[string]any{"quantity": map[string]any{"value": "1", "unit": "L"}}, "procurement.invalid_stock_item",

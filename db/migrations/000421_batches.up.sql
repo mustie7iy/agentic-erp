@@ -15,8 +15,10 @@
 -- reference leaves a schema but ref's, 02 §2.1). Stock in transit (S2h)
 -- holds no batches yet: a batch-managed material is not moved in transit.
 -- Expand only (06 §6.4): new tables, columns with defaults the previous
--- version never sets (every material and stock row it writes is not
--- batch-managed, and none of its movements names a batch), a foreign key
+-- version never sets (it creates no batch-managed material and names no
+-- batch; a stock row it writes is not batch-managed, so a batch-managed
+-- material is created once no previous version serves: one it moved
+-- first at a location would hold no batches there), a foreign key
 -- and a check added NOT VALID (validated by 000422), a movement_stock that
 -- does for every movement the previous version writes what it did, and a
 -- permission it neither reads nor writes.
