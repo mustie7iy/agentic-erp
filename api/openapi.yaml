@@ -27600,7 +27600,7 @@ paths:
       tags:
         - einvoicing
       summary: List outgoing e-invoices
-      description: "The e-invoices rendered from the posted customer documents of the companies the caller may act in (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered by company, by the customer document it renders (at most one), and by status, so the invalid ones to correct are found."
+      description: "The e-invoices rendered from the posted customer documents of the companies the caller may act in (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered by company, by the customer document it renders (at most one), by status, so the invalid ones to correct are found, and by the status of its transmission (`transmission_status`, As built E3), so the failed submissions to correct and send again are found."
       x-permission: einvoicing.outgoing.read
       x-problem-codes:
         - request.invalid_order_by
@@ -27629,6 +27629,13 @@ paths:
             type: string
             description: "Outgoing e-invoice status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum: [valid, invalid]
+        - name: transmission_status
+          in: query
+          required: false
+          description: "Only e-invoices whose submission is in this status (`transmission.status`), or none for those not sent: failed is the worklist of submissions to correct and send again (As built E3)."
+          schema:
+            type: string
+            enum: [none, queued, sending, submitted, completed, failed]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
       responses:
@@ -27791,6 +27798,130 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/outgoing-e-invoices/{id}:send":
+    post:
+      operationId: sendOutgoingEInvoice
+      tags:
+        - einvoicing
+      summary: Send a valid e-invoice to the company's accredited provider
+      description: "Sends a valid outgoing e-invoice through an `einvoice_provider` connector to the company's accredited e-invoicing provider (ADR-0061 §3, §9, As built E3; SAP Document and Reporting Compliance's submission of an e-document): its XML byte for byte as kept (`getOutgoingEInvoiceContent`), at Evatra by `POST /invoice/send-document-async` as `base64Document` with `invoiceType` UAE_PINT, the `business_type` asked for (B2B or B2G; B2C is outside the UAE mandate) and `invoiceSource` ERP. The request writes, in its transaction, the e-invoice's submission (`transmission`, `queued`) and the Operation that carries it out (kind `einvoicing.send`, its resource the e-invoice), audited in the caller's name (`einvoicing.outgoing.send`) with OutgoingEInvoiceTransmissionChanged: the submission is the outbox of the call, which is made only after that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow engine) as the einvoicing context's system principal. Each call is counted on the submission before it is made (`attempts`); Evatra has no idempotency key, so a send after one whose answer was lost (or after the provider failed to send, below) first looks the document up at the provider by its filename, the e-invoice's number (`document-process/search`), and takes the submission found instead of sending it twice. A call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five calls); a refusal by the provider, or the fifth failure, fails the submission. Once the provider gives its tracking id the submission is `submitted` and its status is read (`document-status/{trackingId}`) with backoff, from 30 seconds doubling to an hour, until the provider reports it COMPLETED (`completed`, the Operation succeeded with the e-invoice as its resource), FAILED or PERMANENT_FAILED (`failed` with `einvoicing.provider_failed` or `einvoicing.permanent_failure`, the Operation failed with it), or SENDING_FAILED: then it is sent again, up to three times (`resends`), and after the third `failed` with `einvoicing.sending_failed`. A submission whose status stays unfinished for 500 reads (about three weeks) is `failed` with `einvoicing.status_unconfirmed`. Every change of the submission's status or of the provider's is audited (`einvoicing.outgoing.transmission`) and publishes OutgoingEInvoiceTransmissionChanged; the failed ones are the worklist `listOutgoingEInvoices?transmission_status=failed`, which a person sends again with this operation once corrected (the row queued again, a new Operation). Refused: an e-invoice that is invalid (409 `einvoicing.document_invalid`); one queued, sending or submitted (409 `einvoicing.transmission_in_progress`) or completed (409 `einvoicing.already_transmitted`); a connector that is not an active `einvoice_provider` connector with credentials that resolve, as `fetchEInvoices` refuses one; one whose adapter does not send (the stand-in's own protocol: 422 `einvoicing.adapter_cannot_send`) or that names no participant for the e-invoice's company (422 `einvoicing.not_a_participant`). An e-invoice of a company the caller may not act in is not found (404). 503 while the server has no object storage. Human-only (`x-agent: false`): agents never send an e-invoice (ADR-0061 §13)."
+      x-permission: einvoicing.outgoing.send
+      x-agent: false
+      x-problem-codes:
+        - einvoicing.adapter_cannot_send
+        - einvoicing.already_transmitted
+        - einvoicing.document_invalid
+        - einvoicing.not_a_participant
+        - einvoicing.transmission_in_progress
+        - integration.adapter_not_certified
+        - integration.connector_disabled
+        - integration.invalid_settings
+        - integration.not_an_einvoice_provider
+        - integration.secret_required
+        - integration.secret_unavailable
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The connector to send through and the business type.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutgoingEInvoiceSend"
+            examples:
+              b2b:
+                summary: A tax invoice to a business customer through Evatra
+                value:
+                  connector_id: 0192a000-0000-7000-8000-000000000e01
+                  business_type: B2B
+      responses:
+        "202":
+          description: "Accepted; the submission continues as a long-running operation. Poll the Operation at `Location`, or the e-invoice's `transmission`; once it succeeds, its `resource` is the e-invoice."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/e-invoice-transmission-deadlines:
+    get:
+      operationId: listEInvoiceTransmissionDeadlines
+      tags:
+        - einvoicing
+      summary: List a UAE company's customer documents not yet transmitted, by their deadline
+      description: "The worklist of a UAE company's posted customer invoices and credit memos whose e-invoice is not yet transmitted (ADR-0061 §9, As built E3; the mandate's 14 business days to issue and transmit an e-invoice from the transaction date, coordinator plan default 9): every one issued from `issued_from` through `key_date` whose e-invoice is not rendered, invalid, or rendered and not `completed` at the provider, each with its deadline, the 14th business day of the company's calendar after its issue date (its weekend and holidays, ADR-0058 §3: in the UAE Saturday and Sunday unless the calendar names others), and whether it is overdue on the key date (the deadline before it) with the business days left to it (negative once overdue). Ordered by deadline, then customer document number, the overdue first; each row names its customer by number and name and carries its gross amount in its currency, its e-invoice's id and status and its transmission's status (null for none). `count` and `overdue_count` at the top are the totals of every row listed, not of the page. Computed at the read and stored nowhere; paged by cursor in the worklist's order, a page token bound to the company and dates. `issued_from` defaults to 90 days before the key date and may be at most 366 days before it (422 `einvoicing.invalid_period`, naming `issued_from`, as for one after it). A debit memo is not listed (PINT AE has no debit note type). A legal entity the caller cannot act in, or one that is not a UAE company in AED, is refused (422 `request.reference_not_found`, `einvoicing.not_a_uae_company`, naming `legal_entity_id`)."
+      x-permission: einvoicing.outgoing.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - einvoicing.invalid_period
+        - einvoicing.not_a_uae_company
+        - request.invalid_page_size
+        - request.invalid_page_token
+        - request.reference_not_found
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The UAE company.
+          schema:
+            type: string
+            format: uuid
+        - name: key_date
+          in: query
+          required: true
+          description: "The day the deadlines are judged on: a document whose deadline is before it is overdue."
+          schema:
+            type: string
+            format: date
+        - name: issued_from
+          in: query
+          required: false
+          description: "Only documents issued on or after this day; default 90 days before the key date, at most 366 days before it."
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the worklist with its totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EInvoiceDeadlinePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/consolidation-runs/{id}/statements/{statement}":
     get:
       operationId: getConsolidatedStatement
@@ -65525,7 +65656,7 @@ components:
       description: "A posted customer document rendered as a PINT AE e-invoice (ADR-0061 §9, As built E2): once per customer document, valid with its XML kept or invalid with the problems of its last render."
       required: [id, customer_invoice_id, customer_invoice_number, source_document_id, source_document_number, legal_entity_id, company_code, company_name,
         customer_id, customer_number, customer_name, kind, type_code, issue_date, currency, net_amount, tax_amount, gross_amount, reference_invoice_number,
-        specification, status, problems, sha256, size, rendered_at, version]
+        specification, status, problems, sha256, size, rendered_at, transmission, version]
       properties:
         id: {type: string, format: uuid}
         customer_invoice_id: {type: string, format: uuid, description: "The customer invoice or credit memo it renders."}
@@ -65554,7 +65685,7 @@ components:
         status:
           type: string
           x-extensible-enum: [valid, invalid]
-          description: "valid (every mandatory field checked, its XML kept: final) or invalid (`problems` lists what is missing; rendered again once corrected). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1 (sending adds its statuses, E3)."
+          description: "valid (every mandatory field checked, its XML kept: final) or invalid (`problems` lists what is missing; rendered again once corrected). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. Its transmission to the provider has a status of its own (`transmission`)."
         problems:
           type: array
           items: {$ref: "#/components/schemas/OutgoingEInvoiceProblem"}
@@ -65562,6 +65693,11 @@ components:
         sha256: {type: [string, 'null'], pattern: "^[0-9a-f]{64}$", description: "The SHA-256 of its XML, hex; null while invalid."}
         size: {type: [integer, 'null'], format: int64, description: "The size of its XML in bytes; null while invalid."}
         rendered_at: {type: string, format: date-time, description: "When it was last rendered."}
+        transmission:
+          oneOf:
+            - {$ref: "#/components/schemas/OutgoingEInvoiceTransmission"}
+            - {type: 'null'}
+          description: "Its submission to the accredited provider (`sendOutgoingEInvoice`, As built E3); null while it is not sent."
         version: {type: integer, format: int32}
       examples:
         - id: 0192a000-0000-7000-8000-000000000f11
@@ -65589,7 +65725,90 @@ components:
           sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
           size: 4096
           rendered_at: "2026-11-19T10:00:00Z"
+          transmission: null
           version: 1
+    OutgoingEInvoiceSend:
+      type: object
+      description: "Where and how to send an e-invoice (ADR-0061 As built E3)."
+      required: [connector_id, business_type]
+      additionalProperties: false
+      properties:
+        connector_id: {type: string, format: uuid, description: "The `einvoice_provider` connector naming the company's participant at the provider."}
+        business_type:
+          type: string
+          enum: [B2B, B2G]
+          description: "The transaction's business type at the provider: B2B (to a business) or B2G (to a government entity). B2C is outside the UAE mandate."
+    OutgoingEInvoiceTransmission:
+      type: object
+      description: "An e-invoice's submission to the accredited provider (ADR-0061 As built E3): the outbox of its transmission and what the provider reported of it."
+      required: [connector_id, connector_name, operation_id, business_type, status, provider_status, tracking_id, attempts, resends, problem, next_check_at,
+        submitted_at, completed_at, version]
+      properties:
+        connector_id: {type: string, format: uuid, description: "The connector it is sent through."}
+        connector_name: {type: string, description: "The connector's name."}
+        operation_id: {type: string, format: uuid, description: "The Operation of the send asked for last (`getOperation`)."}
+        business_type: {type: string, description: "B2B or B2G, as asked."}
+        status:
+          type: string
+          x-extensible-enum: [queued, sending, submitted, completed, failed]
+          description: "queued (to be sent), sending (a call to the provider made), submitted (the provider's tracking id known, its status read), completed (the provider reports it COMPLETED: final) or failed (`problem` says why; sent again by `sendOutgoingEInvoice`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        provider_status: {type: [string, 'null'], description: "The provider's processing status as it last reported it (Evatra: PENDING, PROCESSING, COMPLETED, FAILED, SENDING_FAILED, PERMANENT_FAILED); null before it was submitted. Open enumeration."}
+        tracking_id: {type: [string, 'null'], description: "The provider's id of the current submission; null before it was submitted."}
+        attempts: {type: integer, format: int32, description: "Calls made for the current send, counted before each is made."}
+        resends: {type: integer, format: int32, description: "Sends again after the provider reported SENDING_FAILED."}
+        problem:
+          oneOf:
+            - {$ref: "#/components/schemas/OutgoingEInvoiceTransmissionProblem"}
+            - {type: 'null'}
+          description: "Why it failed; null unless failed."
+        next_check_at: {type: [string, 'null'], format: date-time, description: "When it is next sent or its status next read; null once completed or failed."}
+        submitted_at: {type: [string, 'null'], format: date-time, description: "When the provider last gave its tracking id."}
+        completed_at: {type: [string, 'null'], format: date-time, description: "When the provider reported it COMPLETED."}
+        version: {type: integer, format: int32, description: "The submission's version."}
+    OutgoingEInvoiceTransmissionProblem:
+      type: object
+      description: "Why a submission failed: a problem code a consumer can branch on and what happened."
+      required: [code, detail]
+      properties:
+        code: {type: string, description: "einvoicing.permanent_failure, einvoicing.provider_failed, einvoicing.sending_failed, einvoicing.status_unconfirmed, einvoicing.provider_unavailable, or a refusal's code. Open enumeration."}
+        detail: {type: string, description: "What happened, and what to do."}
+    EInvoiceDeadlinePage:
+      type: object
+      description: "One page of a UAE company's customer documents not yet transmitted, by deadline, with the totals of the whole worklist."
+      required: [legal_entity_id, company_code, company_name, key_date, issued_from, count, overdue_count, items]
+      properties:
+        legal_entity_id: {type: string, format: uuid}
+        company_code: {type: string}
+        company_name: {type: string}
+        key_date: {type: string, format: date, description: "The day the deadlines are judged on."}
+        issued_from: {type: string, format: date, description: "The first issue date listed."}
+        count: {type: integer, format: int32, description: "Every document listed, on all pages."}
+        overdue_count: {type: integer, format: int32, description: "Those overdue on the key date, on all pages."}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/EInvoiceDeadline"}
+          description: The documents on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    EInvoiceDeadline:
+      type: object
+      description: "A posted customer document whose e-invoice is not yet transmitted, with its deadline."
+      required: [customer_invoice_id, customer_invoice_number, kind, issue_date, deadline, overdue, business_days_left, customer_id, customer_number, customer_name,
+        gross_amount, outgoing_einvoice_id, einvoice_status, transmission_status]
+      properties:
+        customer_invoice_id: {type: string, format: uuid, description: "The customer invoice or credit memo (`getCustomerInvoice`)."}
+        customer_invoice_number: {type: string}
+        kind: {type: string, description: "invoice or credit_memo. Open enumeration."}
+        issue_date: {type: string, format: date, description: "Its invoice date, the transaction date its deadline counts from."}
+        deadline: {type: string, format: date, description: "The 14th business day of the company after the issue date."}
+        overdue: {type: boolean, description: "Whether the deadline is before the key date."}
+        business_days_left: {type: integer, format: int32, description: "Business days from the key date to the deadline; 0 on it, negative once overdue."}
+        customer_id: {type: string, format: uuid}
+        customer_number: {type: string}
+        customer_name: {type: string}
+        gross_amount: {$ref: "#/components/schemas/Money"}
+        outgoing_einvoice_id: {type: [string, 'null'], format: uuid, description: "Its e-invoice; null while none is rendered."}
+        einvoice_status: {type: [string, 'null'], description: "Its e-invoice's status (valid, invalid); null while none is rendered."}
+        transmission_status: {type: [string, 'null'], description: "Its submission's status (queued, sending, submitted, failed); null while it is not sent."}
     ConsolidationRunPage:
       type: object
       description: One page of consolidation runs, newest first.

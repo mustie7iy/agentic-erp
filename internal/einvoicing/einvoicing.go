@@ -139,6 +139,11 @@ type Endpoints struct {
 	// Sales reads the posted customer documents that outgoing e-invoices
 	// render (ADR-0061 §9, As built E2).
 	Sales Sales
+	// Sends keeps a send's Operation (As built E3), as Runs a fetch's.
+	Sends Runs
+	// Settings reads the companies' calendars, which the deadlines of the
+	// worklist of documents not transmitted count business days in.
+	Settings Settings
 }
 
 // Within runs fn in a transaction of the fetch's tenant, as Fetcher: the

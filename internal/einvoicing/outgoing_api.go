@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -287,10 +288,13 @@ func (e *Endpoints) GetOutgoingEInvoiceContent(ctx context.Context, params gen.G
 
 // outgoingNames are the companies and customers of a page of e-invoices,
 // read once each (REVIEW.md: an identifier with the name its consumer
-// needs).
+// needs), and their submissions with their connectors' names (As built
+// E3).
 type outgoingNames struct {
-	companies map[uuid.UUID]Company
-	customers map[uuid.UUID]CustomerName
+	companies  map[uuid.UUID]Company
+	customers  map[uuid.UUID]CustomerName
+	sent       map[uuid.UUID]submission
+	connectors map[uuid.UUID]string
 }
 
 func (e *Endpoints) outgoingNames(ctx context.Context, docs []OutgoingEInvoice) (outgoingNames, error) {
@@ -299,8 +303,60 @@ func (e *Endpoints) outgoingNames(ctx context.Context, docs []OutgoingEInvoice) 
 	if n.companies, err = e.Companies.Named(ctx, idref.Of(docs, func(o OutgoingEInvoice) *uuid.UUID { return &o.LegalEntityID })); err != nil {
 		return n, err
 	}
-	n.customers, err = e.Sales.Customers(ctx, idref.Of(docs, func(o OutgoingEInvoice) *uuid.UUID { return &o.CustomerID }))
+	if n.customers, err = e.Sales.Customers(ctx, idref.Of(docs, func(o OutgoingEInvoice) *uuid.UUID { return &o.CustomerID })); err != nil {
+		return n, err
+	}
+	if n.sent, err = submissions(ctx, idref.Of(docs, func(o OutgoingEInvoice) *uuid.UUID { return &o.ID })); err != nil {
+		return n, err
+	}
+	var conns []uuid.UUID
+	for _, s := range n.sent {
+		conns = append(conns, s.ConnectorID)
+	}
+	n.connectors, err = e.Connectors.Names(ctx, conns)
 	return n, err
+}
+
+// submissions are the e-invoices' submissions by e-invoice.
+func submissions(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]submission, error) {
+	out := map[uuid.UUID]submission{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT `+submissionColumns+` FROM einvoicing.outgoing_submission s WHERE s.outgoing_einvoice_id = ANY($1)`, ids)
+	var s submission
+	if _, err := pgx.ForEachRow(rows, s.fields(), func() error { out[s.OutgoingID] = s; return nil }); err != nil {
+		return nil, fmt.Errorf("einvoicing: read the submissions of outgoing e-invoices: %w", err)
+	}
+	return out, nil
+}
+
+// transmissionAPI is a submission as the e-invoice shows it.
+func (n outgoingNames) transmissionAPI(s submission) gen.OutgoingEInvoiceTransmission {
+	out := gen.OutgoingEInvoiceTransmission{ConnectorID: s.ConnectorID, ConnectorName: n.connectors[s.ConnectorID], OperationID: s.OperationID,
+		BusinessType: s.BusinessType, Status: s.Status, ProviderStatus: nilString(s.ProviderStatus), TrackingID: nilString(s.TrackingID),
+		Attempts: int32(s.Attempts), Resends: int32(s.Resends), NextCheckAt: nilTime(s.NextCheckAt), SubmittedAt: nilTime(s.SubmittedAt),
+		CompletedAt: nilTime(s.CompletedAt), Version: s.Version}
+	if s.ProblemCode != nil {
+		out.Problem.SetTo(gen.OutgoingEInvoiceTransmissionProblem{Code: *s.ProblemCode, Detail: *s.ProblemDetail})
+	} else {
+		out.Problem.SetToNull()
+	}
+	return out
+}
+
+func nilTime(v *time.Time) gen.NilDateTime {
+	var out gen.NilDateTime
+	if v != nil {
+		out.SetTo(*v)
+	} else {
+		out.SetToNull()
+	}
+	return out
 }
 
 // outgoingAPI is the e-invoice with its company's and customer's names.
@@ -336,6 +392,11 @@ func (n outgoingNames) toAPI(o OutgoingEInvoice) gen.OutgoingEInvoice {
 	} else {
 		out.Size.SetToNull()
 	}
+	if s, ok := n.sent[o.ID]; ok {
+		out.Transmission.SetTo(n.transmissionAPI(s))
+	} else {
+		out.Transmission.SetToNull()
+	}
 	return out
 }
 
@@ -354,15 +415,19 @@ func (e *Endpoints) ListOutgoingEInvoices(ctx context.Context, params gen.ListOu
 	if err != nil {
 		return nil, err
 	}
-	scope := fmt.Sprintf("listOutgoingEInvoices|%s|%s|%s", optUUID(params.LegalEntityID), optUUID(params.CustomerInvoiceID), params.Status.Value)
+	scope := fmt.Sprintf("listOutgoingEInvoices|%s|%s|%s|%s", optUUID(params.LegalEntityID), optUUID(params.CustomerInvoiceID), params.Status.Value,
+		params.TransmissionStatus.Value)
 	ks, err := e.Pages.Keyset(outgoingSort, scope, apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
 	q, args := ks.SQL(`SELECT `+outgoingColumns+outgoingFrom+`
 		WHERE ($1::uuid IS NULL OR o.legal_entity_id = $1) AND ($2::uuid IS NULL OR o.customer_invoice_id = $2) AND ($3 = '' OR o.status = $3)
-		  AND ($4 OR o.legal_entity_id = ANY($5))`,
-		[]any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerInvoiceID), params.Status.Value, access.All, access.IDs})
+		  AND ($4 OR o.legal_entity_id = ANY($5))
+		  AND ($6 = '' OR coalesce((SELECT s.status FROM einvoicing.outgoing_submission s WHERE s.tenant_id = o.tenant_id AND s.outgoing_einvoice_id = o.id),
+		    'none') = $6)`,
+		[]any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerInvoiceID), params.Status.Value, access.All, access.IDs,
+			string(params.TransmissionStatus.Value)})
 	rows, _ := tx.Query(ctx, q, args...)
 	docs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OutgoingEInvoice, error) {
 		var o OutgoingEInvoice

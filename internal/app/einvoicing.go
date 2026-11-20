@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -23,7 +24,7 @@ func EInvoicing(cfg Config) *einvoicing.Endpoints {
 		Connectors: einvoiceConnectors{integration.EInvoiceProviders{Secrets: resolver(cfg.Secrets), RefuseStandIn: cfg.RefuseEBICS}},
 		Companies:  einvoiceCompanies{}, Runs: runOperations{kind: einvoicing.KindFetch}, Objects: cfg.Objects,
 		Adapter: einvoicing.Adapters(cfg.Providers, cfg.EvatraHosts, cfg.Now), Pages: cfg.Pages, Now: cfg.Now,
-		Sales: einvoiceSales{keys: cfg.FieldKeys}}
+		Sales: einvoiceSales{keys: cfg.FieldKeys}, Sends: runOperations{kind: einvoicing.KindSend}, Settings: configuration.Settings{}}
 }
 
 // einvoiceConnectors gives the einvoicing context the einvoice_provider
@@ -107,4 +108,21 @@ func (f einvoiceFetches) FinishEInvoiceFetch(ctx context.Context, operation uuid
 
 func (f einvoiceFetches) FailEInvoiceFetch(ctx context.Context, operation uuid.UUID, why *problem.Problem) error {
 	return f.e.FailEInvoiceFetch(ctx, operation, why)
+}
+
+// EInvoiceSends is the einvoicing context as the send workflow's port
+// (workflows.EInvoiceSends, ADR-0061 As built E3).
+func EInvoiceSends(cfg Config) workflows.EInvoiceSends {
+	return einvoiceSends{EInvoicing(cfg)}
+}
+
+// einvoiceSends adapts the einvoicing context's send step to the
+// workflow's port, whose step is the workflow's own type.
+type einvoiceSends struct{ e *einvoicing.Endpoints }
+
+func (einvoiceSends) Sender(tenant uuid.UUID) reqctx.Principal { return einvoicing.Sender(tenant) }
+
+func (s einvoiceSends) AdvanceEInvoiceSubmission(ctx context.Context, outgoing, operation uuid.UUID, in workflows.Within) (workflows.EInvoiceSendStep, error) {
+	step, err := s.e.AdvanceSubmission(ctx, outgoing, operation, in)
+	return workflows.EInvoiceSendStep{Done: step.Done, Wait: step.Wait}, err
 }

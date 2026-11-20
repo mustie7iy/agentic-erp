@@ -93,13 +93,16 @@ type Buyer struct {
 // request's transaction: Sale a customer document of a company the
 // caller may act in (found false otherwise), Seller its company on the
 // day, Buyer its customer on the day (found false for none), Customers
-// customers' numbers and names by id. The TRNs are opened from their
-// sealed columns, as a tax invoice prints them.
+// customers' numbers and names by id, Issued a company's posted invoices
+// and credit memos dated in a period (the worklist of documents not
+// transmitted, As built E3). The TRNs are opened from their sealed
+// columns, as a tax invoice prints them.
 type Sales interface {
 	Sale(ctx context.Context, id uuid.UUID) (Sale, bool, error)
 	Seller(ctx context.Context, company uuid.UUID, day time.Time) (Seller, error)
 	Buyer(ctx context.Context, customer uuid.UUID, day time.Time) (Buyer, bool, error)
 	Customers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]CustomerName, error)
+	Issued(ctx context.Context, company uuid.UUID, from, to time.Time) ([]Issued, error)
 }
 
 // CustomerName is a customer's number and name, as an e-invoice names it

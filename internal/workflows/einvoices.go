@@ -264,11 +264,15 @@ func (f *EInvoiceFetches) begin(ctx context.Context, s database.Scope) (pgx.Tx, 
 // within is the fetch's Within: a transaction of its tenant as the
 // fetcher.
 func (f *EInvoiceFetches) within(in EInvoiceFetchInput) Within {
+	return tenantWithin(uow.Job{Begin: f.begin, Scope: database.Scope{Role: f.AppRole, TenantID: in.TenantID}, Now: f.Now,
+		Name: "workflows: e-invoice fetch " + in.OperationID.String()}, f.Fetches.Fetcher(in.TenantID))
+}
+
+// tenantWithin is a Within of job's tenant as the principal p: each call
+// a transaction of its own, committed.
+func tenantWithin(job uow.Job, p reqctx.Principal) Within {
 	return func(ctx context.Context, fn func(ctx context.Context) error) error {
-		return uow.Job{Begin: f.begin, Scope: database.Scope{Role: f.AppRole, TenantID: in.TenantID}, Now: f.Now,
-			Name: "workflows: e-invoice fetch " + in.OperationID.String()}.As(ctx, func(context.Context, pgx.Tx) (reqctx.Principal, bool, error) {
-			return f.Fetches.Fetcher(in.TenantID), true, nil
-		}, fn)
+		return job.As(ctx, func(context.Context, pgx.Tx) (reqctx.Principal, bool, error) { return p, true, nil }, fn)
 	}
 }
 

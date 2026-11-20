@@ -5867,6 +5867,28 @@ type Invoker interface {
 	//
 	// GET /v1/dunning-runs
 	ListDunningRuns(ctx context.Context, params ListDunningRunsParams) (ListDunningRunsRes, error)
+	// ListEInvoiceTransmissionDeadlines invokes listEInvoiceTransmissionDeadlines operation.
+	//
+	// The worklist of a UAE company's posted customer invoices and credit memos whose e-invoice is not yet
+	// transmitted (ADR-0061 §9, As built E3; the mandate's 14 business days to issue and transmit an
+	// e-invoice from the transaction date, coordinator plan default 9): every one issued from
+	// `issued_from` through `key_date` whose e-invoice is not rendered, invalid, or rendered and not
+	// `completed` at the provider, each with its deadline, the 14th business day of the company's calendar
+	// after its issue date (its weekend and holidays, ADR-0058 §3: in the UAE Saturday and Sunday unless
+	// the calendar names others), and whether it is overdue on the key date (the deadline before it) with
+	// the business days left to it (negative once overdue). Ordered by deadline, then customer document
+	// number, the overdue first; each row names its customer by number and name and carries its gross
+	// amount in its currency, its e-invoice's id and status and its transmission's status (null for none).
+	// `count` and `overdue_count` at the top are the totals of every row listed, not of the page. Computed
+	// at the read and stored nowhere; paged by cursor in the worklist's order, a page token bound to the
+	// company and dates. `issued_from` defaults to 90 days before the key date and may be at most 366 days
+	// before it (422 `einvoicing.invalid_period`, naming `issued_from`, as for one after it). A debit memo
+	// is not listed (PINT AE has no debit note type). A legal entity the caller cannot act in, or one that
+	// is not a UAE company in AED, is refused (422 `request.reference_not_found`,
+	// `einvoicing.not_a_uae_company`, naming `legal_entity_id`).
+	//
+	// GET /v1/e-invoice-transmission-deadlines
+	ListEInvoiceTransmissionDeadlines(ctx context.Context, params ListEInvoiceTransmissionDeadlinesParams) (ListEInvoiceTransmissionDeadlinesRes, error)
 	// ListEInvoices invokes listEInvoices operation.
 	//
 	// The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
@@ -6303,8 +6325,9 @@ type Invoker interface {
 	//
 	// The e-invoices rendered from the posted customer documents of the companies the caller may act in
 	// (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
-	// by company, by the customer document it renders (at most one), and by status, so the invalid ones to
-	// correct are found.
+	// by company, by the customer document it renders (at most one), by status, so the invalid ones to
+	// correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
+	// the failed submissions to correct and send again are found.
 	//
 	// GET /v1/outgoing-e-invoices
 	ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (ListOutgoingEInvoicesRes, error)
@@ -8636,6 +8659,46 @@ type Invoker interface {
 	//
 	// POST /v1/reports/{id}:schedule
 	ScheduleReport(ctx context.Context, request *ReportScheduleSet, params ScheduleReportParams) (ScheduleReportRes, error)
+	// SendOutgoingEInvoice invokes sendOutgoingEInvoice operation.
+	//
+	// Sends a valid outgoing e-invoice through an `einvoice_provider` connector to the company's
+	// accredited e-invoicing provider (ADR-0061 §3, §9, As built E3; SAP Document and Reporting
+	// Compliance's submission of an e-document): its XML byte for byte as kept
+	// (`getOutgoingEInvoiceContent`), at Evatra by `POST /invoice/send-document-async` as `base64Document`
+	// with `invoiceType` UAE_PINT, the `business_type` asked for (B2B or B2G; B2C is outside the UAE
+	// mandate) and `invoiceSource` ERP. The request writes, in its transaction, the e-invoice's submission
+	// (`transmission`, `queued`) and the Operation that carries it out (kind `einvoicing.send`, its
+	// resource the e-invoice), audited in the caller's name (`einvoicing.outgoing.send`) with
+	// OutgoingEInvoiceTransmissionChanged: the submission is the outbox of the call, which is made only
+	// after that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow
+	// engine) as the einvoicing context's system principal. Each call is counted on the submission before
+	// it is made (`attempts`); Evatra has no idempotency key, so a send after one whose answer was lost
+	// (or after the provider failed to send, below) first looks the document up at the provider by its
+	// filename, the e-invoice's number (`document-process/search`), and takes the submission found instead
+	// of sending it twice. A call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+	// calls); a refusal by the provider, or the fifth failure, fails the submission. Once the provider
+	// gives its tracking id the submission is `submitted` and its status is read
+	// (`document-status/{trackingId}`) with backoff, from 30 seconds doubling to an hour, until the
+	// provider reports it COMPLETED (`completed`, the Operation succeeded with the e-invoice as its
+	// resource), FAILED or PERMANENT_FAILED (`failed` with `einvoicing.provider_failed` or
+	// `einvoicing.permanent_failure`, the Operation failed with it), or SENDING_FAILED: then it is sent
+	// again, up to three times (`resends`), and after the third `failed` with `einvoicing.sending_failed`.
+	// A submission whose status stays unfinished for 500 reads (about three weeks) is `failed` with
+	// `einvoicing.status_unconfirmed`. Every change of the submission's status or of the provider's is
+	// audited (`einvoicing.outgoing.transmission`) and publishes OutgoingEInvoiceTransmissionChanged; the
+	// failed ones are the worklist `listOutgoingEInvoices?transmission_status=failed`, which a person
+	// sends again with this operation once corrected (the row queued again, a new Operation). Refused: an
+	// e-invoice that is invalid (409 `einvoicing.document_invalid`); one queued, sending or submitted (409
+	// `einvoicing.transmission_in_progress`) or completed (409 `einvoicing.already_transmitted`); a
+	// connector that is not an active `einvoice_provider` connector with credentials that resolve, as
+	// `fetchEInvoices` refuses one; one whose adapter does not send (the stand-in's own protocol: 422
+	// `einvoicing.adapter_cannot_send`) or that names no participant for the e-invoice's company (422
+	// `einvoicing.not_a_participant`). An e-invoice of a company the caller may not act in is not found
+	// (404). 503 while the server has no object storage. Human-only (`x-agent: false`): agents never send
+	// an e-invoice (ADR-0061 §13).
+	//
+	// POST /v1/outgoing-e-invoices/{id}:send
+	SendOutgoingEInvoice(ctx context.Context, request *OutgoingEInvoiceSend, params SendOutgoingEInvoiceParams) (SendOutgoingEInvoiceRes, error)
 	// SettleInternalOrder invokes settleInternalOrder operation.
 	//
 	// Settles a released internal order's actual costs up to a fiscal period to the receiver of its
@@ -75468,6 +75531,218 @@ func (c *Client) sendListDunningRuns(ctx context.Context, params ListDunningRuns
 	return result, nil
 }
 
+// ListEInvoiceTransmissionDeadlines invokes listEInvoiceTransmissionDeadlines operation.
+//
+// The worklist of a UAE company's posted customer invoices and credit memos whose e-invoice is not yet
+// transmitted (ADR-0061 §9, As built E3; the mandate's 14 business days to issue and transmit an
+// e-invoice from the transaction date, coordinator plan default 9): every one issued from
+// `issued_from` through `key_date` whose e-invoice is not rendered, invalid, or rendered and not
+// `completed` at the provider, each with its deadline, the 14th business day of the company's calendar
+// after its issue date (its weekend and holidays, ADR-0058 §3: in the UAE Saturday and Sunday unless
+// the calendar names others), and whether it is overdue on the key date (the deadline before it) with
+// the business days left to it (negative once overdue). Ordered by deadline, then customer document
+// number, the overdue first; each row names its customer by number and name and carries its gross
+// amount in its currency, its e-invoice's id and status and its transmission's status (null for none).
+// `count` and `overdue_count` at the top are the totals of every row listed, not of the page. Computed
+// at the read and stored nowhere; paged by cursor in the worklist's order, a page token bound to the
+// company and dates. `issued_from` defaults to 90 days before the key date and may be at most 366 days
+// before it (422 `einvoicing.invalid_period`, naming `issued_from`, as for one after it). A debit memo
+// is not listed (PINT AE has no debit note type). A legal entity the caller cannot act in, or one that
+// is not a UAE company in AED, is refused (422 `request.reference_not_found`,
+// `einvoicing.not_a_uae_company`, naming `legal_entity_id`).
+//
+// GET /v1/e-invoice-transmission-deadlines
+func (c *Client) ListEInvoiceTransmissionDeadlines(ctx context.Context, params ListEInvoiceTransmissionDeadlinesParams) (ListEInvoiceTransmissionDeadlinesRes, error) {
+	res, err := c.sendListEInvoiceTransmissionDeadlines(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListEInvoiceTransmissionDeadlines(ctx context.Context, params ListEInvoiceTransmissionDeadlinesParams) (res ListEInvoiceTransmissionDeadlinesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listEInvoiceTransmissionDeadlines"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/e-invoice-transmission-deadlines"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListEInvoiceTransmissionDeadlinesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/e-invoice-transmission-deadlines"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "key_date" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "key_date",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.KeyDate))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "issued_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "issued_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.IssuedFrom.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListEInvoiceTransmissionDeadlinesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListEInvoiceTransmissionDeadlinesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListEInvoices invokes listEInvoices operation.
 //
 // The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
@@ -85589,8 +85864,9 @@ func (c *Client) sendListOutboundDeliveries(ctx context.Context, params ListOutb
 //
 // The e-invoices rendered from the posted customer documents of the companies the caller may act in
 // (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
-// by company, by the customer document it renders (at most one), and by status, so the invalid ones to
-// correct are found.
+// by company, by the customer document it renders (at most one), by status, so the invalid ones to
+// correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
+// the failed submissions to correct and send again are found.
 //
 // GET /v1/outgoing-e-invoices
 func (c *Client) ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (ListOutgoingEInvoicesRes, error) {
@@ -85686,6 +85962,23 @@ func (c *Client) sendListOutgoingEInvoices(ctx context.Context, params ListOutgo
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.Status.Get(); ok {
 				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "transmission_status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "transmission_status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.TransmissionStatus.Get(); ok {
+				return e.EncodeValue(conv.StringToString(string(val)))
 			}
 			return nil
 		}); err != nil {
@@ -115788,6 +116081,189 @@ func (c *Client) sendScheduleReport(ctx context.Context, request *ReportSchedule
 
 	stage = "DecodeResponse"
 	result, err := decodeScheduleReportResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// SendOutgoingEInvoice invokes sendOutgoingEInvoice operation.
+//
+// Sends a valid outgoing e-invoice through an `einvoice_provider` connector to the company's
+// accredited e-invoicing provider (ADR-0061 §3, §9, As built E3; SAP Document and Reporting
+// Compliance's submission of an e-document): its XML byte for byte as kept
+// (`getOutgoingEInvoiceContent`), at Evatra by `POST /invoice/send-document-async` as `base64Document`
+// with `invoiceType` UAE_PINT, the `business_type` asked for (B2B or B2G; B2C is outside the UAE
+// mandate) and `invoiceSource` ERP. The request writes, in its transaction, the e-invoice's submission
+// (`transmission`, `queued`) and the Operation that carries it out (kind `einvoicing.send`, its
+// resource the e-invoice), audited in the caller's name (`einvoicing.outgoing.send`) with
+// OutgoingEInvoiceTransmissionChanged: the submission is the outbox of the call, which is made only
+// after that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow
+// engine) as the einvoicing context's system principal. Each call is counted on the submission before
+// it is made (`attempts`); Evatra has no idempotency key, so a send after one whose answer was lost
+// (or after the provider failed to send, below) first looks the document up at the provider by its
+// filename, the e-invoice's number (`document-process/search`), and takes the submission found instead
+// of sending it twice. A call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+// calls); a refusal by the provider, or the fifth failure, fails the submission. Once the provider
+// gives its tracking id the submission is `submitted` and its status is read
+// (`document-status/{trackingId}`) with backoff, from 30 seconds doubling to an hour, until the
+// provider reports it COMPLETED (`completed`, the Operation succeeded with the e-invoice as its
+// resource), FAILED or PERMANENT_FAILED (`failed` with `einvoicing.provider_failed` or
+// `einvoicing.permanent_failure`, the Operation failed with it), or SENDING_FAILED: then it is sent
+// again, up to three times (`resends`), and after the third `failed` with `einvoicing.sending_failed`.
+// A submission whose status stays unfinished for 500 reads (about three weeks) is `failed` with
+// `einvoicing.status_unconfirmed`. Every change of the submission's status or of the provider's is
+// audited (`einvoicing.outgoing.transmission`) and publishes OutgoingEInvoiceTransmissionChanged; the
+// failed ones are the worklist `listOutgoingEInvoices?transmission_status=failed`, which a person
+// sends again with this operation once corrected (the row queued again, a new Operation). Refused: an
+// e-invoice that is invalid (409 `einvoicing.document_invalid`); one queued, sending or submitted (409
+// `einvoicing.transmission_in_progress`) or completed (409 `einvoicing.already_transmitted`); a
+// connector that is not an active `einvoice_provider` connector with credentials that resolve, as
+// `fetchEInvoices` refuses one; one whose adapter does not send (the stand-in's own protocol: 422
+// `einvoicing.adapter_cannot_send`) or that names no participant for the e-invoice's company (422
+// `einvoicing.not_a_participant`). An e-invoice of a company the caller may not act in is not found
+// (404). 503 while the server has no object storage. Human-only (`x-agent: false`): agents never send
+// an e-invoice (ADR-0061 §13).
+//
+// POST /v1/outgoing-e-invoices/{id}:send
+func (c *Client) SendOutgoingEInvoice(ctx context.Context, request *OutgoingEInvoiceSend, params SendOutgoingEInvoiceParams) (SendOutgoingEInvoiceRes, error) {
+	res, err := c.sendSendOutgoingEInvoice(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendSendOutgoingEInvoice(ctx context.Context, request *OutgoingEInvoiceSend, params SendOutgoingEInvoiceParams) (res SendOutgoingEInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("sendOutgoingEInvoice"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/outgoing-e-invoices/{id}:send"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, SendOutgoingEInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/outgoing-e-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":send"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeSendOutgoingEInvoiceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, SendOutgoingEInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeSendOutgoingEInvoiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

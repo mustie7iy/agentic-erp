@@ -567,6 +567,7 @@ channels:
     messages:
       EInvoiceChanged: {$ref: '#/components/messages/EInvoiceChanged'}
       OutgoingEInvoiceRendered: {$ref: '#/components/messages/OutgoingEInvoiceRendered'}
+      OutgoingEInvoiceTransmissionChanged: {$ref: '#/components/messages/OutgoingEInvoiceTransmissionChanged'}
   platform:
     address: 'erp.{cell}.platform.{tenant}.{event}'
     title: Platform operation events
@@ -941,6 +942,7 @@ operations:
     messages:
       - $ref: '#/channels/einvoicing/messages/EInvoiceChanged'
       - $ref: '#/channels/einvoicing/messages/OutgoingEInvoiceRendered'
+      - $ref: '#/channels/einvoicing/messages/OutgoingEInvoiceTransmissionChanged'
   publishPlatformEvents:
     action: send
     title: Platform publishes
@@ -4396,6 +4398,34 @@ components:
         - name: valid
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f01, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.outgoing_einvoice_rendered.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-19T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {outgoing_einvoice_id: 0192a000-0000-7000-8000-000000000f11, customer_invoice_id: 0192a000-0000-7000-8000-000000000f01, customer_invoice_number: '1800000007', legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '5000', customer_id: 0192a000-0000-7000-8000-000000000301, customer_number: '100045', kind: invoice, type_code: '380', status: valid, status_before: null, problem_rules: [], sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, version: 1}
+    OutgoingEInvoiceTransmissionChanged:
+      name: OutgoingEInvoiceTransmissionChanged
+      x-webhook: true
+      title: Outgoing e-invoice transmission changed
+      summary: An outgoing e-invoice's submission to the accredited provider changed.
+      description: |
+        Emitted when `sendOutgoingEInvoice` queues an e-invoice's
+        submission and whenever the send workflow moves it or reads
+        another status from the provider (ADR-0061 §9, §12, As built E3):
+        its status after the change (queued, sending, submitted,
+        completed, failed), the status before (null when first queued),
+        the provider's status and tracking id, the attempts and resends,
+        and, once failed, the problem code. A status read that finds
+        nothing new emits nothing. It carries no document content and no
+        TRN. `GET /v1/outgoing-e-invoices/{id}` returns the e-invoice with
+        its transmission at `version` or later. Subject is the outgoing
+        e-invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.einvoicing.outgoing_einvoice_transmission_changed.v1}
+      payload: {$ref: '#/components/schemas/OutgoingEInvoiceTransmissionChangedV1'}
+      examples:
+        - name: completed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f02, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.outgoing_einvoice_transmission_changed.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-19T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {outgoing_einvoice_id: 0192a000-0000-7000-8000-000000000f11, customer_invoice_number: '1800000007', legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '5000', connector_id: 0192a000-0000-7000-8000-000000000e01, operation_id: 0192a000-0000-7000-8000-000000000c01, business_type: B2B, status: completed, status_before: submitted, provider_status: COMPLETED, tracking_id: TRK-1001, attempts: 1, resends: 0, problem_code: null, version: 4}
     CustomerInvoiceChanged:
       name: CustomerInvoiceChanged
       x-webhook: true
@@ -6155,6 +6185,25 @@ components:
           description: "The rules that failed (`einvoicing.pint_ae.*`); empty when valid."
         sha256: {type: [string, 'null'], description: "The SHA-256 of its XML, hex; null while invalid."}
         version: {type: integer, description: "The e-invoice's version after the change."}
+    OutgoingEInvoiceTransmissionChangedV1:
+      type: object
+      required: [outgoing_einvoice_id, customer_invoice_number, legal_entity_id, legal_entity_code, connector_id, operation_id, business_type, status, status_before, provider_status, tracking_id, attempts, resends, problem_code, version]
+      properties:
+        outgoing_einvoice_id: {$ref: '#/components/schemas/Uuid', description: '`einvoicing.outgoing_einvoice.id`.'}
+        customer_invoice_number: {type: string, description: "The e-invoice's number (IBT-001), the provider's filename."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that issues it.}
+        legal_entity_code: {type: string, description: 'The company code, as LegalEntityCreated gives it.'}
+        connector_id: {$ref: '#/components/schemas/Uuid', description: The connector it is sent through.}
+        operation_id: {$ref: '#/components/schemas/Uuid', description: The Operation of the send asked for last.}
+        business_type: {type: string, description: "B2B or B2G."}
+        status: {type: string, description: "Its status after the change. Open enum: queued, sending, submitted, completed, failed."}
+        status_before: {type: [string, 'null'], description: "Its status before; null when first queued."}
+        provider_status: {type: [string, 'null'], description: "The provider's status as last reported; null before it was submitted. Open enum."}
+        tracking_id: {type: [string, 'null'], description: "The provider's id of the current submission; null before it was submitted."}
+        attempts: {type: integer, description: "Calls made for the current send."}
+        resends: {type: integer, description: "Sends again after SENDING_FAILED."}
+        problem_code: {type: [string, 'null'], description: "Why it failed; null unless failed."}
+        version: {type: integer, description: "The submission's version after the change."}
     CustomerInvoiceChangedV1:
       type: object
       required: [customer_invoice_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, kind, invoice_date, net_amount, tax_amount, gross_amount, status, status_before, version]

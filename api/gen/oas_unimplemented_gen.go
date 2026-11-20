@@ -7039,6 +7039,31 @@ func (UnimplementedHandler) ListDunningRuns(ctx context.Context, params ListDunn
 	return r, ht.ErrNotImplemented
 }
 
+// ListEInvoiceTransmissionDeadlines implements listEInvoiceTransmissionDeadlines operation.
+//
+// The worklist of a UAE company's posted customer invoices and credit memos whose e-invoice is not yet
+// transmitted (ADR-0061 §9, As built E3; the mandate's 14 business days to issue and transmit an
+// e-invoice from the transaction date, coordinator plan default 9): every one issued from
+// `issued_from` through `key_date` whose e-invoice is not rendered, invalid, or rendered and not
+// `completed` at the provider, each with its deadline, the 14th business day of the company's calendar
+// after its issue date (its weekend and holidays, ADR-0058 §3: in the UAE Saturday and Sunday unless
+// the calendar names others), and whether it is overdue on the key date (the deadline before it) with
+// the business days left to it (negative once overdue). Ordered by deadline, then customer document
+// number, the overdue first; each row names its customer by number and name and carries its gross
+// amount in its currency, its e-invoice's id and status and its transmission's status (null for none).
+// `count` and `overdue_count` at the top are the totals of every row listed, not of the page. Computed
+// at the read and stored nowhere; paged by cursor in the worklist's order, a page token bound to the
+// company and dates. `issued_from` defaults to 90 days before the key date and may be at most 366 days
+// before it (422 `einvoicing.invalid_period`, naming `issued_from`, as for one after it). A debit memo
+// is not listed (PINT AE has no debit note type). A legal entity the caller cannot act in, or one that
+// is not a UAE company in AED, is refused (422 `request.reference_not_found`,
+// `einvoicing.not_a_uae_company`, naming `legal_entity_id`).
+//
+// GET /v1/e-invoice-transmission-deadlines
+func (UnimplementedHandler) ListEInvoiceTransmissionDeadlines(ctx context.Context, params ListEInvoiceTransmissionDeadlinesParams) (r ListEInvoiceTransmissionDeadlinesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListEInvoices implements listEInvoices operation.
 //
 // The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
@@ -7601,8 +7626,9 @@ func (UnimplementedHandler) ListOutboundDeliveries(ctx context.Context, params L
 //
 // The e-invoices rendered from the posted customer documents of the companies the caller may act in
 // (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
-// by company, by the customer document it renders (at most one), and by status, so the invalid ones to
-// correct are found.
+// by company, by the customer document it renders (at most one), by status, so the invalid ones to
+// correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
+// the failed submissions to correct and send again are found.
 //
 // GET /v1/outgoing-e-invoices
 func (UnimplementedHandler) ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (r ListOutgoingEInvoicesRes, _ error) {
@@ -10402,6 +10428,49 @@ func (UnimplementedHandler) RunReport(ctx context.Context, params RunReportParam
 //
 // POST /v1/reports/{id}:schedule
 func (UnimplementedHandler) ScheduleReport(ctx context.Context, req *ReportScheduleSet, params ScheduleReportParams) (r ScheduleReportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// SendOutgoingEInvoice implements sendOutgoingEInvoice operation.
+//
+// Sends a valid outgoing e-invoice through an `einvoice_provider` connector to the company's
+// accredited e-invoicing provider (ADR-0061 §3, §9, As built E3; SAP Document and Reporting
+// Compliance's submission of an e-document): its XML byte for byte as kept
+// (`getOutgoingEInvoiceContent`), at Evatra by `POST /invoice/send-document-async` as `base64Document`
+// with `invoiceType` UAE_PINT, the `business_type` asked for (B2B or B2G; B2C is outside the UAE
+// mandate) and `invoiceSource` ERP. The request writes, in its transaction, the e-invoice's submission
+// (`transmission`, `queued`) and the Operation that carries it out (kind `einvoicing.send`, its
+// resource the e-invoice), audited in the caller's name (`einvoicing.outgoing.send`) with
+// OutgoingEInvoiceTransmissionChanged: the submission is the outbox of the call, which is made only
+// after that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow
+// engine) as the einvoicing context's system principal. Each call is counted on the submission before
+// it is made (`attempts`); Evatra has no idempotency key, so a send after one whose answer was lost
+// (or after the provider failed to send, below) first looks the document up at the provider by its
+// filename, the e-invoice's number (`document-process/search`), and takes the submission found instead
+// of sending it twice. A call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+// calls); a refusal by the provider, or the fifth failure, fails the submission. Once the provider
+// gives its tracking id the submission is `submitted` and its status is read
+// (`document-status/{trackingId}`) with backoff, from 30 seconds doubling to an hour, until the
+// provider reports it COMPLETED (`completed`, the Operation succeeded with the e-invoice as its
+// resource), FAILED or PERMANENT_FAILED (`failed` with `einvoicing.provider_failed` or
+// `einvoicing.permanent_failure`, the Operation failed with it), or SENDING_FAILED: then it is sent
+// again, up to three times (`resends`), and after the third `failed` with `einvoicing.sending_failed`.
+// A submission whose status stays unfinished for 500 reads (about three weeks) is `failed` with
+// `einvoicing.status_unconfirmed`. Every change of the submission's status or of the provider's is
+// audited (`einvoicing.outgoing.transmission`) and publishes OutgoingEInvoiceTransmissionChanged; the
+// failed ones are the worklist `listOutgoingEInvoices?transmission_status=failed`, which a person
+// sends again with this operation once corrected (the row queued again, a new Operation). Refused: an
+// e-invoice that is invalid (409 `einvoicing.document_invalid`); one queued, sending or submitted (409
+// `einvoicing.transmission_in_progress`) or completed (409 `einvoicing.already_transmitted`); a
+// connector that is not an active `einvoice_provider` connector with credentials that resolve, as
+// `fetchEInvoices` refuses one; one whose adapter does not send (the stand-in's own protocol: 422
+// `einvoicing.adapter_cannot_send`) or that names no participant for the e-invoice's company (422
+// `einvoicing.not_a_participant`). An e-invoice of a company the caller may not act in is not found
+// (404). 503 while the server has no object storage. Human-only (`x-agent: false`): agents never send
+// an e-invoice (ADR-0061 §13).
+//
+// POST /v1/outgoing-e-invoices/{id}:send
+func (UnimplementedHandler) SendOutgoingEInvoice(ctx context.Context, req *OutgoingEInvoiceSend, params SendOutgoingEInvoiceParams) (r SendOutgoingEInvoiceRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

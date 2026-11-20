@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/go-faster/errors"
 	"github.com/go-faster/jx"
 	"github.com/google/uuid"
 )
@@ -28058,6 +28059,7 @@ func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
 func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
 func (*ConflictHeaders) runReportRes()                             {}
 func (*ConflictHeaders) scheduleReportRes()                        {}
+func (*ConflictHeaders) sendOutgoingEInvoiceRes()                  {}
 func (*ConflictHeaders) settleInternalOrderRes()                   {}
 func (*ConflictHeaders) signOffPeriodCloseRes()                    {}
 func (*ConflictHeaders) signOffYearCloseRes()                      {}
@@ -45500,6 +45502,287 @@ func (s *EInvoice) SetChangedFetchOperationID(val NilUUID) {
 func (s *EInvoice) SetVersion(val int32) {
 	s.Version = val
 }
+
+// A posted customer document whose e-invoice is not yet transmitted, with its deadline.
+// Ref: #/components/schemas/EInvoiceDeadline
+type EInvoiceDeadline struct {
+	// The customer invoice or credit memo (`getCustomerInvoice`).
+	CustomerInvoiceID     uuid.UUID `json:"customer_invoice_id"`
+	CustomerInvoiceNumber string    `json:"customer_invoice_number"`
+	// Invoice or credit_memo. Open enumeration.
+	Kind string `json:"kind"`
+	// Its invoice date, the transaction date its deadline counts from.
+	IssueDate time.Time `json:"issue_date"`
+	// The 14th business day of the company after the issue date.
+	Deadline time.Time `json:"deadline"`
+	// Whether the deadline is before the key date.
+	Overdue bool `json:"overdue"`
+	// Business days from the key date to the deadline; 0 on it, negative once overdue.
+	BusinessDaysLeft int32     `json:"business_days_left"`
+	CustomerID       uuid.UUID `json:"customer_id"`
+	CustomerNumber   string    `json:"customer_number"`
+	CustomerName     string    `json:"customer_name"`
+	GrossAmount      Money     `json:"gross_amount"`
+	// Its e-invoice; null while none is rendered.
+	OutgoingEinvoiceID NilUUID `json:"outgoing_einvoice_id"`
+	// Its e-invoice's status (valid, invalid); null while none is rendered.
+	EinvoiceStatus NilString `json:"einvoice_status"`
+	// Its submission's status (queued, sending, submitted, failed); null while it is not sent.
+	TransmissionStatus NilString `json:"transmission_status"`
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *EInvoiceDeadline) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *EInvoiceDeadline) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetKind returns the value of Kind.
+func (s *EInvoiceDeadline) GetKind() string {
+	return s.Kind
+}
+
+// GetIssueDate returns the value of IssueDate.
+func (s *EInvoiceDeadline) GetIssueDate() time.Time {
+	return s.IssueDate
+}
+
+// GetDeadline returns the value of Deadline.
+func (s *EInvoiceDeadline) GetDeadline() time.Time {
+	return s.Deadline
+}
+
+// GetOverdue returns the value of Overdue.
+func (s *EInvoiceDeadline) GetOverdue() bool {
+	return s.Overdue
+}
+
+// GetBusinessDaysLeft returns the value of BusinessDaysLeft.
+func (s *EInvoiceDeadline) GetBusinessDaysLeft() int32 {
+	return s.BusinessDaysLeft
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *EInvoiceDeadline) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *EInvoiceDeadline) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *EInvoiceDeadline) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetGrossAmount returns the value of GrossAmount.
+func (s *EInvoiceDeadline) GetGrossAmount() Money {
+	return s.GrossAmount
+}
+
+// GetOutgoingEinvoiceID returns the value of OutgoingEinvoiceID.
+func (s *EInvoiceDeadline) GetOutgoingEinvoiceID() NilUUID {
+	return s.OutgoingEinvoiceID
+}
+
+// GetEinvoiceStatus returns the value of EinvoiceStatus.
+func (s *EInvoiceDeadline) GetEinvoiceStatus() NilString {
+	return s.EinvoiceStatus
+}
+
+// GetTransmissionStatus returns the value of TransmissionStatus.
+func (s *EInvoiceDeadline) GetTransmissionStatus() NilString {
+	return s.TransmissionStatus
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *EInvoiceDeadline) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *EInvoiceDeadline) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetKind sets the value of Kind.
+func (s *EInvoiceDeadline) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetIssueDate sets the value of IssueDate.
+func (s *EInvoiceDeadline) SetIssueDate(val time.Time) {
+	s.IssueDate = val
+}
+
+// SetDeadline sets the value of Deadline.
+func (s *EInvoiceDeadline) SetDeadline(val time.Time) {
+	s.Deadline = val
+}
+
+// SetOverdue sets the value of Overdue.
+func (s *EInvoiceDeadline) SetOverdue(val bool) {
+	s.Overdue = val
+}
+
+// SetBusinessDaysLeft sets the value of BusinessDaysLeft.
+func (s *EInvoiceDeadline) SetBusinessDaysLeft(val int32) {
+	s.BusinessDaysLeft = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *EInvoiceDeadline) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *EInvoiceDeadline) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *EInvoiceDeadline) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetGrossAmount sets the value of GrossAmount.
+func (s *EInvoiceDeadline) SetGrossAmount(val Money) {
+	s.GrossAmount = val
+}
+
+// SetOutgoingEinvoiceID sets the value of OutgoingEinvoiceID.
+func (s *EInvoiceDeadline) SetOutgoingEinvoiceID(val NilUUID) {
+	s.OutgoingEinvoiceID = val
+}
+
+// SetEinvoiceStatus sets the value of EinvoiceStatus.
+func (s *EInvoiceDeadline) SetEinvoiceStatus(val NilString) {
+	s.EinvoiceStatus = val
+}
+
+// SetTransmissionStatus sets the value of TransmissionStatus.
+func (s *EInvoiceDeadline) SetTransmissionStatus(val NilString) {
+	s.TransmissionStatus = val
+}
+
+// One page of a UAE company's customer documents not yet transmitted, by deadline, with the totals of
+// the whole worklist.
+// Ref: #/components/schemas/EInvoiceDeadlinePage
+type EInvoiceDeadlinePage struct {
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	CompanyCode   string    `json:"company_code"`
+	CompanyName   string    `json:"company_name"`
+	// The day the deadlines are judged on.
+	KeyDate time.Time `json:"key_date"`
+	// The first issue date listed.
+	IssuedFrom time.Time `json:"issued_from"`
+	// Every document listed, on all pages.
+	Count int32 `json:"count"`
+	// Those overdue on the key date, on all pages.
+	OverdueCount int32 `json:"overdue_count"`
+	// The documents on this page.
+	Items []EInvoiceDeadline `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *EInvoiceDeadlinePage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *EInvoiceDeadlinePage) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *EInvoiceDeadlinePage) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *EInvoiceDeadlinePage) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetIssuedFrom returns the value of IssuedFrom.
+func (s *EInvoiceDeadlinePage) GetIssuedFrom() time.Time {
+	return s.IssuedFrom
+}
+
+// GetCount returns the value of Count.
+func (s *EInvoiceDeadlinePage) GetCount() int32 {
+	return s.Count
+}
+
+// GetOverdueCount returns the value of OverdueCount.
+func (s *EInvoiceDeadlinePage) GetOverdueCount() int32 {
+	return s.OverdueCount
+}
+
+// GetItems returns the value of Items.
+func (s *EInvoiceDeadlinePage) GetItems() []EInvoiceDeadline {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *EInvoiceDeadlinePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *EInvoiceDeadlinePage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *EInvoiceDeadlinePage) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *EInvoiceDeadlinePage) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *EInvoiceDeadlinePage) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetIssuedFrom sets the value of IssuedFrom.
+func (s *EInvoiceDeadlinePage) SetIssuedFrom(val time.Time) {
+	s.IssuedFrom = val
+}
+
+// SetCount sets the value of Count.
+func (s *EInvoiceDeadlinePage) SetCount(val int32) {
+	s.Count = val
+}
+
+// SetOverdueCount sets the value of OverdueCount.
+func (s *EInvoiceDeadlinePage) SetOverdueCount(val int32) {
+	s.OverdueCount = val
+}
+
+// SetItems sets the value of Items.
+func (s *EInvoiceDeadlinePage) SetItems(val []EInvoiceDeadline) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *EInvoiceDeadlinePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*EInvoiceDeadlinePage) listEInvoiceTransmissionDeadlinesRes() {}
 
 // A fetch of e-invoices from a provider (ADR-0061 §4).
 // Ref: #/components/schemas/EInvoiceFetch
@@ -66586,6 +66869,18 @@ type ListDunningRunsForbidden Problem
 
 func (*ListDunningRunsForbidden) listDunningRunsRes() {}
 
+type ListEInvoiceTransmissionDeadlinesBadRequest Problem
+
+func (*ListEInvoiceTransmissionDeadlinesBadRequest) listEInvoiceTransmissionDeadlinesRes() {}
+
+type ListEInvoiceTransmissionDeadlinesForbidden Problem
+
+func (*ListEInvoiceTransmissionDeadlinesForbidden) listEInvoiceTransmissionDeadlinesRes() {}
+
+type ListEInvoiceTransmissionDeadlinesUnprocessableEntity Problem
+
+func (*ListEInvoiceTransmissionDeadlinesUnprocessableEntity) listEInvoiceTransmissionDeadlinesRes() {}
+
 type ListEInvoicesBadRequest Problem
 
 func (*ListEInvoicesBadRequest) listEInvoicesRes() {}
@@ -66973,6 +67268,75 @@ func (*ListOutgoingEInvoicesBadRequest) listOutgoingEInvoicesRes() {}
 type ListOutgoingEInvoicesForbidden Problem
 
 func (*ListOutgoingEInvoicesForbidden) listOutgoingEInvoicesRes() {}
+
+type ListOutgoingEInvoicesTransmissionStatus string
+
+const (
+	ListOutgoingEInvoicesTransmissionStatusNone      ListOutgoingEInvoicesTransmissionStatus = "none"
+	ListOutgoingEInvoicesTransmissionStatusQueued    ListOutgoingEInvoicesTransmissionStatus = "queued"
+	ListOutgoingEInvoicesTransmissionStatusSending   ListOutgoingEInvoicesTransmissionStatus = "sending"
+	ListOutgoingEInvoicesTransmissionStatusSubmitted ListOutgoingEInvoicesTransmissionStatus = "submitted"
+	ListOutgoingEInvoicesTransmissionStatusCompleted ListOutgoingEInvoicesTransmissionStatus = "completed"
+	ListOutgoingEInvoicesTransmissionStatusFailed    ListOutgoingEInvoicesTransmissionStatus = "failed"
+)
+
+// AllValues returns all ListOutgoingEInvoicesTransmissionStatus values.
+func (ListOutgoingEInvoicesTransmissionStatus) AllValues() []ListOutgoingEInvoicesTransmissionStatus {
+	return []ListOutgoingEInvoicesTransmissionStatus{
+		ListOutgoingEInvoicesTransmissionStatusNone,
+		ListOutgoingEInvoicesTransmissionStatusQueued,
+		ListOutgoingEInvoicesTransmissionStatusSending,
+		ListOutgoingEInvoicesTransmissionStatusSubmitted,
+		ListOutgoingEInvoicesTransmissionStatusCompleted,
+		ListOutgoingEInvoicesTransmissionStatusFailed,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s ListOutgoingEInvoicesTransmissionStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case ListOutgoingEInvoicesTransmissionStatusNone:
+		return []byte(s), nil
+	case ListOutgoingEInvoicesTransmissionStatusQueued:
+		return []byte(s), nil
+	case ListOutgoingEInvoicesTransmissionStatusSending:
+		return []byte(s), nil
+	case ListOutgoingEInvoicesTransmissionStatusSubmitted:
+		return []byte(s), nil
+	case ListOutgoingEInvoicesTransmissionStatusCompleted:
+		return []byte(s), nil
+	case ListOutgoingEInvoicesTransmissionStatusFailed:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *ListOutgoingEInvoicesTransmissionStatus) UnmarshalText(data []byte) error {
+	switch ListOutgoingEInvoicesTransmissionStatus(data) {
+	case ListOutgoingEInvoicesTransmissionStatusNone:
+		*s = ListOutgoingEInvoicesTransmissionStatusNone
+		return nil
+	case ListOutgoingEInvoicesTransmissionStatusQueued:
+		*s = ListOutgoingEInvoicesTransmissionStatusQueued
+		return nil
+	case ListOutgoingEInvoicesTransmissionStatusSending:
+		*s = ListOutgoingEInvoicesTransmissionStatusSending
+		return nil
+	case ListOutgoingEInvoicesTransmissionStatusSubmitted:
+		*s = ListOutgoingEInvoicesTransmissionStatusSubmitted
+		return nil
+	case ListOutgoingEInvoicesTransmissionStatusCompleted:
+		*s = ListOutgoingEInvoicesTransmissionStatusCompleted
+		return nil
+	case ListOutgoingEInvoicesTransmissionStatusFailed:
+		*s = ListOutgoingEInvoicesTransmissionStatusFailed
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
 
 type ListParkedJournalEntriesBadRequest Problem
 
@@ -74811,6 +75175,96 @@ func (o NilInt64) Or(d int64) int64 {
 	return d
 }
 
+// NewNilOutgoingEInvoiceTransmission returns new NilOutgoingEInvoiceTransmission with value set to v.
+func NewNilOutgoingEInvoiceTransmission(v OutgoingEInvoiceTransmission) NilOutgoingEInvoiceTransmission {
+	return NilOutgoingEInvoiceTransmission{
+		Value: v,
+	}
+}
+
+// NilOutgoingEInvoiceTransmission is nullable OutgoingEInvoiceTransmission.
+type NilOutgoingEInvoiceTransmission struct {
+	Value OutgoingEInvoiceTransmission
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilOutgoingEInvoiceTransmission) SetTo(v OutgoingEInvoiceTransmission) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilOutgoingEInvoiceTransmission) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilOutgoingEInvoiceTransmission) SetToNull() {
+	o.Null = true
+	var v OutgoingEInvoiceTransmission
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilOutgoingEInvoiceTransmission) Get() (v OutgoingEInvoiceTransmission, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilOutgoingEInvoiceTransmission) Or(d OutgoingEInvoiceTransmission) OutgoingEInvoiceTransmission {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewNilOutgoingEInvoiceTransmissionProblem returns new NilOutgoingEInvoiceTransmissionProblem with value set to v.
+func NewNilOutgoingEInvoiceTransmissionProblem(v OutgoingEInvoiceTransmissionProblem) NilOutgoingEInvoiceTransmissionProblem {
+	return NilOutgoingEInvoiceTransmissionProblem{
+		Value: v,
+	}
+}
+
+// NilOutgoingEInvoiceTransmissionProblem is nullable OutgoingEInvoiceTransmissionProblem.
+type NilOutgoingEInvoiceTransmissionProblem struct {
+	Value OutgoingEInvoiceTransmissionProblem
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilOutgoingEInvoiceTransmissionProblem) SetTo(v OutgoingEInvoiceTransmissionProblem) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilOutgoingEInvoiceTransmissionProblem) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilOutgoingEInvoiceTransmissionProblem) SetToNull() {
+	o.Null = true
+	var v OutgoingEInvoiceTransmissionProblem
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilOutgoingEInvoiceTransmissionProblem) Get() (v OutgoingEInvoiceTransmissionProblem, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilOutgoingEInvoiceTransmissionProblem) Or(d OutgoingEInvoiceTransmissionProblem) OutgoingEInvoiceTransmissionProblem {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewNilString returns new NilString with value set to v.
 func NewNilString(v string) NilString {
 	return NilString{
@@ -75778,6 +76232,7 @@ func (*OperationHeaders) fetchEInvoicesRes()         {}
 func (*OperationHeaders) proposePaymentRunRes()      {}
 func (*OperationHeaders) reconcileMigrationRunRes()  {}
 func (*OperationHeaders) releasePaymentRunRes()      {}
+func (*OperationHeaders) sendOutgoingEInvoiceRes()   {}
 func (*OperationHeaders) simulateChangeRequestRes()  {}
 func (*OperationHeaders) startDepreciationRunRes()   {}
 func (*OperationHeaders) startMigrationRunRes()      {}
@@ -79411,6 +79866,52 @@ func (o OptLiquidityForecastVariancePeriod) Or(d LiquidityForecastVariancePeriod
 	return d
 }
 
+// NewOptListOutgoingEInvoicesTransmissionStatus returns new OptListOutgoingEInvoicesTransmissionStatus with value set to v.
+func NewOptListOutgoingEInvoicesTransmissionStatus(v ListOutgoingEInvoicesTransmissionStatus) OptListOutgoingEInvoicesTransmissionStatus {
+	return OptListOutgoingEInvoicesTransmissionStatus{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptListOutgoingEInvoicesTransmissionStatus is optional ListOutgoingEInvoicesTransmissionStatus.
+type OptListOutgoingEInvoicesTransmissionStatus struct {
+	Value ListOutgoingEInvoicesTransmissionStatus
+	Set   bool
+}
+
+// IsSet returns true if OptListOutgoingEInvoicesTransmissionStatus was set.
+func (o OptListOutgoingEInvoicesTransmissionStatus) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptListOutgoingEInvoicesTransmissionStatus) Reset() {
+	var v ListOutgoingEInvoicesTransmissionStatus
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptListOutgoingEInvoicesTransmissionStatus) SetTo(v ListOutgoingEInvoicesTransmissionStatus) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptListOutgoingEInvoicesTransmissionStatus) Get() (v ListOutgoingEInvoicesTransmissionStatus, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptListOutgoingEInvoicesTransmissionStatus) Or(d ListOutgoingEInvoicesTransmissionStatus) ListOutgoingEInvoicesTransmissionStatus {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptMatchDecision returns new OptMatchDecision with value set to v.
 func NewOptMatchDecision(v MatchDecision) OptMatchDecision {
 	return OptMatchDecision{
@@ -82867,7 +83368,8 @@ type OutgoingEInvoice struct {
 	Specification string `json:"specification"`
 	// Valid (every mandatory field checked, its XML kept: final) or invalid (`problems` lists what is
 	// missing; rendered again once corrected). Open enumeration: clients must accept and preserve values
-	// not listed here; values may be added within /v1 (sending adds its statuses, E3).
+	// not listed here; values may be added within /v1. Its transmission to the provider has a status of
+	// its own (`transmission`).
 	Status string `json:"status"`
 	// What its last render found missing or wrong, in the rules' order; empty when valid.
 	Problems []OutgoingEInvoiceProblem `json:"problems"`
@@ -82877,7 +83379,10 @@ type OutgoingEInvoice struct {
 	Size NilInt64 `json:"size"`
 	// When it was last rendered.
 	RenderedAt time.Time `json:"rendered_at"`
-	Version    int32     `json:"version"`
+	// Its submission to the accredited provider (`sendOutgoingEInvoice`, As built E3); null while it is
+	// not sent.
+	Transmission NilOutgoingEInvoiceTransmission `json:"transmission"`
+	Version      int32                           `json:"version"`
 }
 
 // GetID returns the value of ID.
@@ -83008,6 +83513,11 @@ func (s *OutgoingEInvoice) GetSize() NilInt64 {
 // GetRenderedAt returns the value of RenderedAt.
 func (s *OutgoingEInvoice) GetRenderedAt() time.Time {
 	return s.RenderedAt
+}
+
+// GetTransmission returns the value of Transmission.
+func (s *OutgoingEInvoice) GetTransmission() NilOutgoingEInvoiceTransmission {
+	return s.Transmission
 }
 
 // GetVersion returns the value of Version.
@@ -83143,6 +83653,11 @@ func (s *OutgoingEInvoice) SetSize(val NilInt64) {
 // SetRenderedAt sets the value of RenderedAt.
 func (s *OutgoingEInvoice) SetRenderedAt(val time.Time) {
 	s.RenderedAt = val
+}
+
+// SetTransmission sets the value of Transmission.
+func (s *OutgoingEInvoice) SetTransmission(val NilOutgoingEInvoiceTransmission) {
+	s.Transmission = val
 }
 
 // SetVersion sets the value of Version.
@@ -83288,6 +83803,288 @@ func (s *OutgoingEInvoiceRender) SetCustomerInvoiceID(val uuid.UUID) {
 // SetCreditNoteReason sets the value of CreditNoteReason.
 func (s *OutgoingEInvoiceRender) SetCreditNoteReason(val OptCreditNoteReason) {
 	s.CreditNoteReason = val
+}
+
+// Where and how to send an e-invoice (ADR-0061 As built E3).
+// Ref: #/components/schemas/OutgoingEInvoiceSend
+type OutgoingEInvoiceSend struct {
+	// The `einvoice_provider` connector naming the company's participant at the provider.
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The transaction's business type at the provider: B2B (to a business) or B2G (to a government
+	// entity). B2C is outside the UAE mandate.
+	BusinessType OutgoingEInvoiceSendBusinessType `json:"business_type"`
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *OutgoingEInvoiceSend) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetBusinessType returns the value of BusinessType.
+func (s *OutgoingEInvoiceSend) GetBusinessType() OutgoingEInvoiceSendBusinessType {
+	return s.BusinessType
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *OutgoingEInvoiceSend) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetBusinessType sets the value of BusinessType.
+func (s *OutgoingEInvoiceSend) SetBusinessType(val OutgoingEInvoiceSendBusinessType) {
+	s.BusinessType = val
+}
+
+// The transaction's business type at the provider: B2B (to a business) or B2G (to a government
+// entity). B2C is outside the UAE mandate.
+type OutgoingEInvoiceSendBusinessType string
+
+const (
+	OutgoingEInvoiceSendBusinessTypeB2B OutgoingEInvoiceSendBusinessType = "B2B"
+	OutgoingEInvoiceSendBusinessTypeB2G OutgoingEInvoiceSendBusinessType = "B2G"
+)
+
+// AllValues returns all OutgoingEInvoiceSendBusinessType values.
+func (OutgoingEInvoiceSendBusinessType) AllValues() []OutgoingEInvoiceSendBusinessType {
+	return []OutgoingEInvoiceSendBusinessType{
+		OutgoingEInvoiceSendBusinessTypeB2B,
+		OutgoingEInvoiceSendBusinessTypeB2G,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s OutgoingEInvoiceSendBusinessType) MarshalText() ([]byte, error) {
+	switch s {
+	case OutgoingEInvoiceSendBusinessTypeB2B:
+		return []byte(s), nil
+	case OutgoingEInvoiceSendBusinessTypeB2G:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *OutgoingEInvoiceSendBusinessType) UnmarshalText(data []byte) error {
+	switch OutgoingEInvoiceSendBusinessType(data) {
+	case OutgoingEInvoiceSendBusinessTypeB2B:
+		*s = OutgoingEInvoiceSendBusinessTypeB2B
+		return nil
+	case OutgoingEInvoiceSendBusinessTypeB2G:
+		*s = OutgoingEInvoiceSendBusinessTypeB2G
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// An e-invoice's submission to the accredited provider (ADR-0061 As built E3): the outbox of its
+// transmission and what the provider reported of it.
+// Ref: #/components/schemas/OutgoingEInvoiceTransmission
+type OutgoingEInvoiceTransmission struct {
+	// The connector it is sent through.
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The connector's name.
+	ConnectorName string `json:"connector_name"`
+	// The Operation of the send asked for last (`getOperation`).
+	OperationID uuid.UUID `json:"operation_id"`
+	// B2B or B2G, as asked.
+	BusinessType string `json:"business_type"`
+	// Queued (to be sent), sending (a call to the provider made), submitted (the provider's tracking id
+	// known, its status read), completed (the provider reports it COMPLETED: final) or failed (`problem`
+	// says why; sent again by `sendOutgoingEInvoice`). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+	// The provider's processing status as it last reported it (Evatra: PENDING, PROCESSING, COMPLETED,
+	// FAILED, SENDING_FAILED, PERMANENT_FAILED); null before it was submitted. Open enumeration.
+	ProviderStatus NilString `json:"provider_status"`
+	// The provider's id of the current submission; null before it was submitted.
+	TrackingID NilString `json:"tracking_id"`
+	// Calls made for the current send, counted before each is made.
+	Attempts int32 `json:"attempts"`
+	// Sends again after the provider reported SENDING_FAILED.
+	Resends int32 `json:"resends"`
+	// Why it failed; null unless failed.
+	Problem NilOutgoingEInvoiceTransmissionProblem `json:"problem"`
+	// When it is next sent or its status next read; null once completed or failed.
+	NextCheckAt NilDateTime `json:"next_check_at"`
+	// When the provider last gave its tracking id.
+	SubmittedAt NilDateTime `json:"submitted_at"`
+	// When the provider reported it COMPLETED.
+	CompletedAt NilDateTime `json:"completed_at"`
+	// The submission's version.
+	Version int32 `json:"version"`
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *OutgoingEInvoiceTransmission) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetConnectorName returns the value of ConnectorName.
+func (s *OutgoingEInvoiceTransmission) GetConnectorName() string {
+	return s.ConnectorName
+}
+
+// GetOperationID returns the value of OperationID.
+func (s *OutgoingEInvoiceTransmission) GetOperationID() uuid.UUID {
+	return s.OperationID
+}
+
+// GetBusinessType returns the value of BusinessType.
+func (s *OutgoingEInvoiceTransmission) GetBusinessType() string {
+	return s.BusinessType
+}
+
+// GetStatus returns the value of Status.
+func (s *OutgoingEInvoiceTransmission) GetStatus() string {
+	return s.Status
+}
+
+// GetProviderStatus returns the value of ProviderStatus.
+func (s *OutgoingEInvoiceTransmission) GetProviderStatus() NilString {
+	return s.ProviderStatus
+}
+
+// GetTrackingID returns the value of TrackingID.
+func (s *OutgoingEInvoiceTransmission) GetTrackingID() NilString {
+	return s.TrackingID
+}
+
+// GetAttempts returns the value of Attempts.
+func (s *OutgoingEInvoiceTransmission) GetAttempts() int32 {
+	return s.Attempts
+}
+
+// GetResends returns the value of Resends.
+func (s *OutgoingEInvoiceTransmission) GetResends() int32 {
+	return s.Resends
+}
+
+// GetProblem returns the value of Problem.
+func (s *OutgoingEInvoiceTransmission) GetProblem() NilOutgoingEInvoiceTransmissionProblem {
+	return s.Problem
+}
+
+// GetNextCheckAt returns the value of NextCheckAt.
+func (s *OutgoingEInvoiceTransmission) GetNextCheckAt() NilDateTime {
+	return s.NextCheckAt
+}
+
+// GetSubmittedAt returns the value of SubmittedAt.
+func (s *OutgoingEInvoiceTransmission) GetSubmittedAt() NilDateTime {
+	return s.SubmittedAt
+}
+
+// GetCompletedAt returns the value of CompletedAt.
+func (s *OutgoingEInvoiceTransmission) GetCompletedAt() NilDateTime {
+	return s.CompletedAt
+}
+
+// GetVersion returns the value of Version.
+func (s *OutgoingEInvoiceTransmission) GetVersion() int32 {
+	return s.Version
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *OutgoingEInvoiceTransmission) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetConnectorName sets the value of ConnectorName.
+func (s *OutgoingEInvoiceTransmission) SetConnectorName(val string) {
+	s.ConnectorName = val
+}
+
+// SetOperationID sets the value of OperationID.
+func (s *OutgoingEInvoiceTransmission) SetOperationID(val uuid.UUID) {
+	s.OperationID = val
+}
+
+// SetBusinessType sets the value of BusinessType.
+func (s *OutgoingEInvoiceTransmission) SetBusinessType(val string) {
+	s.BusinessType = val
+}
+
+// SetStatus sets the value of Status.
+func (s *OutgoingEInvoiceTransmission) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetProviderStatus sets the value of ProviderStatus.
+func (s *OutgoingEInvoiceTransmission) SetProviderStatus(val NilString) {
+	s.ProviderStatus = val
+}
+
+// SetTrackingID sets the value of TrackingID.
+func (s *OutgoingEInvoiceTransmission) SetTrackingID(val NilString) {
+	s.TrackingID = val
+}
+
+// SetAttempts sets the value of Attempts.
+func (s *OutgoingEInvoiceTransmission) SetAttempts(val int32) {
+	s.Attempts = val
+}
+
+// SetResends sets the value of Resends.
+func (s *OutgoingEInvoiceTransmission) SetResends(val int32) {
+	s.Resends = val
+}
+
+// SetProblem sets the value of Problem.
+func (s *OutgoingEInvoiceTransmission) SetProblem(val NilOutgoingEInvoiceTransmissionProblem) {
+	s.Problem = val
+}
+
+// SetNextCheckAt sets the value of NextCheckAt.
+func (s *OutgoingEInvoiceTransmission) SetNextCheckAt(val NilDateTime) {
+	s.NextCheckAt = val
+}
+
+// SetSubmittedAt sets the value of SubmittedAt.
+func (s *OutgoingEInvoiceTransmission) SetSubmittedAt(val NilDateTime) {
+	s.SubmittedAt = val
+}
+
+// SetCompletedAt sets the value of CompletedAt.
+func (s *OutgoingEInvoiceTransmission) SetCompletedAt(val NilDateTime) {
+	s.CompletedAt = val
+}
+
+// SetVersion sets the value of Version.
+func (s *OutgoingEInvoiceTransmission) SetVersion(val int32) {
+	s.Version = val
+}
+
+// Why a submission failed: a problem code a consumer can branch on and what happened.
+// Ref: #/components/schemas/OutgoingEInvoiceTransmissionProblem
+type OutgoingEInvoiceTransmissionProblem struct {
+	// Einvoicing.permanent_failure, einvoicing.provider_failed, einvoicing.sending_failed,
+	// einvoicing.status_unconfirmed, einvoicing.provider_unavailable, or a refusal's code. Open
+	// enumeration.
+	Code string `json:"code"`
+	// What happened, and what to do.
+	Detail string `json:"detail"`
+}
+
+// GetCode returns the value of Code.
+func (s *OutgoingEInvoiceTransmissionProblem) GetCode() string {
+	return s.Code
+}
+
+// GetDetail returns the value of Detail.
+func (s *OutgoingEInvoiceTransmissionProblem) GetDetail() string {
+	return s.Detail
+}
+
+// SetCode sets the value of Code.
+func (s *OutgoingEInvoiceTransmissionProblem) SetCode(val string) {
+	s.Code = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *OutgoingEInvoiceTransmissionProblem) SetDetail(val string) {
+	s.Detail = val
 }
 
 type ParkFromEntryTemplateBadRequest Problem
@@ -111387,6 +112184,26 @@ func (s *SegmentUpdate) SetDescription(val OptNilString) {
 	s.Description = val
 }
 
+type SendOutgoingEInvoiceBadRequest Problem
+
+func (*SendOutgoingEInvoiceBadRequest) sendOutgoingEInvoiceRes() {}
+
+type SendOutgoingEInvoiceForbidden Problem
+
+func (*SendOutgoingEInvoiceForbidden) sendOutgoingEInvoiceRes() {}
+
+type SendOutgoingEInvoiceNotFound Problem
+
+func (*SendOutgoingEInvoiceNotFound) sendOutgoingEInvoiceRes() {}
+
+type SendOutgoingEInvoicePreconditionRequired Problem
+
+func (*SendOutgoingEInvoicePreconditionRequired) sendOutgoingEInvoiceRes() {}
+
+type SendOutgoingEInvoiceUnprocessableEntity Problem
+
+func (*SendOutgoingEInvoiceUnprocessableEntity) sendOutgoingEInvoiceRes() {}
+
 // ServiceUnavailableHeaders wraps Problem with response headers.
 type ServiceUnavailableHeaders struct {
 	RetryAfter OptInt32
@@ -111614,6 +112431,7 @@ func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
 func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
 func (*ServiceUnavailableHeaders) runReportRes()                             {}
 func (*ServiceUnavailableHeaders) scheduleReportRes()                        {}
+func (*ServiceUnavailableHeaders) sendOutgoingEInvoiceRes()                  {}
 func (*ServiceUnavailableHeaders) settleInternalOrderRes()                   {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()                    {}
 func (*ServiceUnavailableHeaders) signOffYearCloseRes()                      {}
@@ -117786,6 +118604,7 @@ func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
 func (*TooManyRequestsHeaders) listDunningBlocksRes()                     {}
 func (*TooManyRequestsHeaders) listDunningNoticesRes()                    {}
 func (*TooManyRequestsHeaders) listDunningRunsRes()                       {}
+func (*TooManyRequestsHeaders) listEInvoiceTransmissionDeadlinesRes()     {}
 func (*TooManyRequestsHeaders) listEInvoicesRes()                         {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()                    {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                     {}
@@ -117985,6 +118804,7 @@ func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
 func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) runReportRes()                             {}
 func (*TooManyRequestsHeaders) scheduleReportRes()                        {}
+func (*TooManyRequestsHeaders) sendOutgoingEInvoiceRes()                  {}
 func (*TooManyRequestsHeaders) settleInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()                    {}
 func (*TooManyRequestsHeaders) signOffYearCloseRes()                      {}
@@ -118742,6 +119562,7 @@ func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
 func (*UnauthorizedHeaders) listDunningBlocksRes()                     {}
 func (*UnauthorizedHeaders) listDunningNoticesRes()                    {}
 func (*UnauthorizedHeaders) listDunningRunsRes()                       {}
+func (*UnauthorizedHeaders) listEInvoiceTransmissionDeadlinesRes()     {}
 func (*UnauthorizedHeaders) listEInvoicesRes()                         {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()                    {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                     {}
@@ -118941,6 +119762,7 @@ func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
 func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) runReportRes()                             {}
 func (*UnauthorizedHeaders) scheduleReportRes()                        {}
+func (*UnauthorizedHeaders) sendOutgoingEInvoiceRes()                  {}
 func (*UnauthorizedHeaders) settleInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()                    {}
 func (*UnauthorizedHeaders) signOffYearCloseRes()                      {}

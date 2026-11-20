@@ -1585,6 +1585,10 @@ type ListDunningRunsRes interface {
 	listDunningRunsRes()
 }
 
+type ListEInvoiceTransmissionDeadlinesRes interface {
+	listEInvoiceTransmissionDeadlinesRes()
+}
+
 type ListEInvoicesRes interface {
 	listEInvoicesRes()
 }
@@ -2379,6 +2383,10 @@ type RunReportRes interface {
 
 type ScheduleReportRes interface {
 	scheduleReportRes()
+}
+
+type SendOutgoingEInvoiceRes interface {
+	sendOutgoingEInvoiceRes()
 }
 
 type SettleInternalOrderRes interface {
