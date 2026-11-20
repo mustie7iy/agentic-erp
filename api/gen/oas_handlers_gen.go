@@ -15222,12 +15222,14 @@ func (s *Server) handleCreateAuditEvidenceExportRequest(args [0]string, argsEsca
 // year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company
 // without the range). An order's items are not changed in the first version, so an order one of whose
 // billed items names an account that can no longer be posted in the company, or a tax code that is no
-// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
-// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
-// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
-// `version` moves. Amounts are net; nothing is posted until the document is posted
-// (`postBillingDocument`). Audited, and published as BillingDocumentChanged. A retry with the same
-// `Idempotency-Key` answers the document created. Human-only (`x-agent: false`).
+// output tax code of the company with a rate on the billing date, or a tax jurisdiction its code does
+// not levy on that date (none where the code levies its items' subdivision, the UAE's S5 each emirate,
+// or one the code does not levy), cannot be billed on that date (422 `sales.order_item_not_billable`
+// naming `sales_order_id`, with the item in the message). The document is created `created`; each
+// order item's `billed_quantity` rises by what was billed and the order's `version` moves. Amounts are
+// net; nothing is posted until the document is posted (`postBillingDocument`). Audited, and published
+// as BillingDocumentChanged. A retry with the same `Idempotency-Key` answers the document created.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/billing-documents
 func (s *Server) handleCreateBillingDocumentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

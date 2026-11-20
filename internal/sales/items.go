@@ -42,7 +42,7 @@ type ItemInput struct {
 	TaxCode   *string
 	// TaxJurisdiction is the subdivision the item's tax is levied in (the
 	// emirate of a UAE sale, AE-DU), named exactly where its tax code
-	// levies its lines' subdivision (outputCode).
+	// levies its lines' subdivision (itemCheck.tax).
 	TaxJurisdiction *string
 	// Kept is an order item an order change keeps (changedInput): its
 	// material stays, whatever its status since.
@@ -264,19 +264,32 @@ func (c itemCheck) tax(ctx context.Context, i int, it ItemInput) error {
 // sales.unknown_tax_code naming the item's field) and returns it. The
 // tax itself is calculated when the item is billed (ADR-0067 §3).
 func (c itemCheck) outputCode(ctx context.Context, i int, code string) (ledger.TaxCode, error) {
-	if t, ok := c.codes[code]; ok {
-		return t, nil
-	}
-	t, ok, err := c.e.Accounts.TaxCode(ctx, c.doc.le.ID, code, c.doc.date)
+	t, ok, err := c.e.outputCodeOn(ctx, c.codes, c.doc.le.ID, code, c.doc.date)
 	if err != nil {
 		return ledger.TaxCode{}, fmt.Errorf("sales: tax code %s of item %d: %w", code, i+1, err)
 	}
-	if !ok || t.Direction != config.TaxOutput {
+	if !ok {
 		return ledger.TaxCode{}, problem.Invalid("sales.unknown_tax_code", fmt.Sprintf("items[%d].tax_code", i),
 			"Tax code "+code+" is not an output tax code of the legal entity on "+c.doc.date.Format(time.DateOnly)+".")
 	}
-	c.codes[code] = t
 	return t, nil
+}
+
+// outputCodeOn reads the company's tax code on the date: ok when it is an
+// output tax code with a rate in force then. codes holds the codes read
+// for one company and date, so each is read once; a code that is not one
+// is read again, each caller refusing it in its own terms (an item
+// entered, itemCheck.outputCode; an item billed, billCheck.taxCode).
+func (e *Endpoints) outputCodeOn(ctx context.Context, codes map[string]ledger.TaxCode, le uuid.UUID, code string, date time.Time) (ledger.TaxCode, bool, error) {
+	if t, ok := codes[code]; ok {
+		return t, true, nil
+	}
+	t, ok, err := e.Accounts.TaxCode(ctx, le, code, date)
+	if err != nil || !ok || t.Direction != config.TaxOutput {
+		return ledger.TaxCode{}, false, err
+	}
+	codes[code] = t
+	return t, true, nil
 }
 
 // insertItems writes a new document's items; table is an item table of

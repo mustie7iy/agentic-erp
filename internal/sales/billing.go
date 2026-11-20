@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -263,12 +262,15 @@ func billedAmounts(ctx context.Context, tx pgx.Tx, orderID uuid.UUID) (map[int32
 // billCheck refuses a billing document one of whose items can no longer
 // be billed on the billing date (422 sales.order_item_not_billable naming
 // sales_order_id): its account can no longer be posted in the company,
-// or its tax code is no output tax code of the company with a rate on
-// that date. An order's items were checked when they were entered, on
-// the order's or the quotation's date, and are not changed in the first
-// version, so such an order cannot be billed on that date; the document
-// is refused here rather than created and never posted. The ledger is
-// asked about each account and tax code once.
+// its tax code is no output tax code of the company with a rate on that
+// date, or its tax jurisdiction is not one that code levies then (none
+// where the code levies its items' subdivision, or one it does not levy;
+// ADR-0067 As built, the emirate on a sales item). An order's items were
+// checked when they were entered, on the order's or the quotation's date,
+// and are not changed in the first version, so such an order cannot be
+// billed on that date; the document is refused here rather than created
+// and never posted. The ledger is asked about each account and tax code
+// once.
 type billCheck struct {
 	e        *Endpoints
 	o        Order
@@ -324,17 +326,12 @@ func (c billCheck) taxCode(ctx context.Context, it BillingItem) error {
 	if it.TaxCode == nil {
 		return nil // an order item names a jurisdiction only with a code (sales_order_item_tax_jurisdiction)
 	}
-	t, ok := c.codes[*it.TaxCode]
+	t, ok, err := c.e.outputCodeOn(ctx, c.codes, c.o.LegalEntityID, *it.TaxCode, c.date)
+	if err != nil {
+		return fmt.Errorf("sales: tax code %s of item %d of sales order %s: %w", *it.TaxCode, it.OrderItemNo, c.o.ID, err)
+	}
 	if !ok {
-		var found bool
-		var err error
-		if t, found, err = c.e.Accounts.TaxCode(ctx, c.o.LegalEntityID, *it.TaxCode, c.date); err != nil {
-			return fmt.Errorf("sales: tax code %s of item %d of sales order %s: %w", *it.TaxCode, it.OrderItemNo, c.o.ID, err)
-		}
-		if !found || t.Direction != config.TaxOutput {
-			return c.refuse(it, "its tax code "+*it.TaxCode+" is not an output tax code of the legal entity with a rate on that date")
-		}
-		c.codes[*it.TaxCode] = t
+		return c.refuse(it, "its tax code "+*it.TaxCode+" is not an output tax code of the legal entity with a rate on that date")
 	}
 	switch fault, _ := t.CheckJurisdiction(it.TaxJurisdiction); fault {
 	case ledger.JurisdictionOK:
