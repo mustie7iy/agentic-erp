@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestSalesItemJurisdictionRules (migration 000416; ADR-0067 As built, the
+// TestSalesItemJurisdictionRules (migration 000420; ADR-0067 As built, the
 // emirate on a sales item): a quotation's or a sales order's item names
 // the jurisdiction its tax is levied in only under a tax code, in the form
 // of an ISO 3166-2 subdivision; an order item keeps it, which the

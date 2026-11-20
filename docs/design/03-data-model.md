@@ -5345,7 +5345,7 @@ context's `material_id` (by id, no foreign key out of the schema), whose
 number is then its `item_key` (`quotation_item_material_key`,
 `sales_order_item_material_key`: a material item has a key). An order
 item keeps its material: the application may not update the column.
-From migration 000416 (ADR-0067 As built, the emirate on a sales item)
+From migration 000420 (ADR-0067 As built, the emirate on a sales item)
 an item whose output tax code levies its lines' subdivision (the UAE's
 S5) names its `tax_jurisdiction` (ISO 3166-2, `AE-DU`), only with a tax
 code and in that form (`quotation_item_tax_jurisdiction`,
@@ -5381,7 +5381,7 @@ erDiagram
     bigint net_amount "the value less the discounts"
     uuid account_id "ledger, revenue as a rule"
     text tax_code "optional output tax code"
-    text tax_jurisdiction "ISO 3166-2, with a code levying it (000416)"
+    text tax_jurisdiction "ISO 3166-2, with a code levying it (000420)"
   }
   quotation ||--o| sales_order : "gives one"
   sales_order ||--|{ sales_order_item : "has"

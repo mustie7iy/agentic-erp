@@ -558,7 +558,7 @@ Taken in T80f (§13):
   (`items[i].account_id`); a tax code that is no output code of the
   company with a rate on the quotation's date `sales.unknown_tax_code`
   (`items[i].tax_code`); one levying its lines' subdivision
-  `sales.tax_jurisdiction_not_supported` (until migration 000416: As
+  `sales.tax_jurisdiction_not_supported` (until migration 000420: As
   built, the emirate on a sales item); an unknown currency
   `sales.unknown_currency`; values out of range `sales.amount_too_large`
   (`items`); no fiscal year for the date `ledger.no_fiscal_period`; no
@@ -2131,7 +2131,7 @@ item (`in_delivery_quantity`) is open to no other delivery, and an order
 change, an item's removal and the order's cancellation are refused below
 or while it holds it.
 
-### The emirate on a sales item (review:batch84; migration 000416)
+### The emirate on a sales item (review:batch84; migration 000420)
 
 A UAE company sells through sales orders under its standard-rated code
 `S5`, whose component levies each line's emirate (ADR-0049 §7: one code
@@ -2152,7 +2152,7 @@ post and E2 renders them (ADR-0061 As built E2, Gaps found, closed).
   refuses another form, 400 `request.invalid_body`.
   `sales.tax_jurisdiction_not_supported` is gone with the refusal it
   named.
-- Migration 000416: `sales.quotation_item.tax_jurisdiction` and
+- Migration 000420: `sales.quotation_item.tax_jurisdiction` and
   `sales.sales_order_item.tax_jurisdiction`, nullable, only with a tax
   code and in the form of a subdivision's code
   (`quotation_item_tax_jurisdiction`,
@@ -2184,7 +2184,7 @@ post and E2 renders them (ADR-0061 As built E2, Gaps found, closed).
   jurisdiction per item, as on a customer invoice: the order has no
   header default. (3) The events carry totals, not items (§9), so none
   names the jurisdiction.
-- Rolling upgrade (06 §6.4): 000416 is additive. An instance of the
+- Rolling upgrade (06 §6.4): 000420 is additive. An instance of the
   previous release still refuses such a code at entry (422
   `sales.tax_jurisdiction_not_supported`), shows no `tax_jurisdiction`,
   and would bill an order item of such a code only for receivables to
