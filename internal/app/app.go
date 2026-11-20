@@ -235,6 +235,11 @@ type Config struct {
 	// Providers is the client e-invoicing providers are called through
 	// (einvoicing.NewClient, ADR-0061 §3); nil: a fetch is refused, 503.
 	Providers *egress.Client
+	// EvatraHosts are the base URLs of Evatra's environments its adapter
+	// calls (ADR-0061 As built E1); nil: Evatra's own two hosts
+	// (einvoicing.EvatraHosts()). Only the walkthrough sets them, to its
+	// stand-in (ERP_WALKTHROUGH_PROVIDER, development only).
+	EvatraHosts map[string]string
 	// SAP is the client sap_odata connectors' systems are read through
 	// (sap.NewClient, ADR-0041 As built, product owner 2026-11-16); nil:
 	// a run from one is refused, 503.
@@ -482,7 +487,7 @@ func Integration(cfg Config) *integration.Endpoints {
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{Settings: configuration.Settings{}}, Orders: Procurement(cfg), OrderLocks: procurement.Orders{}, OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Invoiced: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{}, Centers: ledger.CenterMigration{}, Actuals: ledger.AssignmentBalances{},
-		Materials: materials.Migration{Endpoints: Materials(cfg)}, OrgUnits: tenancy.OrgUnitMigration{},
+		Materials: materials.Migration{Endpoints: Materials(cfg)}, OrgUnits: tenancy.OrgUnitMigration{}, Stock: Inventory(cfg),
 		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, Receiver: cfg.WebhookReceiver, ExtractDir: cfg.ExtractDir, SAP: sapClient(cfg.SAP), Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS,
 		Now: cfg.Now} // the clock a migration run's day is read from (the company's date, review:batch63)
 }

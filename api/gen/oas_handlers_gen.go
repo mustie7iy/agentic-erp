@@ -24599,6 +24599,238 @@ func (s *Server) handleCreateOutboundDeliveryRequest(args [0]string, argsEscaped
 	}
 }
 
+// handleCreateOutgoingEInvoiceRequest handles createOutgoingEInvoice operation.
+//
+// Renders a posted customer document of a UAE company as its e-invoice in PINT AE, UBL 2.1 (ADR-0061
+// §9, As built E2; SAP Document and Reporting Compliance's outgoing e-document): a customer invoice
+// as a tax invoice (type code 380, a UBL `Invoice`) and a customer credit memo as a tax credit note
+// (381, a UBL `CreditNote`) naming the invoice it credits and the reason the caller gives
+// (`credit_note_reason`, BTAE-03, required for a credit memo and refused for an invoice). A billing
+// document's e-invoice is that of the customer invoice it posted as (`source_document_id`), and a
+// credit memo request's that of its customer credit memo. The document carries the seller (the
+// company: its name, postal address with its emirate, its FTA registration's TRN and the endpoint
+// `0235:` and the TRN's first ten digits) and the buyer (the customer: its legal address on the
+// invoice date with its emirate, its UAE TRN, scheme `AE_TRN`, and the endpoint from it), each item as
+// a line of quantity 1 at its net amount with its tax code's category (S, Z, E, O or AE) and rate on
+// the invoice date (its tax date), the VAT per category and the totals, the VAT total in AED as the
+// posting converted it when the document is not in AED, and the transaction type flags BTAE-02 all
+// unset (none of the special cases is rendered). Mandatory terms the ERP does not render yet keep a
+// document invalid, named in its problems (`einvoicing.pint_ae.not_rendered`): each line's VAT and
+// amount in AED on a document not in AED (BTAE-08, BTAE-10), and the exemption reason of an E, O or AE
+// line (IBT-120, IBT-121). Before anything is kept the document is checked against the mandatory
+// fields (`problems`): one that fails any is recorded `invalid`, its problems listed and no XML kept,
+// and may be rendered again once the master data is corrected; one that passes is `valid`, its XML
+// kept write-once in object storage under its SHA-256 (ADR-0016) with the customer document as the
+// legal original, final: a second render answers it unchanged. Each render that records or changes the
+// e-invoice is audited (`einvoicing.outgoing.rendered`) and publishes OutgoingEInvoiceRendered;
+// nothing is sent (sending is E3's). 201 when the e-invoice is first recorded and 200 when it existed
+// (rendered again, or valid and answered unchanged), whatever the outcome: the problems are the
+// document's state, not the request's. A debit memo is not rendered (422
+// `einvoicing.unsupported_document`: PINT AE has no debit note type, a question for the tax
+// specialist). A customer document of a company the caller may not act in, or none, is refused as not
+// found (422 `request.reference_not_found`); one not posted is refused (409
+// `einvoicing.document_not_posted`); one of a company that is not in the UAE or not in AED (422
+// `einvoicing.not_a_uae_company`); 503 while the server has no object storage. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/outgoing-e-invoices
+func (s *Server) handleCreateOutgoingEInvoiceRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createOutgoingEInvoice"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/outgoing-e-invoices"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateOutgoingEInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateOutgoingEInvoiceOperation,
+			ID:   "createOutgoingEInvoice",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateOutgoingEInvoiceOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateOutgoingEInvoiceParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateOutgoingEInvoiceRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateOutgoingEInvoiceRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateOutgoingEInvoiceOperation,
+			OperationSummary: "Render a posted customer invoice or credit memo as a PINT AE e-invoice",
+			OperationID:      "createOutgoingEInvoice",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *OutgoingEInvoiceRender
+			Params   = CreateOutgoingEInvoiceParams
+			Response = CreateOutgoingEInvoiceRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateOutgoingEInvoiceParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateOutgoingEInvoice(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateOutgoingEInvoice(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateOutgoingEInvoiceResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreatePartnerChangeRequest handles createPartnerChange operation.
 //
 // Opens a pending partner change of kind `update`. At most one pending change of each kind per partner
@@ -36514,8 +36746,13 @@ func (s *Server) handleExcludeBankStatementLineRequest(args [2]string, argsEscap
 // not an active `einvoice_provider` connector with credentials that resolve is refused before anything
 // is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
 // `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`,
-// `integration.secret_unavailable`); so is, in production, the provider's stand-in (422
-// `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without
+// `integration.secret_unavailable`); so is, in production, the provider's stand-in or Evatra's `stage`
+// sandbox (422 `integration.adapter_not_certified`), and an Evatra connector whose credentials are not
+// a JSON object with `apiKey` and `email` (422 `integration.secret_unavailable`). An Evatra connector
+// (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received for each
+// company's TIN in the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the
+// acknowledgement is local only and a fetch leaves out what is recorded and acknowledged, and Evatra
+// refusing the credentials fails the fetch with `integration.secret_unavailable`. A server without
 // object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
 // for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from
 // every active `einvoice_provider` connector of an active tenant once per
@@ -56943,6 +57180,391 @@ func (s *Server) handleGetOutboundDeliveryRequest(args [1]string, argsEscaped bo
 	}
 
 	if err := encodeGetOutboundDeliveryResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetOutgoingEInvoiceRequest handles getOutgoingEInvoice operation.
+//
+// One outgoing e-invoice as `createOutgoingEInvoice` answers it (ADR-0061 §9, As built E2): the
+// customer document it renders by id and number, its company and customer by id, code or number and
+// name, its type code, issue date, currency and amounts, its status (`valid` or `invalid`) with the
+// problems of its last render, its bytes' SHA-256 and size once valid, and the PINT AE specification
+// it follows. One of a company the caller may not act in is not found (404), as one that does not
+// exist, so ids of other companies cannot be probed.
+//
+// GET /v1/outgoing-e-invoices/{id}
+func (s *Server) handleGetOutgoingEInvoiceRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getOutgoingEInvoice"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/outgoing-e-invoices/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetOutgoingEInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetOutgoingEInvoiceOperation,
+			ID:   "getOutgoingEInvoice",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetOutgoingEInvoiceOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetOutgoingEInvoiceParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetOutgoingEInvoiceRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetOutgoingEInvoiceOperation,
+			OperationSummary: "Get an outgoing e-invoice",
+			OperationID:      "getOutgoingEInvoice",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetOutgoingEInvoiceParams
+			Response = GetOutgoingEInvoiceRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetOutgoingEInvoiceParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetOutgoingEInvoice(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetOutgoingEInvoice(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetOutgoingEInvoiceResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetOutgoingEInvoiceContentRequest handles getOutgoingEInvoiceContent operation.
+//
+// A valid outgoing e-invoice's PINT AE XML (ADR-0061 §8, §9, As built E2), byte for byte as
+// rendered: kept write-once in object storage under its SHA-256, which every read compares with the
+// `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ from it). An
+// invalid one has no XML (409 `einvoicing.document_invalid`). Visible as `getOutgoingEInvoice` is; 503
+// while the server has no object storage. Reading it is not audited, as other downloads are not.
+// Human-only (`x-agent: false`): the document carries the parties' TRNs in clear, as a tax invoice
+// must.
+//
+// GET /v1/outgoing-e-invoices/{id}/content
+func (s *Server) handleGetOutgoingEInvoiceContentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getOutgoingEInvoiceContent"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/outgoing-e-invoices/{id}/content"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetOutgoingEInvoiceContentOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetOutgoingEInvoiceContentOperation,
+			ID:   "getOutgoingEInvoiceContent",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetOutgoingEInvoiceContentOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetOutgoingEInvoiceContentParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetOutgoingEInvoiceContentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetOutgoingEInvoiceContentOperation,
+			OperationSummary: "Download an outgoing e-invoice's XML",
+			OperationID:      "getOutgoingEInvoiceContent",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetOutgoingEInvoiceContentParams
+			Response = GetOutgoingEInvoiceContentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetOutgoingEInvoiceContentParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetOutgoingEInvoiceContent(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetOutgoingEInvoiceContent(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetOutgoingEInvoiceContentResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -90704,6 +91326,212 @@ func (s *Server) handleListOutboundDeliveriesRequest(args [0]string, argsEscaped
 	}
 
 	if err := encodeListOutboundDeliveriesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListOutgoingEInvoicesRequest handles listOutgoingEInvoices operation.
+//
+// The e-invoices rendered from the posted customer documents of the companies the caller may act in
+// (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
+// by company, by the customer document it renders (at most one), and by status, so the invalid ones to
+// correct are found.
+//
+// GET /v1/outgoing-e-invoices
+func (s *Server) handleListOutgoingEInvoicesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listOutgoingEInvoices"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/outgoing-e-invoices"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListOutgoingEInvoicesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListOutgoingEInvoicesOperation,
+			ID:   "listOutgoingEInvoices",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListOutgoingEInvoicesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListOutgoingEInvoicesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListOutgoingEInvoicesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListOutgoingEInvoicesOperation,
+			OperationSummary: "List outgoing e-invoices",
+			OperationID:      "listOutgoingEInvoices",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "customer_invoice_id",
+					In:   "query",
+				}: params.CustomerInvoiceID,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListOutgoingEInvoicesParams
+			Response = ListOutgoingEInvoicesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListOutgoingEInvoicesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListOutgoingEInvoices(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListOutgoingEInvoices(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListOutgoingEInvoicesResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

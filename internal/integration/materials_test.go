@@ -340,9 +340,10 @@ func TestMigratedMaterialDifferences(t *testing.T) {
 
 // TestMaterialQualityGate: rows that name a material, plant data or
 // storage location the extract does not have, keys that are no org unit
-// codes, plants and storage locations without a name or listed twice, a
-// description twice in a language, and a storage location code at two
-// plants of one company refuse the run.
+// codes, plants and storage locations without a name or listed twice and
+// a description twice in a language refuse the run; a storage location
+// code at two plants of one company does not (tenancy keys it by its
+// plant, as SAP does).
 func TestMaterialQualityGate(t *testing.T) {
 	e := materialSetup(t)
 	x := withMaterials()
@@ -364,7 +365,6 @@ func TestMaterialQualityGate(t *testing.T) {
 		`error T001W p-5: the plant's code "p-5" is not 1 to 10 capitals, digits or _, as an org unit's is`,
 		"error T001W p-5: the plant has no name",
 		"error T001L P1/S1: the storage location is listed twice",
-		"error T001L P2/S1: storage location S1 is also at plant P1 of company code 2000; the platform keeps a storage location's code unique in its company, where SAP keys it by its plant",
 		"error MAKT M-1/E: the material's description in language E is listed twice",
 		"error MARA M-1: the material is listed twice",
 		"error MARC M-1/P1: the material's plant data is listed twice",
@@ -375,12 +375,50 @@ func TestMaterialQualityGate(t *testing.T) {
 			t.Errorf("quality: got\n%s\nwant it to hold %s", q, want)
 		}
 	}
+	if strings.Contains(q, "T001L P2/S1") {
+		t.Errorf("quality: got\n%s\nwant storage location S1 of plant P2 beside P1's accepted", q)
+	}
+}
+
+// TestStorageLocationCodeAtTwoPlants: one LGORT at two plants of a company
+// code loads as two storage locations of that code, each under its plant
+// (tracker leaf "Storage location codes unique per plant"), and a later
+// run finds each under its own plant.
+func TestStorageLocationCodeAtTwoPlants(t *testing.T) {
+	e := materialSetup(t)
+	x := withMaterials()
+	x.T001L = append(x.T001L, sap.T001L{WERKS: "P2", LGORT: "S1", LGOBE: "Store one of plant two"})
+	x.MARD = append(x.MARD, sap.MARD{MATNR: "M-2", WERKS: "P2", LGORT: "S1"})
+	write(t, e.dir, "shared.json", x)
+	conn := e.connector(t, "shared.json")
+	_, got := e.act(t, e.run(t, conn, "documents", false, e.DE.String()), "start")
+	if got["status"] != "loaded" {
+		t.Fatalf("status: got %v (%s), want loaded", got["status"], quality(got))
+	}
+	expectFields(t, "loaded", report(got)["loaded"].(map[string]any), map[string]any{"plants": 2.0, "storage_locations": 4.0})
+	units, _ := e.Must(200, "GET", "/v1/org-units?kind=storage_location&page_size=50", "", "")
+	parents := map[string]bool{}
+	for _, u := range units["items"].([]any) {
+		if u := u.(map[string]any); u["code"] == "S1" {
+			parents[fmt.Sprint(u["parent_id"])] = true
+		}
+	}
+	if len(parents) != 2 {
+		t.Errorf("storage locations S1: got parents %v, want one under each plant", parents)
+	}
+	_, got = e.act(t, e.run(t, conn, "documents", false, e.DE.String()), "start")
+	if got["status"] != "loaded" {
+		t.Fatalf("a second run: got %v (%s), want loaded", got["status"], quality(got))
+	}
+	if n := report(got)["loaded"].(map[string]any)["storage_locations"]; n != nil {
+		t.Errorf("a second run's storage locations: got %v, want none created again", n)
+	}
 }
 
 // TestMigratedOrgUnitsFound: a plant or storage location the company has
-// with SAP's code is taken rather than created; one that is not active,
-// or a storage location under another plant, refuses its key and the
-// load.
+// with SAP's code (a storage location under SAP's plant) is taken rather
+// than created; one that is not active refuses its key and the load, and
+// a storage location of the code under another plant is not taken.
 func TestMigratedOrgUnitsFound(t *testing.T) {
 	e := materialSetup(t)
 	p1 := e.unit(t, "plant", "P1", "", true)
@@ -411,12 +449,14 @@ func TestMigratedOrgUnitsFound(t *testing.T) {
 	_, got = other.act(t, other.run(t, other.connector(t, "found.json"), "documents", false, other.DE.String()), "start")
 	load := loadIssues(got)
 	for _, want := range []string{"T001W P2: the company's plant P2 is inactive; activate it, or give SAP's another code",
-		"T001L P1/S1: the company's storage location S1 is under another plant",
 		"T001L P1/S2: the company's storage location S2 is inactive; activate it, or give SAP's another code",
-		"MARC M-10/P2: plant P2 was not loaded", "MARD M-1/P1/S1: storage location S1 of plant P1 was not loaded"} {
+		"MARC M-10/P2: plant P2 was not loaded", "MARD M-2/P1/S2: storage location S2 of plant P1 was not loaded"} {
 		if !slices.Contains(load, want) {
 			t.Errorf("load: got %v, want it to hold %s", load, want)
 		}
+	}
+	if slices.ContainsFunc(load, func(s string) bool { return strings.HasPrefix(s, "T001L P1/S1") || strings.HasPrefix(s, "MARD M-1/") }) {
+		t.Errorf("load: got %v, want S1 created under P1 beside P2's and M-1 loaded there", load)
 	}
 	if got["status"] != "failed" {
 		t.Errorf("status: got %v, want failed", got["status"])

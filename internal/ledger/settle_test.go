@@ -345,6 +345,16 @@ func TestMigrationPorts(t *testing.T) {
 		if totals.Debits != 20500 {
 			t.Errorf("debits: got %d, want 20500", totals.Debits)
 		}
+		some, err := ledger.Reports{}.EntryTotals(ctx, e.de, 2026, []uuid.UUID{invoice.ID, other.ID, uuid.New()})
+		if err != nil {
+			t.Errorf("entry totals: %v", err)
+		}
+		if got := some.ByAccount["211000"]; got != -10500 {
+			t.Errorf("211000 total of the invoice and the other entry: got %d, want -10500", got)
+		}
+		if some.Debits != 10500 {
+			t.Errorf("debits of the invoice and the other entry: got %d, want 10500", some.Debits)
+		}
 		open, err := ledger.Reports{}.OpenPayables(ctx, e.de, 2026)
 		if err != nil {
 			t.Errorf("open payables: %v", err)
@@ -409,8 +419,12 @@ func TestMigrationPorts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, call := range map[string]func(ctx context.Context) error{
-		"chart":         func(ctx context.Context) error { _, err := ledger.Accounts{}.Chart(ctx, e.de); return err },
-		"totals":        func(ctx context.Context) error { _, err := ledger.Reports{}.Totals(ctx, e.de, 2026); return err },
+		"chart":  func(ctx context.Context) error { _, err := ledger.Accounts{}.Chart(ctx, e.de); return err },
+		"totals": func(ctx context.Context) error { _, err := ledger.Reports{}.Totals(ctx, e.de, 2026); return err },
+		"entry totals": func(ctx context.Context) error {
+			_, err := ledger.Reports{}.EntryTotals(ctx, e.de, 2026, []uuid.UUID{invoice.ID})
+			return err
+		},
 		"open payables": func(ctx context.Context) error { _, err := ledger.Reports{}.OpenPayables(ctx, e.de, 2026); return err },
 		"open down payments": func(ctx context.Context) error {
 			_, err := ledger.Reports{}.OpenDownPayments(ctx, e.de, 2026)

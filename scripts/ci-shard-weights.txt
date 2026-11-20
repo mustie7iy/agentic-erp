@@ -21,7 +21,7 @@
 # package's other tests take some 150 s a run (that 145 s and the PR's other
 # part, 10.5 s for three runs), so cmd/erp is 950 in all.
 950 cmd/erp
-671 internal/integration
+1150 internal/integration
 514 internal/web
 421 internal/web/ui
 407 internal/ledger
@@ -58,3 +58,11 @@
 21 internal/analytics/endpoint
 20 internal/controlplane
 800 cmd/erp TestWalkthrough
+# internal/integration: PR #135's run 44665181443 (batch 84, S2p's tests)
+# timed part 1/2 out at 2103 s for three runs with
+# TestMigratedStockDatabaseFailures 321 s into a run, and part 2/2 took
+# 1188 s: at least 3291 s for three runs as parts, some 1100 s a run, raised
+# to 1150. The test takes 291 s alone under -race on a 10-core laptop, so
+# some 600 s a run on a 4-vCPU runner: run apart, its three runs (1800 s,
+# above SPLIT) are three pieces.
+600 internal/integration TestMigratedStockDatabaseFailures

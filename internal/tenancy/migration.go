@@ -36,16 +36,19 @@ func (OrgUnitMigration) CreateActiveOrgUnit(ctx context.Context, in NewOrgUnit) 
 }
 
 // OrgUnitByCode returns the org unit of the kind with the code in the
-// legal entity, which holds one at most (its unique key), or ok = false.
-// Company access is not applied, as OrgUnits does not apply it.
-func (Directory) OrgUnitByCode(ctx context.Context, legalEntity uuid.UUID, kind, code string) (Unit, bool, error) {
+// legal entity, a storage location's under the parent given (nil: one
+// without a parent), which the legal entity holds one of at most (its
+// unique keys, org_unit_code_once and storage_location_code_once), or ok
+// = false. Company access is not applied, as OrgUnits does not apply it.
+func (Directory) OrgUnitByCode(ctx context.Context, legalEntity uuid.UUID, kind, code string, parent *uuid.UUID) (Unit, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return Unit{}, false, err
 	}
 	u := Unit{LegalEntityID: legalEntity, Kind: kind, Code: code}
-	err = tx.QueryRow(ctx, `SELECT id, name, status, parent_id FROM tenancy.org_unit WHERE legal_entity_id = $1 AND kind = $2 AND code = $3`,
-		legalEntity, kind, code).Scan(&u.ID, &u.Name, &u.Status, &u.ParentID)
+	err = tx.QueryRow(ctx, `SELECT id, name, status, parent_id FROM tenancy.org_unit WHERE legal_entity_id = $1 AND kind = $2 AND code = $3
+		AND (kind <> 'storage_location' OR parent_id IS NOT DISTINCT FROM $4)`,
+		legalEntity, kind, code, parent).Scan(&u.ID, &u.Name, &u.Status, &u.ParentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Unit{}, false, nil
 	}

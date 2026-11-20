@@ -43,11 +43,12 @@ var materialTypes = map[string]string{sap.MaterialTypeRaw: "raw_material", sap.M
 // platform keeps (materials.unit_conversion, ADR-0082 §4).
 const maxFactor = 1_000_000
 
-// sapPlant is a plant of the extract (T001W) with its company code and
-// its storage locations (T001L), in code order.
+// sapPlant is a plant of the extract (T001W) with its company code, its
+// valuation area (BWKEY; the plant's own code when the extract leaves it
+// out) and its storage locations (T001L), in code order.
 type sapPlant struct {
-	werks, name, company string
-	locations            []sapLocation
+	werks, name, company, area string
+	locations                  []sapLocation
 }
 
 // sapLocation is a storage location of a plant (T001L).
@@ -85,9 +86,9 @@ func knownUnits(ctx context.Context, tx pgx.Tx) (map[string]bool, error) {
 
 // plantsOf are the extract's plants in code order, each with its storage
 // locations, and the errors that refuse them: a key that is no org unit
-// code, no name, a row twice, a storage location of no plant, and a
-// storage location's code at two plants of one company code, which
-// tenancy keeps unique in a company where SAP keys it by its plant.
+// code, no name, a row twice and a storage location of no plant. A
+// storage location's code may be at two plants of a company code, as
+// tenancy keys it by its plant as SAP does.
 func plantsOf(e *sap.Extract) ([]sapPlant, []Issue) {
 	var issues []Issue
 	add := func(table, key, format string, args ...any) {
@@ -102,14 +103,13 @@ func plantsOf(e *sap.Extract) ([]sapPlant, []Issue) {
 			continue
 		}
 		orgUnitIssues("T001W", r.WERKS, r.WERKS, r.NAME1, "plant", add)
-		plants = append(plants, sapPlant{werks: r.WERKS, name: r.NAME1, company: r.BUKRS})
+		plants = append(plants, sapPlant{werks: r.WERKS, name: r.NAME1, company: r.BUKRS, area: cmp.Or(r.BWKEY, r.WERKS)})
 		byCode[r.WERKS] = nil
 	}
 	for i := range plants {
 		byCode[plants[i].werks] = &plants[i]
 	}
 	locations := slices.SortedFunc(slices.Values(e.T001L), func(a, b sap.T001L) int { return cmp.Compare(a.WERKS+"/"+a.LGORT, b.WERKS+"/"+b.LGORT) })
-	at := map[string]string{} // company/LGORT -> the first plant with it
 	for _, r := range locations {
 		key := r.WERKS + "/" + r.LGORT
 		p := byCode[r.WERKS]
@@ -120,12 +120,8 @@ func plantsOf(e *sap.Extract) ([]sapPlant, []Issue) {
 		case slices.ContainsFunc(p.locations, func(l sapLocation) bool { return l.lgort == r.LGORT }):
 			add("T001L", key, "the storage location is listed twice")
 			continue
-		case at[p.company+"/"+r.LGORT] != "":
-			add("T001L", key, "storage location %s is also at plant %s of company code %s; the platform keeps a storage location's code unique "+
-				"in its company, where SAP keys it by its plant", r.LGORT, at[p.company+"/"+r.LGORT], p.company)
 		}
 		orgUnitIssues("T001L", key, r.LGORT, r.LGOBE, "storage location", add)
-		at[p.company+"/"+r.LGORT] = r.WERKS
 		p.locations = append(p.locations, sapLocation{lgort: r.LGORT, name: r.LGOBE})
 	}
 	return plants, issues

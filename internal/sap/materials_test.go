@@ -18,7 +18,7 @@ func TestFilterScopeKeepsTheScopesMaterials(t *testing.T) {
 		company string
 		want    map[string]int
 	}{
-		{"3000", map[string]int{"T001W": 2, "T001L": 3, "MARA": 6, "MAKT": 7, "MARM": 9, "MARC": 7, "MARD": 7}},
+		{"3000", map[string]int{"T001W": 2, "T001L": 4, "MARA": 6, "MAKT": 7, "MARM": 9, "MARC": 7, "MARD": 8}},
 		{"1000", map[string]int{"T001W": 1, "T001L": 1, "MARA": 1, "MAKT": 2, "MARM": 2, "MARC": 1, "MARD": 1}},
 		{"2000", map[string]int{"T001W": 0, "T001L": 0, "MARA": 0, "MAKT": 0, "MARM": 0, "MARC": 0, "MARD": 0}},
 	}
@@ -31,5 +31,18 @@ func TestFilterScopeKeepsTheScopesMaterials(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestFilterScopeKeepsValuationsOfAPlantWithoutValuationArea: a plant the
+// extract gives no BWKEY is its own valuation area, as the load reads it
+// (integration's plantsOf), so its MBEW rows stay in the scope (S2p).
+func TestFilterScopeKeepsValuationsOfAPlantWithoutValuationArea(t *testing.T) {
+	all := &Extract{T001W: []T001W{{WERKS: "1100", NAME1: "Chicago plant", BUKRS: "1000"}},
+		MARC: []MARC{{MATNR: "M1", WERKS: "1100"}}, MARA: []MARA{{MATNR: "M1"}},
+		MBEW: []MBEW{{MATNR: "M1", BWKEY: "1100"}, {MATNR: "M1", BWKEY: "1200"}}}
+	got := FilterScope(all, Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
+	if len(got.MBEW) != 1 || got.MBEW[0].BWKEY != "1100" {
+		t.Errorf("MBEW kept: got %+v, want only valuation area 1100's", got.MBEW)
 	}
 }

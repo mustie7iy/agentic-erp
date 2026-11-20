@@ -76,6 +76,10 @@ type target struct {
 	// units are the platform's units of measure (ref.unit_of_measure),
 	// which a migrated material's units must be (materials.go).
 	units map[string]bool
+	// classes are each company code's valuation classes with their
+	// accounts (companies[].account_determination.inventory), which a
+	// migrated valuation's BKLAS must name (stock.go).
+	classes map[string]map[string]config.InventoryAccounts
 }
 
 func (t target) hasRange(company, documentType string) bool {
@@ -137,6 +141,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.accounts()
 	q.centers()
 	q.materialMaster()
+	q.stock()
 	q.vendors()
 	q.tradingPartners()
 	q.vendorCompanies()

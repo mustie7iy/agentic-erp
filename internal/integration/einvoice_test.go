@@ -19,6 +19,11 @@ import (
 // einvoiceSettings are valid einvoice_provider settings, the stand-in's.
 const einvoiceSettings = `{"adapter": "standin", "base_url": "https://127.0.0.1:18444/provider", "participants": {"AE01": "0235:100000000000003"}, "format": "pint_ae"}`
 
+// evatraSettings are valid settings of Evatra's adapter in an environment.
+func evatraSettings(env string) string {
+	return `{"adapter": "evatra", "environment": "` + env + `", "company_id": "COMP-1", "participants": {"AE01": "0235:1001234567"}, "format": "pint_ae"}`
+}
+
 // TestEInvoiceSettings: an einvoice_provider connector names its adapter,
 // the provider's https base URL, a participant identifier per company and
 // the format; anything else is refused naming the setting (ADR-0061 §3).
@@ -41,6 +46,19 @@ func TestEInvoiceSettings(t *testing.T) {
 		"a participant twice":     {`{"adapter": "standin", "base_url": "https://p.example", "participants": {"AE01": "P1", "AE02": "P1"}, "format": "pint_ae"}`, "settings.participants"},
 		"a malformed participant": {`{"adapter": "standin", "base_url": "https://p.example", "participants": {"AE01": "P 1"}, "format": "pint_ae"}`, "settings.participants"},
 		"a malformed company":     {`{"adapter": "standin", "base_url": "https://p.example", "participants": {"ae01": "P1"}, "format": "pint_ae"}`, "settings.participants"},
+		"Evatra's production":     {evatraSettings("prod"), ""},
+		"Evatra's sandbox":        {evatraSettings("stage"), ""},
+		"Evatra with a base URL": {`{"adapter": "evatra", "environment": "prod", "base_url": "https://p.example", "company_id": "C", "participants": {"AE01": "0235:1001234567"}, "format": "pint_ae"}`,
+			"settings.base_url"},
+		"Evatra in another environment": {`{"adapter": "evatra", "environment": "test", "company_id": "C", "participants": {"AE01": "0235:1001234567"}, "format": "pint_ae"}`,
+			"settings.environment"},
+		"Evatra without its company": {`{"adapter": "evatra", "environment": "prod", "participants": {"AE01": "0235:1001234567"}, "format": "pint_ae"}`, "settings.company_id"},
+		"Evatra in another format": {`{"adapter": "evatra", "environment": "prod", "company_id": "C", "participants": {"AE01": "0235:1001234567"}, "format": "ubl"}`,
+			"settings.format"},
+		"Evatra with a whole TRN": {`{"adapter": "evatra", "environment": "prod", "company_id": "C", "participants": {"AE01": "0235:100123456700003"}, "format": "pint_ae"}`,
+			"settings.participants"},
+		"Evatra without the scheme": {`{"adapter": "evatra", "environment": "prod", "company_id": "C", "participants": {"AE01": "1001234567"}, "format": "pint_ae"}`,
+			"settings.participants"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) error {
@@ -79,7 +97,8 @@ func decoded(t *testing.T, settings string) gen.ConnectorCreateSettings {
 // TestStandInRefusedInProduction: where uncertified connectors are refused
 // (production), an einvoice_provider of the stand-in's adapter can be
 // neither created nor enabled, though it can be disabled; elsewhere it can
-// (ADR-0061 §3).
+// (ADR-0061 §3). Evatra's adapter is allowed there in its production
+// environment and refused in its sandbox (ADR-0061 As built E1).
 func TestStandInRefusedInProduction(t *testing.T) {
 	f := fixture.New(t)
 	development, production := &integration.Endpoints{}, &integration.Endpoints{RefuseEBICS: true}
@@ -109,6 +128,19 @@ func TestStandInRefusedInProduction(t *testing.T) {
 			gen.CreateConnectorParams{}); err != nil {
 			t.Errorf("another kind in production: got %v, want created", err)
 		}
+		evatra := func(h *integration.Endpoints, name, env string) (gen.CreateConnectorRes, error) {
+			return h.CreateConnector(ctx, &gen.ConnectorCreate{Kind: integration.EInvoiceProvider, Name: name, Settings: decoded(t, evatraSettings(env)),
+				SecretRef: gen.NewOptString(vaulttest.TenantRef(f.Tenant.ID, "evatra"))}, gen.CreateConnectorParams{})
+		}
+		if _, err := evatra(production, "Evatra", "prod"); err != nil {
+			t.Errorf("Evatra's production in production: got %v, want created", err)
+		}
+		if _, err := evatra(production, "Evatra sandbox refused", "stage"); problem.From(err).Code != "integration.adapter_not_certified" {
+			t.Errorf("Evatra's sandbox in production: got %v, want integration.adapter_not_certified", err)
+		}
+		if _, err := evatra(development, "Evatra sandbox", "stage"); err != nil {
+			t.Errorf("Evatra's sandbox in development: got %v, want created", err)
+		}
 		return nil
 	})
 	if err != nil {
@@ -119,7 +151,8 @@ func TestStandInRefusedInProduction(t *testing.T) {
 // TestEInvoiceProviders: an einvoice_provider connector resolves into its
 // settings with its credentials, read now, and fails closed on anything
 // else; the stand-in is refused at use where production refuses it
-// (ADR-0061 §2, §3). Names are given by id.
+// (ADR-0061 §2, §3), as Evatra's sandbox is and its production is not.
+// Names are given by id.
 func TestEInvoiceProviders(t *testing.T) {
 	f := fixture.New(t)
 	token := vaulttest.TenantRef(f.Tenant.ID, "provider")
@@ -136,6 +169,8 @@ func TestEInvoiceProviders(t *testing.T) {
 		return id
 	}
 	valid := conn(integration.EInvoiceProvider, "Provider", einvoiceSettings, token, "active")
+	sandbox := conn(integration.EInvoiceProvider, "Evatra sandbox", evatraSettings("stage"), token, "active")
+	evatra := conn(integration.EInvoiceProvider, "Evatra", evatraSettings("prod"), token, "active")
 	resolve := func(p integration.EInvoiceProviders, id uuid.UUID) (c integration.EInvoiceConnector, err error) {
 		err = apitest.InRequest(t, f.Tenant, f.Tenant.Human, func(ctx context.Context) (err error) {
 			c, err = p.Provider(ctx, id)
@@ -151,20 +186,25 @@ func TestEInvoiceProviders(t *testing.T) {
 		c.Participants["AE01"] != "0235:100000000000003" || c.Secret != "s3cret" {
 		t.Errorf("got %+v, want the connector's settings and secret", c)
 	}
+	if e, err := resolve(integration.EInvoiceProviders{Secrets: p.Secrets, RefuseStandIn: true}, evatra); err != nil || e.Adapter != "evatra" ||
+		e.Environment != "prod" || e.CompanyID != "COMP-1" || e.BaseURL != "" || e.Participants["AE01"] != "0235:1001234567" {
+		t.Errorf("Evatra in production: got %+v %v, want its environment, company and participants", e, err)
+	}
 	for name, c := range map[string]struct {
 		p    integration.EInvoiceProviders
 		id   uuid.UUID
 		code string
 	}{
-		"unknown":                {p, uuid.New(), "request.not_found"},
-		"not a provider":         {p, conn("sap_file", "SAP", `{"path": "x.json"}`, "", "active"), "integration.not_an_einvoice_provider"},
-		"disabled":               {p, conn(integration.EInvoiceProvider, "Off", einvoiceSettings, token, "disabled"), "integration.connector_disabled"},
-		"no secret_ref":          {p, conn(integration.EInvoiceProvider, "No token", einvoiceSettings, "", "active"), "integration.secret_required"},
-		"invalid settings":       {p, conn(integration.EInvoiceProvider, "Old", `{"adapter": "standin"}`, token, "active"), "integration.invalid_settings"},
-		"secret missing":         {p, conn(integration.EInvoiceProvider, "Missing", einvoiceSettings, vaulttest.TenantRef(f.Tenant.ID, "missing"), "active"), "integration.secret_unavailable"},
-		"an env: reference":      {p, conn(integration.EInvoiceProvider, "Env", einvoiceSettings, "env:PROVIDER_TOKEN", "active"), "integration.secret_unavailable"},
-		"another tenant's":       {p, conn(integration.EInvoiceProvider, "Other", einvoiceSettings, other, "active"), "integration.secret_unavailable"},
-		"stand-in in production": {integration.EInvoiceProviders{Secrets: p.Secrets, RefuseStandIn: true}, valid, "integration.adapter_not_certified"},
+		"Evatra's sandbox in production": {integration.EInvoiceProviders{Secrets: p.Secrets, RefuseStandIn: true}, sandbox, "integration.adapter_not_certified"},
+		"unknown":                        {p, uuid.New(), "request.not_found"},
+		"not a provider":                 {p, conn("sap_file", "SAP", `{"path": "x.json"}`, "", "active"), "integration.not_an_einvoice_provider"},
+		"disabled":                       {p, conn(integration.EInvoiceProvider, "Off", einvoiceSettings, token, "disabled"), "integration.connector_disabled"},
+		"no secret_ref":                  {p, conn(integration.EInvoiceProvider, "No token", einvoiceSettings, "", "active"), "integration.secret_required"},
+		"invalid settings":               {p, conn(integration.EInvoiceProvider, "Old", `{"adapter": "standin"}`, token, "active"), "integration.invalid_settings"},
+		"secret missing":                 {p, conn(integration.EInvoiceProvider, "Missing", einvoiceSettings, vaulttest.TenantRef(f.Tenant.ID, "missing"), "active"), "integration.secret_unavailable"},
+		"an env: reference":              {p, conn(integration.EInvoiceProvider, "Env", einvoiceSettings, "env:PROVIDER_TOKEN", "active"), "integration.secret_unavailable"},
+		"another tenant's":               {p, conn(integration.EInvoiceProvider, "Other", einvoiceSettings, other, "active"), "integration.secret_unavailable"},
+		"stand-in in production":         {integration.EInvoiceProviders{Secrets: p.Secrets, RefuseStandIn: true}, valid, "integration.adapter_not_certified"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := resolve(c.p, c.id); problem.From(err).Code != c.code {

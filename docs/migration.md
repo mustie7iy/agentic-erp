@@ -537,7 +537,7 @@ area BWKEY) and storage locations (T001L) as the company's org units, a
 storage location under its plant, active; then the materials with plant
 data at those plants (MARA, the description of MAKT, the units of MARM,
 the plants of MARC and the storage locations of MARD, the assignment only:
-stock and values are S2p's). As for centers, the run is their approval: a
+stock and values are S2p's, below). As for centers, the run is their approval: a
 material is created active, its create change applied without an approval
 request (`GET /v1/material-changes`), its reason naming the run and the SAP
 material number. Its number comes from the `material` range of its first
@@ -549,8 +549,9 @@ material with a pending change is refused until the change is decided). The
 load holds the tenant's material change numbers until it commits, so a
 material request made meanwhile waits for it. An
 active plant or storage location the company already has with SAP's code
-(under SAP's plant) is taken rather than created; one not active, or under
-another plant, refuses its key and fails the run.
+(a storage location under SAP's plant, as SAP keys LGORT within its WERKS)
+is taken rather than created; one not active refuses its key and fails
+the run.
 
 | SAP | Platform |
 |---|---|
@@ -576,15 +577,58 @@ held-back materials out on SAP's side. **Errors** refuse the run: a row
 listed twice, plant data of a material not in MARA, storage location data
 without plant data or of a storage location not in T001L, a plant or
 storage location code that is no org unit code (1 to 10 capitals, digits
-or `_`) or without a name, and one storage location code at two plants of
-a company code: SAP keys a storage location by its plant, tenancy keeps
-its code unique in the company (a question for the product owner).
+or `_`) or without a name. One storage location code at two plants of a
+company code loads as two storage locations, each under its plant: the
+platform keys a storage location's code by its plant, as SAP does.
 
 The reconciliation compares per company code the plants, the storage
 locations and the materials by SAP key: a material by its type, group,
 base unit, status, description, its plants in the company with their
 storage locations and its alternative units. Only a file extract carries
 the material master: there is no OData mapping yet.
+
+## Stock and values
+
+After the material master, a run takes over the stock of the materials it
+loads (S2p, plan-supply-chain.md §S2p; ADR-0082 As built S2p): SAP's
+valuation of a material at a plant (MBEW, its valuation area BWKEY the
+plant's, T001W-BWKEY) becomes the material's valuation, and its
+unrestricted stock at the plant's storage locations (MARD LABST) one
+initial entry (movement type 561) dated the company's date today, valued
+at SAP's value: at a moving price each storage location's share of SALK3
+by quantity, at a standard price the quantity at the price. The entry
+posts the stock on the valuation class's stock account against its
+initial entry account, which the cutover sets to the migration clearing
+account; give SAP's stock account, whose balance the journal loads, the
+role of that clearing account and the class's stock account another
+number, so the clearing nets to zero. A stock is taken over once: a later
+run keeps it.
+
+| SAP | Platform |
+|---|---|
+| MBEW-VPRSV S, V | `price_control` `standard`, `moving_average` |
+| MBEW-STPRS (S), VERPR (V), PEINH | `price` per `price_unit` |
+| MBEW-BKLAS | `valuation_class` (one of the company's, `account_determination.inventory`) |
+| MBEW-LBKUM, SALK3 | the valuation's stock and value, reconciled |
+| MARD-LABST | the stock at the storage location (initial entry 561) |
+
+**Refused, an error:** a valuation listed twice, a valuation area of more
+than one plant, split valuation (BWTAR), another price control, a class
+the company lacks, a price unit outside 1 to 10,000, a price or value that
+is no amount, a standard price of zero, a stock that is not the sum of
+the storage locations' unrestricted stock (quality inspection, blocked and
+in-transfer stock are not taken over), stock at a storage location flagged
+for deletion, a value without stock, MARD stock without a valuation, and
+stock of a material type that keeps none. The stock of a material that
+does not load is a warning saying what is not taken over.
+
+The reconciliation compares per company code each valuation by
+`<BWKEY>/<MATNR>` (class, price control, stock, value and stock per
+storage location), the total value, and each class's stock account,
+SAP's values against the account's balance: an account that holds SAP's
+G/L stock balance beside the take-over shows twice the value. The trial
+balance leaves the initial entries out, as SAP's journal has no document
+of them. Only a file extract carries the stock.
 
 ## Reconciliation controls
 

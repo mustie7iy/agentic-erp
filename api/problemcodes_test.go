@@ -790,7 +790,7 @@ func (a *codeAnalysis) registered(t *testing.T, register *ssa.Function) {
 
 // The migrations' statements constraintTables reads.
 var (
-	indexStmt  = regexp.MustCompile(`(?i)CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_0-9]+)\s+ON\s+(?:ONLY\s+)?([a-z_0-9]+\.[a-z_0-9]+)`)
+	indexStmt  = regexp.MustCompile(`(?i)CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?([a-z_0-9]+)\s+ON\s+(?:ONLY\s+)?([a-z_0-9]+\.[a-z_0-9]+)`)
 	tableStmt  = regexp.MustCompile(`(?is)^\s*(?:CREATE|ALTER)\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:ONLY\s+)?([a-z_0-9]+\.[a-z_0-9]+)`)
 	namedIn    = regexp.MustCompile(`(?i)\bCONSTRAINT\s+([a-z_0-9]+)`)
 	function   = regexp.MustCompile(`(?is)CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+([a-z_0-9]+\.[a-z_0-9]+)\s*\(.*?\$\$(.*?)\$\$`)

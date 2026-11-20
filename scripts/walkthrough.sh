@@ -478,7 +478,7 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the FPZ-500 for a Quebec registrant (the GST34's lines are signed off in Canada $CA_PACK, the UAE VAT 201"
-  say "    in UAE pack 2026.8, which step 41 files): step 11 prepares,"
+  say "    in UAE pack 2026.9, which step 41 files): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -584,13 +584,18 @@ hook_stub() {
 # certificate it made (ERP_WALKTHROUGH_PROVIDER, _CA; development only). It
 # serves the documents of provider/inbox to requests bearing the token in
 # provider/token, which the connector's secret_ref names, and records each
-# acknowledgement there.
+# acknowledgement there; and it emulates Evatra's API under /evatra for the
+# account of provider/evatra.json over the documents of provider/evatra
+# (step_evatra_inbound, ADR-0061 As built E1), which erp-server reaches in
+# place of Evatra's hosts in the walkthrough alone.
 provider_stub() {
   stub providerstub internal/einvoicing/einvoicetest/providerstub
   rm -rf "$WORK/provider"
-  mkdir -p "$WORK/provider/inbox"
+  mkdir -p "$WORK/provider/inbox" "$WORK/provider/evatra"
   head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$WORK/provider/token"
-  "$STUB" -addr "$PROVIDER_ADDR" -ca "$WORK/provider/provider.pem" -token "$WORK/provider/token" -inbox "$WORK/provider/inbox" >"$WORK/provider.log" 2>&1 &
+  printf '{"apiKey": "%s", "email": "ap@maple-gulf.example", "companyId": "WALK-AE-5000"}\n' "$(head -c 24 /dev/urandom | base64 | tr -d '/+=')" >"$WORK/provider/evatra.json"
+  "$STUB" -addr "$PROVIDER_ADDR" -ca "$WORK/provider/provider.pem" -token "$WORK/provider/token" -inbox "$WORK/provider/inbox" \
+    -evatra "$WORK/provider/evatra.json" -evatra-inbox "$WORK/provider/evatra" >"$WORK/provider.log" 2>&1 &
   PROVIDER_PID=$!
   wait_file "$WORK/provider/provider.pem" "$PROVIDER_PID" "the e-invoicing provider's stand-in" "$WORK/provider.log" "is $PROVIDER_ADDR free? set WALKTHROUGH_PROVIDER_ADDR"
   export ERP_WALKTHROUGH_PROVIDER="$PROVIDER_ADDR" ERP_WALKTHROUGH_PROVIDER_CA="$WORK/provider/provider.pem"
@@ -966,7 +971,8 @@ step_migrate() {
     'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences' \
     'Cost center totals: centers with differences' 'Profit center totals: centers with differences' 'Segment totals: segments with differences' \
     'Plants' 'Plants: plants with differences' 'Storage locations' 'Storage locations: storage locations with differences' \
-    'Materials' 'Materials: materials with differences'; do
+    'Materials' 'Materials: materials with differences' 'Stock' 'Stock: valuations with differences' 'Stock value total' \
+    'Stock accounts: accounts with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
@@ -1017,6 +1023,7 @@ step_migrate() {
   migrated_trading_partner
   migrated_centers
   migrated_materials
+  migrated_stock
   migrated_default_assignment
   migrated_line_centers
   migrated_down_payment
@@ -1241,13 +1248,15 @@ migrated_centers() {
 # was left out. The reconciliation compared the plants, storage locations
 # and materials by SAP key (step_migrate's checks).
 migrated_materials() {
-  say "SAP's plants and storage locations came over as Maple's org units, active (T001W, T001L; S2o):"
+  say "SAP's plants and storage locations came over as Maple's org units, active (T001W, T001L; S2o). A storage location"
+  say "is keyed by its plant, as SAP keys LGORT within its WERKS: both plants have a raw materials store 0001."
   jq -r --arg cc "$CC" '.T001W[] | select(.BUKRS == $cc) | "     T001W \(.WERKS) \(.NAME1), company \(.BUKRS)"' "$WORK/data/extract.json"
+  jq -r '.T001L[] | "     T001L \(.WERKS)/\(.LGORT) \(.LGOBE)"' "$WORK/data/extract.json"
   as ada
   api 200 '.items[] | select(.code | test("^(3[12]00|000[1-3])$")) | "\(.kind) \(.code) \(.name): \(.status)"' listOrgUnits -p page_size=100
   expect "the migrated plants and storage locations" \
     "$(field '[.items[] | select(.code | test("^(3[12]00|000[1-3])$")) | "\(.kind) \(.code) \(.status)"] | sort | join(", ")')" \
-    "plant 3100 active, plant 3200 active, storage_location 0001 active, storage_location 0002 active, storage_location 0003 active"
+    "plant 3100 active, plant 3200 active, storage_location 0001 active, storage_location 0001 active, storage_location 0002 active, storage_location 0003 active"
   say "And SAP's material master as materials (MARA, MAKT, MARM, MARC, MARD), active at once and numbered from Maple's"
   say "material range; SAP's conversions are exact (MARM: one alternative unit is UMREZ / UMREN base units):"
   jq -r '.MARM[] | select(.UMREZ != "1" or .UMREN != "1") | "     MARM \(.MATNR) \(.MEINH): \(.UMREZ)/\(.UMREN)"' "$WORK/data/extract.json"
@@ -1255,7 +1264,7 @@ migrated_materials() {
     listMaterials -p page_size=50
   expect "the migrated materials" \
     "$(field '[.items[] | "\(.description): \(.material_type) \(.base_unit) \(.status) \([.plants[] | "\(.plant_code)/\([.storage_locations[].code] | join("+"))"] | join(" ")) \([.alternative_units[] | "\(.unit)=\(.numerator)/\(.denominator)"] | join(" "))"] | sort | join("; ")')" \
-    "Hex bolt M8: trading_good PC active 3200/0003 ; Shelving unit, 5 tiers: finished_good EA active 3100/0002 3200/0003 BOX=4/1; Steel sheet 2 mm: raw_material KG active 3100/0001 T=1000/1"
+    "Hex bolt M8: trading_good PC active 3200/0001+0003 ; Shelving unit, 5 tiers: finished_good EA active 3100/0002 3200/0003 BOX=4/1; Steel sheet 2 mm: raw_material KG active 3100/0001 T=1000/1"
   local steel
   steel=$(field '.items[] | select(.description == "Steel sheet 2 mm") | .id')
   say "Each one's creation is a material change the run applied, with no approval request of its own; its reason names"
@@ -1270,6 +1279,50 @@ migrated_materials() {
   expect "the materials held back" "$(grep -c '\[warning\] MARA .*: held back:' "$WORK/migrate.out" || true)" 2
   expect "the materials flagged for deletion" "$(grep -c '\[warning\] MARA .*: flagged for deletion' "$WORK/migrate.out" || true)" 1
   grep -E 'Plants|Storage locations|Materials' "$WORK/migrate.out" | sed 's/^/     /'
+}
+
+# migrated_stock is S2p (ADR-0082 As built S2p): the stock of the
+# migrated materials came over as SAP holds it at the cutover, each
+# material valued at its plant as MBEW values it (price control, price
+# per price unit, valuation class 3100) and its unrestricted stock at the
+# plant's storage locations (MARD LABST) posted as one initial entry (561)
+# at SAP's value, on the class's stock account 1416 against its initial
+# entry account 3996, the migration clearing account. The washer is held
+# back, so its stock is a warning and is not taken over. The reconciliation
+# compares each valuation, the total value and the stock account with
+# SAP's, the trial balance leaving the take-over out.
+migrated_stock() {
+  say "SAP's stock came over at its value (MBEW, MARD; S2p): each material valued at its plant as SAP values it,"
+  say "its unrestricted stock at the plant's storage locations posted as one initial entry (561) at SAP's value:"
+  jq -r '.MBEW[] | "     MBEW \(.BWKEY) \(.MATNR): price control \(.VPRSV), \(if .VPRSV == "S" then .STPRS else .VERPR end) per \(.PEINH), class \(.BKLAS), stock \(.LBKUM) worth \(.SALK3)"' \
+    "$WORK/data/extract.json"
+  as ada
+  local m bolt doc valued=()
+  QUIET=1 api 200 '' listMaterials -p page_size=50
+  bolt=$(field '.items[] | select(.description == "Hex bolt M8") | .id')
+  for m in $(field '.items[] | select(.description | test("^(Steel sheet|Shelving unit|Hex bolt)")) | .id'); do
+    api 200 '.items[] | "valuation of \(.material_number) in \(.plant_code): \(.price_control), class \(.valuation_class), \(.price.amount) \(.price.currency) per \(.price_unit), stock \(.quantity.value) \(.quantity.unit) worth \(.value.amount)"' \
+      listMaterialValuations -p "material_id=$m"
+    mapfile -t -O "${#valued[@]}" valued < <(field '.items[] | "\(.plant_code) \(.quantity.value) \(.value.amount)"')
+  done
+  expect "the migrated valuations' stock and value" "$(printf '%s\n' "${valued[@]}" | sort | paste -sd, - | sed 's/,/, /g')" \
+    "3100 1200 3000.00, 3100 40 3400.00, 3200 12 1020.00, 3200 6500 780.00"
+  say "The hex bolts are kept in Laval's two stores, both coded in their plant (0001 is Mississauga's code too):"
+  api 200 '.items[] | "stock of \(.material_number) at \(.plant_code)/\(.storage_location_code): \(.quantity.value) \(.quantity.unit)"' listStock -p "material_id=$bolt"
+  expect "the hex bolts by storage location" "$(field '[.items[] | "\(.storage_location_code) \(.quantity.value)"] | sort | join(", ")')" "0001 1500, 0003 5000"
+  api 200 '.items[] | "material document \(.number): \(.movement_type), \(.header_text), journal entry \(.journal_entry_number)"' \
+    listMaterialDocuments -p "material_id=$bolt"
+  doc=$(field '.items[0].journal_entry_id')
+  expect "the hex bolts' initial entry" "$(field '.items[0] | "\(.movement_type) \(.header_text | test(": SAP stock of material 000000000000300001 at plant 3200$"))"')" "561 true"
+  say "Its value is on the stock account 1416 of class 3100, against the initial entry account 3996 (the migration"
+  say "clearing account), each storage location's share of SAP's value by quantity:"
+  api 200 '.lines[] | "entry line \(.line_no): \(.amount.amount) \(.amount.currency)\(if .quantity then ", \(.quantity.value) \(.quantity.unit)" else "" end)"' \
+    getJournalEntry -p "id=$doc" -p "fiscal_year=$YEAR"
+  expect "the initial entry's amounts" "$(field '[.lines[].amount.amount] | sort | join(" ")')" "-180.00 -600.00 180.00 600.00"
+  say "The washer is held back, so its stock is not taken over, a warning; the checks compare the stock with SAP's:"
+  grep -E '\[warning\] MBEW ' "$WORK/migrate.out" | sed 's/^/     /'
+  expect "the stock not taken over" "$(grep -c '\[warning\] MBEW .*: the stock of .* is not taken over' "$WORK/migrate.out" || true)" 1
+  grep -E 'Stock' "$WORK/migrate.out" | sed 's/^/     /'
 }
 
 # migrated_line_centers shows SAP's account assignment on the migrated
@@ -1709,7 +1762,9 @@ migrated_down_payment() {
 # documents and RFQs come from the pack since Canada 2026.9, the debit
 # memos' journal range journal_dd since Canada 2026.10, and those of
 # returns orders, credit memo requests, lease contracts, expense reports,
-# material documents and the WA and PR journals since Canada 2026.11), the
+# material documents and the WA and PR journals since Canada 2026.11, and
+# the physical_inventory range PI (S2c) and the outbound_delivery range
+# OD (S2a) since Canada 2026.12), the
 # right-of-use asset (1660) and lease liability (2650) accounts a lease's
 # activation posts to (T88b, ADR-0073 §7; no pack ships them), the
 # customer payment tolerance and its accounts 6850 and 4850 (T75f, SAP
@@ -1719,10 +1774,8 @@ migrated_down_payment() {
 # 2196 receipts without an order, 3996 initial entries, 5116 consumption,
 # 5126 scrapping, 5196 price differences, 5197 revaluation, 5198
 # inventory differences, S2d, 5016 cost of goods sold, S2b1; no pack ships
-# them), the inventory difference tolerance of CAD 50.00 (S2d), the
-# physical_inventory range PI (S2c) and the outbound_delivery range OD
-# (S2a; no pack ships either), and two codes of tax alone for the return's adjustments (kind adjustment,
-# rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
+# them), the inventory difference tolerance of CAD 50.00 (S2d), and two
+# codes of tax alone for the return's adjustments (kind adjustment, rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
 # instalment paid (line 110) on 2300.
 # The code's rate starts a year back; the registration's first period,
@@ -1800,9 +1853,7 @@ PILOT_SETTINGS='
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
-| .number_ranges += [{"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "physical_inventory", "fiscal_year": @YEAR@, "prefix": "PI", "first": 1, "last": 9999999},
-    {"company": "@CC@", "document_type": "outbound_delivery", "fiscal_year": @YEAR@, "prefix": "OD", "first": 1, "last": 9999999}]'
+| .number_ranges += [{"company": "@CC@", "document_type": "material", "fiscal_year": @YEAR@, "prefix": "MA", "first": 1, "last": 9999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -1820,14 +1871,18 @@ step_pack() {
   say "debit memos, journal_dd (step 126), under the same sign-off (product owner, 2026-11-18). 2026.11 is 2026.10 plus the"
   say "ranges the pilot's settings added themselves: returns orders, credit memo requests, lease contracts, expense reports,"
   say "material documents and the WA and PR journals of valued goods movements, under the same sign-off (product"
-  say "owner, 2026-11-19): the latest signed-off version. The pilot's settings add only Maple's material range: material"
-  say "numbers are unique in the tenant, so no pack ships one prefix for every company."
+  say "owner, 2026-11-19). 2026.12 is 2026.11 plus the ranges of count documents (step 141) and outbound deliveries"
+  say "(step 142), under it too (the batch 83 review; product owner's rule of 2026-11-18): the latest signed-off version."
+  say "The pilot's settings add only Maple's material range: material numbers are unique in the tenant, so no pack ships"
+  say "one prefix for every company."
   expect "Canada 2026.9" "$(field '.items[] | select(.country == "CA" and .version == "2026.9") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
     "22 number ranges, signed off: true"
   expect "Canada 2026.10" "$(field '.items[] | select(.country == "CA" and .version == "2026.10") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
     "23 number ranges, signed off: true"
   expect "Canada 2026.11" "$(field '.items[] | select(.country == "CA" and .version == "2026.11") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
     "30 number ranges, signed off: true"
+  expect "Canada 2026.12" "$(field '.items[] | select(.country == "CA" and .version == "2026.12") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
+    "32 number ranges, signed off: true"
   expect "the latest signed-off Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-09"
   say "Ada applies the latest signed-off Canada pack, $version, to company $CC. The merge keeps what the company"
@@ -4940,9 +4995,10 @@ governed() {
 
 # step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
 # Ada creates the UAE pilot company, proposes it in the configuration and
-# applies the UAE pack to it, 2026.8 (2026.4, signed off by the tax
+# applies the UAE pack to it, 2026.9 (2026.4, signed off by the tax
 # specialist, with the box labels' markers dropped in 2026.5, the number ranges added in 2026.6, journal_dd in
-# 2026.7 and the ranges the pilot's settings added in 2026.8), so without a note
+# 2026.7, the ranges the pilot's settings added in 2026.8 and those of
+# count documents and outbound deliveries in 2026.9), so without a note
 # (2026.3 brought the emirate guard: S5 accepts the seven
 # emirates alone); Alex posts a UAE supplier's invoice above AED 10,000
 # and one below: the supplier has no TRN on file, so the first carries the
@@ -4966,10 +5022,10 @@ step_uae() {
   say "owner, 2026-11-12), its tax content unchanged, under the same sign-off (product owner, 2026-11-13); 2026.7 adds the"
   say "journal range of customer debit memos, journal_dd, under it too (product owner, 2026-11-18), and 2026.8 the ranges"
   say "of returns orders, credit memo requests, lease contracts, expense reports, material documents and the WA and PR"
-  say "journals (product owner, 2026-11-19)."
+  say "journals (product owner, 2026-11-19); 2026.9 adds those of count documents and outbound deliveries."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true, 2026.8 9 true"
-  expect "UAE 2026.8's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.8") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 true, 2026.7 9 true, 2026.8 9 true, 2026.9 9 true"
+  expect "UAE 2026.9's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.9") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "Musto Ibrahim 2026-11-09"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
   QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
@@ -4989,10 +5045,10 @@ step_uae() {
     proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the latest signed-off UAE pack, 2026.8, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "Ada applies the latest signed-off UAE pack, 2026.9, to $AE for $YEAR. The merge keeps the company's accounts, which are"
   say "the pack's, and adds the rest; signed off, the pack brings no note saying otherwise:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"AE\", \"version\": \"2026.8\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"AE\", \"version\": \"2026.9\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   cr=$(field .id)
   excerpt '.notes[] | "note \(.path): \(.message)"'
   expect "notes that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 0
@@ -5135,7 +5191,7 @@ uae_return() {
   vat=$(field '.items[] | select(.number == "2300") | .id')
   input=$(field '.items[] | select(.number == "1300") | .id')
   say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
-  say "that UAE pack 2026.8 defines; its first period is the latest quarter ended, the one it files now:"
+  say "that UAE pack 2026.9 defines; its first period is the latest quarter ended, the one it files now:"
   api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
     listTaxRegistrations -p "legal_entity_id=$ae"
   expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
@@ -5187,10 +5243,10 @@ uae_return() {
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
   say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
-  say "(packs/ae/TAX-PENDING-T61k.md); 2026.8's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
+  say "(packs/ae/TAX-PENDING-T61k.md); 2026.9's labels, 2026.5's, carry no marker of the unsigned versions. Boxes not zero:"
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
-  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.8"
+  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.9"
   expect "boxes 1b and 8's VAT labels, without a marker" "$(field '[.boxes[] | select(.code == "1b_vat" or .code == "8_vat") | .label] | join(" / ")')" \
     "1b Standard-rated supplies in Dubai (AE-DU): VAT / 8 Totals: VAT, boxes 1a-1g, 2, 3, 6 and 7"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
@@ -14953,6 +15009,171 @@ goods_issue_margin() {
   expect "the rows' cost of sales add up to the totals'" "$(field '([.items[].cost_of_sales.amount | tonumber] | add * 100 | round) == (.totals.cost_of_sales.amount | tonumber * 100 | round)')" true
 }
 
+# step_evatra_inbound is E1 (ADR-0061 §3 and As built E1, po:2026-11-19):
+# Ada connects the UAE company to Evatra, the accredited service provider
+# the product owner chose, an einvoice_provider connector of the adapter
+# evatra in its sandbox environment (Evatra's host derived from it; the
+# walkthrough's server reaches the stand-in's emulation of Evatra's API in
+# its place), Evatra's id of the company, its participant 0235: and its TIN,
+# and the API key and email as the tenant's secret; Evatra has received a
+# supplier's PINT AE e-invoice for the company; Alex fetches, the adapter
+# logs in, lists the company's received documents by its TIN and reads the
+# document in Base64, and the document is received through the existing
+# path (recorded once, kept write-once, acknowledged locally, since Evatra
+# keeps no acknowledgement); its download is the document; a second fetch
+# leaves it out, recorded and acknowledged.
+step_evatra_inbound() {
+  heading "Step 144 — E-invoices received through Evatra: the UAE company connected to Evatra's sandbox, a supplier's PINT AE e-invoice listed by the company's TIN, read in Base64, recorded once and acknowledged locally, downloaded as received; a second fetch leaves it out"
+  local connector op doc sum tin
+  tin=1001234567
+  as ada
+  say "The product owner chose Evatra (Hamt Information Technology L.L.C, accredited service provider 144576) to send and"
+  say "receive the UAE company's e-invoices inside the ERP. Ada connects $AE to Evatra's sandbox: the adapter evatra, the"
+  say "environment stage (its host derived from it, one of Evatra's two; production takes prod and refuses stage), Evatra's"
+  say "id of the company, its Peppol participant 0235: and its TIN (the first 10 digits of its TRN), and the API key and"
+  say "email held as the tenant's secret. Here the server reaches the stand-in's emulation of Evatra's API in its place."
+  sed -n 's/.*"apiKey": "\([^"]*\)".*/{"apiKey": "\1", "email": "ap@maple-gulf.example"}/p' "$WORK/provider/evatra.json" >"$WORK/provider/evatra-secret.json"
+  vault_put evatra "$WORK/provider/evatra-secret.json"
+  api 201 '"connector \(.name): \(.kind), \(.status), adapter \(.settings.adapter) \(.settings.environment), Evatra company \(.settings.company_id), participants \(.settings.participants | to_entries | map("\(.key) \(.value)") | join(", "))"' \
+    createConnector -body "{\"kind\": \"einvoice_provider\", \"name\": \"Maple Gulf on Evatra\", \"secret_ref\": \"$SECRET_REF\", \"settings\": {\"adapter\": \"evatra\", \"environment\": \"stage\", \"company_id\": \"WALK-AE-5000\", \"participants\": {\"$AE\": \"0235:$tin\"}, \"format\": \"pint_ae\"}}"
+  connector=$(field .id)
+  say "Gulf Office Interiors sends its invoice GOI-2002 as a PINT AE e-invoice; Evatra receives it for 0235:$tin (an"
+  say "illustrative document; validating and entering it as a supplier invoice are T65c and T65d):"
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<!-- Illustrative only: not a validated PINT AE document. -->\n'
+    printf '<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2">'
+    printf '<cbc:CustomizationID>urn:peppol:pint:billing-1@ae-1</cbc:CustomizationID><cbc:ProfileID>urn:peppol:bis:billing</cbc:ProfileID>'
+    printf '<cbc:ID>GOI-2002</cbc:ID><cbc:IssueDate>%s</cbc:IssueDate><cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode><cbc:DocumentCurrencyCode>AED</cbc:DocumentCurrencyCode>' "$TODAY"
+    printf '<cac:AccountingCustomerParty><cac:Party><cbc:EndpointID schemeID="0235">%s</cbc:EndpointID></cac:Party></cac:AccountingCustomerParty></Invoice>\n' "$tin"
+  } >"$WORK/provider/evatra/EVA-77001.xml"
+  printf '0235:%s\n' "$tin" >"$WORK/provider/evatra/EVA-77001.receiver"
+  sum=$(shasum -a 256 "$WORK/provider/evatra/EVA-77001.xml" | cut -d' ' -f1)
+  say "  Evatra's document EVA-77001 for 0235:$tin, SHA-256 ${sum:0:16}…"
+  as alex
+  say "Alex fetches: the adapter logs in to Evatra, sends its token as R-Auth, lists the documents Evatra received for the"
+  say "company's TIN and reads each in Base64; the document is recorded as any provider's, kept write-once, and acknowledged"
+  say "locally, as Evatra keeps no acknowledgement:"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  op=$(field .id)
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded); its documents at \(.resource)"'
+  expect "the fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "1 0"
+  api 200 '.items[] | "  \(.message_id) for \(.company_code) \(.company_name) (\(.receiver)): \(.status), \(.size) bytes, through \(.connector_name), acknowledged \(.acknowledged_at != null)"' \
+    listEInvoices -p "fetch_operation_id=$op"
+  expect "the fetch's documents" "$(field '[.items[] | "\(.message_id) \(.company_code) \(.receiver) \(.status)"] | join(", ")')" "EVA-77001 $AE 0235:$tin received"
+  expect "its bytes, Evatra's decoded" "$(field '.items[0].sha256')" "$sum"
+  expect "acknowledged locally" "$(field '.items[0].acknowledged_at != null')" true
+  doc=$(field '.items[0].id')
+  api 200 '' getEInvoiceContent -p "id=$doc" -out "$WORK/provider/EVA-77001.downloaded.xml"
+  expect "the download, the document Evatra received" "$(shasum -a 256 "$WORK/provider/EVA-77001.downloaded.xml" | cut -d' ' -f1)" "$sum"
+  say "Evatra still lists EVA-77001 (it keeps no acknowledgement); the next fetch leaves it out, recorded and acknowledged:"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded)"'
+  expect "the second fetch's counts" "$(field '"\(.result.recorded) \(.result.already_recorded)"')" "0 0"
+  QUIET=1 api 200 '' listEInvoices -p "connector_id=$connector"
+  expect "the connector's documents" "$(field '[.items[].message_id] | join(" ")')" "EVA-77001"
+  passed
+}
+
+# step_einvoice_render is E2 (ADR-0061 §9, As built E2; plan
+# einvoicing-evatra.md): Maple Gulf Trading's sales are rendered as PINT AE
+# e-invoices in the ERP. Ada gives the UAE company a customer
+# reconciliation account and its postal address in Dubai; Ruth creates a
+# UAE customer with its TRN and its legal address in Dubai, approved by
+# Carla; she posts a customer invoice of a standard-rated item in Dubai and
+# a zero-rated one and renders it: a valid tax invoice 380, every mandatory
+# field checked, its XML kept and downloaded, the seller's and buyer's TRNs,
+# endpoints and emirates in it; rendering it again answers it unchanged.
+# She posts a credit memo crediting part of it: without its reason
+# (BTAE-03) it is refused; with one it is a valid tax credit note 381
+# naming the invoice. Both are listed for the company. Nothing is sent
+# (E3).
+step_einvoice_render() {
+  heading "Step 145 — PINT AE e-invoices rendered: a UAE customer invoice as a valid tax invoice 380 with the parties' TRNs, endpoints and emirates and its VAT by category; a credit memo as a tax credit note 381 with its reason; the XML kept, read back and listed"
+  local ae base cr customer recon sales body invoice number rendered memo note sum
+  as ada
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  say "The UAE company's sales are e-invoiced in the ERP (product owner, 2026-11-19: through an accredited provider, Evatra;"
+  say "sending is E3's). A tax invoice names the seller's address with its emirate, and a customer's receivables post to"
+  say "a customer reconciliation account, which the UAE company's chart lacks: Ada proposes both, a change of the chart,"
+  say "tier 4, with its evidence and two approvers:"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"E-invoicing master data of $AE\", rationale: \"PINT AE tax invoices of the UAE company (E2)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$AE\")) |= (.chart_of_accounts += [{\"number\": \"1200\", \"name\": \"Trade receivables\", \"type\": \"asset\", \"customer_reconciliation\": true}]
+      | .postal_address = {\"line1\": \"Office 1201, Gulf Tower\", \"city\": \"Dubai\", \"region\": \"AE-DU\", \"country_code\": \"AE\"}))}" "$WORK/last.json" >"$WORK/einvoice-master.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @einvoice-master.json
+  cr=$(field .id)
+  governed "$cr" "the UAE company's e-invoicing master data"
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  recon=$(field '.items[] | select(.number == "1200") | .id')
+  sales=$(field '.items[] | select(.number == "4000") | .id')
+  as ruth
+  say "Ruth creates Desert Rose Retail, a UAE customer of $AE: its TRN (illustrative) and its legal address in Dubai,"
+  say "which its tax invoices name; Carla approves it:"
+  body="{\"kind\": \"organization\", \"name\": \"Desert Rose Retail LLC\", \"country_code\": \"AE\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$ae\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"NT30\"}], \"tax_identifiers\": [{\"scheme\": \"AE_TRN\", \"value\": \"100987654300003\"}], \"addresses\": [{\"purpose\": \"legal\", \"line1\": \"Shop 4, Al Wasl Road\", \"city\": \"Dubai\", \"region\": \"AE-DU\", \"country_code\": \"AE\", \"valid_from\": \"$YEAR-01-01\"}], \"reason\": \"Buys office furniture from Maple Gulf\"}"
+  api 201 '"business partner \(.number) \(.name): \(.status)"' createBusinessPartner -body "$body"
+  customer=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its trade licence"
+  as ruth
+  say "Ruth invoices it AED 10,000.00 of office chairs, standard-rated in Dubai (S5, 5%), and AED 2,000.00 of delivery"
+  say "to a free zone client, zero-rated (Z0), and posts the invoice:"
+  body="{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"AED\", \"items\": [{\"description\": \"Office chairs\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"10000.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}, {\"description\": \"Delivery and assembly\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"2000.00\", \"currency\": \"AED\"}, \"tax_code\": \"Z0\"}]}"
+  api 201 '"customer invoice \(.document_number): net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)"' createCustomerInvoice -body "$body"
+  invoice=$(field .id)
+  number=$(field .document_number)
+  api 200 '"customer invoice \(.document_number): \(.status) on \(.posting_date)"' postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  say "She renders it as its e-invoice: PINT AE (urn:peppol:pint:billing-1@ae-1), UBL 2.1, a tax invoice 380. Every"
+  say "mandatory field is checked before anything is kept (ADR-0061 §5's rules); it is valid, and its XML is kept"
+  say "write-once under its SHA-256:"
+  local shown='"e-invoice \(.type_code) \(.kind) of \(.customer_invoice_number), \(.company_code) to \(.customer_number) \(.customer_name): \(.status), \(.problems | length) problems, gross \(.gross_amount.amount) \(.gross_amount.currency), \(.specification)"'
+  api 201 "$shown" createOutgoingEInvoice -body "{\"customer_invoice_id\": \"$invoice\"}"
+  expect "the e-invoice" "$(field '"\(.status) \(.kind) \(.type_code) \(.customer_invoice_number) \(.problems | length) \(.gross_amount.amount)"')" "valid invoice 380 $number 0 12500.00"
+  rendered=$(field .id)
+  sum=$(field .sha256)
+  say "Ruth downloads the XML, its SHA-256 the one recorded: the seller's TRN and endpoint (0235 and the TRN's first ten"
+  say "digits), the buyer's, both emirates as PINT AE codes (DXB), and the VAT by category, S at 5% and Z at 0%:"
+  api 200 '' getOutgoingEInvoiceContent -p "id=$rendered" -out "$WORK/einvoice-$number.xml"
+  expect "the XML's SHA-256" "$(shasum -a 256 "$WORK/einvoice-$number.xml" | cut -d' ' -f1)" "$sum"
+  local xml
+  xml=$(cat "$WORK/einvoice-$number.xml")
+  for want in '<cbc:CustomizationID>urn:peppol:pint:billing-1@ae-1</cbc:CustomizationID>' '<cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>' \
+    '<cbc:EndpointID schemeID="0235">1001234567</cbc:EndpointID>' '<cbc:EndpointID schemeID="0235">1009876543</cbc:EndpointID>' \
+    '<cbc:CompanyID>100123456789003</cbc:CompanyID>' '<cbc:CompanyID>100987654300003</cbc:CompanyID>' '<cbc:CountrySubentity>DXB</cbc:CountrySubentity>' \
+    '<cbc:TaxAmount currencyID="AED">500.00</cbc:TaxAmount>' '<cbc:ID>S</cbc:ID><cbc:Percent>5</cbc:Percent>' '<cbc:ID>Z</cbc:ID><cbc:Percent>0</cbc:Percent>'; do
+    case "$xml" in *"$want"*) say "  $want" ;; *) fail "the e-invoice's XML lacks $want" ;; esac
+  done
+  say "Rendering it again answers it unchanged: a valid e-invoice is the legal document and final."
+  api 200 '"e-invoice \(.customer_invoice_number): \(.status), version \(.version)"' createOutgoingEInvoice -body "{\"customer_invoice_id\": \"$invoice\"}"
+  expect "rendered again" "$(field '"\(.id) \(.version) \(.sha256)"')" "$rendered 1 $sum"
+  say "The chairs' price is reduced by AED 1,000.00 after delivery: Ruth posts a credit memo naming the invoice. Its"
+  say "tax credit note needs its reason (BTAE-03), so without one it is refused:"
+  body="{\"legal_entity_id\": \"$ae\", \"customer_id\": \"$customer\", \"kind\": \"credit_memo\", \"reference_invoice_id\": \"$invoice\", \"invoice_date\": \"$TODAY\", \"currency\": \"AED\", \"items\": [{\"description\": \"Office chairs, price reduced\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1000.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}]}"
+  api 201 '"\(.kind) \(.document_number) crediting \(.reference_invoice_number): gross \(.gross_amount.amount) \(.currency)"' createCustomerInvoice -body "$body"
+  memo=$(field .id)
+  api 200 '"\(.kind) \(.document_number): \(.status)"' postCustomerInvoice -p "id=$memo" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  refused 422 einvoicing.credit_note_reason createOutgoingEInvoice -body "{\"customer_invoice_id\": \"$memo\"}"
+  say "With the reason, its code illustrative (PINT AE's code list for it is a question for the tax specialist), it is a"
+  say "valid tax credit note 381 naming the invoice it corrects (IBT-025):"
+  api 201 "$shown"', "  reason \(.credit_note_reason.code): \(.credit_note_reason.text), crediting \(.reference_invoice_number)"' createOutgoingEInvoice \
+    -body "{\"customer_invoice_id\": \"$memo\", \"credit_note_reason\": {\"code\": \"CR-01\", \"text\": \"Price reduced after delivery\"}}"
+  expect "the credit note" "$(field '"\(.status) \(.kind) \(.type_code) \(.reference_invoice_number) \(.gross_amount.amount)"')" "valid credit_note 381 $number 1050.00"
+  note=$(field .id)
+  api 200 '' getOutgoingEInvoiceContent -p "id=$note" -out "$WORK/einvoice-note.xml"
+  grep -q "<cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>$number</cbc:ID>" "$WORK/einvoice-note.xml" || fail "the credit note's XML does not name $number"
+  grep -q '<cbc:CreditNoteTypeCode>381</cbc:CreditNoteTypeCode>' "$WORK/einvoice-note.xml" || fail "the credit note's XML is not a 381"
+  say "Read back, and listed for the company, newest first:"
+  api 200 '"e-invoice \(.customer_invoice_number): \(.status), \(.sha256[0:16])…"' getOutgoingEInvoice -p "id=$rendered"
+  expect "read back" "$(field '"\(.status) \(.sha256)"')" "valid $sum"
+  api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number) to \(.customer_name): \(.status)"' listOutgoingEInvoices -p "legal_entity_id=$ae"
+  expect "the company's e-invoices" "$(field '[.items[].id] | join(" ")')" "$note $rendered"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -16983,7 +17204,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_close'
 
 main() {
   stop_unseen

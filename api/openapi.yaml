@@ -27361,7 +27361,7 @@ paths:
       tags:
         - einvoicing
       summary: Fetch e-invoices from the provider now
-      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`), the request audited in the caller's name (`einvoicing.fetch.request`, the Operation its object, with the connector), and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
+      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`), the request audited in the caller's name (`einvoicing.fetch.request`, the Operation its object, with the connector), and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in or Evatra's `stage` sandbox (422 `integration.adapter_not_certified`), and an Evatra connector whose credentials are not a JSON object with `apiKey` and `email` (422 `integration.secret_unavailable`). An Evatra connector (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received for each company's TIN in the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the acknowledgement is local only and a fetch leaves out what is recorded and acknowledged, and Evatra refusing the credentials fails the fetch with `integration.secret_unavailable`. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
       x-permission: einvoicing.einvoice.manage
       x-agent: false
       x-problem-codes:
@@ -27574,6 +27574,203 @@ paths:
       responses:
         "200":
           description: The document's bytes as received.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: The document bytes.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/outgoing-e-invoices:
+    get:
+      operationId: listOutgoingEInvoices
+      tags:
+        - einvoicing
+      summary: List outgoing e-invoices
+      description: "The e-invoices rendered from the posted customer documents of the companies the caller may act in (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered by company, by the customer document it renders (at most one), and by status, so the invalid ones to correct are found."
+      x-permission: einvoicing.outgoing.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: false
+          description: Only the e-invoices of this company.
+          schema:
+            type: string
+            format: uuid
+        - name: customer_invoice_id
+          in: query
+          required: false
+          description: Only the e-invoice of this customer invoice or credit memo.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only e-invoices in this status.
+          schema:
+            type: string
+            description: "Outgoing e-invoice status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [valid, invalid]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of outgoing e-invoices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutgoingEInvoicePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createOutgoingEInvoice
+      tags:
+        - einvoicing
+      summary: Render a posted customer invoice or credit memo as a PINT AE e-invoice
+      description: "Renders a posted customer document of a UAE company as its e-invoice in PINT AE, UBL 2.1 (ADR-0061 §9, As built E2; SAP Document and Reporting Compliance's outgoing e-document): a customer invoice as a tax invoice (type code 380, a UBL `Invoice`) and a customer credit memo as a tax credit note (381, a UBL `CreditNote`) naming the invoice it credits and the reason the caller gives (`credit_note_reason`, BTAE-03, required for a credit memo and refused for an invoice). A billing document's e-invoice is that of the customer invoice it posted as (`source_document_id`), and a credit memo request's that of its customer credit memo. The document carries the seller (the company: its name, postal address with its emirate, its FTA registration's TRN and the endpoint `0235:` and the TRN's first ten digits) and the buyer (the customer: its legal address on the invoice date with its emirate, its UAE TRN, scheme `AE_TRN`, and the endpoint from it), each item as a line of quantity 1 at its net amount with its tax code's category (S, Z, E, O or AE) and rate on the invoice date (its tax date), the VAT per category and the totals, the VAT total in AED as the posting converted it when the document is not in AED, and the transaction type flags BTAE-02 all unset (none of the special cases is rendered). Mandatory terms the ERP does not render yet keep a document invalid, named in its problems (`einvoicing.pint_ae.not_rendered`): each line's VAT and amount in AED on a document not in AED (BTAE-08, BTAE-10), and the exemption reason of an E, O or AE line (IBT-120, IBT-121). Before anything is kept the document is checked against the mandatory fields (`problems`): one that fails any is recorded `invalid`, its problems listed and no XML kept, and may be rendered again once the master data is corrected; one that passes is `valid`, its XML kept write-once in object storage under its SHA-256 (ADR-0016) with the customer document as the legal original, final: a second render answers it unchanged. Each render that records or changes the e-invoice is audited (`einvoicing.outgoing.rendered`) and publishes OutgoingEInvoiceRendered; nothing is sent (sending is E3's). 201 when the e-invoice is first recorded and 200 when it existed (rendered again, or valid and answered unchanged), whatever the outcome: the problems are the document's state, not the request's. A debit memo is not rendered (422 `einvoicing.unsupported_document`: PINT AE has no debit note type, a question for the tax specialist). A customer document of a company the caller may not act in, or none, is refused as not found (422 `request.reference_not_found`); one not posted is refused (409 `einvoicing.document_not_posted`); one of a company that is not in the UAE or not in AED (422 `einvoicing.not_a_uae_company`); 503 while the server has no object storage. Human-only (`x-agent: false`)."
+      x-permission: einvoicing.outgoing.render
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - einvoicing.credit_note_reason
+        - einvoicing.document_not_posted
+        - einvoicing.not_a_uae_company
+        - einvoicing.unsupported_document
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The posted customer invoice or credit memo to render, and a credit memo's reason.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutgoingEInvoiceRender"
+            examples:
+              invoice:
+                summary: A tax invoice from a posted customer invoice
+                value:
+                  customer_invoice_id: 0192a000-0000-7000-8000-000000000f01
+              creditNote:
+                summary: A tax credit note from a posted customer credit memo
+                value:
+                  customer_invoice_id: 0192a000-0000-7000-8000-000000000f02
+                  credit_note_reason:
+                    code: CR-01
+                    text: Price reduced after delivery
+      responses:
+        "200":
+          description: The e-invoice existed; as rendered again, or valid and unchanged.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutgoingEInvoice"
+        "201":
+          description: Created; the e-invoice as first rendered, valid or invalid with its problems.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutgoingEInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/outgoing-e-invoices/{id}":
+    get:
+      operationId: getOutgoingEInvoice
+      tags:
+        - einvoicing
+      summary: Get an outgoing e-invoice
+      description: "One outgoing e-invoice as `createOutgoingEInvoice` answers it (ADR-0061 §9, As built E2): the customer document it renders by id and number, its company and customer by id, code or number and name, its type code, issue date, currency and amounts, its status (`valid` or `invalid`) with the problems of its last render, its bytes' SHA-256 and size once valid, and the PINT AE specification it follows. One of a company the caller may not act in is not found (404), as one that does not exist, so ids of other companies cannot be probed."
+      x-permission: einvoicing.outgoing.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The outgoing e-invoice.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutgoingEInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/outgoing-e-invoices/{id}/content":
+    get:
+      operationId: getOutgoingEInvoiceContent
+      tags:
+        - einvoicing
+      summary: Download an outgoing e-invoice's XML
+      description: "A valid outgoing e-invoice's PINT AE XML (ADR-0061 §8, §9, As built E2), byte for byte as rendered: kept write-once in object storage under its SHA-256, which every read compares with the `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ from it). An invalid one has no XML (409 `einvoicing.document_invalid`). Visible as `getOutgoingEInvoice` is; 503 while the server has no object storage. Reading it is not audited, as other downloads are not. Human-only (`x-agent: false`): the document carries the parties' TRNs in clear, as a tax invoice must."
+      x-permission: einvoicing.outgoing.read
+      x-agent: false
+      x-problem-codes:
+        - einvoicing.document_changed
+        - einvoicing.document_invalid
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The e-invoice's XML as rendered.
           content:
             application/octet-stream:
               schema:
@@ -36993,11 +37190,15 @@ paths:
         - integration.legal_entity_not_active
         - integration.migration_failed
         - integration.secret_unavailable
+        - inventory.amount_not_allowed
         - inventory.amount_too_large
         - inventory.cost_center_not_allowed
         - inventory.cost_center_required
+        - inventory.currency_mismatch
         - inventory.inexact_quantity
         - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.invalid_price
         - inventory.invalid_quantity
         - inventory.material_invalid
         - inventory.material_not_stocked
@@ -37011,11 +37212,15 @@ paths:
         - inventory.posting_blocked
         - inventory.quantity_too_large
         - inventory.same_location
+        - inventory.stock_without_valuation
         - inventory.storage_location_invalid
         - inventory.storage_location_not_extended
         - inventory.transfer_not_allowed
         - inventory.transfer_target_required
+        - inventory.unknown_price_control
         - inventory.unknown_unit
+        - inventory.unknown_valuation_class
+        - inventory.valuation_exists
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -39800,7 +40005,7 @@ components:
               readOnly: true
             code:
               type: string
-              description: Code, unique per legal entity and kind. Immutable.
+              description: "Code, unique per legal entity and kind, a storage location's under its plant (its parent), as SAP keys a storage location by its plant. Immutable."
               pattern: "^[A-Z0-9_]{1,10}$"
               readOnly: true
             name:
@@ -39854,7 +40059,7 @@ components:
             - sales_org
         code:
           type: string
-          description: Code, unique per legal entity and kind.
+          description: "Code, unique per legal entity and kind, a storage location's under its plant (its parent), as SAP keys a storage location by its plant."
           pattern: "^[A-Z0-9_]{1,10}$"
         name:
           type: string
@@ -65281,6 +65486,110 @@ components:
         changed_at: {type: [string, 'null'], format: date-time, description: "When a fetch found those bytes; null with `changed_sha256`."}
         changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those bytes: its Operation's id, which lists the document under `fetch_operation_id` too; null with `changed_sha256`."}
         version: {type: integer, format: int32}
+    OutgoingEInvoiceRender:
+      type: object
+      description: "A posted customer document to render as an e-invoice (ADR-0061 §9, As built E2)."
+      required: [customer_invoice_id]
+      additionalProperties: false
+      properties:
+        customer_invoice_id: {type: string, format: uuid, description: "The posted customer invoice or customer credit memo (`getCustomerInvoice`)."}
+        credit_note_reason: {$ref: "#/components/schemas/CreditNoteReason"}
+    CreditNoteReason:
+      type: object
+      description: "Why a tax credit note is issued (PINT AE BTAE-03, compulsory on a credit note): required for a customer credit memo and refused for an invoice. The code is rendered as given; PINT AE's code list for it is to confirm with the tax specialist, so it is not checked against one yet."
+      required: [code, text]
+      additionalProperties: false
+      properties:
+        code: {type: string, pattern: "^[A-Za-z0-9._-]{1,20}$", description: "The reason's code."}
+        text: {type: string, minLength: 1, maxLength: 500, description: "The reason in words, printed on the credit note."}
+    OutgoingEInvoiceProblem:
+      type: object
+      description: "A mandatory field of PINT AE that a render found missing or malformed: the rule, the business term it checks and what is wrong."
+      required: [rule, term, message]
+      properties:
+        rule: {type: string, description: "The ERP's rule (`einvoicing.pint_ae.*`). Open enumeration: rules may be added within /v1."}
+        term: {type: string, description: "The PINT AE business term it checks (IBT-031, BTAE-03, ...)."}
+        message: {type: string, description: "What is missing or wrong, and what to correct."}
+    OutgoingEInvoicePage:
+      type: object
+      description: One page of outgoing e-invoices, newest rendered first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/OutgoingEInvoice"}
+          description: The outgoing e-invoices on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    OutgoingEInvoice:
+      type: object
+      description: "A posted customer document rendered as a PINT AE e-invoice (ADR-0061 §9, As built E2): once per customer document, valid with its XML kept or invalid with the problems of its last render."
+      required: [id, customer_invoice_id, customer_invoice_number, source_document_id, source_document_number, legal_entity_id, company_code, company_name,
+        customer_id, customer_number, customer_name, kind, type_code, issue_date, currency, net_amount, tax_amount, gross_amount, reference_invoice_number,
+        specification, status, problems, sha256, size, rendered_at, version]
+      properties:
+        id: {type: string, format: uuid}
+        customer_invoice_id: {type: string, format: uuid, description: "The customer invoice or credit memo it renders."}
+        customer_invoice_number: {type: string, description: "Its document number, the e-invoice's number (IBT-001)."}
+        source_document_id: {type: [string, 'null'], format: uuid, description: "The document of another context the customer document posted from (a billing document, `getBillingDocument`); null for one entered in receivables."}
+        source_document_number: {type: [string, 'null'], description: "That document's number; null with `source_document_id`."}
+        legal_entity_id: {type: string, format: uuid, description: "The company that issues it, the seller."}
+        company_code: {type: string, description: "The company's code."}
+        company_name: {type: string, description: "The company's name."}
+        customer_id: {type: string, format: uuid, description: "The customer, the buyer."}
+        customer_number: {type: string, description: "The customer's number."}
+        customer_name: {type: string, description: "The customer's name."}
+        kind:
+          type: string
+          x-extensible-enum: [invoice, credit_note]
+          description: "invoice (a tax invoice, from a customer invoice) or credit_note (a tax credit note, from a customer credit memo). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+        type_code: {type: string, description: "Its PINT AE type code (IBT-003): 380 for a tax invoice, 381 for a tax credit note."}
+        issue_date: {type: string, format: date, description: "Its issue date (IBT-002), the customer document's date."}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "Its currency (IBT-005)."}
+        net_amount: {$ref: "#/components/schemas/Money"}
+        tax_amount: {$ref: "#/components/schemas/Money"}
+        gross_amount: {$ref: "#/components/schemas/Money"}
+        reference_invoice_number: {type: [string, 'null'], description: "The invoice a credit note credits (IBT-025); null on an invoice and on a credit memo crediting none (which is invalid)."}
+        credit_note_reason: {$ref: "#/components/schemas/CreditNoteReason"}
+        specification: {type: string, description: "The specification it follows (IBT-024, CustomizationID): urn:peppol:pint:billing-1@ae-1."}
+        status:
+          type: string
+          x-extensible-enum: [valid, invalid]
+          description: "valid (every mandatory field checked, its XML kept: final) or invalid (`problems` lists what is missing; rendered again once corrected). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1 (sending adds its statuses, E3)."
+        problems:
+          type: array
+          items: {$ref: "#/components/schemas/OutgoingEInvoiceProblem"}
+          description: "What its last render found missing or wrong, in the rules' order; empty when valid."
+        sha256: {type: [string, 'null'], pattern: "^[0-9a-f]{64}$", description: "The SHA-256 of its XML, hex; null while invalid."}
+        size: {type: [integer, 'null'], format: int64, description: "The size of its XML in bytes; null while invalid."}
+        rendered_at: {type: string, format: date-time, description: "When it was last rendered."}
+        version: {type: integer, format: int32}
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f11
+          customer_invoice_id: 0192a000-0000-7000-8000-000000000f01
+          customer_invoice_number: "1800000007"
+          source_document_id: null
+          source_document_number: null
+          legal_entity_id: 0192a000-0000-7000-8000-000000000201
+          company_code: "5000"
+          company_name: Maple Gulf Trading
+          customer_id: 0192a000-0000-7000-8000-000000000301
+          customer_number: "100045"
+          customer_name: Desert Rose Retail
+          kind: invoice
+          type_code: "380"
+          issue_date: "2026-11-19"
+          currency: AED
+          net_amount: {amount: "10000.00", currency: AED}
+          tax_amount: {amount: "500.00", currency: AED}
+          gross_amount: {amount: "10500.00", currency: AED}
+          reference_invoice_number: null
+          specification: "urn:peppol:pint:billing-1@ae-1"
+          status: valid
+          problems: []
+          sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+          size: 4096
+          rendered_at: "2026-11-19T10:00:00Z"
+          version: 1
     ConsolidationRunPage:
       type: object
       description: One page of consolidation runs, newest first.
@@ -71846,7 +72155,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+              description: "Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
             secret_ref:
               type: string
               description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`."
@@ -71898,7 +72207,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+          description: "Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
         secret_ref:
           type: string
           description: "A reference to the credentials in the vault, under the tenant's own namespace: `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other reference, `env:` and `file:` among them, is refused with 422 `integration.invalid_secret_ref`: the server resolves it, and those name the server's own secrets. Path segments and the field are letters, digits, `.`, `_` and `-`."
@@ -71920,7 +72229,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+          description: "Connector settings; replaced as a whole. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's stand-in), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment` (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`, are refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
         secret_ref:
           type:
             - string
@@ -72171,6 +72480,7 @@ components:
         - marm
         - marc
         - mard
+        - mbew
         - t001w
         - t001l
       properties:
@@ -72325,7 +72635,11 @@ components:
         mard:
           type: integer
           minimum: 0
-          description: "Rows of SAP table MARD (the materials' storage location data at the scope's plants, the assignment only; S2o)."
+          description: "Rows of SAP table MARD (the materials' storage location data at the scope's plants: the assignment, S2o, and the unrestricted stock, S2p)."
+        mbew:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table MBEW (the materials' valuations in the valuation areas of the scope's plants: price control, price, valuation class, stock and value; S2p)."
         t001w:
           type: integer
           minimum: 0
@@ -72430,6 +72744,14 @@ components:
           type: integer
           minimum: 1
           description: "Materials an earlier run created that this run extended to more plants or storage locations, each by an update change applied at once (S2o)."
+        material_valuations:
+          type: integer
+          minimum: 1
+          description: "Materials valued at a plant as SAP values them (MBEW: price control, price per price unit, valuation class), each once: a valuation an earlier run took over is kept (S2p)."
+        initial_entries:
+          type: integer
+          minimum: 1
+          description: "Initial entries of stock (movement type 561) posting SAP's unrestricted stock of a material at its plant's storage locations (MARD) at SAP's value, on the valuation class's stock account against its initial entry account, the migration clearing account (S2p)."
     MigrationIssue:
       type: object
       description: A finding of the quality gate, the load or the reconciliation on a row of the extract.

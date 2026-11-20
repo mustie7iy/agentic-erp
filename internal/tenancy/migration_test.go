@@ -12,7 +12,7 @@ import (
 // TestOrgUnitByCodeOutsideAUnitOfWork: the lookup refuses a call without
 // a request's unit of work.
 func TestOrgUnitByCodeOutsideAUnitOfWork(t *testing.T) {
-	if _, _, err := (tenancy.Directory{}).OrgUnitByCode(context.Background(), uuid.New(), "plant", "P1"); err == nil {
+	if _, _, err := (tenancy.Directory{}).OrgUnitByCode(context.Background(), uuid.New(), "plant", "P1", nil); err == nil {
 		t.Errorf("got nil error, want the call refused outside a unit of work")
 	}
 }

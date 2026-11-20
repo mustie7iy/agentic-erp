@@ -2825,11 +2825,54 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Sending sales e-invoices (phase 3, after issuing sales invoices): rendered as PINT AE from the sales invoice's lines and tax items, checked before sending, given to the provider after the commit, the provider's and the authority's reports recorded as they come (to confirm with the provider and the specialist); sliced with phase 3's sales design",
-        "r": "ADR-0061 §9 · T65h",
-        "src": "adr:ADR-0061",
-        "c": []
+        "s": "P",
+        "t": "UAE e-invoices sent and received inside the ERP through Evatra, the first accredited service provider (Hamt Information Technology L.L.C, ASP 144576), behind the provider-neutral port: the ERP renders PINT AE itself, polls statuses and opens no inbound endpoint (product owner 2026-11-19, superseding receive-only until phase 3)",
+        "r": "ADR-0061 §3, §9 and As built · T65h (split E1-E4, Later) · coordinator plan einvoicing-evatra",
+        "src": "adr:ADR-0061 · po:2026-11-19",
+        "c": [
+         {
+          "s": "D",
+          "t": "E1 Evatra connector and inbound: the einvoice_provider connector's adapter evatra (environment stage or prod, Evatra's base URL derived from it, its two hosts only; company_id; participants 0235: and each company's TIN; the API key and email as the tenant-scoped connector secret; Evatra's sandbox refused in production, the stand-in still refused there); the Evatra adapter: POST /auth/login, the token kept until its expirationDate and sent as R-Auth, one new login on a 401, never logged, audited or put in an error; Pending through POST /invoice/search-documents (documentType INCOMING, by each company's TIN, pages of 200, the last 60 days), Fetch through GET /invoice/get-document/{id}/XML (Base64, at most MaxDocument), Acknowledge local only, so a fetch leaves out what is recorded and acknowledged; the stand-in speaks Evatra's API for these calls; ADR-0061 §3 (the port's Send and Status for E3), §9 and Q1 answered; walkthrough step_evatra_inbound: an evatra connector against the stand-in, an incoming PINT AE e-invoice received through the existing path, a second fetch leaving it out",
+          "r": "einvoicing.Evatra · einvoicing.EvatraHosts · einvoicing.LocalAcknowledgement · einvoicetest.Evatra · integration.EvatraAdapter · walkthrough step_evatra_inbound · ADR-0061 §3, §9, Q1 and As built E1 · coordinator plan einvoicing-evatra E1",
+          "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "D",
+          "t": "E2 PINT AE rendering: a posted customer invoice (a billing document's is the invoice it posted as) as a tax invoice 380 and a customer credit memo as a tax credit note 381 (reason BTAE-03, the invoice it credits), UBL 2.1, CustomizationID urn:peppol:pint:billing-1@ae-1; seller and buyer with TRN, endpoint 0235: and the TRN's first ten digits, emirate code, lines, VAT categories from the tax items (ADR-0049's boundary), BTAE-02; in-house validation of the mandatory fields before anything is kept (a document failing them recorded invalid with its problems, no XML); the rendered XML kept write-once and read back; POST /v1/outgoing-e-invoices, its list, read and content (people only); OutgoingEInvoiceRendered; debit memos refused; only AED documents of S and Z lines valid for now; walkthrough step_einvoice_render",
+          "r": "einvoicing.RenderPINTAE · einvoicing.ParsePINTAE · einvoicing.Check · createOutgoingEInvoice, listOutgoingEInvoices, getOutgoingEInvoice, getOutgoingEInvoiceContent · OutgoingEInvoiceRendered · migration 000415 · partner.InvoiceParties · taxfiling.InvoiceNumbers · walkthrough step_einvoice_render (step 145) · ADR-0061 §9 and As built E2 · coordinator plan einvoicing-evatra E2",
+          "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "UAE emirate on sales items and billing documents: a sales document's item carries the emirate of its supply, so a UAE billing document can bill the standard-rated code S5 (which levies each line's emirate) instead of being refused sales.tax_jurisdiction_not_supported, and E2 renders the billing document's customer invoice; until then E2 renders only customer invoices and credit memos entered in receivables (batch 85)",
+          "r": "ADR-0061 As built E2 (Gaps found) · ADR-0049 · T75 · coordinator plan einvoicing-evatra E2",
+          "src": "review:batch84",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "E3 Sending: the outbox to a submission row written before the call, then Evatra's POST /invoice/send-document-async (base64Document, invoiceType UAE_PINT, businessType B2B or B2G, invoiceSource ERP); the port's Send and Status; status by polling GET /invoice/document-status/{trackingId} in a workflow per submission with backoff; after a lost answer the document looked up (document-process/search by filename) before any resend; resend of SENDING_FAILED, PERMANENT_FAILED to a worklist; a worklist of billing documents not transmitted within 14 business days of the UAE company's calendar; walkthrough step_einvoice_send",
+          "r": "ADR-0061 §3, §9 · coordinator plan einvoicing-evatra E3, defaults 3, 4, 9",
+          "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "E4 Delivery status and FTA reporting: the Peppol message level responses (ACCEPTANCE, REJECTION, BUSINESS_RULE_FATAL and the others) and the tax data document's status shown on the invoice; a rejection or a fatal rule puts it on a worklist to correct by credit note; the tax data document's retry and withdrawal offered to a person only, never an agent; walkthrough step_einvoice_send extended",
+          "r": "ADR-0061 §9 · coordinator plan einvoicing-evatra E4, default 8",
+          "src": "po:2026-11-19",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "Later: self-billing (389, 261), out-of-scope and export types (480, 81), deemed supply endpoints, summary and continuous supply invoices, the margin scheme, the list of invalid inbound Peppol documents, a PDF through Evatra's generate/pdf, a second accredited provider; PINT AE: non-AED documents and E/O/AE lines (BTAE-08/10/20, IBT-120/121), once the specialist confirms the terms (ADR-0061 As built E2)",
+          "r": "coordinator plan einvoicing-evatra Later",
+          "src": "po:2026-11-19",
+          "c": []
+         }
+        ]
        }
       ]
      },
@@ -5431,9 +5474,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Storage location codes unique per plant: a storage location's code is unique within its plant, as SAP keys LGORT within its WERKS, not within its company (tenancy's org unit key and inventory's reads by code), so the SAP migration no longer refuses one LGORT at two plants of a company code",
-      "r": "S2o · ADR-0082 As built S2o · tenancy.org_unit · internal/integration plantsOf",
+      "r": "S2o · ADR-0082 As built S2o, Storage location codes · db/migrations/000412, 000413, 000414 · tenancy.org_unit org_unit_code_once, storage_location_code_once · tenancy.OrgUnitMigration.OrgUnitByCode (parent) · internal/integration plantsOf, orgUnit · walkthrough step_migrate (migrated_materials, 3200/0001)",
       "src": "review:batch83",
       "c": []
      },
@@ -5487,9 +5530,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "The SAP cutover loads stock by storage location (MARD) and valuation (MBEW) as initial entries valued at SAP's price against the migration clearing account, reconciled to SAP's quantities and values per material and plant",
-      "r": "S2p · docs/design/plan-supply-chain.md §S2p · ADR-0082",
+      "r": "S2p · docs/design/plan-supply-chain.md §S2p · ADR-0082 As built S2p · docs/migration.md Stock and values · internal/sap MBEW, MARD LABST · internal/integration/stock.go, stockload.go, stockreconcile.go · inventory.Endpoints.TakeOver, TakenOver, LockNumbers · configuration.Numbers.Lock · ledger.Reports.EntryTotals · external references MBEW/<BWKEY>/<MATNR>, MKPF/<BWKEY>/<MATNR> · MigrationLoadedCounts material_valuations, initial_entries · MigrationExtractCounts mbew · checks Stock, Stock value total, Stock accounts · walkthrough step_migrate (migrated_stock)",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -7931,6 +7974,13 @@
         "t": "Numbering-only packs Canada 2026.11 and UAE 2026.8 bring the ranges the pilot's settings still add themselves: returns_order, credit_memo_request, lease_contract, expense_report, material_document, journal_wa and journal_pr (a company activated from Canada 2026.10 or UAE 2026.7 lacks them: 422 config.no_number_range); material stays each company's own, its numbers unique in the tenant (decided by default); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried (product owner 2026-11-19, batch 81's open item (b) as recommended)",
         "r": "packs/ca/2026.11 · packs/ae/2026.8 · packs/released.sha256 · TestCanadaPack2026_11 · TestUAEPack2026_8 (pilotRanges) · ADR-0048 As built (the pilot's ranges) · walkthrough steps 2 and 41 apply them, the pilot's settings add only Maple's material range",
         "src": "po:2026-11-19",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "Numbering-only packs Canada 2026.12 and UAE 2026.9 bring the ranges of count documents and outbound deliveries, physical_inventory (PI) and outbound_delivery (OD), which the pilot's settings still added themselves (a company activated from Canada 2026.11 or UAE 2026.8 lacks them: 422 config.no_number_range for a count document or a delivery); tax content unchanged byte for byte; the tax specialist's sign-off of 2026-11-09 carried under the product owner's rule of 2026-11-18",
+        "r": "packs/ca/2026.12 · packs/ae/2026.9 · packs/released.sha256 · TestCanadaPack2026_12 · TestUAEPack2026_9 (stockRanges) · ADR-0048 As built (count documents and deliveries) · walkthrough steps 2 and 41 apply them, the pilot's settings add only Maple's material range",
+        "src": "review:batch83 · po:2026-11-18",
         "c": []
        }
       ]

@@ -702,6 +702,7 @@ func (s *server) newAPI() error {
 	if s.apiCfg.Providers, err = providerClient(cfg); err != nil {
 		return err
 	}
+	s.apiCfg.EvatraHosts = evatraHosts(cfg)
 	if s.apiCfg.SFTPControl, err = egress.DialControl(cfg.Walkthrough.SFTP); err != nil { // config.Load refuses a stand-in outside development
 		return fmt.Errorf("erp-server: the walkthrough's SFTP stand-in: %w", err)
 	}
@@ -746,6 +747,18 @@ func providerClient(cfg config.Config) (*egress.Client, error) {
 		return nil, fmt.Errorf("erp-server: the walkthrough's e-invoicing provider: %w", err)
 	}
 	return client, nil
+}
+
+// evatraHosts are the hosts of Evatra's environments: its own (nil), or, in
+// the walkthrough alone, its provider's stand-in for both, which speaks
+// Evatra's API under /evatra (ERP_WALKTHROUGH_PROVIDER, which config.Load
+// refuses outside development).
+func evatraHosts(cfg config.Config) map[string]string {
+	if !cfg.Walkthrough.Provider.IsValid() {
+		return nil
+	}
+	base := "https://" + cfg.Walkthrough.Provider.String() + "/evatra"
+	return map[string]string{"stage": base, "prod": base}
 }
 
 // withRecord joins the record's failure into the server's exit, unless

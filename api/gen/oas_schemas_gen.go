@@ -27864,6 +27864,7 @@ func (*ConflictHeaders) createMetricWatcherRes()                   {}
 func (*ConflictHeaders) createMigrationRunRes()                    {}
 func (*ConflictHeaders) createOrgUnitRes()                         {}
 func (*ConflictHeaders) createOutboundDeliveryRes()                {}
+func (*ConflictHeaders) createOutgoingEInvoiceRes()                {}
 func (*ConflictHeaders) createPartnerChangeRes()                   {}
 func (*ConflictHeaders) createPeriodCloseRes()                     {}
 func (*ConflictHeaders) createPersonalDataDeletionRunRes()         {}
@@ -27933,6 +27934,7 @@ func (*ConflictHeaders) getEInvoiceContentRes()                    {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getMarginReportRes()                       {}
+func (*ConflictHeaders) getOutgoingEInvoiceContentRes()            {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
 func (*ConflictHeaders) getPersonalDataDeletionPreviewRes()        {}
 func (*ConflictHeaders) getProfitabilityReportRes()                {}
@@ -28150,11 +28152,15 @@ type Connector struct {
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-	// answers 422 `integration.adapter_not_certified`.
+	// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+	// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+	// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+	// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+	// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+	// are refused in production: creating or enabling one there answers 422
+	// `integration.adapter_not_certified`.
 	Settings ConnectorSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28303,11 +28309,15 @@ type ConnectorCreate struct {
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-	// answers 422 `integration.adapter_not_certified`.
+	// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+	// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+	// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+	// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+	// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+	// are refused in production: creating or enabling one there answers 422
+	// `integration.adapter_not_certified`.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28375,11 +28385,15 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 // `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 // its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-// answers 422 `integration.adapter_not_certified`.
+// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+// are refused in production: creating or enabling one there answers 422
+// `integration.adapter_not_certified`.
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -28503,11 +28517,15 @@ func (*ConnectorPage) listConnectorsRes() {}
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 // `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 // its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-// answers 422 `integration.adapter_not_certified`.
+// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+// are refused in production: creating or enabling one there answers 422
+// `integration.adapter_not_certified`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -28537,11 +28555,15 @@ type ConnectorUpdate struct {
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-	// answers 422 `integration.adapter_not_certified`.
+	// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+	// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+	// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+	// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+	// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+	// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+	// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+	// are refused in production: creating or enabling one there answers 422
+	// `integration.adapter_not_certified`.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// A reference to the credentials in the vault, under the tenant's own namespace:
 	// `vault:<mount>/tenants/<tenant_id>/<path>#<field>` (ADR-0017, product owner 2026-11-16). Any other
@@ -28594,11 +28616,15 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 // `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
 // its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
-// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
-// (the provider's, https), `participants` (each company's participant identifier at the provider, by
-// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
-// the provider's credentials. The stand-in is refused in production: creating or enabling one there
-// answers 422 `integration.adapter_not_certified`.
+// `adapter`: `evatra` (Evatra, the accredited service provider) or `standin` (the provider's
+// stand-in), `participants` (each company's participant identifier at the provider, by company code:
+// at least one, each identifier once; at Evatra `0235:` and the company's TIN, the first 10 digits of
+// its TRN) and `format` (`pint_ae`); the stand-in takes `base_url` (https), Evatra `environment`
+// (`stage`, its sandbox, or `prod`; its base URL is derived from it, one of Evatra's two hosts, never
+// a setting) and `company_id` (the company's id at Evatra); its `secret_ref` names the provider's
+// credentials (at Evatra a JSON object with `apiKey` and `email`). The stand-in, and Evatra's `stage`,
+// are refused in production: creating or enabling one there answers 422
+// `integration.adapter_not_certified`.
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
@@ -35371,6 +35397,72 @@ type CreateOutboundDeliveryUnprocessableEntity Problem
 
 func (*CreateOutboundDeliveryUnprocessableEntity) createOutboundDeliveryRes() {}
 
+type CreateOutgoingEInvoiceBadRequest Problem
+
+func (*CreateOutgoingEInvoiceBadRequest) createOutgoingEInvoiceRes() {}
+
+// CreateOutgoingEInvoiceCreatedHeaders wraps OutgoingEInvoice with response headers.
+type CreateOutgoingEInvoiceCreatedHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           OutgoingEInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *CreateOutgoingEInvoiceCreatedHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CreateOutgoingEInvoiceCreatedHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CreateOutgoingEInvoiceCreatedHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CreateOutgoingEInvoiceCreatedHeaders) GetResponse() OutgoingEInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CreateOutgoingEInvoiceCreatedHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CreateOutgoingEInvoiceCreatedHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CreateOutgoingEInvoiceCreatedHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CreateOutgoingEInvoiceCreatedHeaders) SetResponse(val OutgoingEInvoice) {
+	s.Response = val
+}
+
+func (*CreateOutgoingEInvoiceCreatedHeaders) createOutgoingEInvoiceRes() {}
+
+type CreateOutgoingEInvoiceForbidden Problem
+
+func (*CreateOutgoingEInvoiceForbidden) createOutgoingEInvoiceRes() {}
+
+type CreateOutgoingEInvoicePreconditionRequired Problem
+
+func (*CreateOutgoingEInvoicePreconditionRequired) createOutgoingEInvoiceRes() {}
+
+type CreateOutgoingEInvoiceUnprocessableEntity Problem
+
+func (*CreateOutgoingEInvoiceUnprocessableEntity) createOutgoingEInvoiceRes() {}
+
 type CreatePartnerChangeBadRequest Problem
 
 func (*CreatePartnerChangeBadRequest) createPartnerChangeRes() {}
@@ -37547,6 +37639,37 @@ func (s *CreditMemoRequestReject) GetReason() string {
 // SetReason sets the value of Reason.
 func (s *CreditMemoRequestReject) SetReason(val string) {
 	s.Reason = val
+}
+
+// Why a tax credit note is issued (PINT AE BTAE-03, compulsory on a credit note): required for a
+// customer credit memo and refused for an invoice. The code is rendered as given; PINT AE's code list
+// for it is to confirm with the tax specialist, so it is not checked against one yet.
+// Ref: #/components/schemas/CreditNoteReason
+type CreditNoteReason struct {
+	// The reason's code.
+	Code string `json:"code"`
+	// The reason in words, printed on the credit note.
+	Text string `json:"text"`
+}
+
+// GetCode returns the value of Code.
+func (s *CreditNoteReason) GetCode() string {
+	return s.Code
+}
+
+// GetText returns the value of Text.
+func (s *CreditNoteReason) GetText() string {
+	return s.Text
+}
+
+// SetCode sets the value of Code.
+func (s *CreditNoteReason) SetCode(val string) {
+	s.Code = val
+}
+
+// SetText sets the value of Text.
+func (s *CreditNoteReason) SetText(val string) {
+	s.Text = val
 }
 
 // The caller (getCurrentPrincipal): advisory, as the API decides every call.
@@ -51898,6 +52021,75 @@ func (s *GetOutboundDeliveryOKHeaders) SetResponse(val OutboundDelivery) {
 }
 
 func (*GetOutboundDeliveryOKHeaders) getOutboundDeliveryRes() {}
+
+type GetOutgoingEInvoiceBadRequest Problem
+
+func (*GetOutgoingEInvoiceBadRequest) getOutgoingEInvoiceRes() {}
+
+type GetOutgoingEInvoiceContentBadRequest Problem
+
+func (*GetOutgoingEInvoiceContentBadRequest) getOutgoingEInvoiceContentRes() {}
+
+type GetOutgoingEInvoiceContentForbidden Problem
+
+func (*GetOutgoingEInvoiceContentForbidden) getOutgoingEInvoiceContentRes() {}
+
+type GetOutgoingEInvoiceContentNotFound Problem
+
+func (*GetOutgoingEInvoiceContentNotFound) getOutgoingEInvoiceContentRes() {}
+
+// The document bytes.
+type GetOutgoingEInvoiceContentOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetOutgoingEInvoiceContentOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetOutgoingEInvoiceContentOK) getOutgoingEInvoiceContentRes() {}
+
+type GetOutgoingEInvoiceForbidden Problem
+
+func (*GetOutgoingEInvoiceForbidden) getOutgoingEInvoiceRes() {}
+
+type GetOutgoingEInvoiceNotFound Problem
+
+func (*GetOutgoingEInvoiceNotFound) getOutgoingEInvoiceRes() {}
+
+// GetOutgoingEInvoiceOKHeaders wraps OutgoingEInvoice with response headers.
+type GetOutgoingEInvoiceOKHeaders struct {
+	ETag     OptString
+	Response OutgoingEInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *GetOutgoingEInvoiceOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetOutgoingEInvoiceOKHeaders) GetResponse() OutgoingEInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetOutgoingEInvoiceOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetOutgoingEInvoiceOKHeaders) SetResponse(val OutgoingEInvoice) {
+	s.Response = val
+}
+
+func (*GetOutgoingEInvoiceOKHeaders) getOutgoingEInvoiceRes() {}
 
 type GetParkedJournalEntryBadRequest Problem
 
@@ -66774,6 +66966,14 @@ type ListOutboundDeliveriesForbidden Problem
 
 func (*ListOutboundDeliveriesForbidden) listOutboundDeliveriesRes() {}
 
+type ListOutgoingEInvoicesBadRequest Problem
+
+func (*ListOutgoingEInvoicesBadRequest) listOutgoingEInvoicesRes() {}
+
+type ListOutgoingEInvoicesForbidden Problem
+
+func (*ListOutgoingEInvoicesForbidden) listOutgoingEInvoicesRes() {}
+
 type ListParkedJournalEntriesBadRequest Problem
 
 func (*ListParkedJournalEntriesBadRequest) listParkedJournalEntriesRes() {}
@@ -73108,9 +73308,12 @@ type MigrationExtractCounts struct {
 	Marm int `json:"marm"`
 	// Rows of SAP table MARC (the materials' plant data at the scope's plants; S2o).
 	Marc int `json:"marc"`
-	// Rows of SAP table MARD (the materials' storage location data at the scope's plants, the assignment
-	// only; S2o).
+	// Rows of SAP table MARD (the materials' storage location data at the scope's plants: the assignment,
+	// S2o, and the unrestricted stock, S2p).
 	Mard int `json:"mard"`
+	// Rows of SAP table MBEW (the materials' valuations in the valuation areas of the scope's plants:
+	// price control, price, valuation class, stock and value; S2p).
+	Mbew int `json:"mbew"`
 	// Rows of SAP table T001W (the plants of the scope's company codes; S2o).
 	T001w int `json:"t001w"`
 	// Rows of SAP table T001L (the storage locations of those plants; S2o).
@@ -73305,6 +73508,11 @@ func (s *MigrationExtractCounts) GetMarc() int {
 // GetMard returns the value of Mard.
 func (s *MigrationExtractCounts) GetMard() int {
 	return s.Mard
+}
+
+// GetMbew returns the value of Mbew.
+func (s *MigrationExtractCounts) GetMbew() int {
+	return s.Mbew
 }
 
 // GetT001w returns the value of T001w.
@@ -73507,6 +73715,11 @@ func (s *MigrationExtractCounts) SetMard(val int) {
 	s.Mard = val
 }
 
+// SetMbew sets the value of Mbew.
+func (s *MigrationExtractCounts) SetMbew(val int) {
+	s.Mbew = val
+}
+
 // SetT001w sets the value of T001w.
 func (s *MigrationExtractCounts) SetT001w(val int) {
 	s.T001w = val
@@ -73647,6 +73860,13 @@ type MigrationLoadedCounts struct {
 	// Materials an earlier run created that this run extended to more plants or storage locations, each by
 	// an update change applied at once (S2o).
 	MaterialsExtended OptInt `json:"materials_extended"`
+	// Materials valued at a plant as SAP values them (MBEW: price control, price per price unit, valuation
+	// class), each once: a valuation an earlier run took over is kept (S2p).
+	MaterialValuations OptInt `json:"material_valuations"`
+	// Initial entries of stock (movement type 561) posting SAP's unrestricted stock of a material at its
+	// plant's storage locations (MARD) at SAP's value, on the valuation class's stock account against its
+	// initial entry account, the migration clearing account (S2p).
+	InitialEntries OptInt `json:"initial_entries"`
 }
 
 // GetSuppliers returns the value of Suppliers.
@@ -73764,6 +73984,16 @@ func (s *MigrationLoadedCounts) GetMaterialsExtended() OptInt {
 	return s.MaterialsExtended
 }
 
+// GetMaterialValuations returns the value of MaterialValuations.
+func (s *MigrationLoadedCounts) GetMaterialValuations() OptInt {
+	return s.MaterialValuations
+}
+
+// GetInitialEntries returns the value of InitialEntries.
+func (s *MigrationLoadedCounts) GetInitialEntries() OptInt {
+	return s.InitialEntries
+}
+
 // SetSuppliers sets the value of Suppliers.
 func (s *MigrationLoadedCounts) SetSuppliers(val OptInt) {
 	s.Suppliers = val
@@ -73877,6 +74107,16 @@ func (s *MigrationLoadedCounts) SetMaterials(val OptInt) {
 // SetMaterialsExtended sets the value of MaterialsExtended.
 func (s *MigrationLoadedCounts) SetMaterialsExtended(val OptInt) {
 	s.MaterialsExtended = val
+}
+
+// SetMaterialValuations sets the value of MaterialValuations.
+func (s *MigrationLoadedCounts) SetMaterialValuations(val OptInt) {
+	s.MaterialValuations = val
+}
+
+// SetInitialEntries sets the value of InitialEntries.
+func (s *MigrationLoadedCounts) SetInitialEntries(val OptInt) {
+	s.InitialEntries = val
 }
 
 // Merged schema.
@@ -77555,6 +77795,52 @@ func (o OptCreditMemoRequestPost) Get() (v CreditMemoRequestPost, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptCreditMemoRequestPost) Or(d CreditMemoRequestPost) CreditMemoRequestPost {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptCreditNoteReason returns new OptCreditNoteReason with value set to v.
+func NewOptCreditNoteReason(v CreditNoteReason) OptCreditNoteReason {
+	return OptCreditNoteReason{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCreditNoteReason is optional CreditNoteReason.
+type OptCreditNoteReason struct {
+	Value CreditNoteReason
+	Set   bool
+}
+
+// IsSet returns true if OptCreditNoteReason was set.
+func (o OptCreditNoteReason) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCreditNoteReason) Reset() {
+	var v CreditNoteReason
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCreditNoteReason) SetTo(v CreditNoteReason) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCreditNoteReason) Get() (v CreditNoteReason, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCreditNoteReason) Or(d CreditNoteReason) CreditNoteReason {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -81551,7 +81837,8 @@ type OrgUnit struct {
 	// Kind of unit. Immutable. Open enumeration: clients must accept and preserve values not listed here;
 	// values may be added within /v1.
 	Kind string `json:"kind"`
-	// Code, unique per legal entity and kind. Immutable.
+	// Code, unique per legal entity and kind, a storage location's under its plant (its parent), as SAP
+	// keys a storage location by its plant. Immutable.
 	Code string `json:"code"`
 	// Name.
 	Name string `json:"name"`
@@ -81691,7 +81978,8 @@ type OrgUnitCreate struct {
 	// Kind of unit. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
 	Kind string `json:"kind"`
-	// Code, unique per legal entity and kind.
+	// Code, unique per legal entity and kind, a storage location's under its plant (its parent), as SAP
+	// keys a storage location by its plant.
 	Code string `json:"code"`
 	// Name.
 	Name string `json:"name"`
@@ -82530,6 +82818,476 @@ func (s *OutboundDeliveryPickItem) SetItemNo(val int32) {
 // SetQuantity sets the value of Quantity.
 func (s *OutboundDeliveryPickItem) SetQuantity(val Quantity) {
 	s.Quantity = val
+}
+
+// A posted customer document rendered as a PINT AE e-invoice (ADR-0061 §9, As built E2): once per
+// customer document, valid with its XML kept or invalid with the problems of its last render.
+// Ref: #/components/schemas/OutgoingEInvoice
+type OutgoingEInvoice struct {
+	ID uuid.UUID `json:"id"`
+	// The customer invoice or credit memo it renders.
+	CustomerInvoiceID uuid.UUID `json:"customer_invoice_id"`
+	// Its document number, the e-invoice's number (IBT-001).
+	CustomerInvoiceNumber string `json:"customer_invoice_number"`
+	// The document of another context the customer document posted from (a billing document,
+	// `getBillingDocument`); null for one entered in receivables.
+	SourceDocumentID NilUUID `json:"source_document_id"`
+	// That document's number; null with `source_document_id`.
+	SourceDocumentNumber NilString `json:"source_document_number"`
+	// The company that issues it, the seller.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The customer, the buyer.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name.
+	CustomerName string `json:"customer_name"`
+	// Invoice (a tax invoice, from a customer invoice) or credit_note (a tax credit note, from a customer
+	// credit memo). Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Kind string `json:"kind"`
+	// Its PINT AE type code (IBT-003): 380 for a tax invoice, 381 for a tax credit note.
+	TypeCode string `json:"type_code"`
+	// Its issue date (IBT-002), the customer document's date.
+	IssueDate time.Time `json:"issue_date"`
+	// Its currency (IBT-005).
+	Currency    string `json:"currency"`
+	NetAmount   Money  `json:"net_amount"`
+	TaxAmount   Money  `json:"tax_amount"`
+	GrossAmount Money  `json:"gross_amount"`
+	// The invoice a credit note credits (IBT-025); null on an invoice and on a credit memo crediting none
+	// (which is invalid).
+	ReferenceInvoiceNumber NilString           `json:"reference_invoice_number"`
+	CreditNoteReason       OptCreditNoteReason `json:"credit_note_reason"`
+	// The specification it follows (IBT-024, CustomizationID): urn:peppol:pint:billing-1@ae-1.
+	Specification string `json:"specification"`
+	// Valid (every mandatory field checked, its XML kept: final) or invalid (`problems` lists what is
+	// missing; rendered again once corrected). Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1 (sending adds its statuses, E3).
+	Status string `json:"status"`
+	// What its last render found missing or wrong, in the rules' order; empty when valid.
+	Problems []OutgoingEInvoiceProblem `json:"problems"`
+	// The SHA-256 of its XML, hex; null while invalid.
+	SHA256 NilString `json:"sha256"`
+	// The size of its XML in bytes; null while invalid.
+	Size NilInt64 `json:"size"`
+	// When it was last rendered.
+	RenderedAt time.Time `json:"rendered_at"`
+	Version    int32     `json:"version"`
+}
+
+// GetID returns the value of ID.
+func (s *OutgoingEInvoice) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *OutgoingEInvoice) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *OutgoingEInvoice) GetCustomerInvoiceNumber() string {
+	return s.CustomerInvoiceNumber
+}
+
+// GetSourceDocumentID returns the value of SourceDocumentID.
+func (s *OutgoingEInvoice) GetSourceDocumentID() NilUUID {
+	return s.SourceDocumentID
+}
+
+// GetSourceDocumentNumber returns the value of SourceDocumentNumber.
+func (s *OutgoingEInvoice) GetSourceDocumentNumber() NilString {
+	return s.SourceDocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *OutgoingEInvoice) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *OutgoingEInvoice) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *OutgoingEInvoice) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *OutgoingEInvoice) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *OutgoingEInvoice) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *OutgoingEInvoice) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetKind returns the value of Kind.
+func (s *OutgoingEInvoice) GetKind() string {
+	return s.Kind
+}
+
+// GetTypeCode returns the value of TypeCode.
+func (s *OutgoingEInvoice) GetTypeCode() string {
+	return s.TypeCode
+}
+
+// GetIssueDate returns the value of IssueDate.
+func (s *OutgoingEInvoice) GetIssueDate() time.Time {
+	return s.IssueDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *OutgoingEInvoice) GetCurrency() string {
+	return s.Currency
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *OutgoingEInvoice) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *OutgoingEInvoice) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetGrossAmount returns the value of GrossAmount.
+func (s *OutgoingEInvoice) GetGrossAmount() Money {
+	return s.GrossAmount
+}
+
+// GetReferenceInvoiceNumber returns the value of ReferenceInvoiceNumber.
+func (s *OutgoingEInvoice) GetReferenceInvoiceNumber() NilString {
+	return s.ReferenceInvoiceNumber
+}
+
+// GetCreditNoteReason returns the value of CreditNoteReason.
+func (s *OutgoingEInvoice) GetCreditNoteReason() OptCreditNoteReason {
+	return s.CreditNoteReason
+}
+
+// GetSpecification returns the value of Specification.
+func (s *OutgoingEInvoice) GetSpecification() string {
+	return s.Specification
+}
+
+// GetStatus returns the value of Status.
+func (s *OutgoingEInvoice) GetStatus() string {
+	return s.Status
+}
+
+// GetProblems returns the value of Problems.
+func (s *OutgoingEInvoice) GetProblems() []OutgoingEInvoiceProblem {
+	return s.Problems
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *OutgoingEInvoice) GetSHA256() NilString {
+	return s.SHA256
+}
+
+// GetSize returns the value of Size.
+func (s *OutgoingEInvoice) GetSize() NilInt64 {
+	return s.Size
+}
+
+// GetRenderedAt returns the value of RenderedAt.
+func (s *OutgoingEInvoice) GetRenderedAt() time.Time {
+	return s.RenderedAt
+}
+
+// GetVersion returns the value of Version.
+func (s *OutgoingEInvoice) GetVersion() int32 {
+	return s.Version
+}
+
+// SetID sets the value of ID.
+func (s *OutgoingEInvoice) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *OutgoingEInvoice) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *OutgoingEInvoice) SetCustomerInvoiceNumber(val string) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetSourceDocumentID sets the value of SourceDocumentID.
+func (s *OutgoingEInvoice) SetSourceDocumentID(val NilUUID) {
+	s.SourceDocumentID = val
+}
+
+// SetSourceDocumentNumber sets the value of SourceDocumentNumber.
+func (s *OutgoingEInvoice) SetSourceDocumentNumber(val NilString) {
+	s.SourceDocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *OutgoingEInvoice) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *OutgoingEInvoice) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *OutgoingEInvoice) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *OutgoingEInvoice) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *OutgoingEInvoice) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *OutgoingEInvoice) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetKind sets the value of Kind.
+func (s *OutgoingEInvoice) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetTypeCode sets the value of TypeCode.
+func (s *OutgoingEInvoice) SetTypeCode(val string) {
+	s.TypeCode = val
+}
+
+// SetIssueDate sets the value of IssueDate.
+func (s *OutgoingEInvoice) SetIssueDate(val time.Time) {
+	s.IssueDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *OutgoingEInvoice) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *OutgoingEInvoice) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *OutgoingEInvoice) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetGrossAmount sets the value of GrossAmount.
+func (s *OutgoingEInvoice) SetGrossAmount(val Money) {
+	s.GrossAmount = val
+}
+
+// SetReferenceInvoiceNumber sets the value of ReferenceInvoiceNumber.
+func (s *OutgoingEInvoice) SetReferenceInvoiceNumber(val NilString) {
+	s.ReferenceInvoiceNumber = val
+}
+
+// SetCreditNoteReason sets the value of CreditNoteReason.
+func (s *OutgoingEInvoice) SetCreditNoteReason(val OptCreditNoteReason) {
+	s.CreditNoteReason = val
+}
+
+// SetSpecification sets the value of Specification.
+func (s *OutgoingEInvoice) SetSpecification(val string) {
+	s.Specification = val
+}
+
+// SetStatus sets the value of Status.
+func (s *OutgoingEInvoice) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetProblems sets the value of Problems.
+func (s *OutgoingEInvoice) SetProblems(val []OutgoingEInvoiceProblem) {
+	s.Problems = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *OutgoingEInvoice) SetSHA256(val NilString) {
+	s.SHA256 = val
+}
+
+// SetSize sets the value of Size.
+func (s *OutgoingEInvoice) SetSize(val NilInt64) {
+	s.Size = val
+}
+
+// SetRenderedAt sets the value of RenderedAt.
+func (s *OutgoingEInvoice) SetRenderedAt(val time.Time) {
+	s.RenderedAt = val
+}
+
+// SetVersion sets the value of Version.
+func (s *OutgoingEInvoice) SetVersion(val int32) {
+	s.Version = val
+}
+
+// OutgoingEInvoiceHeaders wraps OutgoingEInvoice with response headers.
+type OutgoingEInvoiceHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           OutgoingEInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *OutgoingEInvoiceHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *OutgoingEInvoiceHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *OutgoingEInvoiceHeaders) GetResponse() OutgoingEInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *OutgoingEInvoiceHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *OutgoingEInvoiceHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *OutgoingEInvoiceHeaders) SetResponse(val OutgoingEInvoice) {
+	s.Response = val
+}
+
+func (*OutgoingEInvoiceHeaders) createOutgoingEInvoiceRes() {}
+
+// One page of outgoing e-invoices, newest rendered first.
+// Ref: #/components/schemas/OutgoingEInvoicePage
+type OutgoingEInvoicePage struct {
+	// The outgoing e-invoices on this page.
+	Items []OutgoingEInvoice `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *OutgoingEInvoicePage) GetItems() []OutgoingEInvoice {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *OutgoingEInvoicePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *OutgoingEInvoicePage) SetItems(val []OutgoingEInvoice) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *OutgoingEInvoicePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*OutgoingEInvoicePage) listOutgoingEInvoicesRes() {}
+
+// A mandatory field of PINT AE that a render found missing or malformed: the rule, the business term
+// it checks and what is wrong.
+// Ref: #/components/schemas/OutgoingEInvoiceProblem
+type OutgoingEInvoiceProblem struct {
+	// The ERP's rule (`einvoicing.pint_ae.*`). Open enumeration: rules may be added within /v1.
+	Rule string `json:"rule"`
+	// The PINT AE business term it checks (IBT-031, BTAE-03, ...).
+	Term string `json:"term"`
+	// What is missing or wrong, and what to correct.
+	Message string `json:"message"`
+}
+
+// GetRule returns the value of Rule.
+func (s *OutgoingEInvoiceProblem) GetRule() string {
+	return s.Rule
+}
+
+// GetTerm returns the value of Term.
+func (s *OutgoingEInvoiceProblem) GetTerm() string {
+	return s.Term
+}
+
+// GetMessage returns the value of Message.
+func (s *OutgoingEInvoiceProblem) GetMessage() string {
+	return s.Message
+}
+
+// SetRule sets the value of Rule.
+func (s *OutgoingEInvoiceProblem) SetRule(val string) {
+	s.Rule = val
+}
+
+// SetTerm sets the value of Term.
+func (s *OutgoingEInvoiceProblem) SetTerm(val string) {
+	s.Term = val
+}
+
+// SetMessage sets the value of Message.
+func (s *OutgoingEInvoiceProblem) SetMessage(val string) {
+	s.Message = val
+}
+
+// A posted customer document to render as an e-invoice (ADR-0061 §9, As built E2).
+// Ref: #/components/schemas/OutgoingEInvoiceRender
+type OutgoingEInvoiceRender struct {
+	// The posted customer invoice or customer credit memo (`getCustomerInvoice`).
+	CustomerInvoiceID uuid.UUID           `json:"customer_invoice_id"`
+	CreditNoteReason  OptCreditNoteReason `json:"credit_note_reason"`
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *OutgoingEInvoiceRender) GetCustomerInvoiceID() uuid.UUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCreditNoteReason returns the value of CreditNoteReason.
+func (s *OutgoingEInvoiceRender) GetCreditNoteReason() OptCreditNoteReason {
+	return s.CreditNoteReason
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *OutgoingEInvoiceRender) SetCustomerInvoiceID(val uuid.UUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCreditNoteReason sets the value of CreditNoteReason.
+func (s *OutgoingEInvoiceRender) SetCreditNoteReason(val OptCreditNoteReason) {
+	s.CreditNoteReason = val
 }
 
 type ParkFromEntryTemplateBadRequest Problem
@@ -110728,6 +111486,7 @@ func (*ServiceUnavailableHeaders) createLegalEntityRes()                     {}
 func (*ServiceUnavailableHeaders) createMemoRecordRes()                      {}
 func (*ServiceUnavailableHeaders) createMigrationRunRes()                    {}
 func (*ServiceUnavailableHeaders) createOrgUnitRes()                         {}
+func (*ServiceUnavailableHeaders) createOutgoingEInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) createPartnerChangeRes()                   {}
 func (*ServiceUnavailableHeaders) createPeriodCloseRes()                     {}
 func (*ServiceUnavailableHeaders) createPersonalDataDeletionRunRes()         {}
@@ -110773,6 +111532,7 @@ func (*ServiceUnavailableHeaders) getArchivingRunFileRes()                   {}
 func (*ServiceUnavailableHeaders) getAuditEvidenceExportFileRes()            {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
 func (*ServiceUnavailableHeaders) getEInvoiceContentRes()                    {}
+func (*ServiceUnavailableHeaders) getOutgoingEInvoiceContentRes()            {}
 func (*ServiceUnavailableHeaders) getReportRunRes()                          {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()                   {}
@@ -116743,6 +117503,7 @@ func (*TooManyRequestsHeaders) createMetricWatcherRes()                   {}
 func (*TooManyRequestsHeaders) createMigrationRunRes()                    {}
 func (*TooManyRequestsHeaders) createOrgUnitRes()                         {}
 func (*TooManyRequestsHeaders) createOutboundDeliveryRes()                {}
+func (*TooManyRequestsHeaders) createOutgoingEInvoiceRes()                {}
 func (*TooManyRequestsHeaders) createPartnerChangeRes()                   {}
 func (*TooManyRequestsHeaders) createPeriodCloseRes()                     {}
 func (*TooManyRequestsHeaders) createPersonalDataDeletionRunRes()         {}
@@ -116903,6 +117664,8 @@ func (*TooManyRequestsHeaders) getNumberRangeRes()                        {}
 func (*TooManyRequestsHeaders) getOperationRes()                          {}
 func (*TooManyRequestsHeaders) getOrgUnitRes()                            {}
 func (*TooManyRequestsHeaders) getOutboundDeliveryRes()                   {}
+func (*TooManyRequestsHeaders) getOutgoingEInvoiceContentRes()            {}
+func (*TooManyRequestsHeaders) getOutgoingEInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) getParkedJournalEntryRes()                 {}
 func (*TooManyRequestsHeaders) getPartnerChangeRes()                      {}
 func (*TooManyRequestsHeaders) getPaymentRunRes()                         {}
@@ -117065,6 +117828,7 @@ func (*TooManyRequestsHeaders) listOpenItemsRes()                         {}
 func (*TooManyRequestsHeaders) listOperationsRes()                        {}
 func (*TooManyRequestsHeaders) listOrgUnitsRes()                          {}
 func (*TooManyRequestsHeaders) listOutboundDeliveriesRes()                {}
+func (*TooManyRequestsHeaders) listOutgoingEInvoicesRes()                 {}
 func (*TooManyRequestsHeaders) listParkedJournalEntriesRes()              {}
 func (*TooManyRequestsHeaders) listPartnerChangesRes()                    {}
 func (*TooManyRequestsHeaders) listPaymentExclusionsRes()                 {}
@@ -117695,6 +118459,7 @@ func (*UnauthorizedHeaders) createMetricWatcherRes()                   {}
 func (*UnauthorizedHeaders) createMigrationRunRes()                    {}
 func (*UnauthorizedHeaders) createOrgUnitRes()                         {}
 func (*UnauthorizedHeaders) createOutboundDeliveryRes()                {}
+func (*UnauthorizedHeaders) createOutgoingEInvoiceRes()                {}
 func (*UnauthorizedHeaders) createPartnerChangeRes()                   {}
 func (*UnauthorizedHeaders) createPeriodCloseRes()                     {}
 func (*UnauthorizedHeaders) createPersonalDataDeletionRunRes()         {}
@@ -117855,6 +118620,8 @@ func (*UnauthorizedHeaders) getNumberRangeRes()                        {}
 func (*UnauthorizedHeaders) getOperationRes()                          {}
 func (*UnauthorizedHeaders) getOrgUnitRes()                            {}
 func (*UnauthorizedHeaders) getOutboundDeliveryRes()                   {}
+func (*UnauthorizedHeaders) getOutgoingEInvoiceContentRes()            {}
+func (*UnauthorizedHeaders) getOutgoingEInvoiceRes()                   {}
 func (*UnauthorizedHeaders) getParkedJournalEntryRes()                 {}
 func (*UnauthorizedHeaders) getPartnerChangeRes()                      {}
 func (*UnauthorizedHeaders) getPaymentRunRes()                         {}
@@ -118017,6 +118784,7 @@ func (*UnauthorizedHeaders) listOpenItemsRes()                         {}
 func (*UnauthorizedHeaders) listOperationsRes()                        {}
 func (*UnauthorizedHeaders) listOrgUnitsRes()                          {}
 func (*UnauthorizedHeaders) listOutboundDeliveriesRes()                {}
+func (*UnauthorizedHeaders) listOutgoingEInvoicesRes()                 {}
 func (*UnauthorizedHeaders) listParkedJournalEntriesRes()              {}
 func (*UnauthorizedHeaders) listPartnerChangesRes()                    {}
 func (*UnauthorizedHeaders) listPaymentExclusionsRes()                 {}
