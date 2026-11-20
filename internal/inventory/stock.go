@@ -85,7 +85,9 @@ func takeStock(ctx context.Context, tx pgx.Tx, p reqctx.Principal, company uuid.
 	return nil
 }
 
-func keyOf(l Line) stockKey { return stockKey{l.MaterialID, l.PlantID, l.StorageLocationID, l.InTransit} }
+func keyOf(l Line) stockKey {
+	return stockKey{l.MaterialID, l.PlantID, l.StorageLocationID, l.InTransit}
+}
 
 // atLocations are the keys of the stock at locations, without the stock
 // in transit, which no count blocks.
