@@ -59,7 +59,7 @@ const (
 	maxPolls    = 500
 	pollFirst   = 30 * time.Second
 	pollMost    = time.Hour
-	claimLease  = 3 * CallTimeout
+	claimLease  = 5 * CallTimeout // a login, a look-up and the send, each up to CallTimeout, with room to record
 )
 
 // pollWait is the wait before the status read after polls reads.
@@ -144,8 +144,8 @@ func (e *Endpoints) SendOutgoingEInvoice(ctx context.Context, req *gen.OutgoingE
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `SELECT FROM einvoicing.outgoing_einvoice WHERE id = $1 FOR UPDATE`, o.ID); err != nil {
-		return nil, fmt.Errorf("einvoicing: lock outgoing e-invoice %s: %w", o.ID, err)
+	if err := tx.QueryRow(ctx, `SELECT `+outgoingColumns+outgoingFrom+` WHERE o.id = $1 FOR UPDATE OF o`, o.ID).Scan(o.fields()...); err != nil {
+		return nil, fmt.Errorf("einvoicing: lock outgoing e-invoice %s: %w", o.ID, err) // read again under the lock its checks rely on
 	}
 	if err := sendable(ctx, tx, o, params.IfMatch); err != nil {
 		return nil, err

@@ -160,9 +160,13 @@ func (w *EInvoiceSender) queued(ctx context.Context) ([]operations.Waiting, erro
 func (w *EInvoiceSender) RunOnce(ctx context.Context) (int, error) {
 	waiting, err := w.queued(ctx)
 	failures := []error{err}
-	if w.due == nil {
-		w.due = map[uuid.UUID]time.Time{}
+	due := make(map[uuid.UUID]time.Time, len(waiting)) // only the sends still queued: one finished elsewhere is forgotten
+	for _, q := range waiting {
+		if at, ok := w.due[q.ID]; ok {
+			due[q.ID] = at
+		}
 	}
+	w.due = due
 	now := clock.Now(w.Senders.Now)
 	n := 0
 	for _, q := range waiting {

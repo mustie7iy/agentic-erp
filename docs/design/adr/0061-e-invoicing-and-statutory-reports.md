@@ -1302,7 +1302,7 @@ answers the three calls below. Decided by default:
   call with no transaction open (the connector's secret resolved, the XML
   read from the store and compared with its SHA-256): a failure of the
   machinery there changes nothing. Then, under the row's lock, it claims a
-  due send (`sending`, the call counted in `attempts`, held three call
+  due send (`sending`, the call counted in `attempts`, held five call
   timeouts), commits, calls Evatra with no transaction open, and records
   the answer in a third transaction only if the row is at the version the
   claim wrote; a step run twice records nothing twice, and a claim whose

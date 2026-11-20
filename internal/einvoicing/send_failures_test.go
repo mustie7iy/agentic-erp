@@ -182,7 +182,7 @@ func TestSendLapsedClaim(t *testing.T) {
 		t.Errorf("the worker stopping: got %v, want context.Canceled", err)
 	}
 	check(t, "claimed, no outcome", s.transmission(t, id), "sending <nil> 1 0 -")
-	s.later(einvoicing.CallTimeout * 3)
+	s.later(einvoicing.CallTimeout * 5)
 	s.advance(t, id, op)
 	check(t, "claimed again and sent", words(len(s.srv.Evatra.Sends()), s.transmission(t, id)), "1 submitted PENDING 2 0 -")
 
