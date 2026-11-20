@@ -37,8 +37,13 @@
 // its connector's documents not processed yet (ProcessEInvoices), reading
 // each as PINT AE (Received: no DTD, no entity) and refusing it with its
 // problem, or leaving it received with what it read for entering.
-// Entering, credit notes and people's resolution of held documents follow
-// in T65d-T65f, sending in E3-E4.
+//
+// T65d enters (ADR-0061 §6): a valid tax invoice in AED is entered as a
+// supplier invoice through the Payables port, sharing capture's rules
+// without a model, in a savepoint, so any refusal of the entering holds
+// the document with its problem and only the machinery failing fails the
+// step. Credit notes and people's resolution of held documents follow in
+// T65e-T65f, sending in E3-E4.
 package einvoicing
 
 import (
@@ -57,8 +62,9 @@ import (
 // KindFetch is the kind of a fetch's Operation (ADR-0061 §4).
 const KindFetch = "einvoicing.fetch"
 
-// Statuses of an e-invoice (ADR-0061 §7): received, and refused
-// (StatusRefused, T65c).
+// Statuses of an e-invoice (ADR-0061 §7): received, refused
+// (StatusRefused, T65c), entered and held (StatusEntered, StatusHeld,
+// T65d).
 const (
 	StatusReceived = "received"
 )
@@ -145,6 +151,9 @@ type Endpoints struct {
 	// Sales reads the posted customer documents that outgoing e-invoices
 	// render (ADR-0061 §9, As built E2).
 	Sales Sales
+	// Payables enters valid tax invoices as supplier invoices and names
+	// them (ADR-0061 §6, T65d).
+	Payables Payables
 }
 
 // Within runs fn in a transaction of the fetch's tenant, as Fetcher: the

@@ -104,7 +104,7 @@ func (e *Endpoints) capture(ctx context.Context, legalEntity uuid.UUID, document
 	if err != nil {
 		return operations.Operation{}, err
 	}
-	proposed, taxHeld, err := e.capturedTax(ctx, tx, &in, ext)
+	proposed, taxHeld, err := e.capturedTax(ctx, tx, &in, printedRates(ext))
 	if err != nil {
 		return operations.Operation{}, err
 	}

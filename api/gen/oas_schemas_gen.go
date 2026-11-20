@@ -45338,10 +45338,13 @@ type EInvoice struct {
 	CompanyCode NilString `json:"company_code"`
 	// The company's name; null with `legal_entity_id`.
 	CompanyName NilString `json:"company_name"`
-	// Open enum: received (recorded; once processed, read as a PINT AE document and found valid, waiting
-	// to be entered) or refused (T65c: read and refused by validation, `problem_code` and `problem_detail`
-	// saying why; kept, never entered, final). The later slices add entered, held and dismissed (ADR-0061
-	// §7).
+	// Open enum: received (recorded; once processed, read as a PINT AE document and found valid: a tax
+	// credit note waits there to be entered, T65e), refused (T65c: read and refused by validation,
+	// `problem_code` and `problem_detail` saying why; kept, never entered, final), entered (T65d: a valid
+	// tax invoice entered as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured
+	// one is) or held (T65d: its entering refused, `problem_code` and `problem_detail` saying why, such as
+	// `payables.capture_needs_order` for one naming no purchase order, for a person to resolve). The later
+	// slices add dismissed (ADR-0061 §7).
 	Status string `json:"status"`
 	// When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing
 	// it or leaving it received. Omitted until then; every fetch processes the documents of its connector
@@ -45352,18 +45355,21 @@ type EInvoice struct {
 	// The release of the PINT AE rules it was validated against (ADR-0061 §5 C2), such as
 	// `PINT AE Billing 1.0.4`. Omitted with `processed_at`.
 	ValidatedAgainst OptString `json:"validated_against"`
-	// Why it was refused (ADR-0061 §5): unreadable (not well-formed XML, or declaring a DTD or an entity,
-	// never expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381
-	// following PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail`
-	// naming each by its business term), amount_precision (an amount with more decimals than its
-	// currency's minor unit), totals_inconsistent (the lines not summing to their total, the total without
-	// VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT total, with the
-	// figures), not_addressed_to_company (listed for none of the connector's companies, its buyer's
-	// electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the
-	// company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients
+	// Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice
+	// met, payables' codes among them, or einvoicing.tax_currency_not_entered for a tax invoice not in
+	// AED, whose VAT in AED the entering does not keep yet). Refusals: unreadable (not well-formed XML, or
+	// declaring a DTD or an entity, never expanded), unsupported_document (not a UBL Invoice of type 380
+	// or CreditNote of type 381 following PINT AE), missing_field (a field the ERP reads missing or
+	// malformed, `problem_detail` naming each by its business term), amount_precision (an amount with more
+	// decimals than its currency's minor unit), totals_inconsistent (the lines not summing to their total,
+	// the total without VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT
+	// total, with the figures), not_addressed_to_company (listed for none of the connector's companies,
+	// its buyer's electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not
+	// the company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients
 	// must accept and preserve values not listed here; values may be added within /v1.
 	ProblemCode OptString `json:"problem_code"`
-	// What was found, for a person to take up with the supplier (no TRN in clear). Omitted unless refused.
+	// What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted
+	// unless refused or held.
 	ProblemDetail OptString `json:"problem_detail"`
 	// The document's number as it states it (IBT-001). Omitted until processed, and for a document that
 	// could not be read.
@@ -45379,6 +45385,27 @@ type EInvoice struct {
 	GrossAmount OptMoney  `json:"gross_amount"`
 	// The specification it states it follows (IBT-024, CustomizationID). Omitted with `document_number`.
 	Specification OptString `json:"specification"`
+	// When a fetch entered or held it (T65d). Omitted until then.
+	EnteredAt OptDateTime `json:"entered_at"`
+	// The fetch that entered or held it: its Operation's id. Omitted with `entered_at`.
+	EntryFetchOperationID OptUUID `json:"entry_fetch_operation_id"`
+	// The supplier invoice it was entered as (`getSupplierInvoice`, source `einvoice`, its document this
+	// e-invoice's bytes). Omitted unless entered.
+	SupplierInvoiceID OptUUID `json:"supplier_invoice_id"`
+	// That invoice's document number. Omitted with `supplier_invoice_id`.
+	SupplierInvoiceNumber OptString `json:"supplier_invoice_number"`
+	// That invoice's supplier reference, the e-invoice's number as entered. Omitted with
+	// `supplier_invoice_id`.
+	SupplierReference OptString `json:"supplier_reference"`
+	// That invoice's status now (`SupplierInvoice.status`: parked, on_hold, posted and the others).
+	// Omitted with `supplier_invoice_id`. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	SupplierInvoiceStatus OptString `json:"supplier_invoice_status"`
+	// That invoice's supplier, the business partner whose tax identifier is the seller's TRN. Omitted with
+	// `supplier_invoice_id`.
+	SupplierID OptUUID `json:"supplier_id"`
+	// The supplier's name. Omitted with `supplier_invoice_id`.
+	SupplierName OptString `json:"supplier_name"`
 	// The SHA-256 of its bytes as received.
 	SHA256 string `json:"sha256"`
 	// The size of its bytes as received.
@@ -45499,6 +45526,46 @@ func (s *EInvoice) GetGrossAmount() OptMoney {
 // GetSpecification returns the value of Specification.
 func (s *EInvoice) GetSpecification() OptString {
 	return s.Specification
+}
+
+// GetEnteredAt returns the value of EnteredAt.
+func (s *EInvoice) GetEnteredAt() OptDateTime {
+	return s.EnteredAt
+}
+
+// GetEntryFetchOperationID returns the value of EntryFetchOperationID.
+func (s *EInvoice) GetEntryFetchOperationID() OptUUID {
+	return s.EntryFetchOperationID
+}
+
+// GetSupplierInvoiceID returns the value of SupplierInvoiceID.
+func (s *EInvoice) GetSupplierInvoiceID() OptUUID {
+	return s.SupplierInvoiceID
+}
+
+// GetSupplierInvoiceNumber returns the value of SupplierInvoiceNumber.
+func (s *EInvoice) GetSupplierInvoiceNumber() OptString {
+	return s.SupplierInvoiceNumber
+}
+
+// GetSupplierReference returns the value of SupplierReference.
+func (s *EInvoice) GetSupplierReference() OptString {
+	return s.SupplierReference
+}
+
+// GetSupplierInvoiceStatus returns the value of SupplierInvoiceStatus.
+func (s *EInvoice) GetSupplierInvoiceStatus() OptString {
+	return s.SupplierInvoiceStatus
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *EInvoice) GetSupplierID() OptUUID {
+	return s.SupplierID
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *EInvoice) GetSupplierName() OptString {
+	return s.SupplierName
 }
 
 // GetSHA256 returns the value of SHA256.
@@ -45644,6 +45711,46 @@ func (s *EInvoice) SetGrossAmount(val OptMoney) {
 // SetSpecification sets the value of Specification.
 func (s *EInvoice) SetSpecification(val OptString) {
 	s.Specification = val
+}
+
+// SetEnteredAt sets the value of EnteredAt.
+func (s *EInvoice) SetEnteredAt(val OptDateTime) {
+	s.EnteredAt = val
+}
+
+// SetEntryFetchOperationID sets the value of EntryFetchOperationID.
+func (s *EInvoice) SetEntryFetchOperationID(val OptUUID) {
+	s.EntryFetchOperationID = val
+}
+
+// SetSupplierInvoiceID sets the value of SupplierInvoiceID.
+func (s *EInvoice) SetSupplierInvoiceID(val OptUUID) {
+	s.SupplierInvoiceID = val
+}
+
+// SetSupplierInvoiceNumber sets the value of SupplierInvoiceNumber.
+func (s *EInvoice) SetSupplierInvoiceNumber(val OptString) {
+	s.SupplierInvoiceNumber = val
+}
+
+// SetSupplierReference sets the value of SupplierReference.
+func (s *EInvoice) SetSupplierReference(val OptString) {
+	s.SupplierReference = val
+}
+
+// SetSupplierInvoiceStatus sets the value of SupplierInvoiceStatus.
+func (s *EInvoice) SetSupplierInvoiceStatus(val OptString) {
+	s.SupplierInvoiceStatus = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *EInvoice) SetSupplierID(val OptUUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *EInvoice) SetSupplierName(val OptString) {
+	s.SupplierName = val
 }
 
 // SetSHA256 sets the value of SHA256.
@@ -115055,8 +115162,9 @@ type SupplierInvoice struct {
 	Status string `json:"status"`
 	// Why the invoice is on hold (status `on_hold`).
 	HoldReason OptString `json:"hold_reason"`
-	// How the invoice entered the system. Open enumeration: clients must accept and preserve values not
-	// listed here; values may be added within /v1.
+	// How the invoice entered the system: einvoice for one entered from a received e-invoice (ADR-0061
+	// §6, T65d; its document the e-invoice's XML). Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
 	Source string `json:"source"`
 	// Journal entry posted for the invoice (statuses `posted` and `reversed`).
 	JournalEntryID OptUUID `json:"journal_entry_id"`

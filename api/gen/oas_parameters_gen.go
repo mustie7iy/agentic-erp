@@ -70936,6 +70936,8 @@ type ListEInvoicesParams struct {
 	ConnectorID OptUUID `json:",omitempty,omitzero"`
 	// Only e-invoices in this status.
 	Status OptString `json:",omitempty,omitzero"`
+	// Only the e-invoices entered as invoices of this supplier (T65d).
+	SupplierID OptUUID `json:",omitempty,omitzero"`
 	// Only the e-invoices this fetch recorded or found changed (its Operation's id, matching
 	// `fetch_operation_id` or `changed_fetch_operation_id`).
 	FetchOperationID OptUUID `json:",omitempty,omitzero"`
@@ -70976,6 +70978,15 @@ func unpackListEInvoicesParams(packed middleware.Parameters) (params ListEInvoic
 		}
 		if v, ok := packed[key]; ok {
 			params.Status = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "supplier_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.SupplierID = v.(OptUUID)
 		}
 	}
 	{
@@ -71147,6 +71158,47 @@ func decodeListEInvoicesParams(args [0]string, argsEscaped bool, r *http.Request
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "status",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: supplier_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "supplier_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotSupplierIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotSupplierIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.SupplierID.SetTo(paramsDotSupplierIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "supplier_id",
 			In:   "query",
 			Err:  err,
 		}

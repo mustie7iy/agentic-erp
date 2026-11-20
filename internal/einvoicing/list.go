@@ -53,12 +53,20 @@ type EInvoice struct {
 	DocumentNumber, DocumentKind, Currency, Specification *string
 	IssueDate                                             *time.Time
 	Gross                                                 *money.Minor
-	Version                                               int32
+	// EntryAt is when a fetch entered or held it (T65d), EntryFetchedBy
+	// that fetch; SupplierInvoiceID and SupplierID the invoice it was
+	// entered as and its supplier. nil until then, and the invoice and
+	// supplier but for an entered document.
+	EntryAt                       *time.Time
+	EntryFetchedBy                *uuid.UUID
+	SupplierInvoiceID, SupplierID *uuid.UUID
+	Version                       int32
 }
 
 const einvoiceColumns = `id, connector_id, message_id, receiver, legal_entity_id, status, sha256, size, fetch_operation_id, received_at, acknowledged_at,
 	changed_hash, changed_at, changed_fetch_operation_id, processed_at, processed_fetch_operation_id, validated_against, problem_code, problem_detail,
-	document_number, document_kind, issue_date, currency, gross_amount, specification, version`
+	document_number, document_kind, issue_date, currency, gross_amount, specification, entry_at, entry_fetch_operation_id, supplier_invoice_id,
+	supplier_id, version`
 
 // fields are the destinations of einvoiceColumns, in order.
 func (d *EInvoice) fields() []any {
@@ -66,7 +74,7 @@ func (d *EInvoice) fields() []any {
 		&d.ReceivedAt, &d.AcknowledgedAt, &d.ChangedHash, &d.ChangedAt, &d.ChangedFetchedBy}
 	processed := []any{&d.ProcessedAt, &d.ProcessedBy, &d.ValidatedAgainst, &d.ProblemCode, &d.ProblemDetail, &d.DocumentNumber, &d.DocumentKind,
 		&d.IssueDate, &d.Currency, &d.Gross, &d.Specification}
-	return append(append(recorded, processed...), &d.Version)
+	return append(append(append(recorded, processed...), &d.EntryAt, &d.EntryFetchedBy, &d.SupplierInvoiceID, &d.SupplierID), &d.Version)
 }
 
 func scanEInvoice(r pgx.Row) (EInvoice, error) {
@@ -98,8 +106,8 @@ func (e *Endpoints) ListEInvoices(ctx context.Context, params gen.ListEInvoicesP
 	if err != nil {
 		return nil, err
 	}
-	scope := fmt.Sprintf("listEInvoices|%s|%s|%s|%s|%s|%s", optUUID(params.LegalEntityID), optUUID(params.ConnectorID), params.Status.Value,
-		optUUID(params.FetchOperationID), optTime(params.ReceivedFrom), optTime(params.ReceivedTo))
+	scope := fmt.Sprintf("listEInvoices|%s|%s|%s|%s|%s|%s|%s", optUUID(params.LegalEntityID), optUUID(params.ConnectorID), params.Status.Value,
+		optUUID(params.FetchOperationID), optTime(params.ReceivedFrom), optTime(params.ReceivedTo), optUUID(params.SupplierID))
 	ks, err := e.Pages.Keyset(einvoiceSort, scope, apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -107,10 +115,10 @@ func (e *Endpoints) ListEInvoices(ctx context.Context, params gen.ListEInvoicesP
 	q, args := ks.SQL(`SELECT `+einvoiceColumns+` FROM einvoicing.einvoice
 		WHERE ($1::uuid IS NULL OR legal_entity_id = $1) AND ($2::uuid IS NULL OR connector_id = $2) AND ($3 = '' OR status = $3)
 		  AND ($4::uuid IS NULL OR fetch_operation_id = $4 OR changed_fetch_operation_id = $4) AND ($5::timestamptz IS NULL OR received_at >= $5)
-		  AND ($6::timestamptz IS NULL OR received_at < $6) AND ($7 OR legal_entity_id = ANY($8))`,
+		  AND ($6::timestamptz IS NULL OR received_at < $6) AND ($7 OR legal_entity_id = ANY($8)) AND ($9::uuid IS NULL OR supplier_id = $9)`,
 		[]any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.ConnectorID), params.Status.Value,
 			apitypes.Ptr[uuid.UUID](params.FetchOperationID), apitypes.Ptr[time.Time](params.ReceivedFrom), apitypes.Ptr[time.Time](params.ReceivedTo),
-			access.All, access.IDs})
+			access.All, access.IDs, apitypes.Ptr[uuid.UUID](params.SupplierID)})
 	rows, _ := tx.Query(ctx, q, args...)
 	docs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (EInvoice, error) { return scanEInvoice(r) })
 	if err != nil {
@@ -170,26 +178,34 @@ func (e *Endpoints) GetEInvoice(ctx context.Context, params gen.GetEInvoiceParam
 	return &gen.EInvoiceHeaders{ETag: gen.NewOptString(etag.Format(d.Version)), Response: n.toAPI(d)}, nil
 }
 
-// names are the connectors' names and the companies of a page.
+// names are the connectors' names, the companies and the entered
+// invoices of a page.
 type names struct {
 	connectors map[uuid.UUID]string
 	companies  map[uuid.UUID]Company
+	invoices   map[uuid.UUID]EnteredInvoice
 }
 
 var (
 	connectorRef = idref.Kind{Name: "connector", Context: "integration"}
 	companyRef   = idref.Kind{Name: "legal entity", Context: "tenancy"}
+	invoiceRef   = idref.Kind{Name: "supplier invoice", Context: "payables"}
 )
 
-// names reads what names the page's connectors and companies, one call
-// each (REVIEW.md: an identifier with the name its consumer needs).
+// names reads what names the page's connectors, companies and entered
+// invoices, one call each (REVIEW.md: an identifier with the name its
+// consumer needs).
 func (e *Endpoints) names(ctx context.Context, docs []EInvoice) (names, error) {
 	var n names
 	var err error
 	if n.connectors, err = idref.Resolve(ctx, e.Connectors.Names, idref.Of(docs, func(d EInvoice) *uuid.UUID { return &d.ConnectorID }), connectorRef); err != nil {
 		return n, err
 	}
-	n.companies, err = idref.Resolve(ctx, e.Companies.Named, idref.Of(docs, func(d EInvoice) *uuid.UUID { return d.LegalEntityID }), companyRef)
+	if n.companies, err = idref.Resolve(ctx, e.Companies.Named, idref.Of(docs, func(d EInvoice) *uuid.UUID { return d.LegalEntityID }),
+		companyRef); err != nil {
+		return n, err
+	}
+	n.invoices, err = idref.Resolve(ctx, e.Payables.Invoices, idref.Of(docs, func(d EInvoice) *uuid.UUID { return d.SupplierInvoiceID }), invoiceRef)
 	return n, err
 }
 
@@ -226,7 +242,26 @@ func (n names) toAPI(d EInvoice) gen.EInvoice {
 		out.ChangedFetchOperationID.SetToNull()
 	}
 	processedToAPI(d, &out)
+	n.enteredToAPI(d, &out)
 	return out
+}
+
+// enteredToAPI sets what the entering recorded (T65d): when and by which
+// fetch, and the invoice entered with its number, supplier reference,
+// status and supplier, each omitted while there is none.
+func (n names) enteredToAPI(d EInvoice, out *gen.EInvoice) {
+	setOpt(&out.EnteredAt, d.EntryAt)
+	setOpt(&out.EntryFetchOperationID, d.EntryFetchedBy)
+	if d.SupplierInvoiceID == nil {
+		return
+	}
+	inv := n.invoices[*d.SupplierInvoiceID]
+	out.SupplierInvoiceID.SetTo(*d.SupplierInvoiceID)
+	out.SupplierInvoiceNumber.SetTo(inv.DocumentNumber)
+	out.SupplierReference.SetTo(inv.SupplierReference)
+	out.SupplierInvoiceStatus.SetTo(inv.Status)
+	out.SupplierID.SetTo(*d.SupplierID)
+	out.SupplierName.SetTo(inv.SupplierName)
 }
 
 // processedToAPI sets what processing recorded (T65c): when and against

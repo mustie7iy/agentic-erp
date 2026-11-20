@@ -23,11 +23,14 @@ import (
 const StatusRefused = "refused"
 
 // Processed is what a fetch's processing found: the documents it refused,
-// and the connector's documents still waiting to be processed.
-type Processed struct{ Refused, Waiting int }
+// entered and held, and the connector's documents still waiting to be
+// processed.
+type Processed struct{ Refused, Entered, Held, Waiting int }
 
-// unprocessed is a document of the connector not yet processed, as the
-// process step reads it before its own transaction.
+// unprocessed is a document of the connector to process, as the process
+// step reads it before its own transaction: one not yet processed, or a
+// tax invoice processed and not yet entered (validated before T65d, or
+// left for a later fetch when its entering failed on the machinery).
 type unprocessed struct {
 	id  uuid.UUID
 	ref string
@@ -35,20 +38,24 @@ type unprocessed struct {
 }
 
 // ProcessEInvoices processes the connector's received documents not yet
-// processed, oldest first (ADR-0061 §4 Process, §5; T65c): each one's
-// bytes are read from the store with no transaction open, then, in a
+// processed, oldest first (ADR-0061 §4 Process, §5, §6; T65c, T65d): each
+// one's bytes are read from the store with no transaction open, then, in a
 // transaction of its own, the document is read FOR UPDATE where it is
 // still received and unprocessed, validated (Received, then addressed) and
 // either refused, with its problem, the audit record
-// einvoicing.einvoice.refused and EInvoiceChanged, or left received with
+// einvoicing.einvoice.refused and EInvoiceChanged, or recorded valid with
 // what it read and the audit record einvoicing.einvoice.validated (no
-// event: its status does not move), for entering (T65d). A document
-// already processed is skipped, so the step runs any number of times; it
-// answers how many documents this fetch refused, counted from the rows, so
-// a step run again after a commit still counts them, and how many of the
-// connector's documents are still waiting (left unprocessed until the
-// company's setup is completed), so a person sees the gap in the fetch's
-// result; a document whose bytes are gone fails the step instead.
+// event: its status does not move), and a valid tax invoice then entered
+// as a supplier invoice or held (enter), in the same transaction. A tax
+// invoice validated before (by a fetch before T65d) is entered the same
+// way by the next fetch; credit notes stay received for T65e. A document
+// already processed and entered, held or refused is skipped, so the step
+// runs any number of times; it answers how many documents this fetch
+// refused, entered and held, counted from the rows, so a step run again
+// after a commit still counts them, and how many of the connector's
+// documents are still waiting (left unprocessed until the company's setup
+// is completed), so a person sees the gap in the fetch's result; a
+// document whose bytes are gone fails the step instead.
 func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in Within) (Processed, error) {
 	var c Connector
 	var docs []unprocessed
@@ -68,8 +75,10 @@ func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation u
 	var out Processed
 	return out, inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, _ reqctx.Principal) error {
 		if err := tx.QueryRow(ctx, `SELECT count(*) FILTER (WHERE processed_fetch_operation_id = $2 AND status = 'refused'),
+				count(*) FILTER (WHERE entry_fetch_operation_id = $2 AND status = 'entered'),
+				count(*) FILTER (WHERE entry_fetch_operation_id = $2 AND status = 'held'),
 				count(*) FILTER (WHERE processed_at IS NULL AND status = 'received')
-			FROM einvoicing.einvoice WHERE connector_id = $1`, connector, operation).Scan(&out.Refused, &out.Waiting); err != nil {
+			FROM einvoicing.einvoice WHERE connector_id = $1`, connector, operation).Scan(&out.Refused, &out.Entered, &out.Held, &out.Waiting); err != nil {
 			return fmt.Errorf("einvoicing: count the documents fetch %s refused: %w", operation, err)
 		}
 		return nil
@@ -108,11 +117,16 @@ func (e *Endpoints) processAll(ctx context.Context, c Connector, operation uuid.
 // those recorded: no retry repairs it.
 var errStoredBytes = errors.New("the stored bytes are gone or not those recorded")
 
-// unprocessedOf lists the connector's documents not yet processed, oldest
+// toProcess is the condition of a document a fetch processes: received
+// and not yet processed (einvoice_unprocessed), or a processed tax invoice
+// not yet entered (einvoice_to_enter).
+const toProcess = `status = 'received' AND (processed_at IS NULL OR document_kind = 'invoice')`
+
+// unprocessedOf lists the connector's documents to process, oldest
 // received first.
 func unprocessedOf(ctx context.Context, tx pgx.Tx, connector uuid.UUID) ([]unprocessed, error) {
-	rows, _ := tx.Query(ctx, `SELECT id, content_ref, sha256 FROM einvoicing.einvoice WHERE connector_id = $1 AND processed_at IS NULL
-		AND status = 'received' ORDER BY received_at, id`, connector)
+	rows, _ := tx.Query(ctx, `SELECT id, content_ref, sha256 FROM einvoicing.einvoice WHERE connector_id = $1 AND `+toProcess+`
+		ORDER BY received_at, id`, connector)
 	docs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (unprocessed, error) {
 		var d unprocessed
 		return d, r.Scan(&d.id, &d.ref, &d.sum)
@@ -123,9 +137,11 @@ func unprocessedOf(ctx context.Context, tx pgx.Tx, connector uuid.UUID) ([]unpro
 	return docs, nil
 }
 
-// processOne validates one document: its bytes read and compared with the
-// hash recorded (a store that holds other bytes fails the step, as the
-// download refuses them), then its row locked and its outcome written.
+// processOne validates and enters one document: its bytes read and
+// compared with the hash recorded (a store that holds other bytes fails
+// the step, as the download refuses them), then its row locked and its
+// outcome written. A document validated before is entered without being
+// validated again: what its processing read and decided is fixed.
 func (e *Endpoints) processOne(ctx context.Context, c Connector, operation uuid.UUID, u unprocessed, in Within) error {
 	content, _, err := e.Objects.Get(ctx, u.ref)
 	switch {
@@ -139,8 +155,8 @@ func (e *Endpoints) processOne(ctx context.Context, c Connector, operation uuid.
 	}
 	read, refusal := Received(content, currency.SeededExponent)
 	return inTx(ctx, in, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal) error {
-		doc, err := scanEInvoice(tx.QueryRow(ctx, `SELECT `+einvoiceColumns+` FROM einvoicing.einvoice WHERE id = $1 AND status = 'received'
-			AND processed_at IS NULL FOR UPDATE`, u.id))
+		doc, err := scanEInvoice(tx.QueryRow(ctx, `SELECT `+einvoiceColumns+` FROM einvoicing.einvoice WHERE id = $1 AND `+toProcess+`
+			FOR UPDATE`, u.id))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil // processed meanwhile by another fetch
 		}
@@ -151,14 +167,32 @@ func (e *Endpoints) processOne(ctx context.Context, c Connector, operation uuid.
 		if err != nil {
 			return err
 		}
-		if refusal == nil {
+		if doc.ProcessedAt == nil {
 			var later bool
-			if refusal, later, err = e.addressed(ctx, c, company, read); err != nil || later {
+			if refusal, later, err = e.validate(ctx, tx, p, operation, c, doc, company, read, refusal); err != nil || later || refusal != nil {
 				return err // later: left unprocessed for a fetch once the setup is complete
 			}
+		} else if refusal != nil { // valid when processed, refused by the rules since: held for a person, never refused after the fact
+			return e.entryDecided(ctx, tx, p, operation, doc, company, entering{held: problem.Unprocessable(refusal.Code, refusal.Detail)})
 		}
-		return e.processed(ctx, tx, p, operation, doc, company, read, refusal)
+		return e.enter(ctx, tx, p, operation, u, doc, company, read)
 	})
+}
+
+// validate decides a document not yet processed: refused with its problem
+// or valid (addressed), the outcome written; later when the company's
+// setup is incomplete, nothing written. A refusal is answered so the
+// document is not entered.
+func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, operation uuid.UUID, c Connector, doc EInvoice, company *Company,
+	read Document, refusal *Refusal) (*Refusal, bool, error) {
+	if refusal == nil {
+		var later bool
+		var err error
+		if refusal, later, err = e.addressed(ctx, c, company, read); err != nil || later {
+			return nil, later, err
+		}
+	}
+	return refusal, false, e.processed(ctx, tx, p, operation, doc, company, read, refusal)
 }
 
 // addressed refuses a document not addressed to the company the provider

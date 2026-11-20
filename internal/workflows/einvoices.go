@@ -58,6 +58,8 @@ type EInvoiceCounts struct {
 	AlreadyRecorded int `json:"already_recorded"`
 	Changed         int `json:"changed"`
 	Refused         int `json:"refused"`
+	Entered         int `json:"entered"`
+	Held            int `json:"held"`
 	Waiting         int `json:"waiting"`
 }
 
@@ -87,9 +89,12 @@ type EInvoices interface {
 }
 
 // EInvoiceProcessed is what a fetch's processing found: the documents it
-// refused and the connector's documents still waiting to be processed.
+// refused, entered and held (T65d), and the connector's documents still
+// waiting to be processed.
 type EInvoiceProcessed struct {
 	Refused int `json:"refused"`
+	Entered int `json:"entered"`
+	Held    int `json:"held"`
 	Waiting int `json:"waiting"`
 }
 
@@ -211,7 +216,7 @@ func (s fetchSteps) run() error {
 	if err != nil {
 		return errors.Join(err, s.fail(unprocessed()))
 	}
-	counts.Refused, counts.Waiting = processed.Refused, processed.Waiting
+	counts.Refused, counts.Entered, counts.Held, counts.Waiting = processed.Refused, processed.Entered, processed.Held, processed.Waiting
 	if err := s.finish(counts, failed); err != nil {
 		return err
 	}

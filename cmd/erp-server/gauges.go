@@ -72,6 +72,11 @@ func businessGauges(pool *database.Pool, cfg config.Config, m *telemetry.Metrics
 	// or nothing fetches (ADR-0061 §4).
 	m.Gauge("erp_einvoices_unacknowledged", "E-invoices recorded over an hour ago and not yet acknowledged to their provider.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM einvoicing.einvoice WHERE acknowledged_at IS NULL AND received_at < now() - interval '1 hour'`))
+	// A held e-invoice waits for a person (ADR-0061 §6, §7, T65d): its
+	// entering was refused, so the supplier's statutory document is not in
+	// the AP queue until someone resolves it.
+	m.Gauge("erp_einvoices_held", "E-invoices whose entering as a supplier invoice was refused, held for a person.",
+		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM einvoicing.einvoice WHERE status = 'held'`))
 	m.Gauge("erp_periods_overdue", "Posting periods past their end date and still open.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM ledger.period_status s
 			JOIN ledger.fiscal_period f USING (tenant_id, calendar_id, fiscal_year, period)

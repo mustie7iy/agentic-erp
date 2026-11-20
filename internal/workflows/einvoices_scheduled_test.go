@@ -64,7 +64,7 @@ func TestScheduledEInvoiceFetch(t *testing.T) {
 	pgtest.Scan(t, `SELECT workflow_id FROM platform.operation WHERE id = $1`, []any{first.OperationID}, &workflowID)
 	pgtest.Scan(t, `SELECT fetch_operation_id::text FROM einvoicing.einvoice WHERE tenant_id = $1 AND message_id = 'MSG-1'`, []any{s.e.Tenant.ID}, &recordedBy)
 	for name, c := range map[string]struct{ got, want string }{
-		"the Operation":        {fetchOutcome(t, first), `succeeded {"changed": 0, "refused": 1, "waiting": 0, "recorded": 1, "already_recorded": 0}`},
+		"the Operation":        {fetchOutcome(t, first), `succeeded {"held": 0, "changed": 0, "entered": 0, "refused": 1, "waiting": 0, "recorded": 1, "already_recorded": 0}`},
 		"its workflow":         {workflowID, id},
 		"the document's fetch": {recordedBy, first.OperationID.String()},
 	} {
@@ -84,7 +84,7 @@ func TestScheduledEInvoiceFetch(t *testing.T) {
 	if err := runScheduled(t, s.f, workflows.ScheduledEInvoiceFetchWorkflowID(s.e.Tenant.ID, s.connector, period.Add(time.Hour)), next); err != nil {
 		t.Fatalf("the next period's fetch: %v", err)
 	}
-	if got := fetchOutcome(t, next); got != `succeeded {"changed": 1, "refused": 0, "waiting": 0, "recorded": 0, "already_recorded": 0}` {
+	if got := fetchOutcome(t, next); got != `succeeded {"held": 0, "changed": 1, "entered": 0, "refused": 0, "waiting": 0, "recorded": 0, "already_recorded": 0}` {
 		t.Errorf("the next period's fetch: got %s, want the message changed", got)
 	}
 	t.Run("the database failing", func(t *testing.T) {
@@ -272,7 +272,7 @@ func TestScheduledEInvoiceFetchWaitsWhileSuspended(t *testing.T) {
 			t.Errorf("%s: got %d, want %d", name, c.got, c.want)
 		}
 	}
-	if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 1, "waiting": 0, "recorded": 1, "already_recorded": 0}` {
+	if got := fetchOutcome(t, in); got != `succeeded {"held": 0, "changed": 0, "entered": 0, "refused": 1, "waiting": 0, "recorded": 1, "already_recorded": 0}` {
 		t.Errorf("the fetch once active again: got %s, want MSG-1 recorded", got)
 	}
 }

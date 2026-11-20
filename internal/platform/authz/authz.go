@@ -398,12 +398,28 @@ func AssignableTo(ctx context.Context, principal, legalEntity uuid.UUID) (Assign
 // Companies returns the principal's legal entity access. Contexts filter
 // every read and write of company-scoped resources with it, and answer 404
 // for resources outside it, so ids cannot be probed (04-api-design §4.9).
+//
+// A system principal (an in-process job, never a token holder) acting for
+// the companies of its work (ActingFor) has that access.
 func Companies(ctx context.Context) (Access, error) {
 	p, ok := reqctx.PrincipalFrom(ctx)
 	if !ok {
 		return Access{}, errOutsideRequest
 	}
+	if a, ok := ctx.Value(actingForKey{}).(Access); ok && p.Kind == reqctx.KindSystem {
+		return a, nil
+	}
 	return CompaniesOf(ctx, p.ID)
+}
+
+type actingForKey struct{}
+
+// ActingFor gives a system principal the companies of the work it does,
+// for Companies to answer (ADR-0061 §4: an e-invoice fetch acts for the
+// company a document is addressed to when it enters it); the principal of
+// any other kind keeps its own access.
+func ActingFor(ctx context.Context, companies ...uuid.UUID) context.Context {
+	return context.WithValue(ctx, actingForKey{}, Access{IDs: companies})
 }
 
 // CompaniesOf returns the legal entity access of a principal of the tenant,
