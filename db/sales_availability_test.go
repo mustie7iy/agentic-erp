@@ -90,6 +90,11 @@ func TestSalesAvailabilityRules(t *testing.T) {
 		}, true, "sales_order_item_confirmed_by_check"},
 		{"an item of a draft confirmed, as the owner", func(s scene) []stmt { return placed(s, false, step(promise, s.order, "1")) }, true,
 			"sales_order_item_confirmed_by_check"},
+		{"more confirmed than ordered, as the owner", func(s scene) []stmt { return placed(s, true, step(promise, s.order, "6")) }, true,
+			"sales_order_item_confirmed_by_check"},
+		{"a confirmation cleared, as the owner", func(s scene) []stmt {
+			return placed(s, true, step(promise, s.order, "1"), step(`UPDATE sales.sales_order_item SET confirmed_quantity = NULL WHERE sales_order_id = $1`, s.order))
+		}, true, "sales_order_item_confirmed_by_check"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -109,5 +114,43 @@ func TestSalesAvailabilityRules(t *testing.T) {
 				t.Fatalf("got %v, want no error", err)
 			}
 		})
+	}
+}
+
+// TestDeliveryAssignmentPlantBackfilled (migration 000421): an
+// assignment written before the migration takes the plant its outbound
+// delivery ships from; its down drops the column again.
+func TestDeliveryAssignmentPlantBackfilled(t *testing.T) {
+	conn := emptyDatabase(t)
+	ctx := t.Context()
+	up := migrateBefore(t, conn, "000421_sales_availability")
+	tenant, order, delivery, plant := id(), id(), id(), id()
+	inTenant(t, conn, tenant, func(tx pgx.Tx) error {
+		return all(tx,
+			step(`INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, order_date, currency, payment_term_code,
+				net_amount, status, created_by, updated_by) VALUES ($1, $2, 'SO1', gen_random_uuid(), gen_random_uuid(), '2026-03-12', 'EUR', 'NT30', 100,
+				'draft', $1, $1)`, tenant, order),
+			step(`INSERT INTO sales.sales_order_item (tenant_id, sales_order_id, item_no, description, quantity, uom_code, unit_price, price_unit,
+				net_amount, account_id) VALUES ($1, $2, 1, 'Bracket', 5, 'EA', 100, 1, 100, gen_random_uuid())`, tenant, order),
+			step(`UPDATE sales.sales_order SET status = 'confirmed', version = version + 1 WHERE id = $1`, order),
+			step(`INSERT INTO shipping.outbound_delivery (tenant_id, id, legal_entity_id, fiscal_year, number, sales_order_id, sales_order_number,
+				customer_id, customer_number, plant_id, storage_location_id, status, created_by, updated_by)
+				VALUES ($1, $2, gen_random_uuid(), 2026, 'OD1', $3, 'SO1', gen_random_uuid(), '100001', $4, gen_random_uuid(), 'created', $1, $1)`,
+				tenant, delivery, order, plant),
+			step(`INSERT INTO sales.delivery_assignment (tenant_id, id, sales_order_id, order_item_no, outbound_delivery_id, outbound_delivery_number,
+				quantity, created_by) VALUES ($1, gen_random_uuid(), $2, 1, $3, 'OD1', 2, $1)`, tenant, order, delivery))
+	})
+	if _, err := migrate(ctx, conn, []Migration{up}); err != nil {
+		t.Fatal(err)
+	}
+	var got uuid.UUID
+	if err := conn.QueryRow(ctx, `SELECT plant_id FROM sales.delivery_assignment WHERE outbound_delivery_id = $1`, delivery).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != plant {
+		t.Errorf("the assignment's plant: got %s, want its delivery's %s", got, plant)
+	}
+	if _, err := conn.Exec(ctx, up.Down); err != nil {
+		t.Fatalf("the down: %v", err)
 	}
 }

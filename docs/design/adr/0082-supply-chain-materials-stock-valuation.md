@@ -1165,8 +1165,10 @@ reads a location's stock without a lock for shipping's picking.
   outbound deliveries hold at a plant counts in that plant's
   availability (review round 1): each delivery assignment names the
   plant its delivery ships from (`ShipInput.PlantID`,
-  `GoodsIssue.PlantID`), and the check counts the held quantities of
-  orders without a plant there. Their confirmed but undelivered
+  `GoodsIssue.PlantID`, required; the column stays nullable until a
+  contract step), and the check counts the held quantities of orders
+  without a plant there, read from the items something is in delivery of
+  (`sales_order_item_in_delivery_held`). Their confirmed but undelivered
   quantities are not counted, having no plant (for the product owner:
   whether a plant should be required for orders of stock materials).
 - **What is available** at confirmation (`confirmSalesOrder`), for each
@@ -1191,7 +1193,8 @@ reads a location's stock without a lock for shipping's picking.
   (`sales.availability:<tenant>:<plant>:<material>`), in the materials'
   uuid order, after the order's row lock and the credit check's customer
   lock, which every caller takes in that order; a goods issue takes none
-  of them, so no cycle. It reads the demand before the stock: a goods
+  of them, so no cycle (`TestChangeAndConfirmationRace` proves a change
+  takes the same lock). It reads the demand before the stock: a goods
   issue committed between the two reads counts out of the stock but
   still in the demand, so it promises less, never more
   (`TestTwoOrdersRaceForTheLastQuantity`, through
@@ -1221,7 +1224,8 @@ reads a location's stock without a lock for shipping's picking.
 - **Not valued, nothing more promised**: a promise whose unit the
   material no longer has (a unit removed since) cannot be put in the
   base unit; the material then has nothing more available at the plant,
-  and an item in such a unit keeps what it had.
+  and an item in such a unit keeps what it had (`unvalued` in its audit
+  detail).
 - Audited in the confirmation's and the change's records (`availability`:
   the plant and each item checked, with its material, quantity, unit and
   confirmed quantity before and after); no new event or permission:

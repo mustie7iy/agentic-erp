@@ -50,6 +50,9 @@ func TestConfirm(t *testing.T) {
 			if left := money.PlainQuantity(s.left[m.ID]); left != c.wantLeft {
 				t.Errorf("left: got %s, want %s", left, c.wantLeft)
 			}
+			if p.unvalued != (c.item.Unit == "BOX") {
+				t.Errorf("unvalued: got %v, want it only for a unit the material lacks", p.unvalued)
+			}
 			if s.unknown[m.ID] != c.wantUnknownAfterTake {
 				t.Errorf("unknown: got %v, want %v", s.unknown[m.ID], c.wantUnknownAfterTake)
 			}

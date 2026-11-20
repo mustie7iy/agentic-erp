@@ -205,6 +205,17 @@ func TestFloorQuantity(t *testing.T) {
 	}
 }
 
+// TestMinMaxRat: the lesser and the greater of two rationals.
+func TestMinMaxRat(t *testing.T) {
+	one, two := big.NewRat(1, 1), big.NewRat(2, 1)
+	if got := MinRat(two, one); got != one {
+		t.Errorf("MinRat(2, 1): got %v, want 1", got)
+	}
+	if got := MaxRat(one, two); got != two {
+		t.Errorf("MaxRat(1, 2): got %v, want 2", got)
+	}
+}
+
 func TestRat(t *testing.T) {
 	cases := map[string]struct {
 		m    Minor

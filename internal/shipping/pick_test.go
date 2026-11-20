@@ -196,7 +196,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"sales' issue": func(ctx context.Context) error {
-			_, err := h.Shipments.Issue(ctx, sales.GoodsIssue{OrderID: o, DeliveryID: picked, DeliveryNumber: "OD9", MaterialDocumentID: picked,
+			_, err := h.Shipments.Issue(ctx, sales.GoodsIssue{OrderID: o, DeliveryID: picked, DeliveryNumber: "OD9", PlantID: e.p1, MaterialDocumentID: picked,
 				MaterialDocumentNumber: "MD9", Date: time.Now(), Currency: "EUR", Items: []sales.IssuedItem{{ItemNo: 1, Held: "2", Issued: "2", Cost: 1}}})
 			return err
 		},
@@ -206,7 +206,7 @@ func TestDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"ship": func(ctx context.Context) error {
-			_, err := h.Shipments.Ship(ctx, sales.ShipInput{OrderID: o, DeliveryID: id, DeliveryNumber: "OD9", Open: []int32{1}})
+			_, err := h.Shipments.Ship(ctx, sales.ShipInput{OrderID: o, DeliveryID: id, DeliveryNumber: "OD9", PlantID: e.p1, Open: []int32{1}})
 			return err
 		},
 		"stock held": func(ctx context.Context) error {
@@ -233,7 +233,7 @@ func TestDatabaseFailures(t *testing.T) {
 			t.Fatal(err)
 		}
 		bare := reqctx.WithPrincipal(reqctx.WithTx(ctx, tx), reqctx.Principal{ID: e.Tenant.Human.ID, Kind: e.Tenant.Human.Kind, TenantID: e.Tenant.ID})
-		if _, err := h.Shipments.Ship(bare, sales.ShipInput{OrderID: o, DeliveryID: id, DeliveryNumber: "OD9", Open: []int32{1}}); !errors.Is(err, audit.ErrNoBuffer) {
+		if _, err := h.Shipments.Ship(bare, sales.ShipInput{OrderID: o, DeliveryID: id, DeliveryNumber: "OD9", PlantID: e.p1, Open: []int32{1}}); !errors.Is(err, audit.ErrNoBuffer) {
 			t.Errorf("got %v, want %v", err, audit.ErrNoBuffer)
 		}
 	})

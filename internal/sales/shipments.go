@@ -30,6 +30,9 @@ func init() {
 	problem.RegisterConstraint("sales_order_item_in_delivery", func() *problem.Problem {
 		return problem.Conflict("sales.exceeds_open_quantity", "An order item's quantity is at least what is delivered and what outbound deliveries hold.")
 	})
+	problem.RegisterConstraint("sales_order_item_confirmed", func() *problem.Problem {
+		return problem.Conflict("sales.exceeds_open_quantity", "An order item's deliveries take at most what its availability check confirmed.")
+	})
 	problem.RegisterConstraint("sales_order_item_removed_unshipped", func() *problem.Problem {
 		return problem.Conflict("sales.order_item_delivered", "An order item an outbound delivery holds is not removed.")
 	})
@@ -46,9 +49,9 @@ type ShipInput struct {
 	OrderID        uuid.UUID
 	DeliveryID     uuid.UUID
 	DeliveryNumber string
-	// PlantID is the plant the delivery ships from: what it holds there
-	// of an order without a plant counts in that plant's availability
-	// (S2j).
+	// PlantID is the plant the delivery ships from, required: what it
+	// holds there of an order without a plant counts in that plant's
+	// availability (S2j).
 	PlantID uuid.UUID
 	Items   []ItemQuantity
 	Open    []int32
@@ -157,8 +160,7 @@ func openItems(o Order, nos []int32) []ItemQuantity {
 }
 
 // held is whose quantities an assignment holds: the order's, for the
-// outbound delivery by id and number, at the plant it ships from (none:
-// uuid.Nil, stored as null).
+// outbound delivery by id and number, at the plant it ships from.
 type held struct {
 	order, delivery uuid.UUID
 	number          string
@@ -169,9 +171,8 @@ type held struct {
 // adding it to its order item's quantity in delivery, negated when back
 // is set (the goods issue gives a delivery's quantities back).
 func assign(ctx context.Context, tx pgx.Tx, p reqctx.Principal, h held, items []ItemQuantity, back bool) error {
-	var plant *uuid.UUID
-	if h.plant != uuid.Nil {
-		plant = &h.plant
+	if h.plant == uuid.Nil {
+		return fmt.Errorf("sales: outbound delivery %s of sales order %s names no plant", h.number, h.order)
 	}
 	for _, it := range items {
 		q := it.Quantity
@@ -180,7 +181,7 @@ func assign(ctx context.Context, tx pgx.Tx, p reqctx.Principal, h held, items []
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO sales.delivery_assignment (tenant_id, id, sales_order_id, order_item_no, outbound_delivery_id,
 				outbound_delivery_number, quantity, created_by, plant_id) VALUES ($1, $2, $3, $4, $5, $6, $7::numeric, $8, $9)`,
-			p.TenantID, uuid.Must(uuid.NewV7()), h.order, it.ItemNo, h.delivery, h.number, q, p.ID, plant); err != nil {
+			p.TenantID, uuid.Must(uuid.NewV7()), h.order, it.ItemNo, h.delivery, h.number, q, p.ID, h.plant); err != nil {
 			return fmt.Errorf("sales: assign item %d of sales order %s to outbound delivery %s: %w", it.ItemNo, h.order, h.number, err)
 		}
 	}

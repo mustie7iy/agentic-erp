@@ -94,7 +94,7 @@ func TestConfirmationPromisesWhatIsAvailable(t *testing.T) {
 		t.Errorf("an order without a plant: got %s, plant %v; want nothing checked", confirmedOf(t, confirmed), confirmed["plant_id"])
 	}
 	if a := e.audits(t, b, "sales.sales_order.confirm"); len(a) != 1 || fmt.Sprint(a[0]["availability"]) != fmt.Sprintf(
-		"map[items:[map[confirmed_before:<nil> confirmed_quantity:2 item_no:1 material_id:%s quantity:5 unit:BOX]] plant_id:%s]", e.bracket, e.p1) {
+		"map[items:[map[confirmed_before:<nil> confirmed_quantity:2 item_no:1 material_id:%s quantity:5 unit:BOX unvalued:false]] plant_id:%s]", e.bracket, e.p1) {
 		t.Errorf("the second order's audit: got %v, want its item's check", a)
 	}
 	t.Run("a delivery takes at most what is confirmed", func(t *testing.T) {
@@ -136,6 +136,17 @@ func TestDeliveriesOfOrdersWithoutAPlantCount(t *testing.T) {
 	if c := confirmedOf(t, got); c != "0 BOX" {
 		t.Errorf("after its goods issue: got %s, want 0 BOX: 80 EA left, all promised", c)
 	}
+	t.Run("a delivery that names no plant", func(t *testing.T) {
+		order := uuid.MustParse(e.order(t, false, e.ofMaterial(e.bracket, "1 EA")))
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := salesEndpoints(t).Ship(ctx, sales.ShipInput{OrderID: order, DeliveryID: uuid.New(), DeliveryNumber: "OD9",
+				Items: []sales.ItemQuantity{{ItemNo: 1, Quantity: "1", Unit: "EA"}}})
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), "names no plant") {
+			t.Errorf("got %v, want it refused for naming no plant", err)
+		}
+	})
 	var plants string
 	pgtest.Scan(t, `SELECT string_agg(DISTINCT plant_id::text, ',') FROM sales.delivery_assignment WHERE outbound_delivery_id = $1`,
 		[]any{d["id"]}, &plants)
@@ -250,6 +261,61 @@ func TestTwoOrdersRaceForTheLastQuantity(t *testing.T) {
 	}
 	if two != "2" {
 		t.Errorf("the second: got %s BOX, want the 2 the first left", two)
+	}
+}
+
+// TestChangeAndConfirmationRace: a change raising a confirmed order's
+// quantity and another order's confirmation, of the same material at the
+// plant, in two transactions at once: the confirmation waits for the
+// change's lock and confirms what the change left.
+func TestChangeAndConfirmationRace(t *testing.T) {
+	e := setup(t)
+	changed, _ := e.confirmedAt(t, e.p1, e.ofMaterial(e.bracket, "2 BOX"))
+	_, tag := e.confirmedNow(t, changed)
+	other := e.placedAt(t, e.p1, e.ofMaterial(e.bracket, "10 BOX"))
+	h := salesEndpoints(t)
+	var raised, second string
+	errA, errB := apitest.Serialized(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		o, err := h.ChangeOrder(ctx, uuid.MustParse(changed), etag.IfMatch(tag), sales.OrderChangeInput{Items: []sales.ItemChangeInput{{ItemNo: 1,
+			Quantity: ptr("8"), Unit: ptr("BOX")}}})
+		if err == nil {
+			raised = *o.Items[0].Confirmed
+		}
+		return err
+	}, func(ctx context.Context) error {
+		o, err := h.ConfirmOrder(ctx, uuid.MustParse(other), etag.IfMatch(`"1"`))
+		if err == nil {
+			second = *o.Items[0].Confirmed
+		}
+		return err
+	})
+	if errA != nil || errB != nil {
+		t.Fatalf("got %v and %v, want both done", errA, errB)
+	}
+	if raised != "8" || second != "2" {
+		t.Errorf("confirmed: got the change %s and the other %s BOX, want 8 and the 2 left", raised, second)
+	}
+}
+
+// TestAvailabilityOfAnOrdersOwnItems: two items of one material in one
+// order are confirmed in item order; a change of price alone keeps what
+// is confirmed; a removed item's promise is free for the next order.
+func TestAvailabilityOfAnOrdersOwnItems(t *testing.T) {
+	e := setup(t)
+	id, got := e.confirmedAt(t, e.p1, e.ofMaterial(e.bracket, "6 BOX"), e.ofMaterial(e.bracket, "6 BOX"))
+	if c := confirmedOf(t, got); c != "6 BOX, 4 BOX" {
+		t.Errorf("two items of the bracket: got %s, want 6 BOX and the 4 left", c)
+	}
+	_, tag := e.confirmedNow(t, id)
+	got, _ = e.Must(200, "POST", "/v1/sales-orders/"+id+":change", `{"items": [{"item_no": 2, "unit_price": {"amount": "2.00", "currency": "EUR"}}]}`, tag)
+	if c := confirmedOf(t, got); c != "6 BOX, 4 BOX" {
+		t.Errorf("a change of price: got %s, want what was confirmed", c)
+	}
+	_, tag = e.confirmedNow(t, id)
+	e.Must(200, "POST", "/v1/sales-orders/"+id+":change", `{"removed_items": [1]}`, tag)
+	_, got = e.confirmedAt(t, e.p1, e.ofMaterial(e.bracket, "9 BOX"))
+	if c := confirmedOf(t, got); c != "6 BOX" {
+		t.Errorf("after the first item's removal: got %s, want the 6 BOX it freed", c)
 	}
 }
 

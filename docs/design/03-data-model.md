@@ -5664,7 +5664,8 @@ erDiagram
   from (null for an assignment written without it; the existing ones
   take their delivery's), indexed by `delivery_assignment_by_plant`: what
   deliveries of orders without a plant hold there counts in its
-  availability.
+  availability, read from the items something is in delivery of
+  (`sales_order_item_in_delivery_held`).
 - `sales.sales_order_change` (T78d, migration 000355): a change of an
   order, numbered from 1 within it (`sales_order_change_no_positive`,
   `sales_order_change_once`), with the order's version after it

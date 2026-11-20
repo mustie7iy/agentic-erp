@@ -65,6 +65,9 @@ ALTER TABLE sales.delivery_assignment ENABLE TRIGGER delivery_assignment_immutab
 -- What confirmed orders promised of a material at a plant and have not
 -- delivered, and what deliveries of orders without a plant hold there:
 -- the availability check's demand.
+-- The items something is in delivery of, by material: where the held
+-- deliveries are read from.
+CREATE INDEX sales_order_item_in_delivery_held ON sales.sales_order_item (tenant_id, material_id) WHERE in_delivery_quantity > 0;
 CREATE INDEX delivery_assignment_by_plant ON sales.delivery_assignment (tenant_id, plant_id) WHERE plant_id IS NOT NULL;
 CREATE INDEX sales_order_by_plant ON sales.sales_order (tenant_id, plant_id) WHERE status = 'confirmed' AND plant_id IS NOT NULL;
 CREATE INDEX sales_order_item_promised ON sales.sales_order_item (tenant_id, material_id)

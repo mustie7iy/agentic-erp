@@ -59,18 +59,20 @@ func (e *Endpoints) orderPlant(ctx context.Context, plant *uuid.UUID, le tenancy
 
 // promise is one item's availability check: the item, its quantity, what
 // it had confirmed before (nil: nothing) and what it confirms now, in
-// its unit.
+// its unit; unvalued when its unit is no longer one of the material's, so
+// it kept what it had.
 type promise struct {
 	item      OrderItem
 	material  uuid.UUID
 	before    *string
 	confirmed string
+	unvalued  bool
 }
 
 // detail is the audit record's account of the check of one item.
 func (p promise) detail() map[string]any {
 	return map[string]any{"item_no": p.item.ItemNo, "material_id": p.material, "quantity": p.item.Quantity, "unit": p.item.Unit,
-		"confirmed_before": p.before, "confirmed_quantity": p.confirmed}
+		"confirmed_before": p.before, "confirmed_quantity": p.confirmed, "unvalued": p.unvalued}
 }
 
 // promised is the audit detail of an order's availability check, nil
@@ -86,58 +88,47 @@ func promised(ps []promise, plant *uuid.UUID) map[string]any {
 	return map[string]any{"plant_id": plant, "items": items}
 }
 
-// availability checks the items of an order that names a plant and is
-// confirmed in this transaction, or was before (the caller holds its row
-// lock): those of items whose numbers check names, each of a material
-// kept in stock, are confirmed, in item order, as far as the plant has
-// the material available, and every other item of a material keeps what
-// it confirmed before (none: nothing). items are the order's items as
-// they stand now, each with the confirmed quantity it had (nil for none
-// or a new item). It locks each material at the plant (lockMaterials),
-// then reads what other confirmed orders promised (demand) before the
-// stock (Stock.PlantStock): a goods issue committed between the two reads
-// is then counted out of the stock but still in the demand, and so
-// promises less, never more. An item checked again keeps at least what it
-// had confirmed, up to its quantity: a change confirms an increase as
-// far as there is stock and never takes back a promise. The confirmed
-// quantities are written and returned in item order.
+// availability checks the items of an order with a plant whose row lock
+// the caller holds, those check selects (checkPlan), and writes and
+// returns what each confirms, in item order. The order of its steps is
+// what makes it safe: the materials' locks first (lockMaterials), then
+// what is promised (demand) before the stock (Stock.PlantStock), so a
+// goods issue committed between the two reads counts out of the stock
+// but still in the demand and the check promises less, never more.
 func (e *Endpoints) availability(ctx context.Context, tx pgx.Tx, o Order, items []OrderItem, check func(OrderItem) bool) ([]promise, error) {
 	if o.PlantID == nil {
 		return nil, nil
 	}
-	stocked, ms, err := e.stockedItems(ctx, items)
-	if err != nil || !slices.ContainsFunc(stocked, check) {
+	plan, err := e.checkPlan(ctx, items, check)
+	if err != nil || len(plan.checked) == 0 {
 		return nil, err // nothing to check: no lock, no read
 	}
-	ids := materialIDs(stocked)
-	if err := lockMaterials(ctx, tx, *o.PlantID, ids); err != nil {
+	if err := lockMaterials(ctx, tx, *o.PlantID, plan.ids); err != nil {
 		return nil, err
 	}
-	available, err := demand(ctx, tx, o, ms)
+	available, err := demand(ctx, tx, o, plan.materials)
 	if err != nil {
 		return nil, err
 	}
-	if err := e.addStock(ctx, *o.PlantID, ids, available); err != nil {
+	if err := e.addStock(ctx, *o.PlantID, plan.ids, available); err != nil {
 		return nil, err
 	}
-	var checked []OrderItem
-	for _, it := range stocked {
-		if check(it) {
-			checked = append(checked, it)
-		} else {
-			available.take(*it.MaterialID, it.promisedOpen(ms[*it.MaterialID]))
-		}
-	}
-	out := make([]promise, len(checked))
-	for i, it := range checked {
-		out[i] = available.confirm(it, ms[*it.MaterialID])
-	}
+	out := available.allocate(plan)
 	return out, writePromises(ctx, tx, o, out)
 }
 
-// stockedItems are the standing items of a material kept in stock, in
-// item order, with the materials they name.
-func (e *Endpoints) stockedItems(ctx context.Context, items []OrderItem) ([]OrderItem, map[uuid.UUID]materials.Material, error) {
+// plan is what an availability check works on: the order's standing items
+// of a material kept in stock, in item order, split into those it checks
+// and those that keep what they confirmed, with their materials, by id
+// and in the order their locks are taken.
+type plan struct {
+	checked, kept []OrderItem
+	materials     map[uuid.UUID]materials.Material
+	ids           []uuid.UUID
+}
+
+// checkPlan reads the items' materials and plans the check.
+func (e *Endpoints) checkPlan(ctx context.Context, items []OrderItem, check func(OrderItem) bool) (plan, error) {
 	var ids []uuid.UUID
 	for _, it := range standing(items) {
 		if it.MaterialID != nil {
@@ -146,28 +137,25 @@ func (e *Endpoints) stockedItems(ctx context.Context, items []OrderItem) ([]Orde
 	}
 	ms, err := e.Materials.Materials(ctx, ids)
 	if err != nil {
-		return nil, nil, fmt.Errorf("sales: materials of the order's items: %w", err)
+		return plan{}, fmt.Errorf("sales: materials of the order's items: %w", err)
 	}
-	var out []OrderItem
+	p := plan{materials: ms}
 	for _, it := range standing(items) {
-		if it.MaterialID != nil && ms[*it.MaterialID].Stocked() {
-			out = append(out, it)
+		switch {
+		case it.MaterialID == nil || !ms[*it.MaterialID].Stocked():
+			continue
+		case check(it):
+			p.checked = append(p.checked, it)
+		default:
+			p.kept = append(p.kept, it)
+		}
+		if !slices.Contains(p.ids, *it.MaterialID) {
+			p.ids = append(p.ids, *it.MaterialID)
 		}
 	}
-	return out, ms, nil
-}
-
-// materialIDs are the items' materials, each once, as PostgreSQL orders
-// uuids (bytewise): the order lockMaterials takes their locks in.
-func materialIDs(items []OrderItem) []uuid.UUID {
-	var ids []uuid.UUID
-	for _, it := range items {
-		if !slices.Contains(ids, *it.MaterialID) {
-			ids = append(ids, *it.MaterialID)
-		}
-	}
-	slices.SortFunc(ids, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
-	return ids
+	// As PostgreSQL orders uuids (bytewise): the order lockMaterials takes their locks in.
+	slices.SortFunc(p.ids, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	return p, nil
 }
 
 // lockMaterials takes, for each material in order, the transaction's
@@ -207,24 +195,39 @@ func (s stockLeft) take(material uuid.UUID, q *big.Rat) {
 	s.left[material] = new(big.Rat).Sub(s.left[material], q)
 }
 
-// free is what is available of the material, never below zero.
+// free is what is available of the material, never below zero, as a
+// value of its own.
 func (s stockLeft) free(material uuid.UUID) *big.Rat {
 	if s.unknown[material] || s.left[material].Sign() < 0 {
 		return new(big.Rat)
 	}
-	return s.left[material]
+	return new(big.Rat).Set(s.left[material])
 }
 
-// demand is what the confirmed orders of the plant other than o promised
-// of the materials and have not delivered, and what outbound deliveries
-// from the plant hold of orders that name no plant, counted out of a
-// stock of nothing, in one statement: each item's confirmed quantity less
-// what is delivered of it, and each delivery's assignments at the plant
-// (taken, less given back at their goods issue; only of items something
-// is still in delivery of, so a plant's delivery history is not read), in
-// the base unit at the material's factor now. An item that is removed,
-// or that is delivered as far as it was confirmed, promises nothing; an
-// order with a plant holds its deliveries within what it confirmed.
+// promisedSQL is what the confirmed orders of the plant ($2) other than
+// the one checked ($3) promised of the materials ($1) and have not
+// delivered: each standing item's confirmed quantity less what is
+// delivered of it; an item delivered as far as it was confirmed promises
+// nothing. What an order with a plant has in delivery is inside it.
+const promisedSQL = `SELECT i.material_id, i.uom_code, i.confirmed_quantity - i.delivered_quantity AS q
+	FROM sales.sales_order_item i JOIN sales.sales_order o ON o.tenant_id = i.tenant_id AND o.id = i.sales_order_id
+	WHERE i.material_id = ANY($1) AND i.confirmed_quantity > i.delivered_quantity AND i.removed_in_change IS NULL
+		AND o.plant_id = $2 AND o.status = 'confirmed' AND o.id <> $3`
+
+// heldSQL is what outbound deliveries from the plant ($2) hold of the
+// materials ($1) for orders that name no plant: their assignments there,
+// taken less given back at the goods issue, read only for items something
+// is still in delivery of (sales_order_item_in_delivery_held), so a
+// plant's delivery history is not read.
+const heldSQL = `SELECT i.material_id, i.uom_code, a.quantity
+	FROM sales.sales_order_item i
+		JOIN sales.delivery_assignment a ON a.tenant_id = i.tenant_id AND a.sales_order_id = i.sales_order_id AND a.order_item_no = i.item_no
+		JOIN sales.sales_order o ON o.tenant_id = i.tenant_id AND o.id = i.sales_order_id
+	WHERE i.material_id = ANY($1) AND i.in_delivery_quantity > 0 AND a.plant_id = $2 AND o.plant_id IS NULL`
+
+// demand is what promisedSQL and heldSQL find, read in one statement and
+// counted out of a stock of nothing, in the base unit at the material's
+// factor now.
 func demand(ctx context.Context, tx pgx.Tx, o Order, ms map[uuid.UUID]materials.Material) (stockLeft, error) {
 	ids := make([]uuid.UUID, 0, len(ms))
 	s := stockLeft{left: map[uuid.UUID]*big.Rat{}, unknown: map[uuid.UUID]bool{}}
@@ -236,21 +239,11 @@ func demand(ctx context.Context, tx pgx.Tx, o Order, ms map[uuid.UUID]materials.
 		Unit     string
 		Quantity string
 	}
-	rows, _ := tx.Query(ctx, `SELECT material_id, uom_code, trim_scale(sum(q))::text FROM (
-			SELECT i.material_id, i.uom_code, i.confirmed_quantity - i.delivered_quantity AS q
-			FROM sales.sales_order_item i JOIN sales.sales_order o ON o.tenant_id = i.tenant_id AND o.id = i.sales_order_id
-			WHERE i.material_id = ANY($1) AND i.confirmed_quantity > i.delivered_quantity AND i.removed_in_change IS NULL
-				AND o.plant_id = $2 AND o.status = 'confirmed' AND o.id <> $3
-			UNION ALL
-			SELECT i.material_id, i.uom_code, a.quantity
-			FROM sales.delivery_assignment a
-				JOIN sales.sales_order_item i ON i.tenant_id = a.tenant_id AND i.sales_order_id = a.sales_order_id AND i.item_no = a.order_item_no
-				JOIN sales.sales_order o ON o.tenant_id = a.tenant_id AND o.id = a.sales_order_id
-			WHERE a.plant_id = $2 AND i.material_id = ANY($1) AND i.in_delivery_quantity > 0 AND o.plant_id IS NULL) promised
+	rows, _ := tx.Query(ctx, `SELECT material_id, uom_code, trim_scale(sum(q))::text FROM (`+promisedSQL+` UNION ALL `+heldSQL+`) promised
 		GROUP BY material_id, uom_code HAVING sum(q) > 0 ORDER BY material_id, uom_code`, ids, *o.PlantID, o.ID)
 	opens, err := pgx.CollectRows(rows, pgx.RowToStructByPos[open])
 	if err != nil {
-		return stockLeft{}, fmt.Errorf("sales: what confirmed orders promised at plant %s: %w", *o.PlantID, err)
+		return stockLeft{}, fmt.Errorf("sales: what is promised at plant %s: %w", *o.PlantID, err)
 	}
 	for _, d := range opens {
 		s.take(d.Material, inBase(ms[d.Material], money.ParseRat(d.Quantity), d.Unit))
@@ -281,55 +274,56 @@ func inBase(m materials.Material, q *big.Rat, unit string) *big.Rat {
 	return q.Mul(q, f)
 }
 
-// promisedOpen is what the item promised and has not delivered, in the
-// material's base unit (nil: it cannot be valued); nothing for an item
-// that promised nothing.
-func (it OrderItem) promisedOpen(m materials.Material) *big.Rat {
-	if it.Confirmed == nil {
-		return new(big.Rat)
-	}
-	open := new(big.Rat).Sub(money.ParseRat(*it.Confirmed), money.ParseRat(it.Delivered))
+// promisedOpen is what the item promised with its confirmed quantity and
+// has not delivered, in the material's base unit (nil: it cannot be
+// valued); nothing for one delivered as far as it was confirmed.
+func promisedOpen(m materials.Material, confirmed *big.Rat, it OrderItem) *big.Rat {
+	open := new(big.Rat).Sub(confirmed, money.ParseRat(it.Delivered))
 	if open.Sign() <= 0 {
 		return new(big.Rat)
 	}
 	return inBase(m, open, it.Unit)
 }
 
+// allocate counts what the kept items promised out of what is available,
+// then confirms the checked ones in item order (confirm).
+func (s stockLeft) allocate(p plan) []promise {
+	for _, it := range p.kept {
+		if it.Confirmed != nil {
+			s.take(*it.MaterialID, promisedOpen(p.materials[*it.MaterialID], money.ParseRat(*it.Confirmed), it))
+		}
+	}
+	out := make([]promise, len(p.checked))
+	for i, it := range p.checked {
+		out[i] = s.confirm(it, p.materials[*it.MaterialID])
+	}
+	return out
+}
+
 // confirm confirms the item as far as the material is available, in the
-// item's unit and rounded down to its decimals, at least what it had
-// confirmed (as far as its quantity goes) and at most its quantity, and
-// counts what it promises out of what is available.
+// item's unit and rounded down to its decimals, and at most its quantity.
+// An item checked again keeps at least what it had confirmed, up to its
+// quantity: a change confirms an increase as far as there is stock and
+// never takes back a promise; in a unit that is no longer the material's
+// nothing more is promised. What it promises is counted out of what is
+// available.
 func (s stockLeft) confirm(it OrderItem, m materials.Material) promise {
 	quantity := money.ParseRat(it.Quantity)
 	kept := new(big.Rat)
 	if it.Confirmed != nil {
-		kept = minRat(money.ParseRat(*it.Confirmed), quantity)
+		kept = money.MinRat(money.ParseRat(*it.Confirmed), quantity)
 	}
-	reach := new(big.Rat).Set(money.ParseRat(it.Delivered))
+	p := promise{item: it, material: *it.MaterialID, before: it.Confirmed}
+	reach := kept
 	if f, err := m.Factor(it.Unit); err == nil {
-		reach.Add(reach, money.FloorQuantity(new(big.Rat).Quo(s.free(*it.MaterialID), f)))
+		reach = new(big.Rat).Add(money.ParseRat(it.Delivered), money.FloorQuantity(new(big.Rat).Quo(s.free(*it.MaterialID), f)))
 	} else {
-		reach = kept // a unit that is no longer the material's: nothing more is promised in it
+		p.unvalued = true
 	}
-	confirmed := maxRat(kept, minRat(quantity, reach))
-	p := promise{item: it, material: *it.MaterialID, before: it.Confirmed, confirmed: money.PlainQuantity(confirmed)}
-	it.Confirmed = &p.confirmed
-	s.take(*it.MaterialID, it.promisedOpen(m))
+	confirmed := money.MaxRat(kept, money.MinRat(quantity, reach))
+	p.confirmed = money.PlainQuantity(confirmed)
+	s.take(*it.MaterialID, promisedOpen(m, confirmed, it))
 	return p
-}
-
-func minRat(a, b *big.Rat) *big.Rat {
-	if a.Cmp(b) <= 0 {
-		return a
-	}
-	return b
-}
-
-func maxRat(a, b *big.Rat) *big.Rat {
-	if a.Cmp(b) >= 0 {
-		return a
-	}
-	return b
 }
 
 // writePromises writes the checked items' confirmed quantities.
