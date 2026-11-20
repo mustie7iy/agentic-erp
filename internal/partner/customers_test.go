@@ -371,3 +371,42 @@ func TestFindCustomers(t *testing.T) {
 		})
 	}
 }
+
+// TestHasTaxNumber (T65d, ADR-0061 §6): whether a partner holds a tax
+// identifier of the value, whatever its scheme, by its fingerprint; an
+// empty value is held by none, nor is another partner's.
+func TestHasTaxNumber(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	insert := func(number string) uuid.UUID {
+		id := uuid.Must(uuid.NewV7())
+		pgtest.Exec(t, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, country_code, status, created_by, updated_by)
+			VALUES ($1, $2, $3, 'organization', $3, 'AE', 'active', $4, $4)`, ten.ID, id, number, ten.Human.ID)
+		return id
+	}
+	a, b := insert("BP1"), insert("BP2")
+	pgtest.Exec(t, `INSERT INTO partner.tax_identifier (tenant_id, partner_id, scheme, value_cipher, value_fingerprint, value_last4, created_by, updated_by)
+		VALUES ($1, $2, 'AE_TRN', '\x00', $3, '0003', $4, $4)`, ten.ID, a, apitest.Fingerprint(t, ten.ID, "100555555500003"), ten.Human.ID)
+	p := partner.Payees{Keys: apitest.FieldKeys()}
+	for name, c := range map[string]struct {
+		partner uuid.UUID
+		value   string
+		want    bool
+	}{
+		"held":              {a, "100555555500003", true},
+		"another value":     {a, "100666666600003", false},
+		"another partner's": {b, "100555555500003", false},
+		"an empty value":    {a, "", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got bool
+			err := apitest.InRequest(t, ten, ten.Human, func(ctx context.Context) error {
+				var err error
+				got, err = p.HasTaxNumber(ctx, c.partner, c.value)
+				return err
+			})
+			if err != nil || got != c.want {
+				t.Errorf("got %v %v, want %v", got, err, c.want)
+			}
+		})
+	}
+}
