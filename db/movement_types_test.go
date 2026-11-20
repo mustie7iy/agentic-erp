@@ -14,9 +14,11 @@ import (
 // migration a material document takes the goods issue's 601 and its
 // reversal 602 beside the count's 701 and 702, and the account
 // determination both the inventory_difference and the
-// inventory_cost_of_goods_sold keys. Reverting 000411 and 000410 restores
-// 000408's checks, validated: 701, 702 and inventory_difference:<class> still taken,
-// 601, 602 and inventory_cost_of_goods_sold:<class> refused.
+// inventory_cost_of_goods_sold keys, and S2h's 351 (000416 and 000417).
+// Reverting 000417 and 000416 restores 000411's checks, validated, 351
+// refused; reverting 000411 and 000410 then restores 000408's checks,
+// validated: 701, 702 and inventory_difference:<class> still taken, 601,
+// 602 and inventory_cost_of_goods_sold:<class> refused.
 func TestMovementTypesOfCountAndShipping(t *testing.T) {
 	need(t)
 	ctx := context.Background()
@@ -25,14 +27,31 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	// clear takes the goods issues (this test's and those other tests
-	// committed) out of the way of 000410's down, which refuses to revert
+	// clear takes the goods issues and the stock transport orders with
+	// their stock in transit (this test's and those other tests committed)
+	// out of the way of 000416's and 000410's downs, which refuse to revert
 	// while any exists; rolled back with the rest.
-	clear := func(t *testing.T) {
+	clear := func(t *testing.T, transport bool) {
 		t.Helper()
-		if err := all(tx, step("DELETE FROM inventory.material_document WHERE movement_type IN ('601', '602')"),
-			step("DELETE FROM ledger.account_determination WHERE key LIKE 'inventory_cost_of_goods_sold:%'")); err != nil {
+		var steps []stmt
+		if transport {
+			steps = []stmt{step("DELETE FROM inventory.movement WHERE in_transit OR material_document_id IN (SELECT id FROM inventory.material_document WHERE movement_type = '351')"),
+				step("DELETE FROM inventory.material_document WHERE movement_type = '351'"), step("DELETE FROM inventory.transit_stock"),
+				step("DELETE FROM procurement.stock_transport_order_item"), step("DELETE FROM procurement.stock_transport_order")}
+		}
+		if err := all(tx, append(steps, step("DELETE FROM inventory.material_document WHERE movement_type IN ('601', '602')"),
+			step("DELETE FROM ledger.account_determination WHERE key LIKE 'inventory_cost_of_goods_sold:%'"))...); err != nil {
 			t.Fatal(err)
+		}
+	}
+	// validated says each check is validated after the stage.
+	validated := func(t *testing.T, stage string, checks ...string) {
+		t.Helper()
+		for _, c := range checks {
+			var valid bool
+			if err := tx.QueryRow(ctx, `SELECT convalidated FROM pg_constraint WHERE conname = $1`, c).Scan(&valid); err != nil || !valid {
+				t.Errorf("after reverting %s, %s: got validated %v (%v), want validated", stage, c, valid, err)
+			}
 		}
 	}
 	// Foreign keys and triggers aside: the checks are what is tested.
@@ -47,6 +66,7 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 			name, sql string
 			args      []any
 		}{
+			{"351", movementTypeDoc, []any{tenant, id(), "351", nil, "TO1"}},
 			{"601", movementTypeDoc, []any{tenant, issue, "601", nil, "OD1"}},
 			{"602", movementTypeDoc, []any{tenant, id(), "602", issue, "OD1"}},
 			{"701", movementTypeDoc, []any{tenant, id(), "701", nil, nil}},
@@ -65,23 +85,27 @@ func TestMovementTypesOfCountAndShipping(t *testing.T) {
 		}
 	}
 	check(t, "after the last migration", nil)
-	clear(t)
-	for _, name := range []string{"000411_validate_goods_issue", "000410_goods_issue"} {
-		if err := exec(tx, migrationNamed(t, name).Down); err != nil {
-			t.Fatalf("%s's down: %v", name, err)
+	down := func(t *testing.T, transport bool, names ...string) {
+		t.Helper()
+		clear(t, transport)
+		for _, name := range names {
+			if err := exec(tx, migrationNamed(t, name).Down); err != nil {
+				t.Fatalf("%s's down: %v", name, err)
+			}
 		}
 	}
-	check(t, "after reverting 000411 and 000410", map[string]string{"601": "material_document_movement_type_check",
-		"602": "material_document_movement_type_check", "inventory_cost_of_goods_sold:3000": "account_determination_key_check"})
+	down(t, true, "000417_validate_stock_transport", "000416_stock_transport")
+	check(t, "after reverting 000417 and 000416", map[string]string{"351": "material_document_movement_type_check"})
+	// 000411's state is validated checks.
+	validated(t, "000417 and 000416", "material_document_movement_type_check", "material_document_reference")
+	down(t, false, "000411_validate_goods_issue", "000410_goods_issue")
+	check(t, "after reverting 000411 and 000410", map[string]string{"351": "material_document_movement_type_check",
+		"601": "material_document_movement_type_check", "602": "material_document_movement_type_check",
+		"inventory_cost_of_goods_sold:3000": "account_determination_key_check"})
 	// 000408's state is validated checks, as 000391 left the reversal and
 	// reference checks.
-	for _, c := range []string{"material_document_movement_type_check", "material_document_reversal_check", "material_document_reference",
-		"account_determination_key_check"} {
-		var valid bool
-		if err := tx.QueryRow(ctx, `SELECT convalidated FROM pg_constraint WHERE conname = $1`, c).Scan(&valid); err != nil || !valid {
-			t.Errorf("after reverting 000411 and 000410, %s: got validated %v (%v), want validated", c, valid, err)
-		}
-	}
+	validated(t, "000411 and 000410", "material_document_movement_type_check", "material_document_reversal_check", "material_document_reference",
+		"account_determination_key_check")
 }
 
 const (

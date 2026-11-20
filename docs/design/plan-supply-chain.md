@@ -660,6 +660,34 @@ plant takes it out (SAP 351/101, from memory). **Adds:** the order type
 in procurement, stock in transit. **Acceptance:** stock in transit is
 neither plant's unrestricted stock and adds up across the two movements.
 
+- **Detailed** (lane sto, 2026-11-20; one slice, one leaf, nothing to
+  split; decided by default, ADR-0082 As built S2h): `POST
+  /v1/stock-transport-orders` (permission `procurement.stock_transport.write`)
+  creates an order from a supplying plant to another plant of the same
+  company, each item a material from a storage location of the one to a
+  storage location of the other, checked by inventory as its goods issue
+  will be, numbered from the company's `stock_transport_order` range;
+  `GET` (company, plant, status) and `/{id}` under
+  `procurement.stock_transport.read`. `:postGoodsIssue` (`If-Match`,
+  `procurement.stock_transport.post`) posts one material document of
+  `351`: each item leaves its supplying location, valued as an issue is,
+  and is in transit to its receiving location at the receiving plant
+  (`inventory.transit_stock`), valued in the receiving plant at what it
+  took (its standard price there, the rest a price difference), posted as
+  `WA` between the two plants' stock accounts (SAP's 351 within a company,
+  from memory). `:postGoodsReceipt` posts one `101` taking it out of
+  transit into the receiving location, within the receiving plant's
+  valuation, so nothing is posted. The order moves whole: `open`,
+  `in_transit`, `received`. Stock in transit is no location's stock
+  (`GET /v1/stock`) but the receiving plant's valuation; the material
+  documents' lines say which line is in transit (`in_transit`).
+  **Later:** partial issues and receipts, reversals of either (352, 102;
+  409 `inventory.reverse_stock_transport` until then), cancelling an open
+  order, a delivery between the plants (SAP's replenishment delivery,
+  shipping), one-step transfers (SAP's 301 is S1c's), the stock in
+  transit as a list of its own, stock in transit valued at the supplying
+  plant until receipt.
+
 ### S2i Intercompany stock transfer
 
 **Capability.** The same between plants of two companies, with

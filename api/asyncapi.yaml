@@ -6810,7 +6810,7 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company of its plants.}
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         fiscal_year: {type: integer, description: The fiscal year of its posting date.}
-        movement_type: {type: string, description: 'Open enum: 101, 102, 501, 502, 561, 562, 201, 202, 551, 552, 311, 312, 301, 302, 601, 602, 701, 702.'}
+        movement_type: {type: string, description: 'Open enum: 101, 102, 351, 501, 502, 561, 562, 201, 202, 551, 552, 311, 312, 301, 302, 601, 602, 701, 702.'}
         posting_date: {$ref: '#/components/schemas/Date', description: "The company's date it was posted on."}
         reversal_of_id:
           description: "The document it reverses, `inventory.material_document.id`; null when it reverses none."
@@ -6825,7 +6825,7 @@ components:
             - type: 'null'
         journal_entry_year: {type: [integer, 'null'], description: "That entry's fiscal year; null with it."}
         journal_entry_number: {type: [string, 'null'], description: "That entry's document number; null with it."}
-        reference: {type: [string, 'null'], description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's document number, `procurement.goods_movement.document_number`, whose WE entry is `journal_entry_id` (S1e); an outbound delivery's goods issue (601): the delivery's number, `shipping.outbound_delivery.number` (ADR-0083); null on any other document. Not among the required fields (ADR-0041)."}
+        reference: {type: [string, 'null'], description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's document number, `procurement.goods_movement.document_number`, whose WE entry is `journal_entry_id` (S1e); an outbound delivery's goods issue (601): the delivery's number, `shipping.outbound_delivery.number` (ADR-0083); a stock transport order's goods issue (351) or receipt (101): the order's number, `procurement.stock_transport_order.number` (S2h); null on any other document. Not among the required fields (ADR-0041)."}
         lines:
           type: array
           description: Its lines, in line order.
@@ -6851,6 +6851,7 @@ components:
               cost_center_code: {type: [string, 'null'], description: "The cost center's code; null with it."}
               amount: {$ref: '#/components/schemas/Money', description: "What the line moves in value, signed as its quantity is (S1d); not required (ADR-0041)."}
               price_difference: {$ref: '#/components/schemas/Money', description: "What it is valued at beyond that (S1d); not required (ADR-0041)."}
+              in_transit: {type: boolean, description: "Whether the line moves stock in transit to its storage location (a stock transport order's, S2h) rather than the stock at that location; not required (ADR-0041)."}
     OutboundDeliveryChangedV1:
       type: object
       required: [outbound_delivery_id, number, legal_entity_id, legal_entity_code, sales_order_id, sales_order_number, customer_id, customer_number, plant_id, plant_code, storage_location_id, storage_location_code, status, picking_status, goods_issue_date, material_document_id, material_document_number, items, version]

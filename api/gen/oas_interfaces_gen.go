@@ -585,6 +585,10 @@ type CreateStatisticalKeyFigureRes interface {
 	createStatisticalKeyFigureRes()
 }
 
+type CreateStockTransportOrderRes interface {
+	createStockTransportOrderRes()
+}
+
 type CreateSupplierInvoiceRes interface {
 	createSupplierInvoiceRes()
 }
@@ -1285,6 +1289,10 @@ type GetStatisticalKeyFigureRes interface {
 	getStatisticalKeyFigureRes()
 }
 
+type GetStockTransportOrderRes interface {
+	getStockTransportOrderRes()
+}
+
 type GetSupplierInvoiceDocumentRes interface {
 	getSupplierInvoiceDocumentRes()
 }
@@ -1949,6 +1957,10 @@ type ListStockRes interface {
 	listStockRes()
 }
 
+type ListStockTransportOrdersRes interface {
+	listStockTransportOrdersRes()
+}
+
 type ListSupplierInvoicesRes interface {
 	listSupplierInvoicesRes()
 }
@@ -2107,6 +2119,14 @@ type PostPhysicalInventoryDifferencesRes interface {
 
 type PostRevaluationRunRes interface {
 	postRevaluationRunRes()
+}
+
+type PostStockTransportGoodsIssueRes interface {
+	postStockTransportGoodsIssueRes()
+}
+
+type PostStockTransportGoodsReceiptRes interface {
+	postStockTransportGoodsReceiptRes()
 }
 
 type PostSupplierInvoiceRes interface {

@@ -62,7 +62,7 @@ func (e *Endpoints) Post(ctx context.Context, in Input) (Document, error) {
 		return Document{}, err
 	}
 	mt, ok := movementTypes[in.MovementType]
-	if !ok || mt.reverses != "" || mt.order || mt.count || mt.delivery {
+	if !ok || mt.reverses != "" || mt.order || mt.count || mt.delivery || mt.transport {
 		return Document{}, problem.Invalid("inventory.unknown_movement_type", "movement_type", fmt.Sprintf("%q is not a movement type that is posted; "+
 			"they are 501, 561, 201, 551, 311 and 301, and a reversal is posted by reversing its document.", in.MovementType))
 	}
@@ -360,9 +360,20 @@ type posting struct {
 	day          time.Time
 	headerText   *string
 	reversalOf   *uuid.UUID
-	reference    *string // a purchase order's goods receipt's number (101, 102), an outbound delivery's (601)
+	reference    *string // a purchase order's goods receipt's number (101, 102), an outbound delivery's (601), a stock transport order's (351, 101)
 	lines        []Line
 	items        []ItemInput
+	// kind is what the movement type is when it is not movementTypes'
+	// own: a stock transport order's goods receipt (transportReceipt).
+	kind *movementType
+}
+
+// mt is the posting's movement type.
+func (in posting) mt() movementType {
+	if in.kind != nil {
+		return *in.kind
+	}
+	return movementTypes[in.movementType]
 }
 
 // write locks the valuations and the stock the lines move, refuses them
@@ -376,7 +387,7 @@ func (e *Endpoints) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, in
 	if err != nil {
 		return Document{}, err
 	}
-	mt := movementTypes[in.movementType]
+	mt := in.mt()
 	amounts, err := itemAmounts(in.items, mt, in.movementType, vals)
 	if err != nil {
 		return Document{}, err
@@ -454,20 +465,20 @@ func writeLines(ctx context.Context, tx pgx.Tx, p reqctx.Principal, document uui
 	lineNo, itemNo := make([]int16, n), make([]int16, n)
 	ms, plants, locations := make([]uuid.UUID, n), make([]uuid.UUID, n), make([]uuid.UUID, n)
 	qty, entry, units, centers := make([]string, n), make([]string, n), make([]string, n), make([]string, n)
-	amounts, differences := make([]money.Minor, n), make([]money.Minor, n)
+	amounts, differences, transit := make([]money.Minor, n), make([]money.Minor, n), make([]bool, n)
 	for i, l := range lines {
-		lineNo[i], itemNo[i], ms[i], plants[i], locations[i] = l.LineNo, l.ItemNo, l.MaterialID, l.PlantID, l.StorageLocationID
+		lineNo[i], itemNo[i], ms[i], plants[i], locations[i], transit[i] = l.LineNo, l.ItemNo, l.MaterialID, l.PlantID, l.StorageLocationID, l.InTransit
 		qty[i], entry[i], units[i], amounts[i], differences[i] = l.Quantity, l.EntryQuantity, l.EntryUnit, l.Amount, l.Difference
 		if l.CostCenterID != nil {
 			centers[i] = l.CostCenterID.String()
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO inventory.movement (tenant_id, material_document_id, line_no, item_no, material_id, plant_id,
-			storage_location_id, quantity, entry_quantity, entry_uom_code, cost_center_id, amount, difference)
-		SELECT $1, $2, x.l, x.i, x.m, x.p, x.s, x.q::numeric, x.e::numeric, x.u, nullif(x.c, '')::uuid, x.a, x.d
+			storage_location_id, quantity, entry_quantity, entry_uom_code, cost_center_id, amount, difference, in_transit)
+		SELECT $1, $2, x.l, x.i, x.m, x.p, x.s, x.q::numeric, x.e::numeric, x.u, nullif(x.c, '')::uuid, x.a, x.d, x.t
 		FROM unnest($3::smallint[], $4::smallint[], $5::uuid[], $6::uuid[], $7::uuid[], $8::text[], $9::text[], $10::text[], $11::text[],
-			$12::bigint[], $13::bigint[]) AS x (l, i, m, p, s, q, e, u, c, a, d) ORDER BY x.l`,
-		p.TenantID, document, lineNo, itemNo, ms, plants, locations, qty, entry, units, centers, amounts, differences); err != nil {
+			$12::bigint[], $13::bigint[], $14::boolean[]) AS x (l, i, m, p, s, q, e, u, c, a, d, t) ORDER BY x.l`,
+		p.TenantID, document, lineNo, itemNo, ms, plants, locations, qty, entry, units, centers, amounts, differences, transit); err != nil {
 		return fmt.Errorf("inventory: movements of material document %s: %w", document, err)
 	}
 	return nil

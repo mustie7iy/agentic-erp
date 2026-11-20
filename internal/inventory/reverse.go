@@ -48,6 +48,11 @@ func (e *Endpoints) Reverse(ctx context.Context, id uuid.UUID, ifMatch func(Docu
 	case mt.count:
 		return Document{}, problem.Conflict("inventory.reverse_count", "Material document "+orig.Number+" posts a physical inventory count's "+
 			"differences; it is not reversed: a new count of the material corrects the stock.")
+	case orig.transport():
+		// The order's status and its stock in transit move with it: Later
+		// (As built S2h).
+		return Document{}, problem.Conflict("inventory.reverse_stock_transport", "Material document "+orig.Number+" is the goods issue or receipt of "+
+			"stock transport order "+*orig.Reference+"; it is not reversed yet.")
 	case mt.order:
 		// Its GR/IR and the order item's received quantity move with it.
 		return Document{}, problem.Conflict("inventory.reverse_goods_receipt", "Material document "+orig.Number+" is goods receipt "+*orig.Reference+

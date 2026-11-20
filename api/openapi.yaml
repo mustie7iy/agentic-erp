@@ -24679,7 +24679,7 @@ paths:
             type: string
             maxLength: 3
             description: "Movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-            x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "701", "702"]
+            x-extensible-enum: ["101", "102", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "701", "702"]
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -24703,7 +24703,7 @@ paths:
       tags:
         - inventory
       summary: Post a goods movement
-      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`) by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by `postOutboundDeliveryGoodsIssue` and a count's differences (`701`, `702`) by `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero or more, so items that move stock round a circle out of an empty location are refused though they change nothing in all. A material at a storage location an open physical inventory count document counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock account against the account its movement type posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price differences on its price difference account (422 `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
+      description: "Posts a goods movement of one movement type (ADR-0082 §7, S1c) as a material document: `501` a receipt without a purchase order, `561` an initial entry of stock, `201` an issue to a cost center, `551` a scrapping, `311` a transfer between storage locations of a plant, `301` a transfer between plants of one company; each item moves a quantity of a material at a plant's storage location. Each material is an `active` material (422 `inventory.material_invalid` when there is none with the id, `inventory.material_not_usable` when it is pending or blocked) kept in stock, so neither of type `non_stock` nor `service` (422 `inventory.material_not_stocked`); each plant an active plant of a company the caller may act in (422 `inventory.plant_invalid`) that the material is extended to (422 `inventory.plant_not_extended`), each storage location an active one under it (422 `inventory.storage_location_invalid`) the material is kept at (422 `inventory.storage_location_not_extended`), and every plant of the document one company's (422 `inventory.mixed_companies`). The quantity is positive (422 `inventory.invalid_quantity`), in the material's base unit or one of its alternative units (422 `inventory.unknown_unit`), and converted exactly to the base unit, never rounded (422 `inventory.inexact_quantity`). A `201` or `551` names a cost center (422 `inventory.cost_center_required`), an active one of the company in force on the posting date (422 `inventory.cost_center_invalid`); another movement type names none (422 `inventory.cost_center_not_allowed`). A `311` names the storage location received at, under the same plant (`to_storage_location_id`); a `301` the plant and storage location received at (`to_plant_id`, `to_storage_location_id`), another plant of the company; each is checked as the issuing one is (422 `inventory.transfer_target_required`, `inventory.same_location`); another movement type names neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`, `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`) by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by `postOutboundDeliveryGoodsIssue`, a stock transport order's goods issue (`351`) by `postStockTransportGoodsIssue` and a count's differences (`701`, `702`) by `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted on the company's date today in its time zone and numbered from its `material_document` range of that date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range` when the range is missing). Stock never goes below zero: an issue of more than a storage location holds is refused naming the material, the location and both quantities (409 `inventory.insufficient_stock`), and two issues of the last quantity at once post one; a stock that would exceed 14 integer digits is refused (422 `inventory.quantity_too_large`). Each item is one line in the base unit, signed (a receipt positive, an issue negative); a transfer's item is two, the issue and the receipt. The lines are applied in order, and each leaves its location's stock at zero or more, so items that move stock round a circle out of an empty location are refused though they change nothing in all. A material at a storage location an open physical inventory count document counts is not moved there (409 `inventory.posting_blocked`, naming the document; S2c). Every line is valued (S1d): its material is valued in its plant (422 `inventory.no_valuation`; `createMaterialValuation`), an issue takes the value the stock leaves (at a standard price the rest is worth its quantity at the price; at a moving price the value in proportion, so issuing the whole stock takes its whole value), a receipt adds what it is worth (`amount`, only on a `501` or `561`, 422 `inventory.amount_not_allowed`, in the company's currency, 422 `inventory.currency_mismatch`; else its quantity at the moving price, 422 `inventory.no_price` while that is zero; at a standard price what the stock is worth at it after the receipt, the rest a price difference), a transfer's receipt what its issue took. The value is posted through the ledger in one journal entry dated the posting date (document type `WE` for a receipt or initial entry, `WA` otherwise; none when the document moves no value): the valuation class's stock account against the account its movement type posts to (receipt, initial entry, consumption with the item's cost center, scrapping), and price differences on its price difference account (422 `inventory.no_inventory_account` when the class lacks an account, and the ledger's refusals, such as 422 `ledger.period_not_open`); a refused posting moves nothing. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the document posted. Human-only (`x-agent: false`)."
       x-permission: inventory.movement.post
       x-agent: false
       x-problem-codes:
@@ -24872,7 +24872,7 @@ paths:
       tags:
         - inventory
       summary: Reverse a material document
-      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first (each keeping its original item's `item_no`), posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet (409 `inventory.reverse_goods_issue`), nor a count's differences (409 `inventory.reverse_count`: a new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). It is refused, as a posting is, while an open count document counts one of its materials at one of its storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the reversal is still posted. Each line is valued at what its original line was, given back: what the stock does not take of it at its price now is a price difference, and the value is posted through the ledger as the original's was, reversed. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
+      description: "Reverses a material document as a whole, once (ADR-0082 §7, S1c): a new document of the reversal movement type (`502` of a `501`, `562` of a `561`, `202` of a `201`, `552` of a `551`, `312` of a `311`, `302` of a `301`) whose lines are the original's with their quantities negated, last first (each keeping its original item's `item_no`), posted on the company's date today and numbered from its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`), nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or receipt yet (409 `inventory.reverse_stock_transport`), nor a count's differences (409 `inventory.reverse_count`: a new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`, naming the material, the location and both quantities). It is refused, as a posting is, while an open count document counts one of its materials at one of its storage locations (409 `inventory.posting_blocked`). The material may have been blocked since; the reversal is still posted. Each line is valued at what its original line was, given back: what the stock does not take of it at its price now is a price difference, and the value is posted through the ledger as the original's was, reversed. A document of a company the caller may not act in is not found (404). Audited, and published as MaterialDocumentPosted. Human-only (`x-agent: false`)."
       x-permission: inventory.movement.post
       x-agent: false
       x-problem-codes:
@@ -24894,6 +24894,7 @@ paths:
         - inventory.reverse_count
         - inventory.reverse_goods_issue
         - inventory.reverse_goods_receipt
+        - inventory.reverse_stock_transport
         - ledger.account_not_postable
         - ledger.amount_too_large
         - ledger.asset_reconciliation_account
@@ -25352,7 +25353,6 @@ paths:
         - config.number_range_exhausted
         - inventory.count_open
         - inventory.duplicate_material
-        - inventory.insufficient_stock
         - inventory.material_invalid
         - inventory.material_not_stocked
         - inventory.material_not_usable
@@ -25992,6 +25992,413 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OutboundDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/stock-transport-orders:
+    get:
+      operationId: listStockTransportOrders
+      tags:
+        - procurement
+      summary: List stock transport orders
+      description: "The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as `getStockTransportOrder` gives it, the latest first. Filtered by company, number, supplying or receiving plant and status. Sortable by: `created_at`."
+      x-permission: procurement.stock_transport.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: number
+          in: query
+          required: false
+          description: "Only the order with this number, as a material document's `reference` names it (each company numbers its own, so `legal_entity_id` narrows it to one)."
+          schema:
+            type: string
+            maxLength: 40
+        - name: plant_id
+          in: query
+          required: false
+          description: "Only the orders from or to this plant (`GET /v1/org-units/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: "Only orders in this status. A value that is no status matches none."
+          schema:
+            type: string
+            maxLength: 20
+            description: "Status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [open, in_transit, received]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of stock transport orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransportOrderPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createStockTransportOrder
+      tags:
+        - procurement
+      summary: Order stock from one plant to another of the company
+      description: "Creates a stock transport order (ADR-0082 As built S2h; SAP ME21N with document type UB, from memory): a planner orders materials from a storage location of the supplying plant to one of the receiving plant, another plant of the same company. Each item is checked as its goods issue will be: the plants active plants of one company the caller may act in (422 `inventory.plant_invalid`, `inventory.mixed_companies`; the same plant twice, 422 `inventory.same_location`), the material an active material kept in stock (422 `inventory.material_invalid`, `inventory.material_not_usable`, `inventory.material_not_stocked`) extended to both plants (422 `inventory.plant_not_extended`) and kept at both storage locations, each active under its plant (422 `inventory.storage_location_invalid`, `inventory.storage_location_not_extended`), its quantity positive (422 `inventory.invalid_quantity`) in one of its units (422 `inventory.unknown_unit`) and exact in its base unit (422 `inventory.inexact_quantity`); a material is ordered once per order (422 `procurement.stock_transport_material_repeated`). Nothing is checked of the stock: the goods issue takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`)."
+      x-permission: procurement.stock_transport.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.inexact_quantity
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
+        - ledger.no_fiscal_period
+        - procurement.stock_transport_material_repeated
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The order to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StockTransportOrderCreate"
+            examples:
+              bolts:
+                summary: Two hundred bolts from Toronto's main store to the Montreal store
+                value:
+                  supplying_plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  receiving_plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+                  items:
+                    - material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                      quantity: {value: "200", unit: EA}
+                      supplying_storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+                      receiving_storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d82"
+      responses:
+        "201":
+          description: "Created; the stock transport order."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransportOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/stock-transport-orders/{id}":
+    get:
+      operationId: getStockTransportOrder
+      tags:
+        - procurement
+      summary: Get a stock transport order
+      description: "One stock transport order (ADR-0082 As built S2h) with its company by code, its plants and storage locations by code and name, its status, the material documents of its goods issue and receipt, and its items, each naming its material by number, its quantity in the unit ordered and in the base unit, and what of it is in transit. An order of a company the caller may not act in is not found (404)."
+      x-permission: procurement.stock_transport.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The stock transport order.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransportOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/stock-transport-orders/{id}:postGoodsIssue":
+    post:
+      operationId: postStockTransportGoodsIssue
+      tags:
+        - procurement
+      summary: Post the goods issue of a stock transport order
+      description: "Posts an open stock transport order's goods issue (ADR-0082 As built S2h; SAP's 351, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order no longer `open`, 409 `procurement.stock_transport_issued`). Every item's quantity leaves its supplying storage location and is in transit to its receiving storage location, as one material document of movement type `351` (`issue_document_id`), posted on the company's date today in its time zone and numbered from its `material_document` range, its `reference` the order's number; its lines in transit (`in_transit`) are neither plant's stock (`listStock`) but the receiving plant's valuation. Each item is checked as at the order's creation, the material active and valued in both plants (422 `inventory.no_valuation`), the supplying location's stock enough (409 `inventory.insufficient_stock`) and counted by no open physical inventory document (409 `inventory.posting_blocked`). The issue takes the supplying stock's value as an issue does, and the stock in transit is worth what it took (at a standard price in the receiving plant, its quantity at the price, the rest a price difference), posted in one WA journal entry between the valuation classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422 `ledger.period_not_open`). The order is `in_transit`. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it. Human-only (`x-agent: false`)."
+      x-permission: procurement.stock_transport.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.cost_center_not_allowed
+        - inventory.cost_center_required
+        - inventory.currency_mismatch
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.material_not_stocked
+        - inventory.material_not_usable
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - inventory.same_location
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.transfer_not_allowed
+        - inventory.transfer_target_required
+        - inventory.unknown_unit
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - procurement.stock_transport_issued
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The stock transport order, in transit.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransportOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/stock-transport-orders/{id}:postGoodsReceipt":
+    post:
+      operationId: postStockTransportGoodsReceipt
+      tags:
+        - procurement
+      summary: Post the goods receipt of a stock transport order
+      description: "Posts the goods receipt of a stock transport order in transit (ADR-0082 As built S2h; SAP's 101 for the order, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order not `in_transit`, 409 `procurement.stock_transport_not_in_transit`). Every item's quantity leaves the stock in transit to its receiving storage location and enters that location's stock, as one material document of movement type `101` (`receipt_document_id`), posted on the company's date today and numbered from its `material_document` range, its `reference` the order's number: the storage location still active (422 `inventory.storage_location_invalid`), the material kept there (422 `inventory.storage_location_not_extended`; a material blocked since the issue is still received), and no open physical inventory document counting it there (409 `inventory.posting_blocked`). It stays in the receiving plant's valuation, so it moves no value and posts no journal entry. The order is `received` and changes no more. Audited, and published as MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it. Human-only (`x-agent: false`)."
+      x-permission: procurement.stock_transport.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - inventory.amount_not_allowed
+        - inventory.amount_too_large
+        - inventory.currency_mismatch
+        - inventory.inexact_quantity
+        - inventory.insufficient_stock
+        - inventory.invalid_amount
+        - inventory.invalid_quantity
+        - inventory.material_invalid
+        - inventory.mixed_companies
+        - inventory.no_inventory_account
+        - inventory.no_price
+        - inventory.no_valuation
+        - inventory.plant_invalid
+        - inventory.plant_not_extended
+        - inventory.posting_blocked
+        - inventory.quantity_too_large
+        - inventory.storage_location_invalid
+        - inventory.storage_location_not_extended
+        - inventory.unknown_unit
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.secondary_account
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - procurement.stock_transport_not_in_transit
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The stock transport order, received.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StockTransportOrder"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -64073,7 +64480,7 @@ components:
     MaterialDocumentLine:
       type: object
       description: "A line of a material document (SAP MSEG): one stock effect of an item at a storage location, in the material's base unit, signed (a receipt positive, an issue negative)."
-      required: [line_no, item_no, material_id, material_number, material_description, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, quantity, entry_quantity]
+      required: [line_no, item_no, material_id, material_number, material_description, plant_id, plant_code, plant_name, storage_location_id, storage_location_code, storage_location_name, quantity, entry_quantity, in_transit]
       properties:
         line_no: {type: integer, format: int32, description: "The line's number in the document, from 1.", readOnly: true}
         item_no: {type: integer, format: int32, description: "The item of the request it stands for, from 1: a transfer's item has two lines; on a reversal, the original's item.", readOnly: true}
@@ -64090,6 +64497,7 @@ components:
         entry_quantity: {$ref: "#/components/schemas/Quantity", description: "The item's quantity as it was entered, positive, in the unit it was entered in.", readOnly: true}
         cost_center_id: {type: string, format: uuid, description: "The cost center of an issue to a cost center or a scrapping; absent on other lines.", readOnly: true}
         cost_center_code: {type: string, description: "The cost center's code; absent with it.", readOnly: true}
+        in_transit: {type: boolean, description: "Whether the line moves stock in transit to its storage location of its plant (a stock transport order's, S2h: into transit on its goods issue, 351, out of it on its goods receipt, 101) rather than the stock at that location; stock in transit is in the plant's valuation but in no location's stock (`listStock`).", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "What the line moves in value on the material's valuation in the plant, signed as its quantity is (S1d); absent on a document posted before materials were valued.", readOnly: true}
         price_difference: {$ref: "#/components/schemas/Money", description: "What the line is valued at beyond `amount`: a standard-priced receipt's or transfer's price difference, or what a reversal gives back beyond the stock's value (S1d); absent with `amount`.", readOnly: true}
     MaterialDocument:
@@ -64104,7 +64512,7 @@ components:
         fiscal_year: {type: integer, format: int32, description: "The fiscal year of its posting date, which its number is of.", readOnly: true}
         movement_type:
           type: string
-          x-extensible-enum: ["101", "102", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "701", "702"]
+          x-extensible-enum: ["101", "102", "351", "501", "502", "561", "562", "201", "202", "551", "552", "311", "312", "301", "302", "601", "602", "701", "702"]
           description: "Its movement type. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         movement_type_name: {type: string, description: "What the movement type is, in English.", readOnly: true}
@@ -64117,7 +64525,7 @@ components:
         journal_entry_id: {type: string, format: uuid, description: "The journal entry that posted its value (`GET /v1/journal-entries/{id}`); absent when it moved none.", readOnly: true}
         journal_entry_year: {type: integer, format: int32, description: "That entry's fiscal year; absent with it.", readOnly: true}
         journal_entry_number: {type: string, description: "That entry's document number; absent with it.", readOnly: true}
-        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). Absent on every other document.", readOnly: true}
+        reference: {type: string, description: "A purchase order's goods receipt (101) or its reversal (102): the goods movement's `document_number` (`GET /v1/goods-receipts?document_number=`), whose WE entry `journal_entry_id` is, posting the stock against GR/IR (S1e); such a document is reversed by reversing its goods receipt (409 `inventory.reverse_goods_receipt` here). An outbound delivery's goods issue (601, ADR-0083 S2b1): the delivery's `number` (`GET /v1/outbound-deliveries`), whose WA entry posts the cost of goods sold; it is not reversed yet (409 `inventory.reverse_goods_issue`). A stock transport order's goods issue (351) or goods receipt (101; S2h, its lines in transit `in_transit`): the order's `number` (`GET /v1/stock-transport-orders?number=`); it is not reversed yet (409 `inventory.reverse_stock_transport`). Absent on every other document.", readOnly: true}
         lines:
           type: array
           items: {$ref: "#/components/schemas/MaterialDocumentLine"}
@@ -64403,6 +64811,132 @@ components:
           type: array
           items: {$ref: "#/components/schemas/OutboundDelivery"}
           description: The outbound deliveries on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    StockTransportOrderItemInput:
+      type: object
+      description: "An item of a stock transport order to create: a quantity of a material from a storage location of the supplying plant to one of the receiving plant."
+      required: [material_id, quantity, supplying_storage_location_id, receiving_storage_location_id]
+      additionalProperties: false
+      properties:
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`)."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity ordered, positive, in one of the material's units."}
+        supplying_storage_location_id: {type: string, format: uuid, description: "The storage location it is issued from, under the supplying plant."}
+        receiving_storage_location_id: {type: string, format: uuid, description: "The storage location it is received at, under the receiving plant."}
+    StockTransportOrderCreate:
+      type: object
+      description: "A stock transport order to create: the supplying and receiving plants, two plants of one company, and its items."
+      required: [supplying_plant_id, receiving_plant_id, items]
+      additionalProperties: false
+      properties:
+        supplying_plant_id: {type: string, format: uuid, description: "The plant the stock is issued from (`GET /v1/org-units/{id}`)."}
+        receiving_plant_id: {type: string, format: uuid, description: "The plant it is received at, another plant of the same company."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: {$ref: "#/components/schemas/StockTransportOrderItemInput"}
+          description: "Its items, a material once each."
+    StockTransportOrderItem:
+      type: object
+      description: "An item of a stock transport order: a quantity of a material from a storage location of the supplying plant to one of the receiving plant."
+      required: [item_no, material_id, material_number, material_description, quantity, base_quantity, in_transit_quantity, supplying_storage_location_id, supplying_storage_location_code, supplying_storage_location_name, receiving_storage_location_id, receiving_storage_location_code, receiving_storage_location_name]
+      properties:
+        item_no: {type: integer, format: int32, description: "The item's number in the order, from 1.", readOnly: true}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`).", readOnly: true}
+        material_number: {type: string, description: "The material's number.", readOnly: true}
+        material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity ordered, in the unit it was ordered in.", readOnly: true}
+        base_quantity: {$ref: "#/components/schemas/Quantity", description: "The same in the material's base unit, which its stock is kept in.", readOnly: true}
+        in_transit_quantity: {$ref: "#/components/schemas/Quantity", description: "What of it is in transit, in the base unit: the base quantity from its goods issue until its goods receipt, zero before and after.", readOnly: true}
+        supplying_storage_location_id: {type: string, format: uuid, description: "The storage location it is issued from.", readOnly: true}
+        supplying_storage_location_code: {type: string, description: "That storage location's code.", readOnly: true}
+        supplying_storage_location_name: {type: string, description: "That storage location's name, as it is now.", readOnly: true}
+        receiving_storage_location_id: {type: string, format: uuid, description: "The storage location it is received at.", readOnly: true}
+        receiving_storage_location_code: {type: string, description: "That storage location's code.", readOnly: true}
+        receiving_storage_location_name: {type: string, description: "That storage location's name, as it is now.", readOnly: true}
+    StockTransportOrder:
+      type: object
+      description: "A stock transport order within a company (SAP's purchasing document type UB, from memory): materials ordered from one plant to another of the same company, issued into stock in transit and received out of it. Never deleted; it changes only by its goods issue and receipt."
+      required: [id, number, legal_entity_id, company_code, fiscal_year, order_date, supplying_plant_id, supplying_plant_code, supplying_plant_name, receiving_plant_id, receiving_plant_code, receiving_plant_name, status, items, version, created_at, created_by, updated_at, updated_by]
+      properties:
+        id: {type: string, format: uuid, readOnly: true, description: "The order's id."}
+        number: {type: string, description: "Its number in its company's `stock_transport_order` range of its fiscal year.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company of its plants.", readOnly: true}
+        company_code: {type: string, description: "That company's code.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of its order date, which its number is of.", readOnly: true}
+        order_date: {type: string, format: date, description: "The company's date it was created on.", readOnly: true}
+        supplying_plant_id: {type: string, format: uuid, description: "The plant it is issued from.", readOnly: true}
+        supplying_plant_code: {type: string, description: "That plant's code.", readOnly: true}
+        supplying_plant_name: {type: string, description: "That plant's name, as it is now.", readOnly: true}
+        receiving_plant_id: {type: string, format: uuid, description: "The plant it is received at.", readOnly: true}
+        receiving_plant_code: {type: string, description: "That plant's code.", readOnly: true}
+        receiving_plant_name: {type: string, description: "That plant's name, as it is now.", readOnly: true}
+        status:
+          type: string
+          x-extensible-enum: [open, in_transit, received]
+          description: "`open` until its goods issue, `in_transit` until its goods receipt, then `received`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        issue_document_id: {type: string, format: uuid, description: "Its goods issue's material document (351, `GET /v1/material-documents/{id}`), whose `journal_entry_id` moved the value to the receiving plant; absent while it is open.", readOnly: true}
+        issue_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
+        issue_date: {type: string, format: date, description: "The company's date its goods issue was posted on; absent with it.", readOnly: true}
+        receipt_document_id: {type: string, format: uuid, description: "Its goods receipt's material document (101); absent until it is received.", readOnly: true}
+        receipt_document_number: {type: string, description: "That document's number; absent with it.", readOnly: true}
+        receipt_date: {type: string, format: date, description: "The company's date its goods receipt was posted on; absent with it.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/StockTransportOrderItem"}
+          description: "Its items, by item number."
+          readOnly: true
+        version: {type: integer, format: int32, description: "Its version, which every change moves (`If-Match`).", readOnly: true}
+        created_at: {type: string, format: date-time, readOnly: true, description: "When it was created."}
+        created_by: {type: string, format: uuid, readOnly: true, description: "Who created it."}
+        updated_at: {type: string, format: date-time, readOnly: true, description: "When it last changed."}
+        updated_by: {type: string, format: uuid, readOnly: true, description: "Who last changed it."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e21"
+          number: TO000001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          fiscal_year: 2026
+          order_date: "2026-11-20"
+          supplying_plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          supplying_plant_code: P100
+          supplying_plant_name: Toronto plant
+          receiving_plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          receiving_plant_code: P200
+          receiving_plant_name: Montreal plant
+          status: in_transit
+          issue_document_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          issue_document_number: MD000007
+          issue_date: "2026-11-20"
+          items:
+            - item_no: 1
+              material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+              material_number: MA000002
+              material_description: Hex bolt M10
+              quantity: {value: "200", unit: EA}
+              base_quantity: {value: "200", unit: EA}
+              in_transit_quantity: {value: "200", unit: EA}
+              supplying_storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d62"
+              supplying_storage_location_code: SL01
+              supplying_storage_location_name: Main store
+              receiving_storage_location_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d82"
+              receiving_storage_location_code: SL03
+              receiving_storage_location_name: Montreal store
+          version: 2
+          created_at: "2026-11-20T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-20T10:20:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    StockTransportOrderPage:
+      type: object
+      description: One page of stock transport orders.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/StockTransportOrder"}
+          description: The stock transport orders on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     MaterialValuationCreate:
       type: object

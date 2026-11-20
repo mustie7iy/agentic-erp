@@ -2102,7 +2102,8 @@ type Handler interface {
 	// neither (422 `inventory.transfer_not_allowed`). The reversal types (`502`, `562`, `202`, `552`,
 	// `312`, `302`) are posted by `reverseMaterialDocument` only, a purchase order's goods receipt (`101`)
 	// by `postGoodsReceipt`, an outbound delivery's goods issue (`601`) by
-	// `postOutboundDeliveryGoodsIssue` and a count's differences (`701`, `702`) by
+	// `postOutboundDeliveryGoodsIssue`, a stock transport order's goods issue (`351`) by
+	// `postStockTransportGoodsIssue` and a count's differences (`701`, `702`) by
 	// `postPhysicalInventoryDifferences` (422 `inventory.unknown_movement_type`). The document is posted
 	// on the company's date today in its time zone and numbered from its `material_document` range of that
 	// date's fiscal year (422 `ledger.no_fiscal_period` when the date is in none, `config.no_number_range`
@@ -2830,6 +2831,27 @@ type Handler interface {
 	//
 	// POST /v1/statistical-key-figures/{id}/postings
 	CreateStatisticalKeyFigurePosting(ctx context.Context, req *StatisticalKeyFigurePostingCreate, params CreateStatisticalKeyFigurePostingParams) (CreateStatisticalKeyFigurePostingRes, error)
+	// CreateStockTransportOrder implements createStockTransportOrder operation.
+	//
+	// Creates a stock transport order (ADR-0082 As built S2h; SAP ME21N with document type UB, from
+	// memory): a planner orders materials from a storage location of the supplying plant to one of the
+	// receiving plant, another plant of the same company. Each item is checked as its goods issue will be:
+	// the plants active plants of one company the caller may act in (422 `inventory.plant_invalid`,
+	// `inventory.mixed_companies`; the same plant twice, 422 `inventory.same_location`), the material an
+	// active material kept in stock (422 `inventory.material_invalid`, `inventory.material_not_usable`,
+	// `inventory.material_not_stocked`) extended to both plants (422 `inventory.plant_not_extended`) and
+	// kept at both storage locations, each active under its plant (422
+	// `inventory.storage_location_invalid`, `inventory.storage_location_not_extended`), its quantity
+	// positive (422 `inventory.invalid_quantity`) in one of its units (422 `inventory.unknown_unit`) and
+	// exact in its base unit (422 `inventory.inexact_quantity`); a material is ordered once per order (422
+	// `procurement.stock_transport_material_repeated`). Nothing is checked of the stock: the goods issue
+	// takes it. The order is `open`, dated and numbered from its company's `stock_transport_order` range
+	// of the fiscal year of the company's date today (422 `ledger.no_fiscal_period`,
+	// `config.no_number_range`). Audited. A retry with the same `Idempotency-Key` answers the order
+	// created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/stock-transport-orders
+	CreateStockTransportOrder(ctx context.Context, req *StockTransportOrderCreate, params CreateStockTransportOrderParams) (CreateStockTransportOrderRes, error)
 	// CreateSupplierInvoice implements createSupplierInvoice operation.
 	//
 	// Creates a parked supplier invoice. The same supplier reference for the same supplier is refused with
@@ -5094,6 +5116,16 @@ type Handler interface {
 	//
 	// GET /v1/statistical-key-figures/{id}
 	GetStatisticalKeyFigure(ctx context.Context, params GetStatisticalKeyFigureParams) (GetStatisticalKeyFigureRes, error)
+	// GetStockTransportOrder implements getStockTransportOrder operation.
+	//
+	// One stock transport order (ADR-0082 As built S2h) with its company by code, its plants and storage
+	// locations by code and name, its status, the material documents of its goods issue and receipt, and
+	// its items, each naming its material by number, its quantity in the unit ordered and in the base
+	// unit, and what of it is in transit. An order of a company the caller may not act in is not found
+	// (404).
+	//
+	// GET /v1/stock-transport-orders/{id}
+	GetStockTransportOrder(ctx context.Context, params GetStockTransportOrderParams) (GetStockTransportOrderRes, error)
 	// GetSupplierInvoice implements getSupplierInvoice operation.
 	//
 	// Returns one supplier invoice, with the tax its items' codes' rates give (`calculated_tax`).
@@ -6750,6 +6782,14 @@ type Handler interface {
 	//
 	// GET /v1/stock
 	ListStock(ctx context.Context, params ListStockParams) (ListStockRes, error)
+	// ListStockTransportOrders implements listStockTransportOrders operation.
+	//
+	// The stock transport orders of the companies the caller may act in (ADR-0082 As built S2h), each as
+	// `getStockTransportOrder` gives it, the latest first. Filtered by company, number, supplying or
+	// receiving plant and status. Sortable by: `created_at`.
+	//
+	// GET /v1/stock-transport-orders
+	ListStockTransportOrders(ctx context.Context, params ListStockTransportOrdersParams) (ListStockTransportOrdersRes, error)
 	// ListSupplierInvoices implements listSupplierInvoices operation.
 	//
 	// Supplier invoices. Sortable by: `invoice_date`, `document_number`. Expandable: `supplier`, for a
@@ -7439,6 +7479,46 @@ type Handler interface {
 	//
 	// POST /v1/revaluation-runs
 	PostRevaluationRun(ctx context.Context, req *RevaluationPreviewRequest, params PostRevaluationRunParams) (PostRevaluationRunRes, error)
+	// PostStockTransportGoodsIssue implements postStockTransportGoodsIssue operation.
+	//
+	// Posts an open stock transport order's goods issue (ADR-0082 As built S2h; SAP's 351, from memory),
+	// once, at the version read (`If-Match`; 412 `request.version_mismatch`; an order no longer `open`,
+	// 409 `procurement.stock_transport_issued`). Every item's quantity leaves its supplying storage
+	// location and is in transit to its receiving storage location, as one material document of movement
+	// type `351` (`issue_document_id`), posted on the company's date today in its time zone and numbered
+	// from its `material_document` range, its `reference` the order's number; its lines in transit
+	// (`in_transit`) are neither plant's stock (`listStock`) but the receiving plant's valuation. Each
+	// item is checked as at the order's creation, the material active and valued in both plants (422
+	// `inventory.no_valuation`), the supplying location's stock enough (409
+	// `inventory.insufficient_stock`) and counted by no open physical inventory document (409
+	// `inventory.posting_blocked`). The issue takes the supplying stock's value as an issue does, and the
+	// stock in transit is worth what it took (at a standard price in the receiving plant, its quantity at
+	// the price, the rest a price difference), posted in one WA journal entry between the valuation
+	// classes' stock accounts (422 `inventory.no_inventory_account`; the ledger's refusals, such as 422
+	// `ledger.period_not_open`). The order is `in_transit`. Audited, and published as
+	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/stock-transport-orders/{id}:postGoodsIssue
+	PostStockTransportGoodsIssue(ctx context.Context, params PostStockTransportGoodsIssueParams) (PostStockTransportGoodsIssueRes, error)
+	// PostStockTransportGoodsReceipt implements postStockTransportGoodsReceipt operation.
+	//
+	// Posts the goods receipt of a stock transport order in transit (ADR-0082 As built S2h; SAP's 101 for
+	// the order, from memory), once, at the version read (`If-Match`; 412 `request.version_mismatch`; an
+	// order not `in_transit`, 409 `procurement.stock_transport_not_in_transit`). Every item's quantity
+	// leaves the stock in transit to its receiving storage location and enters that location's stock, as
+	// one material document of movement type `101` (`receipt_document_id`), posted on the company's date
+	// today and numbered from its `material_document` range, its `reference` the order's number: the
+	// storage location still active (422 `inventory.storage_location_invalid`), the material kept there
+	// (422 `inventory.storage_location_not_extended`; a material blocked since the issue is still
+	// received), and no open physical inventory document counting it there (409
+	// `inventory.posting_blocked`). It stays in the receiving plant's valuation, so it moves no value and
+	// posts no journal entry. The order is `received` and changes no more. Audited, and published as
+	// MaterialDocumentPosted. A retry with the same `Idempotency-Key` answers the order as it left it.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/stock-transport-orders/{id}:postGoodsReceipt
+	PostStockTransportGoodsReceipt(ctx context.Context, params PostStockTransportGoodsReceiptParams) (PostStockTransportGoodsReceiptRes, error)
 	// PostSupplierInvoice implements postSupplierInvoice operation.
 	//
 	// Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires
@@ -8399,7 +8479,8 @@ type Handler interface {
 	// its `material_document` range as a posting is, naming the original (`reversal_of_id`), which names
 	// it in turn (`reversed_by_id`). A reversal is not reversed (409 `inventory.cannot_reverse_reversal`),
 	// nor a document twice (409 `inventory.already_reversed`), nor an outbound delivery's goods issue yet
-	// (409 `inventory.reverse_goods_issue`), nor a count's differences (409 `inventory.reverse_count`: a
+	// (409 `inventory.reverse_goods_issue`), nor a stock transport order's goods issue or receipt yet (409
+	// `inventory.reverse_stock_transport`), nor a count's differences (409 `inventory.reverse_count`: a
 	// new count corrects the stock); two reversals at once post one. The reversal moves the stock back, so
 	// it is refused when the stock the original received has gone (409 `inventory.insufficient_stock`,
 	// naming the material, the location and both quantities). It is refused, as a posting is, while an
