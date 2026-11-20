@@ -1366,7 +1366,11 @@ answers the three calls below. Decided by default:
   what Evatra answered (its tracking id and status), unless the answer is
   final (Evatra refusing the document, a status of COMPLETED, FAILED or
   PERMANENT_FAILED), which is recorded as it is: a delivered e-invoice
-  stays completed (review round 2); a claimed call whose
+  stays completed (review round 2), and the Operation stays cancelled
+  either way; a send cancelled while the vault cannot be reached (or the
+  store read fails) stays in progress until they answer, as its step
+  prepares the call before it reads the Operation (review round 3); a
+  claimed call whose
   claim has not lapsed is waited for, as it may be under way. A person
   may then send it again: it is looked up first, so a submission Evatra
   holds is taken, not sent twice. The workflow runs its steps on a context

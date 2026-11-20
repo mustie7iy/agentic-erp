@@ -45,7 +45,8 @@ type call struct {
 // none open while the connector's secret is resolved, the store read or
 // the provider called. The step is prepared first, from the submission as
 // read: a failure of the machinery there changes nothing and is returned,
-// to be tried again. Then, under the row's lock, a submission whose send
+// to be tried again, so a send cancelled while the vault or the store
+// fails stays in progress until they answer. Then, under the row's lock, a submission whose send
 // was cancelled is ended (sendCancelled); a queued submission (or one
 // whose claim lapsed, its outcome unknown) is claimed, its call counted,
 // and sent, looked up first when a call was made before; a submitted one

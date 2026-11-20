@@ -125339,11 +125339,14 @@ func (s *Server) handleScheduleReportRequest(args [1]string, argsEscaped bool, w
 // (`cancelOperation`) ends it at its next step: the submission is `failed` with
 // `einvoicing.send_cancelled`, keeping what the provider answered (a call under way is waited for),
 // unless that answer is final (the provider refusing the document, COMPLETED, FAILED or
-// PERMANENT_FAILED), which is recorded as it is; a person may send it again, looked up at the provider
-// first. The caller sends the e-invoice at the ETag it read (`If-Match`, the e-invoice's `etag`; the
-// ETag moves with its transmission, so a send asked twice on one reading is refused 412). Refused: a
-// business type other than B2B and B2G (422 `einvoicing.unknown_business_type`); an e-invoice that is
-// invalid (409 `einvoicing.document_invalid`); one queued, sending or submitted (409
+// PERMANENT_FAILED), which is recorded as it is; either way the Operation stays `cancelled`, and the
+// e-invoice's `transmission` says how it ended. A send cancelled while the vault cannot be reached (or
+// the store read fails) stays in progress until they answer, since its step prepares the call before
+// it reads the Operation. A person may send it again, looked up at the provider first. The caller
+// sends the e-invoice at the ETag it read (`If-Match`, the e-invoice's `etag`; the ETag moves with its
+// transmission, so a send asked twice on one reading is refused 412). Refused: a business type other
+// than B2B and B2G (422 `einvoicing.unknown_business_type`); an e-invoice that is invalid (409
+// `einvoicing.document_invalid`); one queued, sending or submitted (409
 // `einvoicing.transmission_in_progress`) or completed (409 `einvoicing.already_transmitted`); a
 // `connector_id` the tenant has no connector of (422 `request.reference_not_found`); a connector that
 // is not an active `einvoice_provider` connector naming a `secret_ref`, as `fetchEInvoices` refuses

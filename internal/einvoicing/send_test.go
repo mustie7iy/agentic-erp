@@ -347,22 +347,27 @@ func TestSendCancelled(t *testing.T) {
 			words("failed PENDING 1 0 einvoicing.send_cancelled", s.srv.Evatra.Sends()[len(s.srv.Evatra.Sends())-1].TrackingID,
 				"cancelled /v1/outgoing-e-invoices/"+id+" -"))
 	})
-	t.Run("during a call failing, refused, or reading a status", func(t *testing.T) {
+	t.Run("during a call failing, refused, or reading a status, or that read failing", func(t *testing.T) {
 		refuses := s.sendConnector(t, "Refused while cancelled", "evatra", "NOT-OURS", map[string]string{"5000": sellerParticipant})
-		failed, refused, processing, completed := next(t), next(t), next(t), next(t)
+		failed, refused, processing, completed, readFails := next(t), next(t), next(t), next(t), next(t)
 		got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+processing, "", "")
 		s.srv.Evatra.Script(got["customer_invoice_number"].(string), []string{"PROCESSING"})
 		ops := map[string]uuid.UUID{failed: s.send(t, failed, s.connector), refused: s.send(t, refused, refuses),
-			processing: s.send(t, processing, s.connector), completed: s.send(t, completed, s.connector)}
+			processing: s.send(t, processing, s.connector), completed: s.send(t, completed, s.connector), readFails: s.send(t, readFails, s.connector)}
 		s.advance(t, processing, ops[processing]) // submitted
 		s.advance(t, completed, ops[completed])
+		s.advance(t, readFails, ops[readFails])
+		tracking := s.srv.Evatra.Sends()[len(s.srv.Evatra.Sends())-1].TrackingID
 		s.later(30 * time.Second)
-		for _, id := range []string{failed, refused, processing, completed} {
-			if id == failed {
+		for _, id := range []string{failed, refused, processing, completed, readFails} {
+			switch id {
+			case failed:
 				s.srv.Fail("POST /evatra/invoice/send-document-async", 1)
+			case readFails:
+				s.srv.Fail("GET /evatra/invoice/document-status/"+tracking, 1)
 			}
 			claimed := 4 // the read, the connector, the XML, then the claim's commit
-			if id == processing || id == completed {
+			if id == processing || id == completed || id == readFails {
 				claimed = 3 // a status read reads no XML
 			}
 			calls := 0
@@ -381,6 +386,7 @@ func TestSendCancelled(t *testing.T) {
 		check(t, "a failed call: nothing to keep", s.transmission(t, failed), "failed <nil> 1 0 einvoicing.send_cancelled")
 		check(t, "a refusal: final, recorded as it is", s.transmission(t, refused), "failed <nil> 1 0 einvoicing.send_refused")
 		check(t, "a status in progress: kept", s.transmission(t, processing), "failed PROCESSING 1 0 einvoicing.send_cancelled")
+		check(t, "a status read failing: the status before kept", s.transmission(t, readFails), "failed PENDING 1 0 einvoicing.send_cancelled")
 		check(t, "COMPLETED: final, recorded as it is", words(s.transmission(t, completed), operation(t, ops[completed])),
 			"completed COMPLETED 1 0 - cancelled /v1/outgoing-e-invoices/"+completed+" -")
 	})
