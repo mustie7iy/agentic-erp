@@ -8377,7 +8377,7 @@ type Invoker interface {
 	// (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
 	// §13). Refused besides: a tax data document not failed (409 `einvoicing.tax_data_not_failed`).
 	//
-	// POST /v1/outgoing-e-invoices/{id}:retry-tax-data
+	// POST /v1/outgoing-e-invoices/{id}:retryTaxData
 	RetryOutgoingEInvoiceTaxData(ctx context.Context, params RetryOutgoingEInvoiceTaxDataParams) (RetryOutgoingEInvoiceTaxDataRes, error)
 	// ReverseAllocationRun invokes reverseAllocationRun operation.
 	//
@@ -9632,7 +9632,7 @@ type Invoker interface {
 	// §13). Refused besides: a tax data document not reported, failed, rejected or being withdrawn (409
 	// `einvoicing.tax_data_not_withdrawable`).
 	//
-	// POST /v1/outgoing-e-invoices/{id}:withdraw-tax-data
+	// POST /v1/outgoing-e-invoices/{id}:withdrawTaxData
 	WithdrawOutgoingEInvoiceTaxData(ctx context.Context, params WithdrawOutgoingEInvoiceTaxDataParams) (WithdrawOutgoingEInvoiceTaxDataRes, error)
 	// WithdrawTaxReturn invokes withdrawTaxReturn operation.
 	//
@@ -114237,7 +114237,7 @@ func (c *Client) sendRetireEntryTemplate(ctx context.Context, params RetireEntry
 // (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
 // §13). Refused besides: a tax data document not failed (409 `einvoicing.tax_data_not_failed`).
 //
-// POST /v1/outgoing-e-invoices/{id}:retry-tax-data
+// POST /v1/outgoing-e-invoices/{id}:retryTaxData
 func (c *Client) RetryOutgoingEInvoiceTaxData(ctx context.Context, params RetryOutgoingEInvoiceTaxDataParams) (RetryOutgoingEInvoiceTaxDataRes, error) {
 	res, err := c.sendRetryOutgoingEInvoiceTaxData(ctx, params)
 	return res, err
@@ -114247,7 +114247,7 @@ func (c *Client) sendRetryOutgoingEInvoiceTaxData(ctx context.Context, params Re
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("retryOutgoingEInvoiceTaxData"),
 		semconv.HTTPRequestMethodKey.String("POST"),
-		semconv.URLTemplateKey.String("/v1/outgoing-e-invoices/{id}:retry-tax-data"),
+		semconv.URLTemplateKey.String("/v1/outgoing-e-invoices/{id}:retryTaxData"),
 	}
 	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
 
@@ -114300,7 +114300,7 @@ func (c *Client) sendRetryOutgoingEInvoiceTaxData(ctx context.Context, params Re
 		}
 		pathParts[1] = encoded
 	}
-	pathParts[2] = ":retry-tax-data"
+	pathParts[2] = ":retryTaxData"
 	uri.AddPathParts(u, pathParts[:]...)
 
 	stage = "EncodeRequest"
@@ -126819,7 +126819,7 @@ func (c *Client) sendWithdrawChangeRequest(ctx context.Context, request *ReasonI
 // §13). Refused besides: a tax data document not reported, failed, rejected or being withdrawn (409
 // `einvoicing.tax_data_not_withdrawable`).
 //
-// POST /v1/outgoing-e-invoices/{id}:withdraw-tax-data
+// POST /v1/outgoing-e-invoices/{id}:withdrawTaxData
 func (c *Client) WithdrawOutgoingEInvoiceTaxData(ctx context.Context, params WithdrawOutgoingEInvoiceTaxDataParams) (WithdrawOutgoingEInvoiceTaxDataRes, error) {
 	res, err := c.sendWithdrawOutgoingEInvoiceTaxData(ctx, params)
 	return res, err
@@ -126829,7 +126829,7 @@ func (c *Client) sendWithdrawOutgoingEInvoiceTaxData(ctx context.Context, params
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("withdrawOutgoingEInvoiceTaxData"),
 		semconv.HTTPRequestMethodKey.String("POST"),
-		semconv.URLTemplateKey.String("/v1/outgoing-e-invoices/{id}:withdraw-tax-data"),
+		semconv.URLTemplateKey.String("/v1/outgoing-e-invoices/{id}:withdrawTaxData"),
 	}
 	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
 
@@ -126882,7 +126882,7 @@ func (c *Client) sendWithdrawOutgoingEInvoiceTaxData(ctx context.Context, params
 		}
 		pathParts[1] = encoded
 	}
-	pathParts[2] = ":withdraw-tax-data"
+	pathParts[2] = ":withdrawTaxData"
 	uri.AddPathParts(u, pathParts[:]...)
 
 	stage = "EncodeRequest"

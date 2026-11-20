@@ -40,7 +40,7 @@ func (s *sender) completed(t *testing.T, id string) uuid.UUID {
 // withdrawn, answering the request's Operation, carried out by the test.
 func (s *sender) request(t *testing.T, id, action string) uuid.UUID {
 	t.Helper()
-	op, _ := s.f.Must(202, "POST", "/v1/outgoing-e-invoices/"+id+":"+action+"-tax-data", "", s.tag(t, id))
+	op, _ := s.f.Must(202, "POST", "/v1/outgoing-e-invoices/"+id+":"+action+"TaxData", "", s.tag(t, id))
 	check(t, "its kind", op["kind"], einvoicing.KindTaxData)
 	opID := uuid.MustParse(op["id"].(string))
 	pgtest.Exec(t, `UPDATE platform.operation SET workflow_id = 'carried out by the test', version = version + 1 WHERE id = $1`, opID)
@@ -159,12 +159,12 @@ func TestTaxDataRetryAndWithdraw(t *testing.T) {
 		t.Errorf("TDD_FAILED is final: got %+v, want done", step)
 	}
 	check(t, "failed at the authority's corner", s.delivery(t, id), "ACCEPTANCE accepted TDD_FAILED <nil>")
-	s.f.Problem(409, "einvoicing.tax_data_not_withdrawable", "POST", "/v1/outgoing-e-invoices/"+id+":withdraw-tax-data", "", s.tag(t, id))
+	s.f.Problem(409, "einvoicing.tax_data_not_withdrawable", "POST", "/v1/outgoing-e-invoices/"+id+":withdrawTaxData", "", s.tag(t, id))
 	retry := s.request(t, id, "retry")
 	check(t, "the request written", s.delivery(t, id), "ACCEPTANCE accepted TDD_FAILED retry")
 	got, _ := s.f.Must(200, "GET", "/v1/outgoing-e-invoices/"+id, "", "")
 	check(t, "its Operation takes over", got["transmission"].(map[string]any)["operation_id"], retry.String())
-	s.f.Problem(409, "einvoicing.tax_data_request_pending", "POST", "/v1/outgoing-e-invoices/"+id+":retry-tax-data", "", s.tag(t, id))
+	s.f.Problem(409, "einvoicing.tax_data_request_pending", "POST", "/v1/outgoing-e-invoices/"+id+":retryTaxData", "", s.tag(t, id))
 	if step := s.advance(t, id, send); !step.Done {
 		t.Errorf("the send's step: got %+v, want done, the request's Operation owns it", step)
 	}
@@ -191,7 +191,7 @@ func TestTaxDataRetryAndWithdraw(t *testing.T) {
 		t.Errorf("approved: got %+v, want done", step)
 	}
 	check(t, "approved", s.delivery(t, id), "ACCEPTANCE accepted TDD_APPROVED <nil>")
-	s.f.Problem(409, "einvoicing.tax_data_not_failed", "POST", "/v1/outgoing-e-invoices/"+id+":retry-tax-data", "", s.tag(t, id))
+	s.f.Problem(409, "einvoicing.tax_data_not_failed", "POST", "/v1/outgoing-e-invoices/"+id+":retryTaxData", "", s.tag(t, id))
 	withdraw := s.request(t, id, "withdraw")
 	s.advance(t, id, withdraw)
 	s.advance(t, id, withdraw)

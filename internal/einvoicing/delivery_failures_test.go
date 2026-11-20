@@ -49,20 +49,20 @@ var failedTaxData = einvoicetest.DeliveryScript{Responses: []einvoicetest.Respon
 func TestTaxDataRefusals(t *testing.T) {
 	s := senderSetup(t)
 	unsent := s.invoice["id"].(string)
-	s.f.Problem(409, "einvoicing.not_transmitted", "POST", "/v1/outgoing-e-invoices/"+unsent+":retry-tax-data", "", s.tag(t, unsent))
+	s.f.Problem(409, "einvoicing.not_transmitted", "POST", "/v1/outgoing-e-invoices/"+unsent+":retryTaxData", "", s.tag(t, unsent))
 	op := s.send(t, unsent, s.connector)
-	s.f.Problem(409, "einvoicing.not_transmitted", "POST", "/v1/outgoing-e-invoices/"+unsent+":withdraw-tax-data", "", s.tag(t, unsent))
+	s.f.Problem(409, "einvoicing.not_transmitted", "POST", "/v1/outgoing-e-invoices/"+unsent+":withdrawTaxData", "", s.tag(t, unsent))
 	s.advance(t, unsent, op)
 	s.later(30 * time.Second)
 	s.advance(t, unsent, op)
-	s.f.Problem(409, "einvoicing.tax_data_not_withdrawable", "POST", "/v1/outgoing-e-invoices/"+unsent+":withdraw-tax-data", "", s.tag(t, unsent))
-	s.f.Problem(409, "einvoicing.tax_data_not_failed", "POST", "/v1/outgoing-e-invoices/"+unsent+":retry-tax-data", "", s.tag(t, unsent))
-	s.f.Problem(412, "request.version_mismatch", "POST", "/v1/outgoing-e-invoices/"+unsent+":retry-tax-data", "", `"1"`)
-	s.f.Problem(404, "request.not_found", "POST", "/v1/outgoing-e-invoices/"+uuid.NewString()+":retry-tax-data", "", `"1"`)
+	s.f.Problem(409, "einvoicing.tax_data_not_withdrawable", "POST", "/v1/outgoing-e-invoices/"+unsent+":withdrawTaxData", "", s.tag(t, unsent))
+	s.f.Problem(409, "einvoicing.tax_data_not_failed", "POST", "/v1/outgoing-e-invoices/"+unsent+":retryTaxData", "", s.tag(t, unsent))
+	s.f.Problem(412, "request.version_mismatch", "POST", "/v1/outgoing-e-invoices/"+unsent+":retryTaxData", "", `"1"`)
+	s.f.Problem(404, "request.not_found", "POST", "/v1/outgoing-e-invoices/"+uuid.NewString()+":retryTaxData", "", `"1"`)
 
 	id, _ := s.reported(t, failedTaxData)
 	pgtest.Exec(t, `UPDATE integration.connector SET status = 'disabled', version = version + 1 WHERE id = $1`, s.connector)
-	s.f.Problem(409, "integration.connector_disabled", "POST", "/v1/outgoing-e-invoices/"+id+":retry-tax-data", "", s.tag(t, id))
+	s.f.Problem(409, "integration.connector_disabled", "POST", "/v1/outgoing-e-invoices/"+id+":retryTaxData", "", s.tag(t, id))
 	pgtest.Exec(t, `UPDATE integration.connector SET status = 'active', version = version + 1 WHERE id = $1`, s.connector)
 	check(t, "nothing written", s.delivery(t, id), "ACCEPTANCE accepted TDD_FAILED <nil>")
 
@@ -307,7 +307,9 @@ func TestTaxDataRecordFailures(t *testing.T) {
 					}
 					return &pgtest.FailingTx{Tx: tx, FailAt: n, Count: &count}, nil
 				}, Scope: database.Scope{Role: "erp_app", TenantID: s.f.Tenant.ID}, Name: "test record"}.As(ctx,
-					func(context.Context, pgx.Tx) (reqctx.Principal, bool, error) { return einvoicing.Sender(s.f.Tenant.ID), true, nil }, fn)
+					func(context.Context, pgx.Tx) (reqctx.Principal, bool, error) {
+						return einvoicing.Sender(s.f.Tenant.ID), true, nil
+					}, fn)
 			}
 			_, err := s.e.AdvanceSubmission(context.Background(), uuid.MustParse(id), op, failing)
 			if err == nil {

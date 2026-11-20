@@ -10113,7 +10113,7 @@ func (UnimplementedHandler) RetireEntryTemplate(ctx context.Context, params Reti
 // (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
 // §13). Refused besides: a tax data document not failed (409 `einvoicing.tax_data_not_failed`).
 //
-// POST /v1/outgoing-e-invoices/{id}:retry-tax-data
+// POST /v1/outgoing-e-invoices/{id}:retryTaxData
 func (UnimplementedHandler) RetryOutgoingEInvoiceTaxData(ctx context.Context, params RetryOutgoingEInvoiceTaxDataParams) (r RetryOutgoingEInvoiceTaxDataRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
@@ -11593,7 +11593,7 @@ func (UnimplementedHandler) WithdrawChangeRequest(ctx context.Context, req *Reas
 // §13). Refused besides: a tax data document not reported, failed, rejected or being withdrawn (409
 // `einvoicing.tax_data_not_withdrawable`).
 //
-// POST /v1/outgoing-e-invoices/{id}:withdraw-tax-data
+// POST /v1/outgoing-e-invoices/{id}:withdrawTaxData
 func (UnimplementedHandler) WithdrawOutgoingEInvoiceTaxData(ctx context.Context, params WithdrawOutgoingEInvoiceTaxDataParams) (r WithdrawOutgoingEInvoiceTaxDataRes, _ error) {
 	return r, ht.ErrNotImplemented
 }

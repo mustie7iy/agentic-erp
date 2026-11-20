@@ -8356,7 +8356,7 @@ type Handler interface {
 	// (404). Human-only (`x-agent: false`): agents never retry or withdraw a tax data document (ADR-0061
 	// §13). Refused besides: a tax data document not failed (409 `einvoicing.tax_data_not_failed`).
 	//
-	// POST /v1/outgoing-e-invoices/{id}:retry-tax-data
+	// POST /v1/outgoing-e-invoices/{id}:retryTaxData
 	RetryOutgoingEInvoiceTaxData(ctx context.Context, params RetryOutgoingEInvoiceTaxDataParams) (RetryOutgoingEInvoiceTaxDataRes, error)
 	// ReverseAllocationRun implements reverseAllocationRun operation.
 	//
@@ -9611,7 +9611,7 @@ type Handler interface {
 	// §13). Refused besides: a tax data document not reported, failed, rejected or being withdrawn (409
 	// `einvoicing.tax_data_not_withdrawable`).
 	//
-	// POST /v1/outgoing-e-invoices/{id}:withdraw-tax-data
+	// POST /v1/outgoing-e-invoices/{id}:withdrawTaxData
 	WithdrawOutgoingEInvoiceTaxData(ctx context.Context, params WithdrawOutgoingEInvoiceTaxDataParams) (WithdrawOutgoingEInvoiceTaxDataRes, error)
 	// WithdrawTaxReturn implements withdrawTaxReturn operation.
 	//

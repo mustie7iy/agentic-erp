@@ -600,7 +600,7 @@ E1-E4 under T65h):
 |---|---|---|
 | `einvoicing.einvoice.read` | list and read e-invoices; `/content` is `x-agent: false` | AP clerks, controllers; agents (fields only) |
 | `einvoicing.einvoice.manage` | `:fetch`, `:retry`, `:link` (with `payables.invoice.read`), `:dismiss` | AP clerks; people and integrations, never agents (`x-autonomy: none`) |
-| `einvoicing.outgoing.send` | `:send` an outgoing e-invoice to the accredited provider (As built E3); `:retry-tax-data` and `:withdraw-tax-data` of a transmitted one (As built E4) | people only, never agents (`x-agent: false`); given to no role, as E2's |
+| `einvoicing.outgoing.send` | `:send` an outgoing e-invoice to the accredited provider (As built E3); `:retryTaxData` and `:withdrawTaxData` of a transmitted one (As built E4) | people only, never agents (`x-agent: false`); given to no role, as E2's |
 | `tax.audit_file.generate` | generate an audit file | tax accountants; people only |
 | `tax.audit_file.read` | read and download audit files | tax accountants, controllers; people only |
 
@@ -1445,8 +1445,8 @@ Built as §9 for what comes back: migration 000422 (on
 `follow_check_at`; the transition trigger allows completed to itself and
 keeps a completed one's transmission), the e-invoice's `transmission`
 showing them with `delivery_outcome`, the list's `delivery_outcome`
-filter, `POST /v1/outgoing-e-invoices/{id}:retry-tax-data`
-(`retryOutgoingEInvoiceTaxData`) and `:withdraw-tax-data`
+filter, `POST /v1/outgoing-e-invoices/{id}:retryTaxData`
+(`retryOutgoingEInvoiceTaxData`) and `:withdrawTaxData`
 (`withdrawOutgoingEInvoiceTaxData`), human-only, an Operation of kind
 `einvoicing.tax_data`, the audit record `einvoicing.outgoing.tax_data` (the
 person's request), and OutgoingEInvoiceTransmissionChanged carrying

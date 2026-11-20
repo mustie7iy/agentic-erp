@@ -32,23 +32,25 @@ const KindTaxData = "einvoicing.tax_data"
 var withdrawable = []string{TaxDataSent, TaxDataApproved, TaxDataAcknowledged, TaxDataWithdrawFailed}
 
 // RetryOutgoingEInvoiceTaxData implements POST
-// /v1/outgoing-e-invoices/{id}:retry-tax-data.
+// /v1/outgoing-e-invoices/{id}:retryTaxData.
 func (e *Endpoints) RetryOutgoingEInvoiceTaxData(ctx context.Context, params gen.RetryOutgoingEInvoiceTaxDataParams) (gen.RetryOutgoingEInvoiceTaxDataRes, error) {
-	return e.requestTaxData(ctx, params.ID, params.IfMatch, TaxDataRetry)
+	return e.requestTaxData(ctx, params.ID, params.IfMatch, TaxDataRetry, retryable)
 }
 
 // WithdrawOutgoingEInvoiceTaxData implements POST
-// /v1/outgoing-e-invoices/{id}:withdraw-tax-data.
+// /v1/outgoing-e-invoices/{id}:withdrawTaxData.
 func (e *Endpoints) WithdrawOutgoingEInvoiceTaxData(ctx context.Context, params gen.WithdrawOutgoingEInvoiceTaxDataParams) (gen.WithdrawOutgoingEInvoiceTaxDataRes, error) {
-	return e.requestTaxData(ctx, params.ID, params.IfMatch, TaxDataWithdraw)
+	return e.requestTaxData(ctx, params.ID, params.IfMatch, TaxDataWithdraw, withdrawableNow)
 }
 
 // requestTaxData queues a person's request of the e-invoice's tax data
 // document: the connector checked first, with no row locked, as a send's
 // is; then the e-invoice and its submission read FOR UPDATE (in the send's
 // order), checked at the caller's ETag, and the request written with its
-// Operation, audited and published, before any call.
-func (e *Endpoints) requestTaxData(ctx context.Context, id uuid.UUID, ifMatch, request string) (*gen.OperationHeaders, error) {
+// Operation, audited and published, before any call; applies refuses a
+// tax data document the request does not apply to.
+func (e *Endpoints) requestTaxData(ctx context.Context, id uuid.UUID, ifMatch, request string, applies func(OutgoingEInvoice, string) error) (
+	*gen.OperationHeaders, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
@@ -74,7 +76,7 @@ func (e *Endpoints) requestTaxData(ctx context.Context, id uuid.UUID, ifMatch, r
 	if s, _, err = submissionOf(ctx, tx, o.ID, true); err != nil { // a submission is never deleted
 		return nil, err
 	}
-	if err := requestable(o, s, ifMatch, request); err != nil {
+	if err := requestable(o, s, ifMatch, applies); err != nil {
 		return nil, err
 	}
 	op, err := e.TaxData.Start(ctx, outgoingPath(o.ID), map[string]string{"tax_data_request": request})
@@ -93,24 +95,35 @@ func (e *Endpoints) requestTaxData(ctx context.Context, id uuid.UUID, ifMatch, r
 
 // requestable refuses a request the locked submission, completed, cannot
 // take: read at another ETag than the caller's, a request not yet made, or
-// a tax data document in a status the request does not apply to.
-func requestable(o OutgoingEInvoice, s submission, ifMatch, request string) error {
+// a tax data document the request does not apply to.
+func requestable(o OutgoingEInvoice, s submission, ifMatch string, applies func(OutgoingEInvoice, string) error) error {
 	if err := etag.Check(ifMatch, o.Version+s.Version); err != nil {
 		return err
 	}
-	status := deref(s.TaxDataStatus)
-	switch {
-	case s.TaxDataRequest != nil: // completed, as read before the lock: completed is final
+	if s.TaxDataRequest != nil { // completed, as read before the lock: completed is final
 		return problem.Conflict("einvoicing.tax_data_request_pending", "The "+*s.TaxDataRequest+" of e-invoice "+o.CustomerInvoiceNumber+
 			"'s tax data document is not made yet; follow operation "+s.OperationID.String()+".")
-	case request == TaxDataRetry && status != TaxDataFailed:
-		return problem.Conflict("einvoicing.tax_data_not_failed", "The tax data document of e-invoice "+o.CustomerInvoiceNumber+" is "+
-			orNone(status)+", not TDD_FAILED: only a failed one is sent again.")
-	case request == TaxDataWithdraw && !slices.Contains(withdrawable, status):
-		return problem.Conflict("einvoicing.tax_data_not_withdrawable", "The tax data document of e-invoice "+o.CustomerInvoiceNumber+" is "+
-			orNone(status)+": only one reported (TDD_SEND, TDD_APPROVED, TDD_ACKNOWLEDGED) or whose withdrawal failed is withdrawn.")
 	}
-	return nil
+	return applies(o, deref(s.TaxDataStatus))
+}
+
+// retryable refuses a retry of a tax data document not TDD_FAILED.
+func retryable(o OutgoingEInvoice, status string) error {
+	if status == TaxDataFailed {
+		return nil
+	}
+	return problem.Conflict("einvoicing.tax_data_not_failed", "The tax data document of e-invoice "+o.CustomerInvoiceNumber+" is "+
+		orNone(status)+", not TDD_FAILED: only a failed one is sent again.")
+}
+
+// withdrawableNow refuses a withdrawal of a tax data document not
+// reported, or failed, rejected or being withdrawn.
+func withdrawableNow(o OutgoingEInvoice, status string) error {
+	if slices.Contains(withdrawable, status) {
+		return nil
+	}
+	return problem.Conflict("einvoicing.tax_data_not_withdrawable", "The tax data document of e-invoice "+o.CustomerInvoiceNumber+" is "+
+		orNone(status)+": only one reported (TDD_SEND, TDD_APPROVED, TDD_ACKNOWLEDGED) or whose withdrawal failed is withdrawn.")
 }
 
 func notTransmitted(o OutgoingEInvoice) error {

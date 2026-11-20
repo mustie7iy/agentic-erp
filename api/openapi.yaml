@@ -28286,7 +28286,7 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
-  "/v1/outgoing-e-invoices/{id}:retry-tax-data":
+  "/v1/outgoing-e-invoices/{id}:retryTaxData":
     post:
       operationId: retryOutgoingEInvoiceTaxData
       tags:
@@ -28341,7 +28341,7 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
-  "/v1/outgoing-e-invoices/{id}:withdraw-tax-data":
+  "/v1/outgoing-e-invoices/{id}:withdrawTaxData":
     post:
       operationId: withdrawOutgoingEInvoiceTaxData
       tags:

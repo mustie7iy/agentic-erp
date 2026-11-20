@@ -12958,9 +12958,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 									break
 								}
 								switch elem[0] {
-								case 'r': // Prefix: "retry-tax-data"
+								case 'r': // Prefix: "retryTaxData"
 
-									if l := len("retry-tax-data"); len(elem) >= l && elem[0:l] == "retry-tax-data" {
+									if l := len("retryTaxData"); len(elem) >= l && elem[0:l] == "retryTaxData" {
 										elem = elem[l:]
 									} else {
 										break
@@ -13012,9 +13012,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										return
 									}
 
-								case 'w': // Prefix: "withdraw-tax-data"
+								case 'w': // Prefix: "withdrawTaxData"
 
-									if l := len("withdraw-tax-data"); len(elem) >= l && elem[0:l] == "withdraw-tax-data" {
+									if l := len("withdrawTaxData"); len(elem) >= l && elem[0:l] == "withdrawTaxData" {
 										elem = elem[l:]
 									} else {
 										break
@@ -31406,9 +31406,9 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 									break
 								}
 								switch elem[0] {
-								case 'r': // Prefix: "retry-tax-data"
+								case 'r': // Prefix: "retryTaxData"
 
-									if l := len("retry-tax-data"); len(elem) >= l && elem[0:l] == "retry-tax-data" {
+									if l := len("retryTaxData"); len(elem) >= l && elem[0:l] == "retryTaxData" {
 										elem = elem[l:]
 									} else {
 										break
@@ -31422,7 +31422,7 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 											r.summary = "Send a failed tax data document of a transmitted e-invoice again"
 											r.operationID = "retryOutgoingEInvoiceTaxData"
 											r.operationGroup = ""
-											r.pathPattern = "/v1/outgoing-e-invoices/{id}:retry-tax-data"
+											r.pathPattern = "/v1/outgoing-e-invoices/{id}:retryTaxData"
 											r.args = args
 											r.count = 1
 											return r, true
@@ -31456,9 +31456,9 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 										}
 									}
 
-								case 'w': // Prefix: "withdraw-tax-data"
+								case 'w': // Prefix: "withdrawTaxData"
 
-									if l := len("withdraw-tax-data"); len(elem) >= l && elem[0:l] == "withdraw-tax-data" {
+									if l := len("withdrawTaxData"); len(elem) >= l && elem[0:l] == "withdrawTaxData" {
 										elem = elem[l:]
 									} else {
 										break
@@ -31472,7 +31472,7 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 											r.summary = "Withdraw the tax data document of a transmitted e-invoice"
 											r.operationID = "withdrawOutgoingEInvoiceTaxData"
 											r.operationGroup = ""
-											r.pathPattern = "/v1/outgoing-e-invoices/{id}:withdraw-tax-data"
+											r.pathPattern = "/v1/outgoing-e-invoices/{id}:withdrawTaxData"
 											r.args = args
 											r.count = 1
 											return r, true
