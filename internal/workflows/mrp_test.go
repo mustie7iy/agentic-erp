@@ -22,6 +22,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
 
@@ -139,6 +140,31 @@ func TestMrpRunInterrupted(t *testing.T) {
 		t.Errorf("the run: got %s, want it and its Operation failed with platform.internal", got)
 	}
 	s.start(t) // the plant is free again
+}
+
+// refusedFailure is the mrp context with every plan failing on the
+// machinery and the run's failure refused with a business problem.
+type refusedFailure struct{ stuckPlans }
+
+func (refusedFailure) FailRun(context.Context, uuid.UUID, *problem.Problem) error {
+	return problem.Conflict("test.fail_refused", "Refused.")
+}
+
+// TestMrpRunFailureRefused: when the failure of an interrupted run is
+// refused with a business problem, which is not retried, the workflow
+// fails with that refusal rather than the plan's error, and the run is
+// not failed (as DepreciationRun's refused failure, the workflow ends).
+func TestMrpRunFailureRefused(t *testing.T) {
+	s := mrpSetup(t)
+	s.m.Runs = refusedFailure{stuckPlans{Mrp: app.MRP(app.Config{}), tries: &atomic.Int32{}}}
+	in := s.start(t)
+	err := s.runMrp(t, in)
+	if err == nil || !strings.Contains(err.Error(), "Refused.") {
+		t.Errorf("the workflow: got %v, want the failure's refusal", err)
+	}
+	if got := mrpStateOf(t, in); strings.HasPrefix(got, "failed") {
+		t.Errorf("the run: got %s, want it not failed, its failure refused", got)
+	}
 }
 
 // TestDispatchMrp: a queued run's Operation becomes an MrpRun named by
