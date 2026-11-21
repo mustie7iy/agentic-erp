@@ -865,11 +865,10 @@ func (s *server) startProjections(runCtx context.Context) {
 	}
 }
 
-// startOperations starts what runs queued operations: the bank file
-// transmitter, and the in-process payment workers or the workflow worker
-// and the dispatcher that hands it the queued operations.
-func (s *server) startOperations(runCtx context.Context) {
-	cfg, pool, log, apiCfg, engine := s.cfg, s.pool, s.log, s.apiCfg, s.engine
+// startReplicaWorkers starts the workers every replica runs, with or
+// without the workflow engine.
+func (s *server) startReplicaWorkers(runCtx context.Context) {
+	cfg, pool, log, apiCfg := s.cfg, s.pool, s.log, s.apiCfg
 	// Bank files are sent by a worker of every replica, with or without the
 	// workflow engine: the outbox of their transmission (T44e, ADR-0038).
 	transmitter := &payments.Transmitter{Endpoints: app.Payments(apiCfg), Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Log: log}
@@ -895,6 +894,14 @@ func (s *server) startOperations(runCtx context.Context) {
 	deleter := &records.Deleter{Endpoints: app.Records(apiCfg), Requesters: identity.Actors{}, Pool: pool, AppRole: cfg.AppRole,
 		WorkerRole: cfg.WorkerRole, Log: log}
 	s.spawn("records deleter", func() { deleter.Run(runCtx) })
+}
+
+// startOperations starts what runs queued operations: the bank file
+// transmitter, and the in-process payment workers or the workflow worker
+// and the dispatcher that hands it the queued operations.
+func (s *server) startOperations(runCtx context.Context) {
+	s.startReplicaWorkers(runCtx)
+	cfg, pool, log, apiCfg, engine := s.cfg, s.pool, s.log, s.apiCfg, s.engine
 	recurrences := &workflows.Recurrences{Pool: pool, AppRole: cfg.AppRole, WorkerRole: cfg.WorkerRole, Endpoints: app.Ledger(apiCfg)}
 	// The cash context is a leaf (ADR-0051 §2): its endpoints are the
 	// snapshot workflow's port, wired here.

@@ -59,9 +59,11 @@ func TestPlanningRun(t *testing.T) {
 		"quantity": {"value": "5", "unit": "EA"}, "unit_price": {"amount": "2.00", "currency": "EUR"}, "account_id": %q}]}`, e.DE, e.bracket, e.stock), "")
 	first := e.run(t)
 	for f, want := range map[string]any{"status": "completed", "materials_planned": float64(1), "proposals_created": float64(1), "proposals_replaced": float64(0)} {
-		if first[f] != want {
-			t.Errorf("the first run's %s: got %v, want %v", f, first[f], want)
-		}
+		t.Run(f, func(t *testing.T) {
+			if first[f] != want {
+				t.Errorf("the first run: got %v, want %v", first[f], want)
+			}
+		})
 	}
 	if got := line(t, first, e.bracket); got != "230 200 20 60 PR100001" {
 		t.Errorf("the first run's line: got %s, want demand 230, stock 200, receipts 20 and a shortage of 60 proposed", got)

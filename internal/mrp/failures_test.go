@@ -96,7 +96,9 @@ func TestRunTwice(t *testing.T) {
 		t.Errorf("an unknown run: got %v, want request.not_found", err)
 	}
 	queued := e.start(t)
-	if n, err := w.RunOnce(context.Background()); err != nil || n != 1 {
+	// Other tests' tenants may have runs queued in the package database: the
+	// runner carries out every tenant's, so this one is among them.
+	if n, err := w.RunOnce(context.Background()); err != nil || n < 1 {
 		t.Errorf("the in-process runner: got %d, %v; want the queued run carried out", n, err)
 	}
 	if r, _ := e.Must(200, "GET", runs+"/"+queued.RunID.String(), "", ""); r["status"] != "completed" {
