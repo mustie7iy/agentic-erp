@@ -143,27 +143,40 @@ func TestMrpRunInterrupted(t *testing.T) {
 }
 
 // refusedFailure is the mrp context with every plan failing on the
-// machinery and the run's failure refused with a business problem.
-type refusedFailure struct{ stuckPlans }
+// machinery and the run's failure refused with a business problem
+// (failTries counts its tries).
+type refusedFailure struct {
+	stuckPlans
+	failTries *atomic.Int32
+}
 
-func (refusedFailure) FailRun(context.Context, uuid.UUID, *problem.Problem) error {
+func (r refusedFailure) FailRun(context.Context, uuid.UUID, *problem.Problem) error {
+	r.failTries.Add(1)
 	return problem.Conflict("test.fail_refused", "Refused.")
 }
 
 // TestMrpRunFailureRefused: when the failure of an interrupted run is
 // refused with a business problem, which is not retried, the workflow
-// fails with that refusal rather than the plan's error, and the run is
-// not failed (as DepreciationRun's refused failure, the workflow ends).
+// fails with that refusal rather than the plan's error, and the run and
+// its Operation stay queued as the request left them, each try of the
+// plan rolled back (as DepreciationRun's refused failure).
 func TestMrpRunFailureRefused(t *testing.T) {
 	s := mrpSetup(t)
-	s.m.Runs = refusedFailure{stuckPlans{Mrp: app.MRP(app.Config{}), tries: &atomic.Int32{}}}
+	tries, failTries := &atomic.Int32{}, &atomic.Int32{}
+	s.m.Runs = refusedFailure{stuckPlans{Mrp: app.MRP(app.Config{}), tries: tries}, failTries}
 	in := s.start(t)
 	err := s.runMrp(t, in)
 	if err == nil || !strings.Contains(err.Error(), "Refused.") {
 		t.Errorf("the workflow: got %v, want the failure's refusal", err)
 	}
-	if got := mrpStateOf(t, in); strings.HasPrefix(got, "failed") {
-		t.Errorf("the run: got %s, want it not failed, its failure refused", got)
+	if n := tries.Load(); n != 5 {
+		t.Errorf("the plan's tries: got %d, want 5", n)
+	}
+	if n := failTries.Load(); n != 1 {
+		t.Errorf("the failure's tries: got %d, want 1 (a problem is not retried)", n)
+	}
+	if got := mrpStateOf(t, in); got != "queued  queued" {
+		t.Errorf("the run: got %s, want it and its Operation queued as the request left them, its failure refused", got)
 	}
 }
 
