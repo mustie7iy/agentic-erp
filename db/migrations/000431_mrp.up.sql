@@ -145,6 +145,8 @@ CREATE TABLE mrp.proposal (
 );
 -- A plant's proposals still counted or replaceable, for its next run.
 CREATE INDEX proposal_by_plant ON mrp.proposal (tenant_id, plant_id) WHERE status IN ('open', 'taken_over');
+-- The proposals a run replaced, which reading the run lists.
+CREATE INDEX proposal_by_replacing_run ON mrp.proposal (tenant_id, replaced_by_run_id) WHERE replaced_by_run_id IS NOT NULL;
 CREATE FUNCTION mrp.proposal_moves() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF OLD.status IN ('replaced', 'closed') OR (OLD.status = 'taken_over' AND NEW.status NOT IN ('taken_over', 'closed'))

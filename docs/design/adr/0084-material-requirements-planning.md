@@ -104,8 +104,10 @@ they are no longer active (PO 2026-11-03). Its one step, `PlanRun`, is
    back there, rounded up to six decimals (`money.CeilQuantity`), and is
    proposed as a draft requisition of the material in its base unit, in
    the company's currency at its valuation price at the plant (zero when
-   it is not valued there), naming the plan's account and needed by the
-   run's day; one requisition per material (SAP's MRP creates one
+   it is not valued there; such a proposal, submitted unchanged, routes
+   as an amount of zero, the lowest approval tier: for the product
+   owner), naming the plan's account and needed by the run's day; one
+   requisition per material (SAP's MRP creates one
    purchase requisition per material and date, from memory);
 5. the lines, the proposals and the run `completed` with its counts; the
    Operation succeeded; audited (`mrp.run.complete`).
@@ -123,8 +125,10 @@ proposals (FOR UPDATE, by requisition id), each requisition withdrawn
 number range). A person changing a requisition locks that requisition
 alone, a planner changing a plan that plan alone; neither then waits for
 a run, so there is no cycle. A change of a proposal racing a run either
-commits first, moving its version, and the run takes it over, or waits
-for the run and finds the proposal cancelled (412 on its stale version).
+commits first, moving its version, and the run, which finds it so under
+the withdrawal's lock, reads it again as the person left it (changed:
+taken over and counted as it is now; cancelled: closed), or waits for the
+run and finds the proposal cancelled (412 on its stale version).
 
 ### 4. Planning data
 
@@ -205,7 +209,8 @@ as a receipt, having no plant.
   `mrp.invalid_mrp_type`, `mrp.invalid_quantity`,
   `mrp.account_not_postable`, `mrp.material_plan_exists`,
   `mrp.nothing_to_change`, `mrp.run_in_progress`, `mrp.run_cancelled`,
-  `mrp.unit_not_convertible`.
+  `mrp.unit_not_convertible`; `MrpRunError` lists the codes a run
+  fails with, which are not the request's.
 - Workflow `MrpRun` (`{tenant}-mrp_run-{run}`) with the activities
   `PlanMrpRun` and `FailMrpRun`; the in-process `Planner`. No replay
   history is recorded yet (a first version needs none to protect).

@@ -73,8 +73,8 @@ func TestMaterialPlans(t *testing.T) {
 		e.Problem(422, "mrp.nothing_to_change", "PATCH", plans+"/"+id, `{"reorder_point": "50.50"}`, tag)
 		e.Problem(412, "request.version_mismatch", "PATCH", plans+"/"+id, `{"reorder_point": "40"}`, `"9"`)
 		got, _ := e.Must(200, "PATCH", plans+"/"+id, fmt.Sprintf(`{"reorder_point": "40", "mrp_type": "no_planning", "account_id": %q}`, e.stock), tag)
-		if got["mrp_type"] != "no_planning" || got["reorder_point"].(map[string]any)["value"] != "40" || got["version"] != float64(2) {
-			t.Errorf("changed: got %v %v %v, want no_planning, 40 at version 2", got["mrp_type"], got["reorder_point"], got["version"])
+		if s := fmt.Sprint(got["mrp_type"], " ", got["reorder_point"].(map[string]any)["value"], " ", got["version"]); s != "no_planning 40 2" {
+			t.Errorf("changed: got %s, want no_planning 40 2", s)
 		}
 		var detail string
 		pgtest.Scan(t, `SELECT detail::text FROM audit.audit_event WHERE tenant_id = $1 AND action = 'mrp.material_plan.change'`, []any{e.Tenant.ID}, &detail)
@@ -95,8 +95,12 @@ func TestLists(t *testing.T) {
 	e.plan(t, e.bracket, "250")
 	e.plan(t, other, "0")
 	first := e.run(t)
-	if len(rows(t, first, "lines")) != 2 || rows(t, first, "lines")[0]["material_number"].(string) > rows(t, first, "lines")[1]["material_number"].(string) {
-		t.Errorf("the run's lines: got %v, want two by material number", rows(t, first, "lines"))
+	lines := rows(t, first, "lines")
+	if len(lines) != 2 {
+		t.Fatalf("the run's lines: got %v, want two", lines)
+	}
+	if lines[0]["material_number"].(string) > lines[1]["material_number"].(string) {
+		t.Errorf("the run's lines: got %v then %v, want them by material number", lines[0]["material_number"], lines[1]["material_number"])
 	}
 	e.run(t)
 	for _, path := range []string{plans + "?plant_id=" + e.p1.String(), runs + "?status=completed&plant_id=" + e.p1.String()} {

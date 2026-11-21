@@ -7056,5 +7056,6 @@ erDiagram
   `taken_over` to `closed`, and nothing else of it changes
   (`proposal_moves`, a trigger); not deleted (`proposal_no_delete`). The
   application updates its status and `replaced_by_run_id` alone. A plant's
-  run reads its open and taken-over proposals by `proposal_by_plant`.
+  run reads its open and taken-over proposals by `proposal_by_plant`, a
+  run's replaced ones by `proposal_by_replacing_run`.
 - Permissions `mrp.plan.read`, `mrp.plan.write` and `mrp.run.start`.

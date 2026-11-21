@@ -76750,7 +76750,13 @@ func (s *MrpRun) SetReplaced(val []MrpRunReplaced) {
 	s.Replaced = val
 }
 
-// The problem that failed a run.
+// The problem that failed a run: `mrp.run_cancelled` (its Operation cancelled before it was carried
+// out), `mrp.unit_not_convertible` (an open quantity in a unit the material no longer has),
+// `identity.principal_blocked` (who started it is no longer active), `platform.internal` (an error
+// outlasting its retries), or a problem a proposed requisition was refused with
+// (`procurement.account_not_postable`, `procurement.invalid_quantity`,
+// `procurement.material_not_usable`, `config.no_number_range`, `config.number_range_exhausted`,
+// `config.not_bootstrapped`). Open list: values may be added within /v1.
 // Ref: #/components/schemas/MrpRunError
 type MrpRunError struct {
 	// The problem's code.

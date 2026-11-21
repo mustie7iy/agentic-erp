@@ -203,6 +203,14 @@ func (e *Endpoints) settled(ctx context.Context, w *work, x earlier, r Requisiti
 			w.replaced++
 			return proposalReplaced, nil
 		}
+		// A person changed or cancelled it between the read and the
+		// withdrawal's lock: read it again as they left it (read committed),
+		// so the run counts what is on order now, not what it read before.
+		again, err := e.Supply.Requisitions(ctx, []uuid.UUID{x.requisition})
+		if err != nil {
+			return "", fmt.Errorf("mrp: requisition %s: %w", x.requisition, err)
+		}
+		r = again[x.requisition]
 	}
 	if !counted[r.Status] {
 		return proposalClosed, nil

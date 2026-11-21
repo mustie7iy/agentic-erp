@@ -58,10 +58,10 @@ func TestPlanningRun(t *testing.T) {
 	own, ownTag := e.Must(201, "POST", "/v1/requisitions", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "items": [{"material_id": %q,
 		"quantity": {"value": "5", "unit": "EA"}, "unit_price": {"amount": "2.00", "currency": "EUR"}, "account_id": %q}]}`, e.DE, e.bracket, e.stock), "")
 	first := e.run(t)
-	if first["status"] != "completed" || first["materials_planned"] != float64(1) || first["proposals_created"] != float64(1) ||
-		first["proposals_replaced"] != float64(0) {
-		t.Fatalf("the first run: got %v %v %v %v, want completed with one material planned and one proposal", first["status"],
-			first["materials_planned"], first["proposals_created"], first["proposals_replaced"])
+	for f, want := range map[string]any{"status": "completed", "materials_planned": float64(1), "proposals_created": float64(1), "proposals_replaced": float64(0)} {
+		if first[f] != want {
+			t.Errorf("the first run's %s: got %v, want %v", f, first[f], want)
+		}
 	}
 	if got := line(t, first, e.bracket); got != "230 200 20 60 PR100001" {
 		t.Errorf("the first run's line: got %s, want demand 230, stock 200, receipts 20 and a shortage of 60 proposed", got)
@@ -74,9 +74,10 @@ func TestPlanningRun(t *testing.T) {
 	if got := line(t, second, e.bracket); got != "230 200 20 60 PR100002" {
 		t.Errorf("the rerun's line: got %s, want the same shortage proposed again", got)
 	}
-	replaced := rows(t, second, "replaced")
-	if len(replaced) != 1 || replaced[0]["requisition_id"] != r1 || replaced[0]["requisition_number"] != "PR100001" || second["proposals_replaced"] != float64(1) {
-		t.Errorf("the rerun's replaced: got %v, want the first run's proposal", replaced)
+	if replaced := rows(t, second, "replaced"); fmt.Sprint(len(replaced), " ", second["proposals_replaced"]) != "1 1" {
+		t.Errorf("the rerun's replaced: got %v, want the first run's proposal alone", replaced)
+	} else if got := fmt.Sprint(replaced[0]["requisition_id"], " ", replaced[0]["requisition_number"]); got != r1+" PR100001" {
+		t.Errorf("the rerun's replaced proposal: got %s, want %s PR100001", got, r1)
 	}
 	if got, _ := e.requisition(t, r1); got[:9] != "cancelled" {
 		t.Errorf("the first proposal: got %s, want it cancelled", got)
@@ -114,8 +115,8 @@ func TestPlanningRun(t *testing.T) {
 func TestPlanningRunLeavesOut(t *testing.T) {
 	e := setup(t)
 	empty := e.run(t)
-	if empty["status"] != "completed" || empty["materials_planned"] != float64(0) || len(rows(t, empty, "lines")) != 0 {
-		t.Errorf("a plant with nothing planned: got %v %v, want completed with nothing planned", empty["status"], empty["materials_planned"])
+	if got := fmt.Sprint(empty["status"], " ", empty["materials_planned"], " ", len(rows(t, empty, "lines"))); got != "completed 0 0" {
+		t.Errorf("a plant with nothing planned: got %s, want completed 0 0", got)
 	}
 	_, tag := e.plan(t, e.bracket, "200")
 	if got := line(t, e.run(t), e.bracket); got != "0 200 0 0 -" {
@@ -143,10 +144,12 @@ func TestPlanningRunRefusals(t *testing.T) {
 	e := setup(t)
 	e.plan(t, e.bracket, "50")
 	for name, plant := range map[string]uuid.UUID{"unknown": uuid.New(), "a storage location": e.s1} {
-		p := e.Problem(422, "mrp.plant_invalid", "POST", runs, mustJSON(t, map[string]any{"plant_id": plant}), "")
-		if field(p) != "plant_id" {
-			t.Errorf("%s: got field %v, want plant_id", name, field(p))
-		}
+		t.Run(name, func(t *testing.T) {
+			p := e.Problem(422, "mrp.plant_invalid", "POST", runs, mustJSON(t, map[string]any{"plant_id": plant}), "")
+			if field(p) != "plant_id" {
+				t.Errorf("got field %v, want plant_id", field(p))
+			}
+		})
 	}
 	in := e.start(t)
 	p := e.Problem(409, "mrp.run_in_progress", "POST", runs, mustJSON(t, map[string]any{"plant_id": e.p1}), "")
@@ -162,8 +165,11 @@ func TestPlanningRunRefusals(t *testing.T) {
 		t.Fatalf("plan: %v", err)
 	}
 	r, _ := e.Must(200, "GET", runs+"/"+in.RunID.String(), "", "")
-	if r["status"] != "failed" || r["error"].(map[string]any)["code"] != "mrp.run_cancelled" || len(e.proposals(t)) != 0 {
-		t.Errorf("the cancelled run: got %v %v, want failed with mrp.run_cancelled and nothing proposed", r["status"], r["error"])
+	if got := fmt.Sprint(r["status"], " ", r["error"].(map[string]any)["code"]); got != "failed mrp.run_cancelled" {
+		t.Errorf("the cancelled run: got %s, want failed with mrp.run_cancelled", got)
+	}
+	if got := e.proposals(t); len(got) != 0 {
+		t.Errorf("the cancelled run's proposals: got %v, want none", got)
 	}
 	if op, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", ""); op["status"] != "cancelled" {
 		t.Errorf("the operation: got %v, want it left cancelled", op["status"])
@@ -175,8 +181,8 @@ func TestPlanningRunRefusals(t *testing.T) {
 		t.Fatalf("plan: %v", err)
 	}
 	r, _ = e.Must(200, "GET", runs+"/"+in.RunID.String(), "", "")
-	if r["status"] != "failed" || r["error"].(map[string]any)["code"] != "mrp.unit_not_convertible" {
-		t.Errorf("a unit no longer the material's: got %v %v, want failed with mrp.unit_not_convertible", r["status"], r["error"])
+	if got := fmt.Sprint(r["status"], " ", r["error"].(map[string]any)["code"]); got != "failed mrp.unit_not_convertible" {
+		t.Errorf("a unit no longer the material's: got %s, want failed mrp.unit_not_convertible", got)
 	}
 	if op, _ := e.Must(200, "GET", "/v1/operations/"+in.OperationID.String(), "", ""); op["status"] != "failed" {
 		t.Errorf("its operation: got %v, want failed", op["status"])
@@ -195,7 +201,7 @@ func TestTakenOverInARemovedUnit(t *testing.T) {
 		"unit_price": {"amount": "40.00", "currency": "EUR"}, "account_id": %q}]}`, e.bracket, e.stock), tag)
 	pgtest.Exec(t, `DELETE FROM materials.unit_conversion WHERE material_id = $1`, e.bracket)
 	r := e.run(t)
-	if r["status"] != "failed" || r["error"].(map[string]any)["code"] != "mrp.unit_not_convertible" {
-		t.Errorf("got %v %v, want failed with mrp.unit_not_convertible", r["status"], r["error"])
+	if got := fmt.Sprint(r["status"], " ", r["error"].(map[string]any)["code"]); got != "failed mrp.unit_not_convertible" {
+		t.Errorf("got %s, want failed mrp.unit_not_convertible", got)
 	}
 }

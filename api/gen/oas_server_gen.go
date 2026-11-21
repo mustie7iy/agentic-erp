@@ -2173,10 +2173,10 @@ type Handler interface {
 	// point in its base unit, and the account its proposed purchase requisitions name. The plant is an
 	// active plant of a company the caller may act in (422 `mrp.plant_invalid`); the material an active
 	// one kept in stock and extended to it (422 `mrp.material_invalid`); the account one the company may
-	// post to (422 `mrp.account_not_postable`); a reorder point with up to six decimals (422
-	// `mrp.invalid_quantity`). A material is planned once at a plant (409 `mrp.material_plan_exists`).
-	// Audited. A retry with the same `Idempotency-Key` answers the planning data created. Human-only
-	// (`x-agent: false`).
+	// post to (422 `mrp.account_not_postable`); an MRP type of the list (422 `mrp.invalid_mrp_type`); a
+	// reorder point with up to six decimals (422 `mrp.invalid_quantity`). A material is planned once at a
+	// plant (409 `mrp.material_plan_exists`). Audited. A retry with the same `Idempotency-Key` answers the
+	// planning data created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/material-plans
 	CreateMaterialPlan(ctx context.Context, req *MaterialPlanCreate, params CreateMaterialPlanParams) (CreateMaterialPlanRes, error)
@@ -9142,9 +9142,10 @@ type Handler interface {
 	// and proposed per material. The plant is an active plant of a company the caller may act in (422
 	// `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail
 	// names it. A business problem while planning (the company's requisition number range exhausted, the
-	// account no longer postable, the requester no longer active) fails the run and its Operation with the
-	// problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails
-	// it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
+	// account no longer postable, the requester no longer active, an open quantity in a unit the material
+	// no longer has: `mrp.unit_not_convertible`; `MrpRunError` lists them) fails the run and its Operation
+	// with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried
+	// out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
 	//
 	// POST /v1/mrp-runs
 	StartMrpRun(ctx context.Context, req *MrpRunStart, params StartMrpRunParams) (StartMrpRunRes, error)
@@ -9526,10 +9527,11 @@ type Handler interface {
 	// UpdateMaterialPlan implements updateMaterialPlan operation.
 	//
 	// Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084
-	// §4): its MRP type, reorder point or account, checked as on creation (422 `mrp.invalid_quantity`,
-	// `mrp.account_not_postable`); a change to what it already is is 422 `mrp.nothing_to_change`. The
-	// plant and material do not change. The next planning run of the plant plans by it. JSON Merge Patch.
-	// Audited with the values before and after. Human-only (`x-agent: false`).
+	// §4): its MRP type, reorder point or account, checked as on creation (422 `mrp.invalid_mrp_type`,
+	// `mrp.invalid_quantity`, `mrp.account_not_postable`); a change to what it already is is 422
+	// `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the plant
+	// plans by it. JSON Merge Patch. Audited with the values before and after. Human-only
+	// (`x-agent: false`).
 	//
 	// PATCH /v1/material-plans/{id}
 	UpdateMaterialPlan(ctx context.Context, req *MaterialPlanUpdate, params UpdateMaterialPlanParams) (UpdateMaterialPlanRes, error)

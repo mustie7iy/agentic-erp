@@ -125,7 +125,10 @@ func readRun(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Run, error) {
 		return Run{}, err
 	}
 	runs := []Run{r}
-	return runs[0], withDetails(ctx, tx, runs)
+	if err := withDetails(ctx, tx, runs); err != nil {
+		return Run{}, err
+	}
+	return runs[0], nil
 }
 
 // withDetails reads the runs' lines, by material, and replacements, by

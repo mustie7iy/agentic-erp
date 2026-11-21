@@ -3,6 +3,8 @@ package mrp_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -102,27 +104,87 @@ func TestRunTwice(t *testing.T) {
 	}
 }
 
-// changing is the mrp context's supply with a requisition changed by a
-// person between the run's read and its withdrawal: Withdraw finds it no
+// changing is the mrp context's supply with a person changing the
+// requisition between the run's read and its withdrawal: change commits
+// their change, and Withdraw, under the lock it would take, finds it no
 // longer the run's own.
-type changing struct{ mrp.Supply }
+type changing struct {
+	mrp.Supply
+	change func()
+}
 
-func (changing) Withdraw(context.Context, uuid.UUID, int32) (bool, error) { return false, nil }
+func (c changing) Withdraw(context.Context, uuid.UUID, int32) (bool, error) {
+	c.change()
+	return false, nil
+}
 
 // TestProposalChangedDuringTheRun: a proposal a person changes while the
-// run settles it is taken over, not replaced, and counted as a receipt.
+// run settles it is taken over and counted as they left it; one they
+// cancel is closed and counted no more.
 func TestProposalChangedDuringTheRun(t *testing.T) {
+	for _, c := range []struct {
+		name, body, path, status, line string
+	}{
+		{"raised", `{"items": [%s]}`, "", "taken_over", "0 200 100 0 -"},
+		{"cancelled", "", ":cancel", "closed", "0 200 0 50 PR100001"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := setup(t)
+			e.plan(t, e.bracket, "250")
+			r1 := rows(t, e.run(t), "lines")[0]["requisition_id"].(string)
+			h := endpoints(t)
+			h.Supply = changing{Supply: h.Supply, change: func() {
+				_, tag := e.requisition(t, r1)
+				if c.path == "" {
+					e.Must(200, "PATCH", "/v1/requisitions/"+r1, fmt.Sprintf(c.body, fmt.Sprintf(`{"material_id": %q, "quantity": {"value": "100", "unit": "EA"},
+						"unit_price": {"amount": "2.00", "currency": "EUR"}, "account_id": %q}`, e.bracket, e.stock)), tag)
+					return
+				}
+				e.Must(200, "POST", "/v1/requisitions/"+r1+c.path, "", tag)
+			}}
+			in := e.start(t)
+			if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return h.PlanRun(ctx, in.RunID) }); err != nil {
+				t.Fatal(err)
+			}
+			if got := e.proposals(t)["PR100000"]; got != c.status {
+				t.Errorf("the first proposal: got %s, want %s", got, c.status)
+			}
+			r, _ := e.Must(200, "GET", runs+"/"+in.RunID.String(), "", "")
+			if got := line(t, r, e.bracket); got != c.line {
+				t.Errorf("the run's line: got %s, want %s", got, c.line)
+			}
+		})
+	}
+}
+
+// rereadFails is the mrp context's supply whose requisitions cannot be
+// read again after a withdrawal finds one changed.
+type rereadFails struct {
+	mrp.Supply
+	reads *int
+}
+
+func (rereadFails) Withdraw(context.Context, uuid.UUID, int32) (bool, error) { return false, nil }
+
+func (r rereadFails) Requisitions(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]mrp.Requisition, error) {
+	if *r.reads++; *r.reads > 1 {
+		return nil, errors.New("procurement unreachable")
+	}
+	return r.Supply.Requisitions(ctx, ids)
+}
+
+// TestRereadFails: a requisition that cannot be read again fails the
+// step with the error, naming it.
+func TestRereadFails(t *testing.T) {
 	e := setup(t)
 	e.plan(t, e.bracket, "250")
-	e.run(t)
+	r1 := rows(t, e.run(t), "lines")[0]["requisition_id"].(string)
 	h := endpoints(t)
-	h.Supply = changing{h.Supply}
+	h.Supply = rereadFails{Supply: h.Supply, reads: new(int)}
 	in := e.start(t)
-	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return h.PlanRun(ctx, in.RunID) }); err != nil {
-		t.Fatal(err)
-	}
-	if got := e.proposals(t); got["PR100000"] != "taken_over" {
-		t.Errorf("the first proposal: got %v, want it taken over", got)
+	err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error { return h.PlanRun(ctx, in.RunID) })
+	if err == nil || !strings.Contains(err.Error(), r1) {
+		t.Errorf("got %v, want the requisition's read refused, naming it", err)
 	}
 }
 
@@ -238,8 +300,10 @@ func TestPublishedReadsOutsideARequest(t *testing.T) {
 		"requisitions": func() error { _, err := procurement.Orders{}.Requisitions(ctx, ids); return err },
 		"withdraw":     func() error { _, err := pr.WithdrawProposal(ctx, ids[0], 1); return err },
 	} {
-		if err := call(); err == nil {
-			t.Errorf("%s: got nil error, want an error", name)
-		}
+		t.Run(name, func(t *testing.T) {
+			if err := call(); err == nil {
+				t.Error("got nil error, want an error")
+			}
+		})
 	}
 }
