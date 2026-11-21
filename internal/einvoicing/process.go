@@ -38,26 +38,26 @@ type unprocessed struct {
 	sum []byte
 }
 
-// ProcessEInvoices processes the connector's received documents not yet
-// processed, oldest first (ADR-0061 §4 Process, §5, §6; T65c, T65d): each
-// one's bytes are read from the store with no transaction open, then, in a
-// transaction of its own, the document is read FOR UPDATE where it is
-// still received and unprocessed, validated (Received, then addressed) and
-// either refused, with its problem, the audit record
-// einvoicing.einvoice.refused and EInvoiceChanged, or recorded valid with
-// what it read and the audit record einvoicing.einvoice.validated (no
-// event: its status does not move), and a valid tax invoice or tax credit
-// note then entered as a supplier invoice or credit memo, or held (enter),
-// in the same transaction. A document validated before (a tax invoice by
-// a fetch before T65d, a tax credit note before T65e) is entered the same
-// way by the next fetch. A document
-// already processed and entered, held or refused is skipped, so the step
-// runs any number of times; it answers how many documents this fetch
-// refused, entered and held, counted from the rows, so a step run again
-// after a commit still counts them, and how many of the connector's
-// documents are still waiting (left unprocessed until the company's setup
-// is completed), so a person sees the gap in the fetch's result; a
-// document whose bytes are gone fails the step instead.
+// ProcessEInvoices processes the connector's received documents, oldest
+// first (ADR-0061 §4 Process, §5, §6; T65c-T65e).
+//
+// Each one's bytes are read from the store with no transaction open; then,
+// in a transaction of its own, the document is read FOR UPDATE while still
+// received. One not yet processed is validated (Received, then addressed):
+// refused, with its problem, the audit record einvoicing.einvoice.refused
+// and EInvoiceChanged, or recorded valid with what it read and the audit
+// record einvoicing.einvoice.validated (no event: its status does not
+// move). A valid tax invoice or tax credit note is then entered, in the
+// same transaction, as a supplier invoice or credit memo, or held (enter);
+// one validated before (a tax invoice before T65d, a tax credit note
+// before T65e) is entered the same way by the next fetch.
+//
+// A document already entered, held or refused is skipped, so the step runs
+// any number of times. It answers how many documents this fetch refused,
+// entered and held, counted from the rows so that a run after a commit
+// counts them again, and how many of the connector's documents are still
+// waiting (unprocessed until the company's setup is completed), so a
+// person sees the gap; a document whose bytes are gone fails the step.
 func (e *Endpoints) ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in Within) (Processed, error) {
 	var c Connector
 	var docs []unprocessed

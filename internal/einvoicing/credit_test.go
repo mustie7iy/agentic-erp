@@ -36,18 +36,18 @@ func (s *entering) postedInvoice(t *testing.T) uuid.UUID {
 	return id
 }
 
-// credited is a message's document as entered for a credit note: its
-// status and problem code, and the invoice's kind, status, the invoice it
-// names (its supplier reference, "-" for none) and hold reason.
-func (s *entering) credited(t *testing.T, message string) (string, string) {
+// credited is a message's document as entered for a credit note: entered
+// is its status and problem code, then the invoice's kind, status and the
+// invoice it names (its supplier reference, "-" for none); hold is the
+// invoice's hold reason.
+func (s *entering) credited(t *testing.T, message string) (entered, hold string) {
 	t.Helper()
-	var got, hold string
 	pgtest.Scan(t, `SELECT d.status || ' ' || coalesce(d.problem_code, '-') || ' ' || coalesce(i.kind || ' ' || i.status || ' '
 			|| coalesce((SELECT r.supplier_reference FROM payables.supplier_invoice r WHERE r.id = i.reference_invoice_id), '-'), '-'),
 			coalesce(i.hold_reason, '')
 		FROM einvoicing.einvoice d LEFT JOIN payables.supplier_invoice i ON i.id = d.supplier_invoice_id
-		WHERE d.tenant_id = $1 AND d.connector_id = $2 AND d.message_id = $3`, []any{s.f.Tenant.ID, s.connector, message}, &got, &hold)
-	return got, hold
+		WHERE d.tenant_id = $1 AND d.connector_id = $2 AND d.message_id = $3`, []any{s.f.Tenant.ID, s.connector, message}, &entered, &hold)
+	return entered, hold
 }
 
 // TestEnterCreditNotes: a fetch enters a valid tax credit note as a
@@ -58,7 +58,8 @@ func (s *entering) credited(t *testing.T, message string) (string, string) {
 // one naming no invoice is held for a person rather than entered as
 // correcting none (C4: IBG-03, IBT-025), and one naming several is held
 // rather than entered against the first alone, nothing of either
-// entered; one naming GOI-1 twice beside a blank reference names GOI-1. Run twice, the step enters and holds nothing again.
+// entered; one naming GOI-1 twice beside a blank reference names GOI-1.
+// Run twice, the step enters and holds nothing again.
 func TestEnterCreditNotes(t *testing.T) {
 	s := enteringScene(t)
 	s.postedInvoice(t)

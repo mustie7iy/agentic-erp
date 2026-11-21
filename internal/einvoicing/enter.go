@@ -109,8 +109,8 @@ func (e *Endpoints) enter(ctx context.Context, tx pgx.Tx, p reqctx.Principal, op
 }
 
 // heldBefore is the hold of a valid document that is not handed to
-// payables at all: one not in AED (C5), and a credit note naming no
-// invoice (C4) or several; nil for one to enter.
+// payables at all: one not in AED (C5), a credit note naming no invoice
+// (C4) and one naming several (C4, IBG-03 repeated); nil for one to enter.
 func heldBefore(d Document) *Refusal {
 	switch {
 	case d.Currency != accountingCurrency:
