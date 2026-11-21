@@ -84,7 +84,8 @@ func (s *entering) entered(t *testing.T, message string, operation uuid.UUID) st
 // that does, else the invoice on hold; every refusal of the entering holds
 // the document with its code, a constraint the database raises
 // (supplier_invoice_no_duplicates) among them, with nothing of it kept; a
-// tax invoice not in AED is held; a credit note citing an invoice not
+// tax invoice not in AED is held; one stating a preceding invoice (IBG-03)
+// is entered as any other; a credit note citing an invoice not
 // posted is entered as a credit memo on hold naming it (T65e). Run
 // twice, the step enters, holds and publishes nothing again and still
 // counts what this fetch entered and held.
@@ -105,7 +106,9 @@ func TestEnterEInvoices(t *testing.T) {
 	credit := supplierInvoice("GOI-7")
 	credit.Kind, credit.TypeCode, credit.Reference = einvoicing.KindTaxCreditNote, einvoicing.TypeTaxCreditNote, "GOI-1"
 	credit.Reason = &einvoicing.Reason{Code: "VD", Text: "Damaged desk"}
-	s.srv.Deliver("GOI-1", uaeParticipant, ordered(supplierInvoice("GOI-1"), "4500000001", "10"))
+	preceded := supplierInvoice("GOI-1")
+	preceded.Reference = "GOI-0" // a preceding invoice (IBG-03), which an invoice may state: entered all the same
+	s.srv.Deliver("GOI-1", uaeParticipant, ordered(preceded, "4500000001", "10"))
 	s.srv.Deliver("GOI-2", uaeParticipant, ordered(supplierInvoice("GOI-2"), "", ""))
 	s.srv.Deliver("GOI-3", uaeParticipant, ordered(other, "4500000001", "10"))
 	s.srv.Deliver("GOI-4", uaeParticipant, ordered(chairs, "4500000001", "20"))

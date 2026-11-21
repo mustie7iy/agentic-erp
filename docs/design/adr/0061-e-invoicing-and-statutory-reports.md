@@ -1818,7 +1818,11 @@ condition too, which implies it). Decided by default:
   credit memo names one invoice and its credit limit is that invoice's
   gross, so a person enters one memo per invoice rather than the note
   being entered against the first alone. The parser now reads every
-  IBG-03 (`Document.Cited`; before, the last one silently won).
+  IBG-03 (`Document.Cited`, each number once, blanks left out; before,
+  the last one silently won). A tax invoice may state a preceding invoice
+  in IBG-03 too: only a credit note's is handed to payables as the
+  invoice it credits, so such an invoice is entered as before (review
+  round 1).
 - **Credit notes left received by T65d.** A fetch lists every `received`
   document of its connector (`toProcess` is the status alone: every
   processed document still received is a tax invoice or tax credit note),
