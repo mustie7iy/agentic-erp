@@ -59,7 +59,10 @@ func (s *sender) later(d time.Duration) {
 
 func senderSetup(t *testing.T) *sender {
 	t.Helper()
-	s := &sender{uae: uaeSetup(t, dubai), srv: einvoicetest.NewServer(t, "tok"), now: time.Now().UTC(), pool: pgtest.Pool(t)}
+	// The clock starts on a whole microsecond: PostgreSQL keeps microseconds, so a
+	// due time read back from a row taken on Linux's nanosecond clock would make
+	// every expected wait a fraction of a microsecond short.
+	s := &sender{uae: uaeSetup(t, dubai), srv: einvoicetest.NewServer(t, "tok"), now: time.Now().UTC().Truncate(time.Microsecond), pool: pgtest.Pool(t)}
 	client, err := einvoicing.NewClient(egress.LoopbackForTests(s.srv.Roots))
 	if err != nil {
 		t.Fatal(err)
