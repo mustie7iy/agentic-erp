@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 
 	"github.com/mustie7iy/agentic-erp/internal/app"
@@ -201,5 +203,24 @@ func TestPlanner(t *testing.T) {
 		"the runner did not log the runs it ended: %s", logs)
 	if got := mrpStateOf(t, again); got != "completed  succeeded" {
 		t.Errorf("the run left by the failure: got %s, want it completed by the loop", got)
+	}
+}
+
+// TestMrpRunReplay: histories of the first version of MrpRun (testdata,
+// recorded on a development server with stand-in activities at batch 87's
+// integration: a run planned, and one whose plan fails with a business
+// problem and goes to FailMrpRun) replay on the current code without a
+// nondeterminism error. A change to the workflow that issues other
+// commands adds a version (workflow.GetVersion, ADR-0012) and keeps these
+// histories replaying.
+func TestMrpRunReplay(t *testing.T) {
+	for _, file := range []string{"mrp_run_v1.json", "mrp_run_problem_v1.json"} {
+		t.Run(file, func(t *testing.T) {
+			r := worker.NewWorkflowReplayer()
+			r.RegisterWorkflowWithOptions(workflows.MrpRun, sdkworkflow.RegisterOptions{Name: workflows.MrpWorkflow})
+			if err := r.ReplayWorkflowHistoryFromJSONFile(nil, filepath.Join("testdata", file)); err != nil {
+				t.Fatalf("replay of %s: %v", file, err)
+			}
+		})
 	}
 }

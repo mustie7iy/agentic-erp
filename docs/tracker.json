@@ -2826,6 +2826,13 @@
        },
        {
         "s": "T",
+        "t": "fix: a CHECK on einvoicing.einvoice that a processed document not refused has its document_kind (einvoice_read keeps it empty before processing; nothing requires it after), since the fetch's entering branches on it (invoice or credit note, T65e), with its schema test",
+        "r": "db/migrations/000416_einvoice_validation (einvoice_read) · internal/einvoicing/process.go · ADR-0061 As built T65d, T65e",
+        "src": "review:batch87",
+        "c": []
+       },
+       {
+        "s": "T",
         "t": "Held e-invoices resolved by people: POST /v1/e-invoices/{id}:retry (held to held with the attempt's problem, answering the document), :link (payables.EInvoices.Attach; same company, supplier and reference, no document of its own; at most one e-invoice per invoice by a partial unique index with a schema test, einvoicing.invoice_already_linked; otherwise einvoicing.link_mismatch) and :dismiss with a reason; FOR UPDATE and einvoicing.einvoice_not_held; agents refused; walkthrough: Alex links a hand-entered invoice to the held e-invoice, a second link to it refused, another dismissed, an agent's dismiss refused",
         "r": "ADR-0061 §7, §13 · T65f",
         "src": "adr:ADR-0061",
@@ -5842,6 +5849,13 @@
       "t": "A planning run per plant computes net requirements (open sales orders and a reorder point against stock and open receipts) and proposes purchase requisitions, replacing only its own open proposals",
       "r": "S2k · docs/design/plan-supply-chain.md §S2k · ADR-0084 · db/migrations/000436 · internal/mrp · mrp.material_plan, .run, .run_line, .proposal · POST/GET /v1/material-plans, GET/PATCH /v1/material-plans/{id} · POST/GET /v1/mrp-runs, GET /v1/mrp-runs/{id} · workflows.MrpRun · sales.Orders.PlantRequirements · inventory.Endpoints.PlantPrices · procurement.Orders.OpenReceipts, .Requisitions · procurement.Endpoints.ProposeRequisition, .WithdrawProposal · mrp.plan.read, .write, mrp.run.start · TestPlanningRun · TestMRPRules · walkthrough step_mrp (step 152)",
       "src": "po:2026-11-17",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: listMrpRuns' runs embed their lines whole; once a run is chunked (a step per material, ADR-0084's rejected option for when a plant's run outgrows a transaction), the list gives each run's counts and its lines are paged under GET /v1/mrp-runs/{id}",
+      "r": "internal/mrp/run.go · api/openapi.yaml listMrpRuns, getMrpRun · ADR-0084 (chunked runs) · 04 §4.5",
+      "src": "review:batch87",
       "c": []
      },
      {
@@ -9060,6 +9074,13 @@
       "t": "fix: migration 000356's backfill of billing document items (unit price, price unit, price source) runs without SET LOCAL row_security = off, so under the tables' forced row-level security it may update no row; verify on a database migrated past 000356 with billing documents, and backfill again in a new migration if it did nothing",
       "r": "db/migrations/000356_sales_billing_cancellation.up.sql · T79c · ADR-0003 · 06 §6.4",
       "src": "review:batch86",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "fix: migration 000428_batches.down.sql's guard (batches or batch-managed materials exist) reads inventory.batch and materials.material without SET LOCAL row_security = off, so a migrating role held to their forced row-level security sees no tenant's rows and drops the batch columns whatever exists (pre-existing, as 000356's backfill); read every tenant's rows as 000435's down does, so such a role fails rather than sees zero rows",
+      "r": "db/migrations/000428_batches.down.sql · db/migrations/000435_serial_numbers.down.sql (row_security off) · ADR-0003 · 06 §6.4 (a down migration loses no data)",
+      "src": "review:batch87",
       "c": []
      }
     ]

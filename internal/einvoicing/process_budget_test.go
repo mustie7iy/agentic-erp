@@ -18,10 +18,10 @@ import (
 // document (ADR-0061 §14; T65c): reading its bytes, validating it as PINT
 // AE, checking its buyer against the connector and the company's FTA
 // registration, and recording the outcome with its audit record, in a
-// connector that holds 10,000 documents processed before, done with (a UAE company's
-// e-invoices of some years; the pilot's own volumes are not known yet,
-// ADR-0052 facts). p95 250 ms, set from the measured median and p95 with
-// room for a loaded machine, as earlier budgets were.
+// connector that holds 10,000 documents processed before, done with (a
+// UAE company's e-invoices of some years; the pilot's own volumes are not
+// known yet, ADR-0052 facts). p95 250 ms, set from the measured median
+// and p95 with room for a loaded machine, as earlier budgets were.
 func TestProcessEInvoiceBudget(t *testing.T) {
 	nfr.Measure(t)
 	s := receiving(t)

@@ -56,7 +56,11 @@ APIs, which `app` adapts into mrp's own types.
   availability check could confirm only in part (S2j) still demands the
   rest, which planning is to procure (SAP counts a sales order's open
   quantity as its requirement, from memory). Draft and cancelled orders,
-  removed items and orders naming no plant demand nothing.
+  removed items and orders naming no plant demand nothing. Since the
+  plant is required (ADR-0082 As built, S2j: the plant required,
+  po:2026-11-21) an order confirmed with a stock item always names its
+  plant (entered, or the company's only one), so an order naming none is
+  one of services alone or one confirmed before that rule.
 - **Stock** (inventory, `PlantStock`, S2j's read): what the plant's
   storage locations hold; stock in transit is not counted.
 - **Prices** (inventory, `PlantPrices`, new): the material's valuation
@@ -212,9 +216,19 @@ as a receipt, having no plant.
   `mrp.unit_not_convertible`; `MrpRunError` lists the codes a run
   fails with, which are not the request's.
 - Workflow `MrpRun` (`{tenant}-mrp_run-{run}`) with the activities
-  `PlanMrpRun` and `FailMrpRun`; the in-process `Planner`. No replay
-  history is recorded yet (a first version needs none to protect).
+  `PlanMrpRun` and `FailMrpRun`; the in-process `Planner`. Its first
+  version's histories (a run planned, and one whose plan fails with a
+  problem and goes to `FailMrpRun`) are recorded in
+  `internal/workflows/testdata/mrp_run_v1.json` and
+  `mrp_run_problem_v1.json`, which `TestMrpRunReplay` replays (batch 87's
+  integration).
 - No event: the run publishes none until a consumer asks
   (plan-supply-chain.md, "What every slice reuses"); the requisitions'
   cancellations are procurement's `RequisitionCancelled`.
 - Walkthrough step 152, `step_mrp`.
+- **Batches and serial numbers** (batch 87's integration, decided by
+  default): a material managed in batches (S2f) or by serial number
+  (S2g) is planned as any stock material; its proposed requisition waits,
+  as a person's would, until a purchase order's goods receipt carries
+  batches and serial numbers (`procurement.invalid_stock_item` refuses
+  such a stock item for now).

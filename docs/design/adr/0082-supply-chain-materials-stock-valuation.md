@@ -1291,11 +1291,12 @@ reads a location's stock without a lock for shipping's picking.
   order and a count document (422 `inventory.serial_not_supported`, which
   the goods receipt and goods issue also answer beneath) and the SAP stock
   take-over (561 without serial numbers, `inventory.serial_required`).
-  A quotation's or sales order's item is not refused here (S2f's
-  `sales.material_not_usable` refusal of a batch-managed one): the sales
-  order's code is another lane's in batch 87, so a serial-managed
-  material's order item is refused at its delivery's creation until the
-  sales refusal is added beside the batch one. Decided by default.
+  A new quotation or sales order item of a serial-managed material is
+  refused as a batch-managed one is (422 `sales.material_not_usable`
+  naming `items[i].material_id`, `TestMaterialItemRefusals`), added
+  beside S2f's refusal at batch 87's integration (the sales order's code
+  was another lane's); the delivery's own refusal stays as a second
+  guard.
 - `GET /v1/serial-numbers` (material, number, plant, storage location,
   in stock) and `/{id}` with its history (each movement's material
   document, movement type, location and whether it received or issued the
