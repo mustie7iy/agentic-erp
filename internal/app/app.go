@@ -513,7 +513,7 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 		Calendar: calendar(), Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Rates: rates(), Approvals: opener(),
 		Payments: payments.Reservations{}, Methods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, OrderNumbers: procurement.Orders{},
 		Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads, ExpenseLedger: ledger.AssetReads{}, Partners: partner.Payees{}, Stock: Inventory(cfg),
-		Now: cfg.Now}
+		TaxNumbers: partner.Payees{Keys: cfg.FieldKeys}, Now: cfg.Now}
 }
 
 // Receivables is the receivables context as the API wires it (ADR-0063

@@ -10,6 +10,8 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -27,7 +29,46 @@ func EInvoicing(cfg Config) *einvoicing.Endpoints {
 		Companies:  einvoiceCompanies{}, Runs: runOperations{kind: einvoicing.KindFetch}, Objects: cfg.Objects,
 		Adapter: einvoicing.Adapters(cfg.Providers, cfg.EvatraHosts, cfg.Now), Pages: cfg.Pages, Now: cfg.Now,
 		Sales: einvoiceSales{keys: cfg.FieldKeys}, Sends: runOperations{kind: einvoicing.KindSend}, TaxData: runOperations{kind: einvoicing.KindTaxData},
-		Settings: configuration.Settings{}}
+		Settings: configuration.Settings{}, Payables: einvoicePayables{e: Payables(cfg)}}
+}
+
+// einvoicePayables gives the einvoicing context payables' entering of
+// e-invoices and the entered invoices' numbers and suppliers (ADR-0061
+// §2, §6).
+type einvoicePayables struct{ e *payables.Endpoints }
+
+func (a einvoicePayables) Enter(ctx context.Context, in einvoicing.Entry) (einvoicing.Entered, error) {
+	d := in.Document
+	lines := make([]payables.EInvoiceLine, len(d.Lines))
+	for i, l := range d.Lines {
+		lines[i] = payables.EInvoiceLine{OrderLine: l.OrderLine, Description: l.Description, Quantity: l.Quantity, Net: l.Net, Category: l.Category,
+			Percent: l.Percent}
+	}
+	v, err := a.e.EnterEInvoice(ctx, payables.EInvoice{LegalEntityID: in.LegalEntityID, Number: d.Number, IssueDate: d.IssueDate, Currency: d.Currency,
+		Exponent: d.Exponent, OrderReference: d.OrderReference, SellerTRN: d.Seller.TRN, Lines: lines, Tax: d.Tax, Gross: d.TaxInclusive,
+		SHA256: in.SHA256, ObjectRef: in.ContentRef})
+	return einvoicing.Entered{InvoiceID: v.ID, SupplierID: v.SupplierID}, err
+}
+
+func (a einvoicePayables) Invoices(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]einvoicing.EnteredInvoice, error) {
+	invs, err := payables.Invoices{}.Sources(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	suppliers := make([]uuid.UUID, 0, len(invs))
+	for _, v := range invs {
+		suppliers = append(suppliers, v.SupplierID)
+	}
+	names, err := partner.Payees{}.Names(ctx, suppliers)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]einvoicing.EnteredInvoice, len(invs))
+	for id, v := range invs {
+		out[id] = einvoicing.EnteredInvoice{DocumentNumber: v.DocumentNumber, SupplierReference: v.SupplierReference, Status: v.Status,
+			SupplierID: v.SupplierID, SupplierName: names[v.SupplierID].Name}
+	}
+	return out, nil
 }
 
 // einvoiceConnectors gives the einvoicing context the einvoice_provider
@@ -102,7 +143,7 @@ func (f einvoiceFetches) RecordEInvoice(ctx context.Context, connector, operatio
 
 func (f einvoiceFetches) ProcessEInvoices(ctx context.Context, connector, operation uuid.UUID, in workflows.Within) (workflows.EInvoiceProcessed, error) {
 	p, err := f.e.ProcessEInvoices(ctx, connector, operation, in)
-	return workflows.EInvoiceProcessed{Refused: p.Refused, Waiting: p.Waiting}, err
+	return workflows.EInvoiceProcessed{Refused: p.Refused, Entered: p.Entered, Held: p.Held, Waiting: p.Waiting}, err
 }
 
 func (f einvoiceFetches) QueueEInvoiceFetch(ctx context.Context, operation, connector uuid.UUID, workflowID string) error {
@@ -115,7 +156,7 @@ func (f einvoiceFetches) FinishEInvoiceFetch(ctx context.Context, operation uuid
 		out[i] = einvoicing.Failure{ID: m.ID, Code: m.Code}
 	}
 	return f.e.FinishEInvoiceFetch(ctx, operation, einvoicing.Counts{Recorded: counts.Recorded, AlreadyRecorded: counts.AlreadyRecorded,
-		Changed: counts.Changed, Refused: counts.Refused, Waiting: counts.Waiting}, out)
+		Changed: counts.Changed, Refused: counts.Refused, Entered: counts.Entered, Held: counts.Held, Waiting: counts.Waiting}, out)
 }
 
 func (f einvoiceFetches) FailEInvoiceFetch(ctx context.Context, operation uuid.UUID, why *problem.Problem) error {

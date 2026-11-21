@@ -770,3 +770,26 @@ func TestRequireWrites(t *testing.T) {
 		}
 	})
 }
+
+// TestActingFor: a system principal acting for companies has exactly
+// that access; a person keeps their own, whatever a context says.
+func TestActingFor(t *testing.T) {
+	ten := pgtest.NewTenant(t)
+	le := uuid.Must(uuid.NewV7())
+	as(t, ten, pgtest.Actor{ID: uuid.Must(uuid.NewV7()), Kind: reqctx.KindSystem}, func(ctx context.Context) {
+		a, err := authz.Companies(authz.ActingFor(ctx, le))
+		if got := fmt.Sprint(a.All, a.IDs); err != nil || got != fmt.Sprint(false, []uuid.UUID{le}) {
+			t.Errorf("a system principal: got %s %v, want the company it acts for alone", got, err)
+		}
+	})
+	as(t, ten, ten.Human, func(ctx context.Context) {
+		own, err := authz.Companies(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, err := authz.Companies(authz.ActingFor(ctx, le))
+		if got, want := fmt.Sprint(a.All, a.IDs), fmt.Sprint(own.All, own.IDs); err != nil || got != want {
+			t.Errorf("a person: got %s %v, want their own access %s", got, err, want)
+		}
+	})
+}

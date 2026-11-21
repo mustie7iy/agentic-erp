@@ -253,7 +253,7 @@ func TestRunnersLeaveInactiveTenants(t *testing.T) {
 		if _, err := w.RunOnce(ctx); err != nil {
 			t.Fatalf("round once active again: %v", err)
 		}
-		if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "refused": 1, "waiting": 0, "recorded": 1, "already_recorded": 0}` {
+		if got := fetchOutcome(t, in); got != `succeeded {"held": 0, "changed": 0, "entered": 0, "refused": 1, "waiting": 0, "recorded": 1, "already_recorded": 0}` {
 			t.Errorf("the resumed tenant's fetch: got %s, want MSG-1 recorded", got)
 		}
 	})

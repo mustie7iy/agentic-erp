@@ -3683,13 +3683,29 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 // does not add up without any tax rule, or is not addressed to the company (its buyer's electronic
 // address IBT-049 the company's participant, its buyer's TRN IBT-048 the company's FTA registration on
 // its issue date); a valid one stays `received`, with what was read (number, kind, issue date,
-// currency, gross, specification) and the release validated against, for entering (T65d). When the
-// fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
-// `already_recorded`, `changed`: a message found with other bytes; `refused`: the documents this fetch
-// refused; `waiting`: the connector's documents left unprocessed, waiting for the company's setup) and
-// its `resource` the list of the documents it recorded or found changed
-// (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
-// `changed_fetch_operation_id`); a message not recorded fails the Operation with
+// currency, gross, specification) and the release validated against, and a valid tax invoice is then
+// entered (T65d, ADR-0061 §6) as a supplier invoice of source `einvoice` by capture's rules without a
+// model: the purchase order its order reference (IBT-013) names, whose supplier must hold the seller's
+// TRN (IBT-031) as a tax identifier; its items by order line (IBT-132) or by position, each with its
+// order item's unit and tax code where that code has the line's VAT category (IBT-151) and charges its
+// rate (IBT-152), else the one input code that does, else the invoice on hold for a person to choose;
+// parked, or on hold with capture's reasons; its document the e-invoice's bytes
+// (`getSupplierInvoiceDocument`), published as SupplierInvoiceCaptured. The document becomes
+// `entered`, naming the invoice, with an audit record and EInvoiceChanged. Any refusal of the entering
+// (no order: `payables.capture_needs_order`; an unknown order or item, the seller's TRN not the
+// supplier's `payables.einvoice_seller_unknown`, `payables.duplicate_invoice`,
+// `payables.already_captured`, a closed period and any other) holds the document instead, `held` with
+// that problem's code and detail, nothing of the entering kept; a tax invoice not in AED is held with
+// `einvoicing.tax_currency_not_entered` (its VAT in AED, IBT-111, is to be kept as it states it, which
+// the entering does not do yet). A tax credit note stays `received` until T65e enters credit notes; a
+// tax invoice validated by a fetch before T65d is entered by the next one. When the fetch is done its
+// Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a
+// message found with other bytes; `refused`: the documents this fetch refused; `entered` and `held`:
+// the documents this fetch entered and held; `waiting`: the connector's documents left unprocessed,
+// waiting for the company's setup) and its `resource` the list of the documents it recorded, found
+// changed, entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as
+// its `changed_fetch_operation_id`, one entered or held, also one an earlier fetch recorded, as its
+// `entry_fetch_operation_id`); a message not recorded fails the Operation with
 // `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
 // error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the
 // store or the database failed (after five tries in the workflow engine, one in process), which the
@@ -7136,7 +7152,10 @@ func (UnimplementedHandler) ListEInvoiceTransmissionDeadlines(ctx context.Contex
 // connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in
 // its `resource`) and when received. Once processed (T65c) each carries what was read of it (number,
 // kind, issue date, currency, gross, specification), when, by which fetch and against which release,
-// and, when refused, its problem code and detail; the supplier and the entered invoice come with T65d.
+// and, when refused, its problem code and detail. Once entered (T65d) each carries the supplier
+// invoice it was entered as, by id, number, supplier reference and status, with its supplier by id and
+// name, and when and by which fetch it was entered; when held, the problem of its entering. Filter
+// `supplier_id`: the entered invoices' supplier.
 //
 // GET /v1/e-invoices
 func (UnimplementedHandler) ListEInvoices(ctx context.Context, params ListEInvoicesParams) (r ListEInvoicesRes, _ error) {

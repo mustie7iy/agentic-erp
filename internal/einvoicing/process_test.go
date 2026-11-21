@@ -106,8 +106,10 @@ func (s *scene) recordAll(t *testing.T, operation uuid.UUID) {
 
 // TestProcessEInvoices: a fetch's processing reads each document of the
 // connector not processed yet as PINT AE (ADR-0061 §4, §5; T65c): a valid
-// one stays received with what it says, the release validated against and
-// an audit record but no event; a malformed one, one addressed to another
+// one keeps what it says, the release validated against and an audit
+// record of its validation, then goes on to be entered (T65d: naming no
+// order the stand-in's renders carry, it is held with
+// payables.capture_needs_order); a malformed one, one addressed to another
 // TRN or electronic address and one listed for none of the companies are
 // refused with their reasons, each audited and published; one issued
 // before the company's FTA registration, or once the connector names no
@@ -137,7 +139,7 @@ func TestProcessEInvoices(t *testing.T) {
 		}
 	}
 	for message, want := range map[string]string{
-		"GOI-1": "received - GOI-1 invoice 2026-03-10 AED 105000 " + einvoicing.PINTAERelease + " true",
+		"GOI-1": "held payables.capture_needs_order GOI-1 invoice 2026-03-10 AED 105000 " + einvoicing.PINTAERelease + " true",
 		"BAD":   "refused einvoicing.unreadable - - - - - " + einvoicing.PINTAERelease + " true",
 		"GOI-2": "refused einvoicing.not_addressed_to_company GOI-2 invoice 2026-03-10 AED 105000 " + einvoicing.PINTAERelease + " true",
 		"GOI-3": "refused einvoicing.not_addressed_to_company GOI-3 invoice 2026-03-10 AED 105000 " + einvoicing.PINTAERelease + " true",
@@ -223,11 +225,12 @@ func TestProcessedEInvoiceListed(t *testing.T) {
 	if got, want := strings.Join([]string{good.Status, good.DocumentNumber.Value, good.DocumentKind.Value, good.IssueDate.Value.Format(time.DateOnly),
 		good.GrossAmount.Value.Amount, good.GrossAmount.Value.Currency, good.Specification.Value, good.ValidatedAgainst.Value,
 		good.ProcessedFetchOperationID.Value.String()}, " "),
-		"received GOI-1 invoice 2026-03-10 1050.00 AED "+einvoicing.PINTAECustomization+" "+einvoicing.PINTAERelease+" "+op.String(); got != want {
+		"held GOI-1 invoice 2026-03-10 1050.00 AED "+einvoicing.PINTAECustomization+" "+einvoicing.PINTAERelease+" "+op.String(); got != want {
 		t.Errorf("the valid document: got %s, want %s", got, want)
 	}
-	if good.ProblemCode.Set || !good.ProcessedAt.Set {
-		t.Errorf("the valid document's problem and processing: got %v %v, want no problem, processed", good.ProblemCode, good.ProcessedAt)
+	if good.ProblemCode.Value != "payables.capture_needs_order" || !good.ProcessedAt.Set || !good.EnteredAt.Set || good.SupplierInvoiceID.Set {
+		t.Errorf("the valid document's entering: got %v %v %v, want held for its order, processed, no invoice", good.ProblemCode, good.ProcessedAt,
+			good.SupplierInvoiceID)
 	}
 	if bad.Status != einvoicing.StatusRefused || bad.ProblemCode.Value != einvoicing.RefusedUnreadable || !bad.ProblemDetail.Set ||
 		bad.DocumentNumber.Set || bad.GrossAmount.Set {
@@ -278,7 +281,7 @@ func TestProcessEInvoicesFailures(t *testing.T) {
 		}
 		everyFailure(t, s, process) // until every document is processed
 		everyFailure(t, s, process) // processed: nothing to process, the refusals counted
-		if got := s.processed(t, "GOI-1", op) + ", " + s.processed(t, "GOI-2", op); !strings.HasPrefix(got, "received - GOI-1") ||
+		if got := s.processed(t, "GOI-1", op) + ", " + s.processed(t, "GOI-2", op); !strings.HasPrefix(got, "held payables.capture_needs_order GOI-1") ||
 			!strings.Contains(got, "refused einvoicing.not_addressed_to_company GOI-2") {
 			t.Errorf("after the failures: got %s, want GOI-1 valid and GOI-2 refused", got)
 		}
@@ -340,7 +343,7 @@ func TestProcessEInvoicesGoesOn(t *testing.T) {
 	if problem.From(err).Code != "einvoicing.document_changed" {
 		t.Errorf("got %v, want einvoicing.document_changed", err)
 	}
-	if got := s.processed(t, "GOI-1", op); !strings.HasPrefix(got, "received - GOI-1") || !strings.HasSuffix(got, " true") {
+	if got := s.processed(t, "GOI-1", op); !strings.HasPrefix(got, "held payables.capture_needs_order GOI-1") || !strings.HasSuffix(got, " true") {
 		t.Errorf("the other document: got %s, want it processed", got)
 	}
 	if got := s.processed(t, "LOST", op); got != "received - - - - - - - false" {

@@ -216,6 +216,10 @@ func TestDatabaseFailures(t *testing.T) {
 		_, err := partner.Payees{Keys: apitest.FieldKeys()}.FindCustomers(ctx, "BP1", "DE811111111")
 		return err
 	}
+	calls["has tax number"] = func(ctx context.Context) error {
+		_, err := partner.Payees{Keys: apitest.FieldKeys()}.HasTaxNumber(ctx, uuid.Nil, "DE811111111")
+		return err
+	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
 			if err := call(context.Background()); err == nil {

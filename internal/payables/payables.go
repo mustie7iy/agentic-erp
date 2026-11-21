@@ -107,6 +107,13 @@ type Suppliers interface {
 	PaymentTerm(ctx context.Context, code string) (partner.PaymentTerm, bool, error)
 }
 
+// TaxNumbers says whether a business partner holds a tax identifier of
+// the value, by its keyed fingerprint, never opening one (partner context,
+// ADR-0061 §6).
+type TaxNumbers interface {
+	HasTaxNumber(ctx context.Context, partnerID uuid.UUID, value string) (bool, error)
+}
+
 // Orders is what payables reads about purchase orders (procurement context).
 type Orders interface {
 	Order(ctx context.Context, id uuid.UUID) (procurement.Order, bool, error)
@@ -215,6 +222,7 @@ type Endpoints struct {
 	ExpenseLedger ExpenseLedger     // the accounts and cost centers expense reports name (ADR-0074)
 	Partners      PartnerNames      // the numbers and names of expense reports' employees
 	Stock         Stock             // an invoice's price differences on stock items' stock (S1e)
+	TaxNumbers    TaxNumbers        // whether a supplier holds an e-invoice's seller TRN (ADR-0061 §6)
 	// Now is the clock a posting date the caller leaves out is read from,
 	// as the company's date in its time zone (companyDay); nil is the
 	// system clock.

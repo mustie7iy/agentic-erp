@@ -112126,6 +112126,54 @@ func (s *EInvoice) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.EnteredAt.Set {
+			e.FieldStart("entered_at")
+			s.EnteredAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.EntryFetchOperationID.Set {
+			e.FieldStart("entry_fetch_operation_id")
+			s.EntryFetchOperationID.Encode(e)
+		}
+	}
+	{
+		if s.SupplierInvoiceID.Set {
+			e.FieldStart("supplier_invoice_id")
+			s.SupplierInvoiceID.Encode(e)
+		}
+	}
+	{
+		if s.SupplierInvoiceNumber.Set {
+			e.FieldStart("supplier_invoice_number")
+			s.SupplierInvoiceNumber.Encode(e)
+		}
+	}
+	{
+		if s.SupplierReference.Set {
+			e.FieldStart("supplier_reference")
+			s.SupplierReference.Encode(e)
+		}
+	}
+	{
+		if s.SupplierInvoiceStatus.Set {
+			e.FieldStart("supplier_invoice_status")
+			s.SupplierInvoiceStatus.Encode(e)
+		}
+	}
+	{
+		if s.SupplierID.Set {
+			e.FieldStart("supplier_id")
+			s.SupplierID.Encode(e)
+		}
+	}
+	{
+		if s.SupplierName.Set {
+			e.FieldStart("supplier_name")
+			s.SupplierName.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("sha256")
 		e.Str(s.SHA256)
 	}
@@ -112163,7 +112211,7 @@ func (s *EInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfEInvoice = [29]string{
+var jsonFieldsNameOfEInvoice = [37]string{
 	0:  "id",
 	1:  "connector_id",
 	2:  "connector_name",
@@ -112184,15 +112232,23 @@ var jsonFieldsNameOfEInvoice = [29]string{
 	17: "currency",
 	18: "gross_amount",
 	19: "specification",
-	20: "sha256",
-	21: "size",
-	22: "fetch_operation_id",
-	23: "received_at",
-	24: "acknowledged_at",
-	25: "changed_sha256",
-	26: "changed_at",
-	27: "changed_fetch_operation_id",
-	28: "version",
+	20: "entered_at",
+	21: "entry_fetch_operation_id",
+	22: "supplier_invoice_id",
+	23: "supplier_invoice_number",
+	24: "supplier_reference",
+	25: "supplier_invoice_status",
+	26: "supplier_id",
+	27: "supplier_name",
+	28: "sha256",
+	29: "size",
+	30: "fetch_operation_id",
+	31: "received_at",
+	32: "acknowledged_at",
+	33: "changed_sha256",
+	34: "changed_at",
+	35: "changed_fetch_operation_id",
+	36: "version",
 }
 
 // Decode decodes EInvoice from json.
@@ -112200,7 +112256,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode EInvoice to nil")
 	}
-	var requiredBitSet [4]uint8
+	var requiredBitSet [5]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -112414,8 +112470,88 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"specification\"")
 			}
+		case "entered_at":
+			if err := func() error {
+				s.EnteredAt.Reset()
+				if err := s.EnteredAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"entered_at\"")
+			}
+		case "entry_fetch_operation_id":
+			if err := func() error {
+				s.EntryFetchOperationID.Reset()
+				if err := s.EntryFetchOperationID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"entry_fetch_operation_id\"")
+			}
+		case "supplier_invoice_id":
+			if err := func() error {
+				s.SupplierInvoiceID.Reset()
+				if err := s.SupplierInvoiceID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_invoice_id\"")
+			}
+		case "supplier_invoice_number":
+			if err := func() error {
+				s.SupplierInvoiceNumber.Reset()
+				if err := s.SupplierInvoiceNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_invoice_number\"")
+			}
+		case "supplier_reference":
+			if err := func() error {
+				s.SupplierReference.Reset()
+				if err := s.SupplierReference.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_reference\"")
+			}
+		case "supplier_invoice_status":
+			if err := func() error {
+				s.SupplierInvoiceStatus.Reset()
+				if err := s.SupplierInvoiceStatus.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_invoice_status\"")
+			}
+		case "supplier_id":
+			if err := func() error {
+				s.SupplierID.Reset()
+				if err := s.SupplierID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_id\"")
+			}
+		case "supplier_name":
+			if err := func() error {
+				s.SupplierName.Reset()
+				if err := s.SupplierName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supplier_name\"")
+			}
 		case "sha256":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[3] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.SHA256 = string(v)
@@ -112427,7 +112563,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"sha256\"")
 			}
 		case "size":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[3] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int64()
 				s.Size = int64(v)
@@ -112439,7 +112575,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"size\"")
 			}
 		case "fetch_operation_id":
-			requiredBitSet[2] |= 1 << 6
+			requiredBitSet[3] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.FetchOperationID = v
@@ -112451,7 +112587,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"fetch_operation_id\"")
 			}
 		case "received_at":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.ReceivedAt = v
@@ -112463,7 +112599,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"received_at\"")
 			}
 		case "acknowledged_at":
-			requiredBitSet[3] |= 1 << 0
+			requiredBitSet[4] |= 1 << 0
 			if err := func() error {
 				if err := s.AcknowledgedAt.Decode(d, json.DecodeDateTime); err != nil {
 					return err
@@ -112473,7 +112609,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"acknowledged_at\"")
 			}
 		case "changed_sha256":
-			requiredBitSet[3] |= 1 << 1
+			requiredBitSet[4] |= 1 << 1
 			if err := func() error {
 				if err := s.ChangedSHA256.Decode(d); err != nil {
 					return err
@@ -112483,7 +112619,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"changed_sha256\"")
 			}
 		case "changed_at":
-			requiredBitSet[3] |= 1 << 2
+			requiredBitSet[4] |= 1 << 2
 			if err := func() error {
 				if err := s.ChangedAt.Decode(d, json.DecodeDateTime); err != nil {
 					return err
@@ -112493,7 +112629,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"changed_at\"")
 			}
 		case "changed_fetch_operation_id":
-			requiredBitSet[3] |= 1 << 3
+			requiredBitSet[4] |= 1 << 3
 			if err := func() error {
 				if err := s.ChangedFetchOperationID.Decode(d); err != nil {
 					return err
@@ -112503,7 +112639,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"changed_fetch_operation_id\"")
 			}
 		case "version":
-			requiredBitSet[3] |= 1 << 4
+			requiredBitSet[4] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -112523,9 +112659,10 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [4]uint8{
+	for i, mask := range [5]uint8{
 		0b11111111,
 		0b00000001,
+		0b00000000,
 		0b11110000,
 		0b00011111,
 	} {

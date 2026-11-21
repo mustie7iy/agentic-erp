@@ -229,3 +229,27 @@ func (p Payees) FindCustomers(ctx context.Context, number, taxNumber string) ([]
 	}
 	return found, nil
 }
+
+// HasTaxNumber says whether the business partner holds a tax identifier
+// of the value, whatever its scheme, found through the identifiers' keyed
+// hash without opening one (ADR-0061 §6: an e-invoice's seller TRN held
+// against the order's supplier). An empty value is held by none.
+func (p Payees) HasTaxNumber(ctx context.Context, partnerID uuid.UUID, value string) (bool, error) {
+	tx, pr, err := reqctx.Request(ctx)
+	if err != nil {
+		return false, err
+	}
+	if value == "" {
+		return false, nil
+	}
+	print, err := p.Keys.Fingerprint(ctx, pr.TenantID, value)
+	if err != nil {
+		return false, fmt.Errorf("partner: fingerprint of a tax registration number: %w", err)
+	}
+	var held bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM partner.tax_identifier WHERE partner_id = $1 AND value_fingerprint = $2)`,
+		partnerID, print).Scan(&held); err != nil {
+		return false, fmt.Errorf("partner: tax identifiers of partner %s: %w", partnerID, err)
+	}
+	return held, nil
+}
