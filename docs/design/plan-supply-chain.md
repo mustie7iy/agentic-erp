@@ -92,8 +92,13 @@ material type is not built.
   ADR-0083): outbound deliveries, their picking and goods issue. A leaf:
   it reads sales' orders and writes their deliveries through sales'
   published API and posts the goods issue through inventory's.
-- Planning (S2k–S2n) and the connectors (S2q–S2s) are decided by their
-  own ADRs when they are built.
+- **`mrp`** (schema `mrp`, `internal/mrp`, from S2k; ADR-0084): materials'
+  planning data at plants and planning runs. A leaf: it reads sales'
+  demand, inventory's stock and prices and procurement's receipts and
+  requisitions through ports and proposes requisitions through
+  procurement's published API.
+- The rest of planning (S2l–S2n) and the connectors (S2q–S2s) are decided
+  by their own ADRs when they are built.
 
 ## S1 Foundation
 
@@ -748,6 +753,19 @@ plants.
 (demand from open sales orders and a reorder point against stock and open
 receipts) and proposes purchase requisitions. **Acceptance:** a rerun
 replaces its own open proposals and never a person's requisition.
+
+- **Detailed and as built** (lane mrp, 2026-11-21; ADR-0084, decided by
+  default): a planner gives a material its planning data at a plant
+  (`POST /v1/material-plans`: MRP type `reorder_point` or `no_planning`,
+  a reorder point in the base unit, the account its proposals name); a
+  run of a plant (`POST /v1/mrp-runs`, an Operation, one transaction)
+  counts per planned material the plant's confirmed orders' ordered and
+  undelivered quantities, its stock and its open receipts (purchase
+  orders' stock items and the proposals a person took over) and proposes
+  the shortage below the reorder point as a draft requisition at the
+  valuation price; a rerun cancels the earlier runs' proposals still
+  unchanged drafts and never touches one a person changed or raised.
+  Migration 000431, walkthrough step 151 (`step_mrp`).
 
 ### S2l Replenishment agent
 

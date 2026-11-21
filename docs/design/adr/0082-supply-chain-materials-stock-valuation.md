@@ -1317,3 +1317,9 @@ reads a location's stock without a lock for shipping's picking.
 - **Not built** (Later, plan §S2j): checking rules with replenishment
   lead time and planned receipts, back-order processing, product
   allocation, global ATP across plants, per-item plants.
+
+### Planning (2026-11-21)
+
+Material requirements planning (S2k onward) is the leaf context `mrp`,
+decided by ADR-0084; it reads inventory's `PlantStock` and a new
+`PlantPrices` and adds no direction to this ADR's §3.

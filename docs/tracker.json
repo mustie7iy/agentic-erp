@@ -5824,9 +5824,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "A planning run per plant computes net requirements (open sales orders and a reorder point against stock and open receipts) and proposes purchase requisitions, replacing only its own open proposals",
-      "r": "S2k · docs/design/plan-supply-chain.md §S2k",
+      "r": "S2k · docs/design/plan-supply-chain.md §S2k · ADR-0084 · db/migrations/000431 · internal/mrp · mrp.material_plan, .run, .run_line, .proposal · POST/GET /v1/material-plans, GET/PATCH /v1/material-plans/{id} · POST/GET /v1/mrp-runs, GET /v1/mrp-runs/{id} · workflows.MrpRun · sales.Orders.PlantRequirements · inventory.Endpoints.PlantPrices · procurement.Orders.OpenReceipts, .Requisitions · procurement.Endpoints.ProposeRequisition, .WithdrawProposal · mrp.plan.read, .write, mrp.run.start · TestPlanningRun · TestMRPRules · walkthrough step_mrp (step 151)",
       "src": "po:2026-11-17",
       "c": []
      },

@@ -2166,6 +2166,20 @@ type Handler interface {
 	//
 	// POST /v1/material-documents
 	CreateMaterialDocument(ctx context.Context, req *MaterialDocumentCreate, params CreateMaterialDocumentParams) (CreateMaterialDocumentRes, error)
+	// CreateMaterialPlan implements createMaterialPlan operation.
+	//
+	// Gives a material its planning data at a plant (ADR-0084 §4; SAP MARC's MRP view, MM02): how
+	// planning runs plan it (`mrp_type`: `reorder_point`, SAP's VB, or `no_planning`, ND) and its reorder
+	// point in its base unit, and the account its proposed purchase requisitions name. The plant is an
+	// active plant of a company the caller may act in (422 `mrp.plant_invalid`); the material an active
+	// one kept in stock and extended to it (422 `mrp.material_invalid`); the account one the company may
+	// post to (422 `mrp.account_not_postable`); a reorder point with up to six decimals (422
+	// `mrp.invalid_quantity`). A material is planned once at a plant (409 `mrp.material_plan_exists`).
+	// Audited. A retry with the same `Idempotency-Key` answers the planning data created. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/material-plans
+	CreateMaterialPlan(ctx context.Context, req *MaterialPlanCreate, params CreateMaterialPlanParams) (CreateMaterialPlanRes, error)
 	// CreateMaterialValuation implements createMaterialValuation operation.
 	//
 	// Values a material in a plant, the valuation area (ADR-0082 §8, S1d; SAP MBEW): a material kept in
@@ -4549,6 +4563,14 @@ type Handler interface {
 	//
 	// GET /v1/material-documents/{id}
 	GetMaterialDocument(ctx context.Context, params GetMaterialDocumentParams) (GetMaterialDocumentRes, error)
+	// GetMaterialPlan implements getMaterialPlan operation.
+	//
+	// A material's planning data at a plant (ADR-0084 §4): its plant, company and material by code,
+	// number and description, its MRP type, its reorder point in the material's base unit and the account
+	// its proposals name, by number. One of a company the caller cannot act in is not found.
+	//
+	// GET /v1/material-plans/{id}
+	GetMaterialPlan(ctx context.Context, params GetMaterialPlanParams) (GetMaterialPlanRes, error)
 	// GetMaterialValuation implements getMaterialValuation operation.
 	//
 	// One valuation of a material in a plant (ADR-0082 §8, S1d): its price control, price per price unit,
@@ -4588,6 +4610,16 @@ type Handler interface {
 	//
 	// GET /v1/migration-runs/{id}
 	GetMigrationRun(ctx context.Context, params GetMigrationRunParams) (GetMigrationRunRes, error)
+	// GetMrpRun implements getMrpRun operation.
+	//
+	// One planning run (ADR-0084 §3): its plant and company, its status and Operation, the company's day
+	// it planned on, the materials it planned, the requisitions it proposed and those of earlier runs it
+	// replaced, the problem that failed it, and its lines: per material planned, in its base unit, the
+	// reorder point, demand, stock and open receipts it counted, the shortage and the requisition proposed
+	// for it. One of a company the caller cannot act in is not found.
+	//
+	// GET /v1/mrp-runs/{id}
+	GetMrpRun(ctx context.Context, params GetMrpRunParams) (GetMrpRunRes, error)
 	// GetNumberRange implements getNumberRange operation.
 	//
 	// Returns one number range.
@@ -6346,6 +6378,14 @@ type Handler interface {
 	//
 	// GET /v1/material-documents
 	ListMaterialDocuments(ctx context.Context, params ListMaterialDocumentsParams) (ListMaterialDocumentsRes, error)
+	// ListMaterialPlans implements listMaterialPlans operation.
+	//
+	// The planning data of materials at the plants of the companies the caller may act in (ADR-0084 §4;
+	// SAP MARC's MRP view), each as `getMaterialPlan` gives it, in the order they were created. Filtered
+	// by plant and by material. Sortable by: `created_at`.
+	//
+	// GET /v1/material-plans
+	ListMaterialPlans(ctx context.Context, params ListMaterialPlansParams) (ListMaterialPlansRes, error)
 	// ListMaterialValuations implements listMaterialValuations operation.
 	//
 	// The valuations of materials in the plants of the companies the caller may act in (ADR-0082 §8,
@@ -6398,6 +6438,14 @@ type Handler interface {
 	//
 	// GET /v1/migration-runs
 	ListMigrationRuns(ctx context.Context, params ListMigrationRunsParams) (ListMigrationRunsRes, error)
+	// ListMrpRuns implements listMrpRuns operation.
+	//
+	// The planning runs of the plants of the companies the caller may act in (ADR-0084 §3), each as
+	// `getMrpRun` gives it, in the order they were started. Filtered by plant and status. Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/mrp-runs
+	ListMrpRuns(ctx context.Context, params ListMrpRunsParams) (ListMrpRunsRes, error)
 	// ListNumberRanges implements listNumberRanges operation.
 	//
 	// Document number ranges. Sortable by: `document_type`, `fiscal_year`.
@@ -9073,6 +9121,33 @@ type Handler interface {
 	//
 	// POST /v1/migration-runs/{id}:start
 	StartMigrationRun(ctx context.Context, params StartMigrationRunParams) (StartMigrationRunRes, error)
+	// StartMrpRun implements startMrpRun operation.
+	//
+	// Starts a planning run of a plant (ADR-0084 §3; SAP's MRP run for one plant, MD01N): the run is
+	// written `queued` with its Operation (kind `mrp.run`, its `resource` the run) and carried out as a
+	// workflow, or in process in a cell without a workflow engine, as the person who started it. On the
+	// plant's company's day it plans each material the plant plans by reorder point (`createMaterialPlan`)
+	// that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales
+	// orders (each standing item's ordered quantity less what is delivered), the plant's stock at its
+	// storage locations (not stock in transit), and its open receipts (the open quantities of the stock
+	// items of purchase orders not closed or cancelled at the plant, and of the requisitions earlier runs
+	// proposed that a person took over and that are not ordered, cancelled or rejected). Where the stock
+	// and receipts less the demand fall below the reorder point, the shortage, what brings them back to
+	// it, is proposed as a draft purchase requisition of the material in its base unit, raised by the
+	// person who started the run in the company's currency at the material's valuation price at the plant
+	// (zero when it has none), naming the planning data's account and needed by the run's day. Before it
+	// plans, the run cancels the plant's earlier proposals still its own: drafts no person changed since a
+	// run proposed them. A proposal a person changed or submitted is theirs from then on and is never
+	// touched; a requisition a person raised is never touched either. The run's lines say what it counted
+	// and proposed per material. The plant is an active plant of a company the caller may act in (422
+	// `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail
+	// names it. A business problem while planning (the company's requisition number range exhausted, the
+	// account no longer postable, the requester no longer active) fails the run and its Operation with the
+	// problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails
+	// it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
+	//
+	// POST /v1/mrp-runs
+	StartMrpRun(ctx context.Context, req *MrpRunStart, params StartMrpRunParams) (StartMrpRunRes, error)
 	// SubmitChangeRequest implements submitChangeRequest operation.
 	//
 	// Moves a draft to `validating`. The server validates it and computes items and tier; it becomes
@@ -9448,6 +9523,16 @@ type Handler interface {
 	//
 	// PATCH /v1/materials/{id}
 	UpdateMaterial(ctx context.Context, req *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error)
+	// UpdateMaterialPlan implements updateMaterialPlan operation.
+	//
+	// Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084
+	// §4): its MRP type, reorder point or account, checked as on creation (422 `mrp.invalid_quantity`,
+	// `mrp.account_not_postable`); a change to what it already is is 422 `mrp.nothing_to_change`. The
+	// plant and material do not change. The next planning run of the plant plans by it. JSON Merge Patch.
+	// Audited with the values before and after. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/material-plans/{id}
+	UpdateMaterialPlan(ctx context.Context, req *MaterialPlanUpdate, params UpdateMaterialPlanParams) (UpdateMaterialPlanRes, error)
 	// UpdateMaterialValuation implements updateMaterialValuation operation.
 	//
 	// Changes a valuation's class at the caller's version (`If-Match`, 412 otherwise; ADR-0082 §8, S1d)

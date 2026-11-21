@@ -2187,6 +2187,20 @@ type Invoker interface {
 	//
 	// POST /v1/material-documents
 	CreateMaterialDocument(ctx context.Context, request *MaterialDocumentCreate, params CreateMaterialDocumentParams) (CreateMaterialDocumentRes, error)
+	// CreateMaterialPlan invokes createMaterialPlan operation.
+	//
+	// Gives a material its planning data at a plant (ADR-0084 §4; SAP MARC's MRP view, MM02): how
+	// planning runs plan it (`mrp_type`: `reorder_point`, SAP's VB, or `no_planning`, ND) and its reorder
+	// point in its base unit, and the account its proposed purchase requisitions name. The plant is an
+	// active plant of a company the caller may act in (422 `mrp.plant_invalid`); the material an active
+	// one kept in stock and extended to it (422 `mrp.material_invalid`); the account one the company may
+	// post to (422 `mrp.account_not_postable`); a reorder point with up to six decimals (422
+	// `mrp.invalid_quantity`). A material is planned once at a plant (409 `mrp.material_plan_exists`).
+	// Audited. A retry with the same `Idempotency-Key` answers the planning data created. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/material-plans
+	CreateMaterialPlan(ctx context.Context, request *MaterialPlanCreate, params CreateMaterialPlanParams) (CreateMaterialPlanRes, error)
 	// CreateMaterialValuation invokes createMaterialValuation operation.
 	//
 	// Values a material in a plant, the valuation area (ADR-0082 §8, S1d; SAP MBEW): a material kept in
@@ -4570,6 +4584,14 @@ type Invoker interface {
 	//
 	// GET /v1/material-documents/{id}
 	GetMaterialDocument(ctx context.Context, params GetMaterialDocumentParams) (GetMaterialDocumentRes, error)
+	// GetMaterialPlan invokes getMaterialPlan operation.
+	//
+	// A material's planning data at a plant (ADR-0084 §4): its plant, company and material by code,
+	// number and description, its MRP type, its reorder point in the material's base unit and the account
+	// its proposals name, by number. One of a company the caller cannot act in is not found.
+	//
+	// GET /v1/material-plans/{id}
+	GetMaterialPlan(ctx context.Context, params GetMaterialPlanParams) (GetMaterialPlanRes, error)
 	// GetMaterialValuation invokes getMaterialValuation operation.
 	//
 	// One valuation of a material in a plant (ADR-0082 §8, S1d): its price control, price per price unit,
@@ -4609,6 +4631,16 @@ type Invoker interface {
 	//
 	// GET /v1/migration-runs/{id}
 	GetMigrationRun(ctx context.Context, params GetMigrationRunParams) (GetMigrationRunRes, error)
+	// GetMrpRun invokes getMrpRun operation.
+	//
+	// One planning run (ADR-0084 §3): its plant and company, its status and Operation, the company's day
+	// it planned on, the materials it planned, the requisitions it proposed and those of earlier runs it
+	// replaced, the problem that failed it, and its lines: per material planned, in its base unit, the
+	// reorder point, demand, stock and open receipts it counted, the shortage and the requisition proposed
+	// for it. One of a company the caller cannot act in is not found.
+	//
+	// GET /v1/mrp-runs/{id}
+	GetMrpRun(ctx context.Context, params GetMrpRunParams) (GetMrpRunRes, error)
 	// GetNumberRange invokes getNumberRange operation.
 	//
 	// Returns one number range.
@@ -6367,6 +6399,14 @@ type Invoker interface {
 	//
 	// GET /v1/material-documents
 	ListMaterialDocuments(ctx context.Context, params ListMaterialDocumentsParams) (ListMaterialDocumentsRes, error)
+	// ListMaterialPlans invokes listMaterialPlans operation.
+	//
+	// The planning data of materials at the plants of the companies the caller may act in (ADR-0084 §4;
+	// SAP MARC's MRP view), each as `getMaterialPlan` gives it, in the order they were created. Filtered
+	// by plant and by material. Sortable by: `created_at`.
+	//
+	// GET /v1/material-plans
+	ListMaterialPlans(ctx context.Context, params ListMaterialPlansParams) (ListMaterialPlansRes, error)
 	// ListMaterialValuations invokes listMaterialValuations operation.
 	//
 	// The valuations of materials in the plants of the companies the caller may act in (ADR-0082 §8,
@@ -6419,6 +6459,14 @@ type Invoker interface {
 	//
 	// GET /v1/migration-runs
 	ListMigrationRuns(ctx context.Context, params ListMigrationRunsParams) (ListMigrationRunsRes, error)
+	// ListMrpRuns invokes listMrpRuns operation.
+	//
+	// The planning runs of the plants of the companies the caller may act in (ADR-0084 §3), each as
+	// `getMrpRun` gives it, in the order they were started. Filtered by plant and status. Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/mrp-runs
+	ListMrpRuns(ctx context.Context, params ListMrpRunsParams) (ListMrpRunsRes, error)
 	// ListNumberRanges invokes listNumberRanges operation.
 	//
 	// Document number ranges. Sortable by: `document_type`, `fiscal_year`.
@@ -9094,6 +9142,33 @@ type Invoker interface {
 	//
 	// POST /v1/migration-runs/{id}:start
 	StartMigrationRun(ctx context.Context, params StartMigrationRunParams) (StartMigrationRunRes, error)
+	// StartMrpRun invokes startMrpRun operation.
+	//
+	// Starts a planning run of a plant (ADR-0084 §3; SAP's MRP run for one plant, MD01N): the run is
+	// written `queued` with its Operation (kind `mrp.run`, its `resource` the run) and carried out as a
+	// workflow, or in process in a cell without a workflow engine, as the person who started it. On the
+	// plant's company's day it plans each material the plant plans by reorder point (`createMaterialPlan`)
+	// that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales
+	// orders (each standing item's ordered quantity less what is delivered), the plant's stock at its
+	// storage locations (not stock in transit), and its open receipts (the open quantities of the stock
+	// items of purchase orders not closed or cancelled at the plant, and of the requisitions earlier runs
+	// proposed that a person took over and that are not ordered, cancelled or rejected). Where the stock
+	// and receipts less the demand fall below the reorder point, the shortage, what brings them back to
+	// it, is proposed as a draft purchase requisition of the material in its base unit, raised by the
+	// person who started the run in the company's currency at the material's valuation price at the plant
+	// (zero when it has none), naming the planning data's account and needed by the run's day. Before it
+	// plans, the run cancels the plant's earlier proposals still its own: drafts no person changed since a
+	// run proposed them. A proposal a person changed or submitted is theirs from then on and is never
+	// touched; a requisition a person raised is never touched either. The run's lines say what it counted
+	// and proposed per material. The plant is an active plant of a company the caller may act in (422
+	// `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail
+	// names it. A business problem while planning (the company's requisition number range exhausted, the
+	// account no longer postable, the requester no longer active) fails the run and its Operation with the
+	// problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails
+	// it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
+	//
+	// POST /v1/mrp-runs
+	StartMrpRun(ctx context.Context, request *MrpRunStart, params StartMrpRunParams) (StartMrpRunRes, error)
 	// SubmitChangeRequest invokes submitChangeRequest operation.
 	//
 	// Moves a draft to `validating`. The server validates it and computes items and tier; it becomes
@@ -9469,6 +9544,16 @@ type Invoker interface {
 	//
 	// PATCH /v1/materials/{id}
 	UpdateMaterial(ctx context.Context, request *MaterialUpdate, params UpdateMaterialParams) (UpdateMaterialRes, error)
+	// UpdateMaterialPlan invokes updateMaterialPlan operation.
+	//
+	// Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084
+	// §4): its MRP type, reorder point or account, checked as on creation (422 `mrp.invalid_quantity`,
+	// `mrp.account_not_postable`); a change to what it already is is 422 `mrp.nothing_to_change`. The
+	// plant and material do not change. The next planning run of the plant plans by it. JSON Merge Patch.
+	// Audited with the values before and after. Human-only (`x-agent: false`).
+	//
+	// PATCH /v1/material-plans/{id}
+	UpdateMaterialPlan(ctx context.Context, request *MaterialPlanUpdate, params UpdateMaterialPlanParams) (UpdateMaterialPlanRes, error)
 	// UpdateMaterialValuation invokes updateMaterialValuation operation.
 	//
 	// Changes a valuation's class at the caller's version (`If-Match`, 412 otherwise; ADR-0082 §8, S1d)
@@ -27247,6 +27332,144 @@ func (c *Client) sendCreateMaterialDocument(ctx context.Context, request *Materi
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateMaterialDocumentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateMaterialPlan invokes createMaterialPlan operation.
+//
+// Gives a material its planning data at a plant (ADR-0084 §4; SAP MARC's MRP view, MM02): how
+// planning runs plan it (`mrp_type`: `reorder_point`, SAP's VB, or `no_planning`, ND) and its reorder
+// point in its base unit, and the account its proposed purchase requisitions name. The plant is an
+// active plant of a company the caller may act in (422 `mrp.plant_invalid`); the material an active
+// one kept in stock and extended to it (422 `mrp.material_invalid`); the account one the company may
+// post to (422 `mrp.account_not_postable`); a reorder point with up to six decimals (422
+// `mrp.invalid_quantity`). A material is planned once at a plant (409 `mrp.material_plan_exists`).
+// Audited. A retry with the same `Idempotency-Key` answers the planning data created. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/material-plans
+func (c *Client) CreateMaterialPlan(ctx context.Context, request *MaterialPlanCreate, params CreateMaterialPlanParams) (CreateMaterialPlanRes, error) {
+	res, err := c.sendCreateMaterialPlan(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateMaterialPlan(ctx context.Context, request *MaterialPlanCreate, params CreateMaterialPlanParams) (res CreateMaterialPlanRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createMaterialPlan"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/material-plans"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateMaterialPlanOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/material-plans"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateMaterialPlanRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateMaterialPlanOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateMaterialPlanResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -51289,6 +51512,139 @@ func (c *Client) sendGetMaterialDocument(ctx context.Context, params GetMaterial
 	return result, nil
 }
 
+// GetMaterialPlan invokes getMaterialPlan operation.
+//
+// A material's planning data at a plant (ADR-0084 §4): its plant, company and material by code,
+// number and description, its MRP type, its reorder point in the material's base unit and the account
+// its proposals name, by number. One of a company the caller cannot act in is not found.
+//
+// GET /v1/material-plans/{id}
+func (c *Client) GetMaterialPlan(ctx context.Context, params GetMaterialPlanParams) (GetMaterialPlanRes, error) {
+	res, err := c.sendGetMaterialPlan(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetMaterialPlan(ctx context.Context, params GetMaterialPlanParams) (res GetMaterialPlanRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getMaterialPlan"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/material-plans/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetMaterialPlanOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/material-plans/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetMaterialPlanOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetMaterialPlanResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetMaterialValuation invokes getMaterialValuation operation.
 //
 // One valuation of a material in a plant (ADR-0082 §8, S1d): its price control, price per price unit,
@@ -51946,6 +52302,141 @@ func (c *Client) sendGetMigrationRun(ctx context.Context, params GetMigrationRun
 
 	stage = "DecodeResponse"
 	result, err := decodeGetMigrationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetMrpRun invokes getMrpRun operation.
+//
+// One planning run (ADR-0084 §3): its plant and company, its status and Operation, the company's day
+// it planned on, the materials it planned, the requisitions it proposed and those of earlier runs it
+// replaced, the problem that failed it, and its lines: per material planned, in its base unit, the
+// reorder point, demand, stock and open receipts it counted, the shortage and the requisition proposed
+// for it. One of a company the caller cannot act in is not found.
+//
+// GET /v1/mrp-runs/{id}
+func (c *Client) GetMrpRun(ctx context.Context, params GetMrpRunParams) (GetMrpRunRes, error) {
+	res, err := c.sendGetMrpRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetMrpRun(ctx context.Context, params GetMrpRunParams) (res GetMrpRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getMrpRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/mrp-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetMrpRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/mrp-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetMrpRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetMrpRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -84579,6 +85070,210 @@ func (c *Client) sendListMaterialDocuments(ctx context.Context, params ListMater
 	return result, nil
 }
 
+// ListMaterialPlans invokes listMaterialPlans operation.
+//
+// The planning data of materials at the plants of the companies the caller may act in (ADR-0084 §4;
+// SAP MARC's MRP view), each as `getMaterialPlan` gives it, in the order they were created. Filtered
+// by plant and by material. Sortable by: `created_at`.
+//
+// GET /v1/material-plans
+func (c *Client) ListMaterialPlans(ctx context.Context, params ListMaterialPlansParams) (ListMaterialPlansRes, error) {
+	res, err := c.sendListMaterialPlans(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListMaterialPlans(ctx context.Context, params ListMaterialPlansParams) (res ListMaterialPlansRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listMaterialPlans"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/material-plans"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListMaterialPlansOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/material-plans"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "material_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "material_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.MaterialID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListMaterialPlansOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListMaterialPlansResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListMaterialValuations invokes listMaterialValuations operation.
 //
 // The valuations of materials in the plants of the companies the caller may act in (ADR-0082 §8,
@@ -85936,6 +86631,210 @@ func (c *Client) sendListMigrationRuns(ctx context.Context, params ListMigration
 
 	stage = "DecodeResponse"
 	result, err := decodeListMigrationRunsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListMrpRuns invokes listMrpRuns operation.
+//
+// The planning runs of the plants of the companies the caller may act in (ADR-0084 §3), each as
+// `getMrpRun` gives it, in the order they were started. Filtered by plant and status. Sortable by:
+// `created_at`.
+//
+// GET /v1/mrp-runs
+func (c *Client) ListMrpRuns(ctx context.Context, params ListMrpRunsParams) (ListMrpRunsRes, error) {
+	res, err := c.sendListMrpRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListMrpRuns(ctx context.Context, params ListMrpRunsParams) (res ListMrpRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listMrpRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/mrp-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListMrpRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/mrp-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "plant_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "plant_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PlantID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListMrpRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListMrpRunsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -119601,6 +120500,157 @@ func (c *Client) sendStartMigrationRun(ctx context.Context, params StartMigratio
 	return result, nil
 }
 
+// StartMrpRun invokes startMrpRun operation.
+//
+// Starts a planning run of a plant (ADR-0084 §3; SAP's MRP run for one plant, MD01N): the run is
+// written `queued` with its Operation (kind `mrp.run`, its `resource` the run) and carried out as a
+// workflow, or in process in a cell without a workflow engine, as the person who started it. On the
+// plant's company's day it plans each material the plant plans by reorder point (`createMaterialPlan`)
+// that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales
+// orders (each standing item's ordered quantity less what is delivered), the plant's stock at its
+// storage locations (not stock in transit), and its open receipts (the open quantities of the stock
+// items of purchase orders not closed or cancelled at the plant, and of the requisitions earlier runs
+// proposed that a person took over and that are not ordered, cancelled or rejected). Where the stock
+// and receipts less the demand fall below the reorder point, the shortage, what brings them back to
+// it, is proposed as a draft purchase requisition of the material in its base unit, raised by the
+// person who started the run in the company's currency at the material's valuation price at the plant
+// (zero when it has none), naming the planning data's account and needed by the run's day. Before it
+// plans, the run cancels the plant's earlier proposals still its own: drafts no person changed since a
+// run proposed them. A proposal a person changed or submitted is theirs from then on and is never
+// touched; a requisition a person raised is never touched either. The run's lines say what it counted
+// and proposed per material. The plant is an active plant of a company the caller may act in (422
+// `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail
+// names it. A business problem while planning (the company's requisition number range exhausted, the
+// account no longer postable, the requester no longer active) fails the run and its Operation with the
+// problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails
+// it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`).
+//
+// POST /v1/mrp-runs
+func (c *Client) StartMrpRun(ctx context.Context, request *MrpRunStart, params StartMrpRunParams) (StartMrpRunRes, error) {
+	res, err := c.sendStartMrpRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendStartMrpRun(ctx context.Context, request *MrpRunStart, params StartMrpRunParams) (res StartMrpRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("startMrpRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/mrp-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, StartMrpRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/mrp-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeStartMrpRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, StartMrpRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeStartMrpRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // SubmitChangeRequest invokes submitChangeRequest operation.
 //
 // Moves a draft to `validating`. The server validates it and computes items and tier; it becomes
@@ -124538,6 +125588,169 @@ func (c *Client) sendUpdateMaterial(ctx context.Context, request *MaterialUpdate
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateMaterialResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateMaterialPlan invokes updateMaterialPlan operation.
+//
+// Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084
+// §4): its MRP type, reorder point or account, checked as on creation (422 `mrp.invalid_quantity`,
+// `mrp.account_not_postable`); a change to what it already is is 422 `mrp.nothing_to_change`. The
+// plant and material do not change. The next planning run of the plant plans by it. JSON Merge Patch.
+// Audited with the values before and after. Human-only (`x-agent: false`).
+//
+// PATCH /v1/material-plans/{id}
+func (c *Client) UpdateMaterialPlan(ctx context.Context, request *MaterialPlanUpdate, params UpdateMaterialPlanParams) (UpdateMaterialPlanRes, error) {
+	res, err := c.sendUpdateMaterialPlan(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateMaterialPlan(ctx context.Context, request *MaterialPlanUpdate, params UpdateMaterialPlanParams) (res UpdateMaterialPlanRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateMaterialPlan"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/material-plans/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateMaterialPlanOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/material-plans/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateMaterialPlanRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateMaterialPlanOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateMaterialPlanResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

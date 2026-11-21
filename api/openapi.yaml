@@ -73,6 +73,8 @@ tags:
     description: "The material master (ADR-0082): materials with their plants, storage locations and alternative units of measure."
   - name: inventory
     description: "Inventory management (ADR-0082): goods movements posted as material documents, their reversal, the stock of materials by plant and storage location, and physical inventory counts."
+  - name: mrp
+    description: "Material requirements planning (ADR-0084): materials' planning data at plants and planning runs, which propose purchase requisitions."
   - name: shipping
     description: "Shipping (ADR-0083): outbound deliveries of sales orders, their picking and their goods issue."
   - name: records
@@ -25888,6 +25890,320 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/material-plans:
+    get:
+      operationId: listMaterialPlans
+      tags:
+        - mrp
+      summary: List materials' planning data
+      description: "The planning data of materials at the plants of the companies the caller may act in (ADR-0084 §4; SAP MARC's MRP view), each as `getMaterialPlan` gives it, in the order they were created. Filtered by plant and by material. Sortable by: `created_at`."
+      x-permission: mrp.plan.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the planning data at this plant.
+          schema:
+            type: string
+            format: uuid
+        - name: material_id
+          in: query
+          required: false
+          description: "Only the planning data of this material (`GET /v1/materials/{id}`)."
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of materials' planning data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialPlanPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createMaterialPlan
+      tags:
+        - mrp
+      summary: Plan a material at a plant
+      description: "Gives a material its planning data at a plant (ADR-0084 §4; SAP MARC's MRP view, MM02): how planning runs plan it (`mrp_type`: `reorder_point`, SAP's VB, or `no_planning`, ND) and its reorder point in its base unit, and the account its proposed purchase requisitions name. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`); the material an active one kept in stock and extended to it (422 `mrp.material_invalid`); the account one the company may post to (422 `mrp.account_not_postable`); an MRP type of the list (422 `mrp.invalid_mrp_type`); a reorder point with up to six decimals (422 `mrp.invalid_quantity`). A material is planned once at a plant (409 `mrp.material_plan_exists`). Audited. A retry with the same `Idempotency-Key` answers the planning data created. Human-only (`x-agent: false`)."
+      x-permission: mrp.plan.write
+      x-agent: false
+      x-problem-codes:
+        - mrp.account_not_postable
+        - mrp.invalid_mrp_type
+        - mrp.invalid_quantity
+        - mrp.material_invalid
+        - mrp.material_plan_exists
+        - mrp.plant_invalid
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The planning data to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaterialPlanCreate"
+            examples:
+              reorder:
+                summary: A hinge reordered below 30
+                value:
+                  plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                  mrp_type: reorder_point
+                  reorder_point: "30"
+                  account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+      responses:
+        "201":
+          description: "Created; the planning data."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/material-plans/{id}":
+    get:
+      operationId: getMaterialPlan
+      tags:
+        - mrp
+      summary: Get a material's planning data
+      description: "A material's planning data at a plant (ADR-0084 §4): its plant, company and material by code, number and description, its MRP type, its reorder point in the material's base unit and the account its proposals name, by number. One of a company the caller cannot act in is not found."
+      x-permission: mrp.plan.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The planning data.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateMaterialPlan
+      tags:
+        - mrp
+      summary: Change a material's planning data
+      description: "Changes a material's planning data at the caller's version (`If-Match`, 412 otherwise; ADR-0084 §4): its MRP type, reorder point or account, checked as on creation (422 `mrp.invalid_mrp_type`, `mrp.invalid_quantity`, `mrp.account_not_postable`); a change to what it already is is 422 `mrp.nothing_to_change`. The plant and material do not change. The next planning run of the plant plans by it. JSON Merge Patch. Audited with the values before and after. Human-only (`x-agent: false`)."
+      x-permission: mrp.plan.write
+      x-agent: false
+      x-problem-codes:
+        - mrp.account_not_postable
+        - mrp.invalid_mrp_type
+        - mrp.invalid_quantity
+        - mrp.material_plan_exists
+        - mrp.nothing_to_change
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The change.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/MaterialPlanUpdate"
+      responses:
+        "200":
+          description: The changed planning data.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/mrp-runs:
+    post:
+      operationId: startMrpRun
+      tags:
+        - mrp
+      summary: Start a planning run
+      description: "Starts a planning run of a plant (ADR-0084 §3; SAP's MRP run for one plant, MD01N): the run is written `queued` with its Operation (kind `mrp.run`, its `resource` the run) and carried out as a workflow, or in process in a cell without a workflow engine, as the person who started it. On the plant's company's day it plans each material the plant plans by reorder point (`createMaterialPlan`) that is active and kept in stock there, in its base unit: the demand of the plant's confirmed sales orders (each standing item's ordered quantity less what is delivered), the plant's stock at its storage locations (not stock in transit), and its open receipts (the open quantities of the stock items of purchase orders not closed or cancelled at the plant, and of the requisitions earlier runs proposed that a person took over and that are not ordered, cancelled or rejected). Where the stock and receipts less the demand fall below the reorder point, the shortage, what brings them back to it, is proposed as a draft purchase requisition of the material in its base unit, raised by the person who started the run in the company's currency at the material's valuation price at the plant (zero when it has none), naming the planning data's account and needed by the run's day. Before it plans, the run cancels the plant's earlier proposals still its own: drafts no person changed since a run proposed them. A proposal a person changed or submitted is theirs from then on and is never touched; a requisition a person raised is never touched either. The run's lines say what it counted and proposed per material. The plant is an active plant of a company the caller may act in (422 `mrp.plant_invalid`); a run of the plant already queued is 409 `mrp.run_in_progress`, whose detail names it. A business problem while planning (the company's requisition number range exhausted, the account no longer postable, the requester no longer active) fails the run and its Operation with the problem, nothing proposed or cancelled. Cancelling the Operation before the run is carried out fails it with `mrp.run_cancelled`. Audited. Human-only (`x-agent: false`)."
+      x-permission: mrp.run.start
+      x-agent: false
+      x-problem-codes:
+        - mrp.plant_invalid
+        - mrp.run_in_progress
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The run to start.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MrpRunStart"
+            examples:
+              plant:
+                summary: Plan the Toronto plant
+                value:
+                  plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+      responses:
+        "202":
+          description: "Accepted; the run continues as a long-running operation. Poll the Operation at `Location`; its `resource` is the run (`GET /v1/mrp-runs/{id}`)."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Operation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    get:
+      operationId: listMrpRuns
+      tags:
+        - mrp
+      summary: List planning runs
+      description: "The planning runs of the plants of the companies the caller may act in (ADR-0084 §3), each as `getMrpRun` gives it, in the order they were started. Filtered by plant and status. Sortable by: `created_at`."
+      x-permission: mrp.plan.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: plant_id
+          in: query
+          required: false
+          description: Only the runs of this plant.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only runs in this status.
+          schema:
+            type: string
+            maxLength: 20
+            description: "Planning run status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum: [queued, completed, failed]
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of planning runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MrpRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/mrp-runs/{id}":
+    get:
+      operationId: getMrpRun
+      tags:
+        - mrp
+      summary: Get a planning run
+      description: "One planning run (ADR-0084 §3): its plant and company, its status and Operation, the company's day it planned on, the materials it planned, the requisitions it proposed and those of earlier runs it replaced, the problem that failed it, and its lines: per material planned, in its base unit, the reorder point, demand, stock and open receipts it counted, the shortage and the requisition proposed for it. One of a company the caller cannot act in is not found."
+      x-permission: mrp.plan.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The run.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MrpRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/outbound-deliveries:
@@ -65575,6 +65891,179 @@ components:
         number: {type: string, pattern: "^[A-Z0-9_-]{1,10}$", description: "The batch's number, unique for its material: 1 to 10 capitals, digits, `-` or `_`, as the supplier or the plant gives it."}
         manufacture_date: {type: string, format: date, description: "The day the batch was made."}
         expiry_date: {type: string, format: date, description: "The day it is to be used by, not before its manufacture date; absent when it does not expire."}
+    MaterialPlanCreate:
+      type: object
+      description: "A material's planning data at a plant to create."
+      required: [plant_id, material_id, mrp_type, reorder_point, account_id]
+      additionalProperties: false
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant (an org unit of kind `plant`)."}
+        material_id: {type: string, format: uuid, description: "The material (`GET /v1/materials/{id}`), kept in stock and extended to the plant."}
+        mrp_type:
+          type: string
+          maxLength: 20
+          x-extensible-enum: [reorder_point, no_planning]
+          description: "`reorder_point` (SAP's VB): runs propose what brings the plant's available quantity back to the reorder point; `no_planning` (ND): runs leave it out. Open enumeration: values may be added within /v1."
+        reorder_point: {type: string, pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The reorder point in the material's base unit, zero or more."}
+        account_id: {type: string, format: uuid, description: "The account the requisitions runs propose name, one the plant's company may post to; a stock item's receipt posts its valuation class's accounts."}
+    MaterialPlanUpdate:
+      type: object
+      description: "Merge patch of a material's planning data."
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        mrp_type:
+          type: string
+          maxLength: 20
+          x-extensible-enum: [reorder_point, no_planning]
+          description: "The MRP type. Open enumeration: values may be added within /v1."
+        reorder_point: {type: string, pattern: "^(0|[1-9][0-9]{0,13})(\\.[0-9]{1,6})?$", description: "The reorder point in the material's base unit."}
+        account_id: {type: string, format: uuid, description: "The account its proposals name."}
+    MaterialPlan:
+      description: "A material's planning data at a plant (SAP MARC's MRP view; ADR-0084 §4)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, material_id, material_number, material_description, mrp_type, reorder_point, account_id, account_number]
+          properties:
+            plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+            plant_code: {type: string, description: "The plant's code.", readOnly: true}
+            plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+            company_code: {type: string, description: "That company's code.", readOnly: true}
+            material_id: {type: string, format: uuid, description: "The material.", readOnly: true}
+            material_number: {type: string, description: "The material's number.", readOnly: true}
+            material_description: {type: string, description: "The material's description, as it is now.", readOnly: true}
+            mrp_type:
+              type: string
+              x-extensible-enum: [reorder_point, no_planning]
+              description: "`reorder_point` or `no_planning`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            reorder_point: {$ref: "#/components/schemas/Quantity", description: "The reorder point, in the material's base unit."}
+            account_id: {type: string, format: uuid, description: "The account its proposals name."}
+            account_number: {type: string, description: "That account's number.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+          version: 1
+          created_at: "2026-11-21T10:00:01Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-21T10:00:01Z"
+          plant_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          plant_code: P100
+          plant_name: Toronto plant
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          material_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          material_number: MA000009
+          material_description: Hinge H30
+          mrp_type: reorder_point
+          reorder_point: {value: "30", unit: EA}
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          account_number: "140000"
+    MaterialPlanPage:
+      type: object
+      description: One page of materials' planning data.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaterialPlan"
+          description: The planning data on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
+    MrpRunStart:
+      type: object
+      description: "The planning run to start: one plant."
+      required: [plant_id]
+      additionalProperties: false
+      properties:
+        plant_id: {type: string, format: uuid, description: "The plant to plan.", example: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61}
+    MrpRunError:
+      type: object
+      description: "The problem that failed a run."
+      required: [code, detail]
+      properties:
+        code: {type: string, description: "The problem's code."}
+        detail: {type: string, description: "The problem's detail."}
+    MrpRunLine:
+      type: object
+      description: "What a run counted and proposed of one material, in its base unit."
+      required: [material_id, material_number, material_description, reorder_point, demand, stock, receipts, shortage]
+      properties:
+        material_id: {type: string, format: uuid, description: "The material."}
+        material_number: {type: string, description: "The material's number."}
+        material_description: {type: string, description: "The material's description, as it is now."}
+        reorder_point: {$ref: "#/components/schemas/Quantity", description: "The reorder point the run planned by."}
+        demand: {$ref: "#/components/schemas/Quantity", description: "What the plant's confirmed sales orders ordered and have not delivered."}
+        stock: {$ref: "#/components/schemas/Quantity", description: "The plant's stock at its storage locations."}
+        receipts: {$ref: "#/components/schemas/Quantity", description: "The plant's open receipts: purchase orders' open quantities and the proposals a person took over."}
+        shortage: {$ref: "#/components/schemas/Quantity", description: "What brings the stock and receipts less the demand back to the reorder point; zero when they are not below it."}
+        requisition_id: {type: string, format: uuid, description: "The draft requisition proposed for the shortage (`GET /v1/requisitions/{id}`); absent without a shortage."}
+        requisition_number: {type: string, description: "That requisition's number."}
+    MrpRunReplaced:
+      type: object
+      description: "A requisition an earlier run proposed that this run cancelled."
+      required: [requisition_id, requisition_number, material_id, material_number]
+      properties:
+        requisition_id: {type: string, format: uuid, description: "The requisition, now cancelled."}
+        requisition_number: {type: string, description: "Its number."}
+        material_id: {type: string, format: uuid, description: "Its material."}
+        material_number: {type: string, description: "The material's number."}
+    MrpRun:
+      description: "A planning run of one plant (ADR-0084 §3)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [plant_id, plant_code, plant_name, legal_entity_id, company_code, status, operation_id, lines, replaced]
+          properties:
+            plant_id: {type: string, format: uuid, description: "The plant.", readOnly: true}
+            plant_code: {type: string, description: "The plant's code.", readOnly: true}
+            plant_name: {type: string, description: "The plant's name, as it is now.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The plant's company.", readOnly: true}
+            company_code: {type: string, description: "That company's code.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [queued, completed, failed]
+              description: "`queued` until it is carried out, then `completed` or `failed`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            operation_id: {type: string, format: uuid, description: "Its Operation (`GET /v1/operations/{id}`).", readOnly: true}
+            run_date: {type: string, format: date, description: "The company's day it planned on; absent until it completed.", readOnly: true}
+            materials_planned: {type: integer, format: int32, description: "The materials it planned; absent until it completed.", readOnly: true}
+            proposals_created: {type: integer, format: int32, description: "The requisitions it proposed; absent until it completed.", readOnly: true}
+            proposals_replaced: {type: integer, format: int32, description: "The earlier runs' proposals it cancelled; absent until it completed.", readOnly: true}
+            error: {$ref: "#/components/schemas/MrpRunError", description: "The problem that failed it; absent unless it failed."}
+            lines:
+              type: array
+              items:
+                $ref: "#/components/schemas/MrpRunLine"
+              description: "Per material planned, by material number; empty until it completed."
+            replaced:
+              type: array
+              items:
+                $ref: "#/components/schemas/MrpRunReplaced"
+              description: "The earlier runs' proposals it cancelled, by requisition number."
+    MrpRunPage:
+      type: object
+      description: One page of planning runs.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MrpRun"
+          description: The runs on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+      examples:
+        - items: []
     Batch:
       type: object
       description: "A batch (SAP MCH1): a lot of a batch-managed material, with its manufacture and expiry dates. It does not change."

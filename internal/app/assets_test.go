@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/mustie7iy/agentic-erp/internal/assets"
+	"github.com/mustie7iy/agentic-erp/internal/mrp"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
 
@@ -16,4 +17,12 @@ func TestDepreciateKind(t *testing.T) {
 		t.Errorf("got %s, want %s", workflows.DepreciateKind, assets.KindDepreciate)
 	}
 	var _ workflows.Depreciation = Assets(Config{})
+}
+
+// TestMrpKind: the workflows dispatcher, which may not import the mrp
+// context (a leaf), names its runs' Operation kind as the context does.
+func TestMrpKind(t *testing.T) {
+	if workflows.MrpKind != mrp.KindRun {
+		t.Errorf("got %s, want %s", workflows.MrpKind, mrp.KindRun)
+	}
 }
