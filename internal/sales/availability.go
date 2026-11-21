@@ -96,8 +96,8 @@ func (e *Endpoints) plantRequiredFor(ctx context.Context, o Order, items []Order
 		return err
 	}
 	return problem.Invalid("sales.plant_required", "plant_id", fmt.Sprintf("Sales order %s names no plant, and its item %d is of material %s, "+
-		"kept in stock: an order is confirmed with the plant it delivers from, which checks the item's availability there; cancel it and "+
-		"create it again with its plant_id.", o.DocumentNumber, p.checked[0].ItemNo, p.materials[*p.checked[0].MaterialID].Number))
+		"kept in stock: an order takes a stock item only with the plant it delivers from, which checks the item's availability there; "+
+		"create the order with its plant_id.", o.DocumentNumber, p.checked[0].ItemNo, p.materials[*p.checked[0].MaterialID].Number))
 }
 
 // promise is one item's availability check: the item, its quantity, what
