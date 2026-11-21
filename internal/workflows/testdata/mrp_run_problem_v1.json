@@ -181,7 +181,7 @@
       "taskId": "1048637",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "Mustofas-MacBook-Pro.local:6e5f16b0-bb4f-4705-9727-c799b738257e",
+          "name": "recorder:6e5f16b0-bb4f-4705-9727-c799b738257e",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "record"
         },
@@ -301,7 +301,7 @@
       "taskId": "1048652",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "Mustofas-MacBook-Pro.local:6e5f16b0-bb4f-4705-9727-c799b738257e",
+          "name": "recorder:6e5f16b0-bb4f-4705-9727-c799b738257e",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "record"
         },

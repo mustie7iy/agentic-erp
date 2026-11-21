@@ -162,7 +162,7 @@
       "taskId": "1048605",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "Mustofas-MacBook-Pro.local:a4b20b0f-e912-471e-a46e-09bfde8ea417",
+          "name": "recorder:a4b20b0f-e912-471e-a46e-09bfde8ea417",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "record"
         },

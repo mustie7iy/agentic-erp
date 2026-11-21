@@ -31,7 +31,7 @@
 360 internal/payments
 331 internal/payables
 400 internal/procurement
-260 internal/sales
+270 internal/sales
 178 internal/closing
 167 internal/workflows
 130 internal/analytics/store
@@ -80,5 +80,12 @@
 # about 185 s and 140 s a run, no longer below the 20 s that leaves a
 # package at 10 s. internal/integration (1282 s, about 1070 s a run) and
 # internal/sales (315 s) stay within their weights.
-185 internal/inventory
-140 internal/einvoicing
+# internal/inventory, internal/einvoicing, internal/sales and the new
+# internal/mrp (batch 87, S2g's serial numbers, T65e's credit notes, the
+# plant required, S2k's planning): one local race run of the batch, two
+# packages at a time, took 246 s, 179 s, 323 s and 36 s, against 623 s
+# for internal/web (weighted 514), so some 1.2 times a runner's: about
+# 205 s, 150 s, 270 s and 30 s a run.
+205 internal/inventory
+150 internal/einvoicing
+30 internal/mrp
