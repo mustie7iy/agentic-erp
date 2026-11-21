@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -58,7 +59,7 @@ func (e *Endpoints) CreateOutgoingEInvoice(ctx context.Context, req *gen.Outgoin
 	if err != nil {
 		return nil, err
 	}
-	tag := gen.NewOptString(etag.Format(o.Version))
+	tag := gen.NewOptString(out.Etag)
 	if created {
 		return &gen.CreateOutgoingEInvoiceCreatedHeaders{ETag: tag, Location: gen.NewOptString("/v1/outgoing-e-invoices/" + o.ID.String()),
 			Response: out}, nil
@@ -251,7 +252,7 @@ func (e *Endpoints) GetOutgoingEInvoice(ctx context.Context, params gen.GetOutgo
 	if err != nil {
 		return nil, err
 	}
-	return &gen.GetOutgoingEInvoiceOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: out}, nil
+	return &gen.GetOutgoingEInvoiceOKHeaders{ETag: gen.NewOptString(out.Etag), Response: out}, nil
 }
 
 // GetOutgoingEInvoiceContent implements GET
@@ -285,12 +286,22 @@ func (e *Endpoints) GetOutgoingEInvoiceContent(ctx context.Context, params gen.G
 	return &gen.GetOutgoingEInvoiceContentOK{Data: bytes.NewReader(content)}, nil
 }
 
+// tagOf is an e-invoice's ETag, its representation's etag: its version
+// and its submission's, so it moves with its transmission (As built E3);
+// both only grow.
+func tagOf(o gen.OutgoingEInvoice) string {
+	return etag.Format(o.Version + o.Transmission.Value.Version)
+}
+
 // outgoingNames are the companies and customers of a page of e-invoices,
 // read once each (REVIEW.md: an identifier with the name its consumer
-// needs).
+// needs), and their submissions with their connectors' names (As built
+// E3).
 type outgoingNames struct {
-	companies map[uuid.UUID]Company
-	customers map[uuid.UUID]CustomerName
+	companies  map[uuid.UUID]Company
+	customers  map[uuid.UUID]CustomerName
+	sent       map[uuid.UUID]submission
+	connectors map[uuid.UUID]string
 }
 
 func (e *Endpoints) outgoingNames(ctx context.Context, docs []OutgoingEInvoice) (outgoingNames, error) {
@@ -299,8 +310,89 @@ func (e *Endpoints) outgoingNames(ctx context.Context, docs []OutgoingEInvoice) 
 	if n.companies, err = e.Companies.Named(ctx, idref.Of(docs, func(o OutgoingEInvoice) *uuid.UUID { return &o.LegalEntityID })); err != nil {
 		return n, err
 	}
-	n.customers, err = e.Sales.Customers(ctx, idref.Of(docs, func(o OutgoingEInvoice) *uuid.UUID { return &o.CustomerID }))
+	if n.customers, err = e.Sales.Customers(ctx, idref.Of(docs, func(o OutgoingEInvoice) *uuid.UUID { return &o.CustomerID })); err != nil {
+		return n, err
+	}
+	if n.sent, err = submissions(ctx, idref.Of(docs, func(o OutgoingEInvoice) *uuid.UUID { return &o.ID })); err != nil {
+		return n, err
+	}
+	var conns []uuid.UUID
+	for _, s := range n.sent {
+		conns = append(conns, s.ConnectorID)
+	}
+	n.connectors, err = e.Connectors.Names(ctx, conns)
 	return n, err
+}
+
+// submissions are the e-invoices' submissions by e-invoice, each with its
+// delivery's outcome.
+func submissions(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]submission, error) {
+	out := map[uuid.UUID]submission{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT `+submissionColumns+`, `+deliveryOutcome+` FROM einvoicing.outgoing_submission s
+		JOIN einvoicing.outgoing_einvoice x ON x.tenant_id = s.tenant_id AND x.id = s.outgoing_einvoice_id WHERE s.outgoing_einvoice_id = ANY($1)`, ids)
+	var s submission
+	if _, err := pgx.ForEachRow(rows, append(s.fields(), &s.Outcome), func() error { out[s.OutgoingID] = s; return nil }); err != nil {
+		return nil, fmt.Errorf("einvoicing: read the submissions of outgoing e-invoices: %w", err)
+	}
+	return out, nil
+}
+
+// deliveryOutcome is what the delivery statuses of the submission s of
+// the e-invoice x mean (As built E4): null until completed; rejected
+// (by the buyer's access point or the authority, the worklist to correct
+// by credit note) until a credit note of the company naming it (IBT-025),
+// rendered after it, is transmitted, then corrected; undelivered,
+// accepted, or pending while no response is final.
+const deliveryOutcome = `CASE WHEN s.status <> 'completed' THEN NULL
+	WHEN ` + deliveryRejected + ` THEN CASE WHEN ` + deliveryCorrected + ` THEN 'corrected' ELSE 'rejected' END
+	WHEN s.delivery_status = 'DELIVERY_FAILURE' THEN 'undelivered'
+	WHEN s.delivery_status IN ('ACCEPTANCE', 'BUSINESS_RULE_WARNING') THEN 'accepted'
+	ELSE 'pending' END`
+
+// deliveryRejected holds when the buyer's access point or the authority
+// rejected the e-invoice of submission s.
+const deliveryRejected = `(s.delivery_status IN ('REJECTION', 'BUSINESS_RULE_FATAL', 'SYNTAX_VIOLATION') OR s.tax_data_status = 'TDD_REJECTED')`
+
+// deliveryCorrected holds when a credit note c of x's company naming x's
+// invoice (IBT-025; a credit note's own reference for a credit note),
+// rendered after x, is transmitted.
+const deliveryCorrected = `EXISTS (SELECT FROM einvoicing.outgoing_einvoice c
+	JOIN einvoicing.outgoing_submission cs ON cs.tenant_id = c.tenant_id AND cs.outgoing_einvoice_id = c.id AND cs.status = 'completed'
+	WHERE c.tenant_id = x.tenant_id AND c.legal_entity_id = x.legal_entity_id AND c.type_code = '381' AND c.id <> x.id
+	  AND c.reference_invoice_number = coalesce(x.reference_invoice_number, x.customer_invoice_number) AND c.rendered_at > x.rendered_at)`
+
+// transmissionAPI is a submission as the e-invoice shows it.
+func (n outgoingNames) transmissionAPI(s submission) gen.OutgoingEInvoiceTransmission {
+	out := gen.OutgoingEInvoiceTransmission{ConnectorID: s.ConnectorID, ConnectorName: n.connectors[s.ConnectorID], OperationID: s.OperationID,
+		BusinessType: s.BusinessType, Status: s.Status, ProviderStatus: nilString(s.ProviderStatus), TrackingID: nilString(s.TrackingID),
+		Attempts: int32(s.Attempts), Resends: int32(s.Resends), NextCheckAt: nilTime(s.NextCheckAt), SubmittedAt: nilTime(s.SubmittedAt),
+		CompletedAt: nilTime(s.CompletedAt), DeliveryStatus: nilString(s.DeliveryStatus), DeliveryDetail: nilString(s.DeliveryDetail),
+		DeliveredAt: nilTime(s.DeliveredAt), DeliveryOutcome: nilString(s.Outcome), TaxDataStatus: nilString(s.TaxDataStatus),
+		TaxDataAt: nilTime(s.TaxDataAt), TaxDataRequest: nilString(s.TaxDataRequest),
+		TaxDataAwaited: nilString(s.TaxDataAwaited), FollowCheckAt: nilTime(s.FollowCheckAt), Version: s.Version}
+	if s.ProblemCode != nil {
+		out.Problem.SetTo(gen.OutgoingEInvoiceTransmissionProblem{Code: *s.ProblemCode, Detail: *s.ProblemDetail})
+	} else {
+		out.Problem.SetToNull()
+	}
+	return out
+}
+
+func nilTime(v *time.Time) gen.NilDateTime {
+	var out gen.NilDateTime
+	if v != nil {
+		out.SetTo(*v)
+	} else {
+		out.SetToNull()
+	}
+	return out
 }
 
 // outgoingAPI is the e-invoice with its company's and customer's names.
@@ -336,6 +428,12 @@ func (n outgoingNames) toAPI(o OutgoingEInvoice) gen.OutgoingEInvoice {
 	} else {
 		out.Size.SetToNull()
 	}
+	if s, ok := n.sent[o.ID]; ok {
+		out.Transmission.SetTo(n.transmissionAPI(s))
+	} else {
+		out.Transmission.SetToNull()
+	}
+	out.Etag = tagOf(out)
 	return out
 }
 
@@ -354,15 +452,23 @@ func (e *Endpoints) ListOutgoingEInvoices(ctx context.Context, params gen.ListOu
 	if err != nil {
 		return nil, err
 	}
-	scope := fmt.Sprintf("listOutgoingEInvoices|%s|%s|%s", optUUID(params.LegalEntityID), optUUID(params.CustomerInvoiceID), params.Status.Value)
+	scope := fmt.Sprintf("listOutgoingEInvoices|%s|%s|%s|%s|%s|%s", optUUID(params.LegalEntityID), optUUID(params.CustomerInvoiceID), params.Status.Value,
+		params.TransmissionStatus.Value, params.DeliveryOutcome.Value, params.TaxDataStatus.Value)
 	ks, err := e.Pages.Keyset(outgoingSort, scope, apitypes.Page(gen.OptString{}, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
 	q, args := ks.SQL(`SELECT `+outgoingColumns+outgoingFrom+`
 		WHERE ($1::uuid IS NULL OR o.legal_entity_id = $1) AND ($2::uuid IS NULL OR o.customer_invoice_id = $2) AND ($3 = '' OR o.status = $3)
-		  AND ($4 OR o.legal_entity_id = ANY($5))`,
-		[]any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerInvoiceID), params.Status.Value, access.All, access.IDs})
+		  AND ($4 OR o.legal_entity_id = ANY($5))
+		  AND ($6 = '' OR coalesce((SELECT s.status FROM einvoicing.outgoing_submission s WHERE s.tenant_id = o.tenant_id AND s.outgoing_einvoice_id = o.id),
+		    'none') = $6)
+		  AND ($7 = '' OR (SELECT `+deliveryOutcome+` FROM einvoicing.outgoing_submission s, einvoicing.outgoing_einvoice x
+		    WHERE s.tenant_id = o.tenant_id AND s.outgoing_einvoice_id = o.id AND x.tenant_id = o.tenant_id AND x.id = o.id) = $7)
+		  AND ($8 = '' OR EXISTS (SELECT FROM einvoicing.outgoing_submission s WHERE s.tenant_id = o.tenant_id AND s.outgoing_einvoice_id = o.id
+		    AND s.tax_data_status = $8 AND s.tax_data_awaited IS NULL))`,
+		[]any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerInvoiceID), params.Status.Value, access.All, access.IDs,
+			string(params.TransmissionStatus.Value), params.DeliveryOutcome.Value, params.TaxDataStatus.Value})
 	rows, _ := tx.Query(ctx, q, args...)
 	docs, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OutgoingEInvoice, error) {
 		var o OutgoingEInvoice

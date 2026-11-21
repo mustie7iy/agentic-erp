@@ -37,7 +37,7 @@ const (
 )
 
 var outgoingPerms = []string{"receivables.invoice.read", "receivables.invoice.write", "receivables.invoice.post", "einvoicing.outgoing.read",
-	"einvoicing.outgoing.render", "einvoicing.einvoice.read"}
+	"einvoicing.outgoing.render", "einvoicing.outgoing.send", "einvoicing.einvoice.read", "platform.operation.read", "platform.operation.cancel"}
 
 // uae is a tenant with Maple Gulf Trading (5000, AE, AED) on the UAE
 // pack's tax codes, its FTA registration and its postal address in
@@ -92,6 +92,11 @@ func uaeSetup(t *testing.T, address *config.PostalAddress) *uae {
 		co.PostalAddress = address
 		doc.Companies = append(doc.Companies, co)
 		doc.Packs = append(doc.Packs, config.PackAdoption{Company: "5000", Country: "AE", Version: "2026.8", AppliedOn: "2026-01-01"})
+		// Holidays on business days (illustrative), which the deadlines of
+		// documents not transmitted leave out (As built E3): one before the
+		// deadlines the tests meet and one the day after them.
+		doc.Calendars = append(doc.Calendars, config.Calendar{Company: "5000", Holidays: []config.Holiday{{Date: "2026-03-20", Name: "Holiday"},
+			{Date: "2026-04-01", Name: "Holiday after"}}})
 		for _, y := range fixture.Years() {
 			for _, dt := range []string{"journal_dr", "journal_dg", "journal_dd"} {
 				for _, co := range []string{"5000", "2000"} {

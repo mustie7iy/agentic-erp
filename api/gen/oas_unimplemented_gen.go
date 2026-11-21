@@ -3700,22 +3700,24 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 // `einvoicing.document_changed` naming it, the others processed. A document whose company the
 // connector no longer names, or which is dated before the company's FTA registration, is left
 // unprocessed until the setup is completed. A provider whose messages cannot be listed fails it with
-// `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with
-// credentials that resolve is refused before anything is queued (404 `request.not_found`, 422
+// `platform.unavailable`. A connector that is not an active `einvoice_provider` connector naming a
+// `secret_ref` is refused before anything is queued (404 `request.not_found`, 422
 // `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422
-// `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so
-// is, in production, the provider's stand-in or Evatra's `stage` sandbox (422
-// `integration.adapter_not_certified`), and an Evatra connector whose credentials are not a JSON
-// object with `apiKey` and `email` (422 `integration.secret_unavailable`). An Evatra connector
-// (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received for each
-// company's TIN in the last 60 days and reads each in Base64; Evatra keeps no acknowledgement, so the
-// acknowledgement is local only and a fetch leaves out what is recorded and acknowledged, and Evatra
-// refusing the credentials fails the fetch with `integration.secret_unavailable`. A server without
-// object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
-// for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from
-// every active `einvoice_provider` connector of an active tenant once per
-// `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created
-// by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
+// `integration.secret_required`, `integration.invalid_settings`); so is, in production, the provider's
+// stand-in or Evatra's `stage` sandbox (422 `integration.adapter_not_certified`). Its credentials are
+// resolved from the vault by the fetch's first step, with no transaction open (ADR-0061 As built E3),
+// not by this request: credentials that do not resolve, or an Evatra connector's that are not a JSON
+// object with `apiKey` and `email`, fail the Operation with `integration.secret_unavailable`. An
+// Evatra connector (adapter `evatra`) logs in to Evatra with them, lists the documents Evatra received
+// for each company's TIN in the last 60 days and reads each in Base64; Evatra keeps no
+// acknowledgement, so the acknowledgement is local only and a fetch leaves out what is recorded and
+// acknowledged, and Evatra refusing the credentials fails the fetch with
+// `integration.secret_unavailable`. A server without object storage refuses every fetch (503
+// `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides
+// fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider`
+// connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch
+// an Operation of the same kind created by the fetcher, carried out as the workflow
+// `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
 //
 // POST /v1/e-invoices:fetch
 func (UnimplementedHandler) FetchEInvoices(ctx context.Context, req *EInvoiceFetch, params FetchEInvoicesParams) (r FetchEInvoicesRes, _ error) {
@@ -7097,6 +7099,31 @@ func (UnimplementedHandler) ListDunningRuns(ctx context.Context, params ListDunn
 	return r, ht.ErrNotImplemented
 }
 
+// ListEInvoiceTransmissionDeadlines implements listEInvoiceTransmissionDeadlines operation.
+//
+// The worklist of a UAE company's posted customer invoices and credit memos whose e-invoice is not yet
+// transmitted (ADR-0061 §9, As built E3; the mandate's 14 business days to issue and transmit an
+// e-invoice from the transaction date, coordinator plan default 9): every one issued from
+// `issued_from` through `key_date` whose e-invoice is not rendered, invalid, or rendered and not
+// `completed` at the provider, each with its deadline, the 14th business day of the company's calendar
+// after its issue date (its weekend and holidays, ADR-0058 §3: in the UAE Saturday and Sunday unless
+// the calendar names others), and whether it is overdue on the key date (the deadline before it) with
+// the business days left to it (negative once overdue). Ordered by deadline, then customer document
+// number, the overdue first; each row names its customer by number and name and carries its gross
+// amount in its currency, its e-invoice's id and status and its transmission's status (null for none).
+// `count` and `overdue_count` at the top are the totals of every row listed, not of the page. Computed
+// at the read and stored nowhere; paged by cursor in the worklist's order, a page token bound to the
+// company and dates. `issued_from` defaults to 90 days before the key date and may be at most 366 days
+// before it (422 `einvoicing.invalid_period`, naming `issued_from`, as for one after it). A debit memo
+// is not listed (PINT AE has no debit note type). A legal entity the caller cannot act in, or one that
+// is not a UAE company in AED, is refused (422 `request.reference_not_found`,
+// `einvoicing.not_a_uae_company`, naming `legal_entity_id`).
+//
+// GET /v1/e-invoice-transmission-deadlines
+func (UnimplementedHandler) ListEInvoiceTransmissionDeadlines(ctx context.Context, params ListEInvoiceTransmissionDeadlinesParams) (r ListEInvoiceTransmissionDeadlinesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListEInvoices implements listEInvoices operation.
 //
 // The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
@@ -7660,8 +7687,11 @@ func (UnimplementedHandler) ListOutboundDeliveries(ctx context.Context, params L
 //
 // The e-invoices rendered from the posted customer documents of the companies the caller may act in
 // (ADR-0061 §9, As built E2), newest rendered first, each as `getOutgoingEInvoice` gives it: filtered
-// by company, by the customer document it renders (at most one), and by status, so the invalid ones to
-// correct are found.
+// by company, by the customer document it renders (at most one), by status, so the invalid ones to
+// correct are found, and by the status of its transmission (`transmission_status`, As built E3), so
+// the failed submissions to correct and send again are found, and by the outcome of its delivery
+// (`delivery_outcome`, As built E4), so the rejected ones to correct by a credit note are found, and
+// by its tax data document's status (`tax_data_status`), so the failed ones to send again are found.
 //
 // GET /v1/outgoing-e-invoices
 func (UnimplementedHandler) ListOutgoingEInvoices(ctx context.Context, params ListOutgoingEInvoicesParams) (r ListOutgoingEInvoicesRes, _ error) {
@@ -10055,6 +10085,32 @@ func (UnimplementedHandler) RetireEntryTemplate(ctx context.Context, params Reti
 	return r, ht.ErrNotImplemented
 }
 
+// RetryOutgoingEInvoiceTaxData implements retryOutgoingEInvoiceTaxData operation.
+//
+// Asks the company's accredited provider to send again a tax data document the authority's corner
+// failed to take (`transmission.tax_data_status` TDD_FAILED; ADR-0061 As built E4; at Evatra
+// `POST /peppol/tdd/retry-failed`). The request is written on the e-invoice's `transmission`
+// (`tax_data_request`) with the Operation that carries it out (kind `einvoicing.tax_data`, resource
+// the e-invoice; it becomes the transmission's `operation_id`), audited
+// (`einvoicing.outgoing.tax_data`) and published (OutgoingEInvoiceTransmissionChanged); the call is
+// made after that commit by the workflow `SendEInvoice`, or in process without a workflow engine. The
+// step reads the document's status first and calls only if the request does not show as made, so it
+// asks once; a failed call is tried again after 1, 5, 15 and 60 minutes. The Operation succeeds once
+// the provider takes the request; it fails on the provider's refusal (`einvoicing.tax_data_refused`),
+// after five failed calls (`einvoicing.provider_unavailable`) or on the connector's refusal since
+// (`integration.connector_disabled`, `integration.secret_unavailable`). After a call, the status found
+// is shown as `tax_data_awaited` and read until it moves. Cancelling the Operation drops a request not
+// yet made. Refused: a transmission not completed (409 `einvoicing.not_transmitted`); a request
+// pending or awaited (409 `einvoicing.tax_data_request_pending`); another ETag (412); a connector that
+// can no longer send, as `sendOutgoingEInvoice` refuses one. Not found (404) for a company the caller
+// may not act in. Human-only (`x-agent: false`, ADR-0061 §13). Also refused: a document not failed
+// (409 `einvoicing.tax_data_not_failed`).
+//
+// POST /v1/outgoing-e-invoices/{id}:retryTaxData
+func (UnimplementedHandler) RetryOutgoingEInvoiceTaxData(ctx context.Context, params RetryOutgoingEInvoiceTaxDataParams) (r RetryOutgoingEInvoiceTaxDataRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ReverseAllocationRun implements reverseAllocationRun operation.
 //
 // Reverses a run of an allocation cycle (ADR-0064 As built T60k; SAP's cycle reversal, from memory):
@@ -10519,6 +10575,65 @@ func (UnimplementedHandler) RunReport(ctx context.Context, params RunReportParam
 //
 // POST /v1/reports/{id}:schedule
 func (UnimplementedHandler) ScheduleReport(ctx context.Context, req *ReportScheduleSet, params ScheduleReportParams) (r ScheduleReportRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// SendOutgoingEInvoice implements sendOutgoingEInvoice operation.
+//
+// Sends a valid outgoing e-invoice through an `einvoice_provider` connector to the company's
+// accredited e-invoicing provider (ADR-0061 §3, §9, As built E3; SAP Document and Reporting
+// Compliance's submission of an e-document): its XML byte for byte as kept
+// (`getOutgoingEInvoiceContent`), at Evatra by `POST /invoice/send-document-async` as `base64Document`
+// with `invoiceType` UAE_PINT, the `business_type` asked for (B2B or B2G; B2C is outside the UAE
+// mandate) and `invoiceSource` ERP. The request writes, in its transaction, the e-invoice's submission
+// (`transmission`, `queued`) and the Operation that carries it out (kind `einvoicing.send`, its
+// resource the e-invoice), audited in the caller's name (`einvoicing.outgoing.send`) with
+// OutgoingEInvoiceTransmissionChanged: the submission is the outbox of the call, which is made only
+// after that commit, by the workflow `SendEInvoice` (or in process in a cell without a workflow
+// engine) as the einvoicing context's system principal. Each call is counted on the submission before
+// it is made (`attempts`); Evatra has no idempotency key, so a send after one whose answer was lost
+// (or after the provider failed to send, below) first looks the document up at the provider by its
+// filename, the e-invoice's number (`document-process/search`), and takes the submission found instead
+// of sending it twice. A call that fails is tried again with backoff (1, 5, 15 and 60 minutes: five
+// calls); a refusal by the provider, or the fifth failure, fails the submission. Once the provider
+// gives its tracking id the submission is `submitted` and its status is read
+// (`document-status/{trackingId}`) with backoff, from 30 seconds doubling to an hour, until the
+// provider reports it COMPLETED (`completed`, the Operation succeeded with the e-invoice as its
+// resource), FAILED or PERMANENT_FAILED (`failed` with `einvoicing.provider_failed` or
+// `einvoicing.permanent_failure`, the Operation failed with it), or SENDING_FAILED: then it is sent
+// again, up to three times (`resends`), and after the third `failed` with `einvoicing.sending_failed`.
+// A submission whose status stays unfinished for 500 reads (about three weeks) is `failed` with
+// `einvoicing.status_unconfirmed`. Every change of the submission's status or of the provider's is
+// audited (`einvoicing.outgoing.transmission`) and publishes OutgoingEInvoiceTransmissionChanged; the
+// failed ones are the worklist `listOutgoingEInvoices?transmission_status=failed`, which a person
+// sends again with this operation once corrected (the row queued again, its attempts and resends
+// counted afresh, a new Operation). A status read the provider or the connector refuses (the connector
+// disabled since, the credentials refused) is a read that failed, read again after the backoff: the
+// provider holds the document, so it is not failed for it. Cancelling the send's Operation
+// (`cancelOperation`) ends it at its next step: the submission is `failed` with
+// `einvoicing.send_cancelled`, keeping what the provider answered (a call under way is waited for),
+// unless that answer is final (the provider refusing the document, COMPLETED, FAILED or
+// PERMANENT_FAILED), which is recorded as it is; either way the Operation stays `cancelled`, and the
+// e-invoice's `transmission` says how it ended. A send cancelled while the vault cannot be reached (or
+// the store read fails) stays in progress until they answer, since its step prepares the call before
+// it reads the Operation. A person may send it again, looked up at the provider first. The caller
+// sends the e-invoice at the ETag it read (`If-Match`, the e-invoice's `etag`; the ETag moves with its
+// transmission, so a send asked twice on one reading is refused 412). Refused: a business type other
+// than B2B and B2G (422 `einvoicing.unknown_business_type`); an e-invoice that is invalid (409
+// `einvoicing.document_invalid`); one queued, sending or submitted (409
+// `einvoicing.transmission_in_progress`) or completed (409 `einvoicing.already_transmitted`); a
+// `connector_id` the tenant has no connector of (422 `request.reference_not_found`); a connector that
+// is not an active `einvoice_provider` connector naming a `secret_ref`, as `fetchEInvoices` refuses
+// one (its credentials are resolved by the send's first step, with no transaction open, which fails
+// the submission with `integration.secret_unavailable` when its `secret_ref` names nothing; a vault
+// that cannot be reached is tried again); one whose adapter does not send (the stand-in's own
+// protocol: 422 `einvoicing.adapter_cannot_send`) or that names no participant for the e-invoice's
+// company (422 `einvoicing.not_a_participant`). An e-invoice of a company the caller may not act in is
+// not found (404). 503 while the server has no object storage. Human-only (`x-agent: false`): agents
+// never send an e-invoice (ADR-0061 §13).
+//
+// POST /v1/outgoing-e-invoices/{id}:send
+func (UnimplementedHandler) SendOutgoingEInvoice(ctx context.Context, req *OutgoingEInvoiceSend, params SendOutgoingEInvoiceParams) (r SendOutgoingEInvoiceRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -11436,6 +11551,34 @@ func (UnimplementedHandler) VerifyAuditChain(ctx context.Context, req *AuditVeri
 //
 // POST /v1/change-requests/{id}:withdraw
 func (UnimplementedHandler) WithdrawChangeRequest(ctx context.Context, req *ReasonInput, params WithdrawChangeRequestParams) (r WithdrawChangeRequestRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// WithdrawOutgoingEInvoiceTaxData implements withdrawOutgoingEInvoiceTaxData operation.
+//
+// Asks the company's accredited provider to withdraw the tax data document reported for a transmitted
+// e-invoice (`transmission.tax_data_status` TDD_SEND, TDD_APPROVED, TDD_ACKNOWLEDGED, or
+// WITHDRAW_FAILED to ask again; ADR-0061 As built E4; at Evatra `POST /peppol/tdd/withdraw`); its
+// status then becomes WITHDRAW_SEND. The e-invoice stays transmitted: a correction is a credit note.
+// The request is written on the e-invoice's `transmission` (`tax_data_request`) with the Operation
+// that carries it out (kind `einvoicing.tax_data`, resource the e-invoice; it becomes the
+// transmission's `operation_id`), audited (`einvoicing.outgoing.tax_data`) and published
+// (OutgoingEInvoiceTransmissionChanged); the call is made after that commit by the workflow
+// `SendEInvoice`, or in process without a workflow engine. The step reads the document's status first
+// and calls only if the request does not show as made, so it asks once; a failed call is tried again
+// after 1, 5, 15 and 60 minutes. The Operation succeeds once the provider takes the request; it fails
+// on the provider's refusal (`einvoicing.tax_data_refused`), after five failed calls
+// (`einvoicing.provider_unavailable`) or on the connector's refusal since
+// (`integration.connector_disabled`, `integration.secret_unavailable`). After a call, the status found
+// is shown as `tax_data_awaited` and read until it moves. Cancelling the Operation drops a request not
+// yet made. Refused: a transmission not completed (409 `einvoicing.not_transmitted`); a request
+// pending or awaited (409 `einvoicing.tax_data_request_pending`); another ETag (412); a connector that
+// can no longer send, as `sendOutgoingEInvoice` refuses one. Not found (404) for a company the caller
+// may not act in. Human-only (`x-agent: false`, ADR-0061 §13). Also refused: a document not
+// withdrawable (409 `einvoicing.tax_data_not_withdrawable`).
+//
+// POST /v1/outgoing-e-invoices/{id}:withdrawTaxData
+func (UnimplementedHandler) WithdrawOutgoingEInvoiceTaxData(ctx context.Context, params WithdrawOutgoingEInvoiceTaxDataParams) (r WithdrawOutgoingEInvoiceTaxDataRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

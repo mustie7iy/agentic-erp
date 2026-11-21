@@ -43,22 +43,20 @@ func (e *Endpoints) QueueEInvoiceFetch(ctx context.Context, operation, connector
 }
 
 // FetchEInvoices implements POST /v1/e-invoices:fetch (ADR-0061 §4): the
-// connector is resolved, into its adapter, as a fetch would resolve it,
-// without calling the provider, so one that cannot be fetched from is
-// refused now, and the fetch is queued as its
-// Operation, which the workflows dispatcher (or the in-process runner)
-// carries out. The request is audited in the caller's name
+// connector is read as a fetch would read it, without calling the
+// provider, so one that cannot be fetched from is refused now, and the
+// fetch is queued as its Operation, which the workflows dispatcher (or the
+// in-process runner) carries out. Its credentials are not resolved here,
+// where the request's transaction is open: the fetch's first step resolves
+// them with none open and fails the Operation when they do not resolve
+// (As built E3). The request is audited in the caller's name
 // (einvoicing.fetch.request, on the Operation; ADR-0011), since what the
 // fetch records it records as the system: the trail shows who fetched.
 func (e *Endpoints) FetchEInvoices(ctx context.Context, req *gen.EInvoiceFetch, _ gen.FetchEInvoicesParams) (gen.FetchEInvoicesRes, error) {
 	if e.Objects == nil {
 		return nil, noStore()
 	}
-	c, err := e.Connectors.Provider(ctx, req.ConnectorID)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := e.Adapter(c); err != nil { // the adapter's own refusals (Evatra's credentials not its form), with no call made
+	if _, err := e.Connectors.Provider(ctx, req.ConnectorID); err != nil {
 		return nil, err
 	}
 	op, err := e.Runs.Start(ctx, connectorPath(req.ConnectorID), req)
@@ -87,21 +85,26 @@ func inTx(ctx context.Context, in Within, fn func(ctx context.Context, tx pgx.Tx
 	})
 }
 
-// provider resolves the connector, in a transaction of its own, into the
-// provider its adapter names, and says the fetch's tenant.
+// provider reads the connector in a transaction of its own and, once that
+// committed, resolves its credentials, with no transaction open while the
+// vault is called (As built E3), into the provider its adapter names; it
+// says the fetch's tenant.
 func (e *Endpoints) provider(ctx context.Context, connector uuid.UUID, in Within) (Connector, Provider, uuid.UUID, error) {
 	var c Connector
-	var tenant uuid.UUID
-	if err := inTx(ctx, in, func(ctx context.Context, _ pgx.Tx, p reqctx.Principal) error {
+	if err := inTx(ctx, in, func(ctx context.Context, _ pgx.Tx, _ reqctx.Principal) error {
 		var err error
-		tenant = p.TenantID
 		c, err = e.Connectors.Provider(ctx, connector)
 		return err
 	}); err != nil {
 		return Connector{}, nil, uuid.Nil, err
 	}
+	secret, err := e.Connectors.Credentials(ctx, c)
+	if err != nil {
+		return Connector{}, nil, uuid.Nil, err
+	}
+	c.Secret = secret
 	p, err := e.Adapter(c)
-	return c, p, tenant, err
+	return c, p, c.Tenant, err
 }
 
 // PendingEInvoices lists the documents the connector's provider holds and

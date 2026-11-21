@@ -1593,6 +1593,10 @@ type ListDunningRunsRes interface {
 	listDunningRunsRes()
 }
 
+type ListEInvoiceTransmissionDeadlinesRes interface {
+	listEInvoiceTransmissionDeadlinesRes()
+}
+
 type ListEInvoicesRes interface {
 	listEInvoicesRes()
 }
@@ -2333,6 +2337,10 @@ type RetireEntryTemplateRes interface {
 	retireEntryTemplateRes()
 }
 
+type RetryOutgoingEInvoiceTaxDataRes interface {
+	retryOutgoingEInvoiceTaxDataRes()
+}
+
 type ReverseAllocationRunRes interface {
 	reverseAllocationRunRes()
 }
@@ -2399,6 +2407,10 @@ type RunReportRes interface {
 
 type ScheduleReportRes interface {
 	scheduleReportRes()
+}
+
+type SendOutgoingEInvoiceRes interface {
+	sendOutgoingEInvoiceRes()
 }
 
 type SettleInternalOrderRes interface {
@@ -2623,6 +2635,10 @@ type VerifyAuditChainRes interface {
 
 type WithdrawChangeRequestRes interface {
 	withdrawChangeRequestRes()
+}
+
+type WithdrawOutgoingEInvoiceTaxDataRes interface {
+	withdrawOutgoingEInvoiceTaxDataRes()
 }
 
 type WithdrawTaxReturnRes interface {

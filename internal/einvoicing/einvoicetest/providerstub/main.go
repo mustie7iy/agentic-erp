@@ -16,9 +16,16 @@
 // the -evatra-inbox directory, in the inbox's form (Evatra keeps no
 // acknowledgement, so it lists them all): the walkthrough's Evatra
 // connector reads from there, as the server replaces Evatra's hosts with
-// the stand-in in the walkthrough alone.
+// the stand-in in the walkthrough alone. What the connector sends Evatra
+// (ADR-0061 As built E3) is kept in the -evatra-outbox directory:
+// <trackingId>.xml the document and <trackingId>.json what came with it;
+// <filename>.statuses, which the walkthrough writes, scripts each send of
+// the e-invoice numbered filename, a line per send, its status reads'
+// answers separated by commas (none: COMPLETED); <filename>.delivery, in
+// einvoicetest.DeliveryScript's JSON, what Peppol and the authority report
+// of it (As built E4).
 //
-//	providerstub -addr 127.0.0.1:18444 -ca provider.pem -token token -inbox inbox [-evatra evatra.json -evatra-inbox evatra]
+//	providerstub -addr 127.0.0.1:18444 -ca provider.pem -token token -inbox inbox [-evatra evatra.json -evatra-inbox evatra -evatra-outbox sent]
 package main
 
 import (
@@ -58,9 +65,10 @@ func main() {
 	inbox := flag.String("inbox", "", "the directory of the messages")
 	evatra := flag.String("evatra", "", "the file holding the Evatra account to emulate, JSON; empty: none")
 	evatraInbox := flag.String("evatra-inbox", "", "the directory of the documents Evatra received")
+	evatraOutbox := flag.String("evatra-outbox", "", "the directory of the documents sent to Evatra and their scripts")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := run(ctx, *addr, *ca, *token, *inbox, evatraFiles{account: *evatra, inbox: *evatraInbox})
+	err := run(ctx, *addr, *ca, *token, *inbox, evatraFiles{account: *evatra, inbox: *evatraInbox, outbox: *evatraOutbox})
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "providerstub:", err)
@@ -69,8 +77,8 @@ func main() {
 }
 
 // evatraFiles are Evatra's emulation's: its account file and its inbox
-// directory; no account file: none.
-type evatraFiles struct{ account, inbox string }
+// and outbox directories; no account file: none.
+type evatraFiles struct{ account, inbox, outbox string }
 
 func run(ctx context.Context, addr, ca, tokenFile, inbox string, evatra evatraFiles) error {
 	ap, err := netip.ParseAddrPort(addr)
@@ -119,8 +127,8 @@ func handler(store dir, token string, evatra evatraFiles) (http.Handler, error) 
 	if evatra.account == "" {
 		return standIn, nil
 	}
-	if evatra.inbox == "" {
-		return nil, errors.New("evatra: -evatra-inbox names the directory of its documents")
+	if evatra.inbox == "" || evatra.outbox == "" {
+		return nil, errors.New("evatra: -evatra-inbox and -evatra-outbox name the directories of its documents")
 	}
 	raw, err := os.ReadFile(evatra.account) // #nosec G304 G703 -- the walkthrough names its own file
 	if err != nil {
@@ -136,7 +144,7 @@ func handler(store dir, token string, evatra evatraFiles) (http.Handler, error) 
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/", standIn)
-	mux.Handle("/evatra/", http.StripPrefix("/evatra", (&einvoicetest.Evatra{Store: dir(evatra.inbox),
+	mux.Handle("/evatra/", http.StripPrefix("/evatra", (&einvoicetest.Evatra{Store: dir(evatra.inbox), Outbox: outbox(evatra.outbox),
 		Account: einvoicetest.EvatraAccount{APIKey: account.APIKey, Email: account.Email, CompanyID: account.CompanyID}}).Handler()))
 	return mux, nil
 }
@@ -224,4 +232,57 @@ func (d dir) Acknowledge(id string) (bool, error) {
 		return false, fmt.Errorf("inbox: %w", err)
 	}
 	return true, nil
+}
+
+// outbox is the directory of what was sent to Evatra and its scripts.
+type outbox string
+
+// Keep writes the document and what came with it, under its tracking id.
+func (o outbox) Keep(s einvoicetest.Sent) error {
+	meta, _ := json.Marshal(map[string]any{"trackingId": s.TrackingID, "filename": s.Filename, "send": s.Send, "invoiceType": s.InvoiceType,
+		"businessType": s.BusinessType, "invoiceSource": s.InvoiceSource, "companyId": s.CompanyID}) // strings and an int always marshal
+	if err := os.WriteFile(filepath.Join(string(o), s.TrackingID+".xml"), s.Document, 0o600); err != nil { // #nosec G703 -- a tracking id the stand-in made, in the walkthrough's directory
+		return fmt.Errorf("outbox: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(string(o), s.TrackingID+".json"), meta, 0o600); err != nil { // #nosec G703 -- as above
+		return fmt.Errorf("outbox: %w", err)
+	}
+	return nil
+}
+
+// Statuses reads the send-th line of the filename's script (its last line
+// for later sends); none for no script.
+func (o outbox) Statuses(filename string, send int) ([]string, error) {
+	if !messageID.MatchString(filename) {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(string(o), filename+".statuses")) // #nosec G304 -- a filename the pattern above allows, in the walkthrough's directory
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("outbox: %w", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	return strings.Split(strings.TrimSpace(lines[min(send, len(lines)-1)]), ","), nil
+}
+
+// Delivery reads the filename's delivery script, <filename>.delivery, in
+// einvoicetest.DeliveryScript's JSON (As built E4); none for no file.
+func (o outbox) Delivery(filename string) (einvoicetest.DeliveryScript, error) {
+	var d einvoicetest.DeliveryScript
+	if !messageID.MatchString(filename) {
+		return d, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(string(o), filename+".delivery")) // #nosec G304 -- a filename the pattern above allows, in the walkthrough's directory
+	if errors.Is(err, fs.ErrNotExist) {
+		return d, nil
+	}
+	if err != nil {
+		return d, fmt.Errorf("outbox: %w", err)
+	}
+	if err := json.Unmarshal(raw, &d); err != nil {
+		return d, fmt.Errorf("outbox: %s.delivery: %w", filename, err)
+	}
+	return d, nil
 }

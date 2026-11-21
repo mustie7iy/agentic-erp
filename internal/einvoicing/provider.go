@@ -32,10 +32,93 @@ type Message struct {
 	Receiver string `json:"receiver,omitempty"`
 }
 
+// Outgoing is a rendered e-invoice as a provider is given it (ADR-0061
+// §9, As built E3): its number, which the provider files it under, the
+// seller's participant identifier, the business type (B2B or B2G), the
+// XML as kept, whether a call before this one may have reached the
+// provider (LookUp: the provider has no idempotency key, so the adapter
+// looks the document up first and takes a submission it finds), and the
+// tracking ids of earlier submissions the provider failed to send, which
+// are not taken as found.
+type Outgoing struct {
+	Filename     string
+	Participant  string
+	BusinessType string
+	Content      []byte
+	LookUp       bool
+	Failed       []string
+}
+
+// Submission is what the provider answered a send: its tracking id and
+// processing status, and whether it was found already there (LookUp)
+// rather than sent.
+type Submission struct {
+	TrackingID, Status string
+	Found              bool
+}
+
+// Report is the provider's processing status of a submission.
+type Report struct {
+	Status string
+}
+
+// Delivery is what Peppol and the authority report of a completed
+// submission (ADR-0061 §9, As built E4): the buyer's access point's
+// message level response (MLS) and what it says, and the tax data
+// document's status (TDD); each empty while none is reported.
+type Delivery struct {
+	Response, Detail string
+	TaxData          string
+}
+
+// The message level responses (Evatra's MLS statuses, https://evatra.com/api
+// as the plan read it on 2026-11-19): ACKNOWLEDGING is not final; a
+// rejection (REJECTION, BUSINESS_RULE_FATAL, SYNTAX_VIOLATION) puts the
+// e-invoice on the worklist to correct by credit note (As built E4).
+const (
+	ResponseAcceptance      = "ACCEPTANCE"
+	ResponseAcknowledging   = "ACKNOWLEDGING"
+	ResponseRejection       = "REJECTION"
+	ResponseFatal           = "BUSINESS_RULE_FATAL"
+	ResponseWarning         = "BUSINESS_RULE_WARNING"
+	ResponseDeliveryFailure = "DELIVERY_FAILURE"
+	ResponseSyntax          = "SYNTAX_VIOLATION"
+)
+
+// The tax data document's statuses (Evatra's TDD statuses, as above):
+// TDD_SEND and WITHDRAW_SEND are not final; TDD_FAILED may be retried, and
+// a reported one withdrawn, by a person only (As built E4).
+const (
+	TaxDataSent           = "TDD_SEND"
+	TaxDataFailed         = "TDD_FAILED"
+	TaxDataApproved       = "TDD_APPROVED"
+	TaxDataAcknowledged   = "TDD_ACKNOWLEDGED"
+	TaxDataRejected       = "TDD_REJECTED"
+	TaxDataWithdrawSent   = "WITHDRAW_SEND"
+	TaxDataWithdrawFailed = "WITHDRAW_FAILED"
+)
+
+// The requests a person may make of a tax data document (As built E4).
+const (
+	TaxDataRetry    = "retry"
+	TaxDataWithdraw = "withdraw"
+)
+
+// The providers' processing statuses the send workflow acts on (Evatra's,
+// https://evatra.com/api as the plan read it on 2026-11-19); any other is
+// read as still in progress.
+const (
+	ProviderPending         = "PENDING"
+	ProviderCompleted       = "COMPLETED"
+	ProviderFailed          = "FAILED"
+	ProviderSendingFailed   = "SENDING_FAILED"
+	ProviderPermanentFailed = "PERMANENT_FAILED"
+)
+
 // Provider is an accredited e-invoicing provider as one tenant's access
 // point (ADR-0061 §3). Implementations: Evatra's adapter (Evatra, the first
 // provider, po:2026-11-19) and the stand-in (tests, walkthrough); a second
-// provider is one more adapter. Sending (Send, Status) is E3's.
+// provider is one more adapter.
 type Provider interface {
 	// Pending lists the documents received and not yet acknowledged.
 	Pending(ctx context.Context) ([]Message, error)
@@ -45,7 +128,26 @@ type Provider interface {
 	// Acknowledge tells the provider the document is kept; acknowledging
 	// twice is not an error.
 	Acknowledge(ctx context.Context, id string) error
+	// Send gives the provider one rendered document, as it is kept, and
+	// answers its tracking id; a refusal is a problem below 500, which
+	// another call would meet again (As built E3).
+	Send(ctx context.Context, d Outgoing) (Submission, error)
+	// Status reads the provider's processing status of a submission.
+	Status(ctx context.Context, trackingID string) (Report, error)
+	// Delivery reads what Peppol and the authority report of a completed
+	// submission (As built E4).
+	Delivery(ctx context.Context, trackingID string) (Delivery, error)
+	// TaxData asks the provider to send the submission's tax data document
+	// again (TaxDataRetry) or to withdraw it (TaxDataWithdraw); a refusal is
+	// a problem below 500, as Send's.
+	TaxData(ctx context.Context, trackingID, request string) error
 }
+
+// Sends reports whether the adapter sends e-invoices: Evatra's does, the
+// stand-in's own protocol does not, so a send through its connector is
+// refused before anything is queued, by the adapter's name alone, with no
+// credentials resolved (As built E3).
+func Sends(adapter string) bool { return adapter == "evatra" }
 
 // NewClient is the egress client providers are called through: public
 // addresses only, no redirects, the system roots (ADR-0031), with the
@@ -161,3 +263,23 @@ func (s *StandIn) Acknowledge(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+// cannotSend refuses a send through a provider that sends nothing.
+func cannotSend() error {
+	return problem.Unprocessable("einvoicing.adapter_cannot_send", "The stand-in's own protocol sends no e-invoices; send through an evatra connector.")
+}
+
+// Send implements Provider: refused, the stand-in's protocol sends nothing
+// (Sends); the Evatra adapter, against Evatra's emulation, sends.
+func (*StandIn) Send(context.Context, Outgoing) (Submission, error) {
+	return Submission{}, cannotSend()
+}
+
+// Status implements Provider: refused, as Send is.
+func (*StandIn) Status(context.Context, string) (Report, error) { return Report{}, cannotSend() }
+
+// Delivery implements Provider: refused, as Send is.
+func (*StandIn) Delivery(context.Context, string) (Delivery, error) { return Delivery{}, cannotSend() }
+
+// TaxData implements Provider: refused, as Send is.
+func (*StandIn) TaxData(context.Context, string, string) error { return cannotSend() }

@@ -2852,16 +2852,23 @@
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
           "t": "E3 Sending: the outbox to a submission row written before the call, then Evatra's POST /invoice/send-document-async (base64Document, invoiceType UAE_PINT, businessType B2B or B2G, invoiceSource ERP); the port's Send and Status; status by polling GET /invoice/document-status/{trackingId} in a workflow per submission with backoff; after a lost answer the document looked up (document-process/search by filename) before any resend; resend of SENDING_FAILED, PERMANENT_FAILED to a worklist; a worklist of billing documents not transmitted within 14 business days of the UAE company's calendar; walkthrough step_einvoice_send",
-          "r": "ADR-0061 §3, §9 · coordinator plan einvoicing-evatra E3, defaults 3, 4, 9",
+          "r": "migration 000421 · einvoicing.outgoing_submission · sendOutgoingEInvoice · listEInvoiceTransmissionDeadlines · listOutgoingEInvoices transmission_status · OutgoingEInvoiceTransmissionChanged · einvoicing.AdvanceSubmission · einvoicing.Evatra Send, Status · workflow SendEInvoice · workflows.EInvoiceSender · receivables.IssuedInvoices · einvoicetest.Evatra send-document-async, document-status, document-process/search · walkthrough step_einvoice_send (step 146) · ADR-0061 §3, §9, §11 and As built E3 · coordinator plan einvoicing-evatra E3, defaults 3, 4, 9",
           "src": "po:2026-11-19",
           "c": []
          },
          {
-          "s": "T",
+          "s": "D",
+          "t": "E1's fetch resolved the connector's vault secret with its transaction open (each fetch step's connector read, and the fetch request): the connector is now read in the transaction and its credentials resolved after that commit (integration.EInvoiceProviders.Credentials, einvoicing.Connectors.Credentials); the fetch request no longer resolves them, its first step fails the Operation when they do not resolve. Done by E3's review round 1 fix, which had the same fault",
+          "r": "einvoicing.Connectors.Credentials · integration.EInvoiceProviders.Credentials · fetchEInvoices · ADR-0061 §2, As built E1 and E3",
+          "src": "review:batch85",
+          "c": []
+         },
+         {
+          "s": "D",
           "t": "E4 Delivery status and FTA reporting: the Peppol message level responses (ACCEPTANCE, REJECTION, BUSINESS_RULE_FATAL and the others) and the tax data document's status shown on the invoice; a rejection or a fatal rule puts it on a worklist to correct by credit note; the tax data document's retry and withdrawal offered to a person only, never an agent; walkthrough step_einvoice_send extended",
-          "r": "ADR-0061 §9 · coordinator plan einvoicing-evatra E4, default 8",
+          "r": "migration 000422 · einvoicing.outgoing_submission delivery_status, tax_data_status, tax_data_request · retryOutgoingEInvoiceTaxData · withdrawOutgoingEInvoiceTaxData · listOutgoingEInvoices delivery_outcome · OutgoingEInvoiceTransmissionChanged delivery_status, tax_data_status · einvoicing.Evatra Delivery, TaxData · einvoicetest.Evatra invoice-mls-list, get-tdd, tdd/retry-failed, tdd/withdraw · walkthrough step_einvoice_send (step 146) · ADR-0061 §3, §9, §11, §13 and As built E4 · coordinator plan einvoicing-evatra E4, default 8",
           "src": "po:2026-11-19",
           "c": []
          },

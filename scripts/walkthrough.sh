@@ -587,15 +587,17 @@ hook_stub() {
 # acknowledgement there; and it emulates Evatra's API under /evatra for the
 # account of provider/evatra.json over the documents of provider/evatra
 # (step_evatra_inbound, ADR-0061 As built E1), which erp-server reaches in
-# place of Evatra's hosts in the walkthrough alone.
+# place of Evatra's hosts in the walkthrough alone; what is sent to it is
+# kept in provider/evatra-sent, where each e-invoice's script of statuses
+# is written (step_einvoice_send, As built E3).
 provider_stub() {
   stub providerstub internal/einvoicing/einvoicetest/providerstub
   rm -rf "$WORK/provider"
-  mkdir -p "$WORK/provider/inbox" "$WORK/provider/evatra"
+  mkdir -p "$WORK/provider/inbox" "$WORK/provider/evatra" "$WORK/provider/evatra-sent"
   head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$WORK/provider/token"
   printf '{"apiKey": "%s", "email": "ap@maple-gulf.example", "companyId": "WALK-AE-5000"}\n' "$(head -c 24 /dev/urandom | base64 | tr -d '/+=')" >"$WORK/provider/evatra.json"
   "$STUB" -addr "$PROVIDER_ADDR" -ca "$WORK/provider/provider.pem" -token "$WORK/provider/token" -inbox "$WORK/provider/inbox" \
-    -evatra "$WORK/provider/evatra.json" -evatra-inbox "$WORK/provider/evatra" >"$WORK/provider.log" 2>&1 &
+    -evatra "$WORK/provider/evatra.json" -evatra-inbox "$WORK/provider/evatra" -evatra-outbox "$WORK/provider/evatra-sent" >"$WORK/provider.log" 2>&1 &
   PROVIDER_PID=$!
   wait_file "$WORK/provider/provider.pem" "$PROVIDER_PID" "the e-invoicing provider's stand-in" "$WORK/provider.log" "is $PROVIDER_ADDR free? set WALKTHROUGH_PROVIDER_ADDR"
   export ERP_WALKTHROUGH_PROVIDER="$PROVIDER_ADDR" ERP_WALKTHROUGH_PROVIDER_CA="$WORK/provider/provider.pem"
@@ -15240,6 +15242,139 @@ step_einvoice_render() {
   passed
 }
 
+# step_einvoice_send is E3 (ADR-0061 §9, As built E3; plan
+# einvoicing-evatra.md): Maple Gulf Trading's e-invoices are sent to
+# Evatra from the ERP. Ruth sends the valid tax invoice of step 145 through
+# the Evatra connector of step 144 (B2B): its submission is written before
+# any call, the in-process sender gives Evatra the XML as kept
+# (send-document-async, UAE_PINT, ERP) and reads its status until Evatra
+# reports it COMPLETED; the document Evatra holds is the e-invoice's bytes.
+# Evatra fails to send the credit note (SENDING_FAILED): it is sent again,
+# looked up first by its number, and its second submission is
+# PERMANENT_FAILED, which fails it and puts it on the worklist of failed
+# submissions. The worklist of documents not transmitted within 14
+# business days lists the credit note, not the invoice. E4 (As built E4):
+# once completed, the sender reads what Peppol and the authority report of
+# the invoice: the buyer's access point refuses it on a fatal rule, which
+# puts it on the worklist of rejected e-invoices to correct by credit note
+# (the credit note naming it failed, so it stays there), and its tax data
+# document fails at the authority's corner. A withdrawal of the failed one
+# is refused; Ruth has it sent again, approved, and then withdraws it.
+# People only: agents never send, retry or withdraw (x-agent: false).
+step_einvoice_send() {
+  heading "Step 146 — PINT AE e-invoices sent through Evatra: the tax invoice submitted and COMPLETED, the credit note sent again after SENDING_FAILED and PERMANENT_FAILED on the worklist; the documents not transmitted within 14 business days; the invoice rejected on a fatal rule, its tax data document failed, sent again and withdrawn"
+  local ae connector invoice note number notenum sent sum op
+  as ruth
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  ae=$(field '.items[] | select(.code == "'"$AE"'") | .id')
+  QUIET=1 api 200 '' listConnectors -p kind=einvoice_provider -p page_size=100
+  connector=$(field '.items[] | select(.name == "Maple Gulf on Evatra") | .id')
+  QUIET=1 api 200 '' listOutgoingEInvoices -p "legal_entity_id=$ae"
+  invoice=$(field '.items[] | select(.type_code == "380") | .id')
+  number=$(field '.items[] | select(.type_code == "380") | .customer_invoice_number')
+  sum=$(field '.items[] | select(.type_code == "380") | .sha256')
+  note=$(field '.items[] | select(.type_code == "381") | .id')
+  notenum=$(field '.items[] | select(.type_code == "381") | .customer_invoice_number')
+  say "Evatra will fail to send the credit note $notenum once (SENDING_FAILED) and then report its second submission"
+  say "PERMANENT_FAILED (the stand-in's script for it):"
+  printf 'SENDING_FAILED\nPERMANENT_FAILED\n' >"$WORK/provider/evatra-sent/$notenum.statuses"
+  say "Once Evatra delivers the invoice $number, the buyer's access point will refuse it on a fatal business rule (the"
+  say "stand-in's illustrative detail) and the authority's corner will fail its tax data document, then take it when sent"
+  say "again, and take a withdrawal:"
+  jq -n '{responses: [{status: "ACKNOWLEDGING"}, {status: "BUSINESS_RULE_FATAL", description: "The buyer'"'"'s access point refused the document on a fatal business rule (illustrative)."}],
+    tax_data: {report: ["TDD_FAILED"], retry: ["TDD_SEND", "TDD_APPROVED"], withdraw: ["WITHDRAW_SEND"]}}' >"$WORK/provider/evatra-sent/$number.delivery"
+  say "Ruth sends the tax invoice $number to Evatra as a B2B e-invoice: the request writes its submission, queued, with the"
+  say "Operation that carries it out, before any call; the sender then gives Evatra the XML as kept, and reads its status:"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  api 202 '"operation \(.kind): \(.status), for \(.resource)"' sendOutgoingEInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"connector_id\": \"$connector\", \"business_type\": \"B2B\"}"
+  expect "the send's Operation" "$(field '"\(.kind) \(.resource)"')" "einvoicing.send /v1/outgoing-e-invoices/$invoice"
+  say "She sends the credit note $notenum too:"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$note"
+  api 202 '"operation \(.kind): \(.status)"' sendOutgoingEInvoice -p "id=$note" -if-match "$ETAG" -body "{\"connector_id\": \"$connector\", \"business_type\": \"B2B\"}"
+  local shown='"e-invoice \(.customer_invoice_number): \(.transmission.status), Evatra \(.transmission.provider_status // "-"), \(.transmission.attempts) calls, \(.transmission.resends) resends\(if .transmission.problem then ", \(.transmission.problem.code)" else "" end)"'
+  wait_transmission "$invoice" completed
+  api 200 "$shown" getOutgoingEInvoice -p "id=$invoice"
+  expect "the invoice's transmission" "$(field '"\(.transmission.status) \(.transmission.provider_status) \(.transmission.attempts) \(.transmission.connector_name)"')" "completed COMPLETED 1 Maple Gulf on Evatra"
+  sent=$(field .transmission.tracking_id)
+  say "Evatra holds it as tracking id $sent, the e-invoice's bytes, as UAE_PINT from the ERP:"
+  expect "the document Evatra holds" "$(shasum -a 256 "$WORK/provider/evatra-sent/$sent.xml" | cut -d' ' -f1)" "$sum"
+  expect "what came with it" "$(jq -r '"\(.filename) \(.invoiceType) \(.businessType) \(.invoiceSource) \(.companyId)"' "$WORK/provider/evatra-sent/$sent.json")" "$number UAE_PINT B2B ERP WALK-AE-5000"
+  wait_transmission "$note" failed
+  api 200 "$shown" getOutgoingEInvoice -p "id=$note"
+  expect "the credit note's transmission" "$(field '"\(.transmission.status) \(.transmission.provider_status) \(.transmission.resends) \(.transmission.problem.code)"')" "failed PERMANENT_FAILED 1 einvoicing.permanent_failure"
+  expect "sent twice, each Evatra's own submission" "$(jq -r --arg n "$notenum" 'select(.filename == $n) | .send' "$WORK"/provider/evatra-sent/*.json | sort | tr '\n' ' ')" "0 1 "
+  QUIET=1 api 200 '' getOperation -p "id=$(field .transmission.operation_id)"
+  expect "its Operation" "$(field '"\(.status) \(.error.code)"')" "failed einvoicing.permanent_failure"
+  say "The failed submissions are a worklist, to correct and send again:"
+  api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number): \(.transmission.status), \(.transmission.problem.code)"' listOutgoingEInvoices -p "legal_entity_id=$ae" -p transmission_status=failed
+  expect "the worklist of failed submissions" "$(field '[.items[].id] | join(" ")')" "$note"
+  say "The mandate gives 14 business days from the transaction date to issue and transmit an e-invoice. The worklist of"
+  say "$AE's posted documents not yet transmitted, by deadline (its calendar's business days), lists the credit note, not"
+  say "the invoice:"
+  api 200 '"\(.company_code): \(.count) not transmitted, \(.overdue_count) overdue on \(.key_date)", (.items[] | "  \(.kind) \(.customer_invoice_number) of \(.issue_date): deadline \(.deadline), \(.business_days_left) business days left, e-invoice \(.einvoice_status // "none"), transmission \(.transmission_status // "none")")' \
+    listEInvoiceTransmissionDeadlines -p "legal_entity_id=$ae" -p "key_date=$TODAY"
+  expect "the credit note listed" "$(jq -r --arg n "$notenum" '[.items[] | select(.customer_invoice_number == $n) | "\(.transmission_status) \(.overdue)"] | join(" ")' "$WORK/last.json")" "failed false"
+  expect "the invoice not listed" "$(jq -r --arg n "$number" '[.items[] | select(.customer_invoice_number == $n)] | length' "$WORK/last.json")" "0"
+  local delivered='"e-invoice \(.customer_invoice_number): delivery \(.transmission.delivery_status // "-") (\(.transmission.delivery_outcome // "-")), tax data document \(.transmission.tax_data_status // "-")\(if .transmission.tax_data_request then ", \(.transmission.tax_data_request) asked" else "" end)"'
+  say "Completed, the invoice's delivery is read from 30 seconds on: the buyer's access point refused it on a fatal rule,"
+  say "and the authority's corner failed its tax data document:"
+  wait_einvoice "$invoice" '.transmission.tax_data_status' TDD_FAILED
+  api 200 "$delivered"', "  \(.transmission.delivery_detail)"' getOutgoingEInvoice -p "id=$invoice"
+  expect "the invoice's delivery" "$(field '"\(.transmission.delivery_status) \(.transmission.delivery_outcome) \(.transmission.tax_data_status)"')" "BUSINESS_RULE_FATAL rejected TDD_FAILED"
+  say "Rejected, it is on the worklist to correct by a credit note; the credit note $notenum naming it is not transmitted,"
+  say "so it stays there:"
+  api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number): \(.transmission.delivery_status), \(.transmission.delivery_outcome)"' listOutgoingEInvoices -p "legal_entity_id=$ae" -p delivery_outcome=rejected
+  expect "the worklist of rejected e-invoices" "$(field '[.items[].id] | join(" ")')" "$invoice"
+  say "The tax data documents the authority's corner failed, to send again:"
+  api 200 '.items[] | "  \(.type_code) \(.customer_invoice_number): \(.transmission.tax_data_status)"' listOutgoingEInvoices -p "legal_entity_id=$ae" -p tax_data_status=TDD_FAILED
+  expect "the failed tax data documents" "$(field '[.items[].id] | join(" ")')" "$invoice"
+  say "A failed tax data document is not withdrawn; Ruth has it sent again, a request the sender makes after it commits:"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  refused 409 einvoicing.tax_data_not_withdrawable withdrawOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  api 202 '"operation \(.kind): \(.status), for \(.resource)"' retryOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
+  op=$(field .id)
+  expect "the request's Operation" "$(field .kind)" einvoicing.tax_data
+  wait_einvoice "$invoice" '.transmission.tax_data_status' TDD_APPROVED
+  api 200 "$delivered" getOutgoingEInvoice -p "id=$invoice"
+  QUIET=1 api 200 '' getOperation -p "id=$op"
+  expect "its Operation" "$(field .status)" succeeded
+  say "She then withdraws it:"
+  QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$invoice"
+  api 202 '"operation \(.kind): \(.status)"' withdrawOutgoingEInvoiceTaxData -p "id=$invoice" -if-match "$ETAG"
+  wait_einvoice "$invoice" '.transmission.tax_data_status' WITHDRAW_SEND
+  api 200 "$delivered" getOutgoingEInvoice -p "id=$invoice"
+  passed
+}
+
+# wait_einvoice EINVOICE PATH VALUE waits, up to three minutes, until the
+# e-invoice's field at PATH is VALUE (the sender reads the delivery from
+# 30 seconds after completion, doubling, and at once after a request).
+wait_einvoice() {
+  local i got
+  for i in $(seq 1 720); do
+    QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$1"
+    got=$(field "$2 // \"none\"")
+    if [ "$got" = "$3" ]; then return 0; fi
+    sleep 0.25
+  done
+  fail "e-invoice $1's $2 still $got after three minutes (attempt $i), not $3"
+}
+
+# wait_transmission EINVOICE STATUS waits, up to two minutes, until the
+# e-invoice's transmission is STATUS (the sender reads Evatra's status
+# from 30 seconds after the submission, doubling).
+wait_transmission() {
+  local i got
+  for i in $(seq 1 480); do
+    QUIET=1 api 200 '' getOutgoingEInvoice -p "id=$1"
+    got=$(field '.transmission.status // "none"')
+    if [ "$got" = "$2" ]; then return 0; fi
+    sleep 0.25
+  done
+  fail "e-invoice $1's transmission still $got after two minutes (attempt $i), not $2"
+}
+
 # step_stock_transport is S2h (ADR-0082 As built S2h, plan-supply-chain.md):
 # Pablo, the planner, orders washers from Toronto's main store to the
 # Montreal store, another plant of Maple, as a stock transport order
@@ -17432,7 +17567,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_stock_transport step_einvoice_billing step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_close'
 
 main() {
   stop_unseen

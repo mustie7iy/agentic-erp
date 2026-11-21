@@ -2,6 +2,8 @@ package integration
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"slices"
@@ -210,22 +212,24 @@ type EInvoiceProviders struct {
 	RefuseStandIn bool
 }
 
-// EInvoiceConnector is an einvoice_provider connector resolved for use:
-// its settings and its credentials, resolved now.
+// EInvoiceConnector is an einvoice_provider connector read for use: its
+// tenant, settings and secret_ref, and, once Credentials resolved them,
+// its credentials.
 type EInvoiceConnector struct {
-	ID   uuid.UUID
-	Name string
+	ID     uuid.UUID
+	Tenant uuid.UUID
+	Name   string
 	EInvoiceSettings
-	Secret string
+	SecretRef string
+	Secret    string
 }
 
-// Provider resolves an einvoice_provider connector for a fetch, failing
-// closed: a connector that is not one, is disabled, names no secret_ref,
-// has settings that do not resolve, is the stand-in in production, or
-// whose credentials do not resolve is refused, and nothing is fetched;
-// so is Evatra's sandbox in production. The
-// credentials are resolved on each use, so a rotated secret takes effect
-// without a restart.
+// Provider reads an einvoice_provider connector for use in the caller's
+// transaction, failing closed: a connector that is not one, is disabled,
+// names no secret_ref, has settings that do not resolve, or is the
+// stand-in or Evatra's sandbox in production is refused. Its credentials
+// are not resolved here: the vault is called by Credentials, with no
+// transaction open (ADR-0061 As built E3).
 func (p EInvoiceProviders) Provider(ctx context.Context, id uuid.UUID) (EInvoiceConnector, error) {
 	tx, principal, err := reqctx.Request(ctx)
 	if err != nil {
@@ -240,7 +244,7 @@ func (p EInvoiceProviders) Provider(ctx context.Context, id uuid.UUID) (EInvoice
 		return EInvoiceConnector{}, problem.Unprocessable("integration.not_an_einvoice_provider",
 			"Connector "+c.Name+" is a "+c.Kind+" connector, not an einvoice_provider.")
 	case c.Status != "active":
-		return EInvoiceConnector{}, problem.Conflict("integration.connector_disabled", "The e-invoicing provider "+c.Name+" is disabled; enable it to fetch.")
+		return EInvoiceConnector{}, problem.Conflict("integration.connector_disabled", "The e-invoicing provider "+c.Name+" is disabled; enable it to use it.")
 	case c.SecretRef == nil:
 		return EInvoiceConnector{}, problem.Unprocessable("integration.secret_required",
 			"Connector "+c.Name+" names no secret_ref: the provider's credentials are a secret.")
@@ -254,12 +258,28 @@ func (p EInvoiceProviders) Provider(ctx context.Context, id uuid.UUID) (EInvoice
 			return EInvoiceConnector{}, err
 		}
 	}
-	secret, err := tenantSecret(ctx, p.Secrets, principal.TenantID, *c.SecretRef)
-	if err != nil {
-		return EInvoiceConnector{}, problem.Unprocessable("integration.secret_unavailable",
-			"The e-invoicing provider's credentials ("+*c.SecretRef+") cannot be resolved.").WithCause(err)
+	return EInvoiceConnector{ID: c.ID, Tenant: principal.TenantID, Name: c.Name, EInvoiceSettings: s, SecretRef: *c.SecretRef}, nil
+}
+
+// Credentials resolves the credentials of a connector Provider read, under
+// its tenant's own namespace, failing closed. It opens no transaction and
+// is called after the one that read the connector committed, so no
+// transaction stays open while the vault is called; they are resolved on
+// each use, so a rotated secret takes effect without a restart. A
+// reference that names nothing, or is not the tenant's, is refused (422
+// integration.secret_unavailable), which another try would meet again;
+// any other failure (the vault unreachable or failing) is an error to try
+// again, so a step is not failed for good by a passing outage.
+func (p EInvoiceProviders) Credentials(ctx context.Context, c EInvoiceConnector) (string, error) {
+	secret, err := tenantSecret(ctx, p.Secrets, c.Tenant, c.SecretRef)
+	switch {
+	case errors.Is(err, secrets.ErrNotFound) || errors.Is(err, secrets.ErrNotTenants):
+		return "", problem.Unprocessable("integration.secret_unavailable",
+			"The e-invoicing provider's credentials ("+c.SecretRef+") cannot be resolved.").WithCause(err)
+	case err != nil:
+		return "", fmt.Errorf("integration: the credentials of connector %s: %w", c.Name, err)
 	}
-	return EInvoiceConnector{ID: c.ID, Name: c.Name, EInvoiceSettings: s, Secret: secret}, nil
+	return secret, nil
 }
 
 // Names gives the names of connectors by id, those the tenant has.

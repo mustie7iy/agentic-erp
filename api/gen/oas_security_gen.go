@@ -450,6 +450,7 @@ var operationRolesOidc = map[string][]string{
 	ListDunningBlocksOperation:                     []string{},
 	ListDunningNoticesOperation:                    []string{},
 	ListDunningRunsOperation:                       []string{},
+	ListEInvoiceTransmissionDeadlinesOperation:     []string{},
 	ListEInvoicesOperation:                         []string{},
 	ListEntryTemplatesOperation:                    []string{},
 	ListExchangeRatesOperation:                     []string{},
@@ -635,6 +636,7 @@ var operationRolesOidc = map[string][]string{
 	RetireCatalogItemOperation:                     []string{},
 	RetireControlOperation:                         []string{},
 	RetireEntryTemplateOperation:                   []string{},
+	RetryOutgoingEInvoiceTaxDataOperation:          []string{},
 	ReverseAllocationRunOperation:                  []string{},
 	ReverseAssetAcquisitionOperation:               []string{},
 	ReverseAssetRetirementOperation:                []string{},
@@ -652,6 +654,7 @@ var operationRolesOidc = map[string][]string{
 	RunBalanceCarryForwardOperation:                []string{},
 	RunReportOperation:                             []string{},
 	ScheduleReportOperation:                        []string{},
+	SendOutgoingEInvoiceOperation:                  []string{},
 	SettleInternalOrderOperation:                   []string{},
 	SignOffPeriodCloseOperation:                    []string{},
 	SignOffYearCloseOperation:                      []string{},
@@ -708,6 +711,7 @@ var operationRolesOidc = map[string][]string{
 	UploadMemoRecordsOperation:                     []string{},
 	VerifyAuditChainOperation:                      []string{},
 	WithdrawChangeRequestOperation:                 []string{},
+	WithdrawOutgoingEInvoiceTaxDataOperation:       []string{},
 	WithdrawTaxReturnOperation:                     []string{},
 }
 
