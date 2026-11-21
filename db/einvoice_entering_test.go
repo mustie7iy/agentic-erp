@@ -16,7 +16,7 @@ const (
 		"entry_fetch_operation_id = gen_random_uuid()"
 )
 
-// TestEInvoiceEntering (T65d, migrations 000421, 000422; ADR-0061 §6, §7):
+// TestEInvoiceEntering (T65d, migrations 000423, 000424; ADR-0061 §6, §7):
 // a processed document moves from received to entered, naming its invoice
 // and supplier, or to held, naming its problem; when and by which fetch
 // together, never before its processing; entered and held are final and
@@ -77,7 +77,7 @@ func TestEInvoiceEntering(t *testing.T) {
 			}
 		})
 	}
-	t.Run("the checks validated by 000422", func(t *testing.T) {
+	t.Run("the checks validated by 000424", func(t *testing.T) {
 		var valid bool
 		if err := testDB.QueryRow(context.Background(), `SELECT bool_and(convalidated) FROM pg_constraint
 			WHERE (conrelid = 'einvoicing.einvoice'::regclass AND conname IN ('einvoice_status_check', 'einvoice_entry', 'einvoice_entered', 'einvoice_problem'))
@@ -126,7 +126,7 @@ func TestEInvoiceEnteringTrigger(t *testing.T) {
 	}
 }
 
-// TestSupplierInvoiceFromEInvoice (T65d, migration 000421): an invoice of
+// TestSupplierInvoiceFromEInvoice (T65d, migration 000423): an invoice of
 // source einvoice keeps its document's hash, as a captured one does; no
 // other source has one.
 func TestSupplierInvoiceFromEInvoice(t *testing.T) {
@@ -163,12 +163,12 @@ func TestSupplierInvoiceFromEInvoice(t *testing.T) {
 	}
 }
 
-// TestEInvoiceEnteringDown: the down migration of 000421 refuses, rather than drops,
+// TestEInvoiceEnteringDown: the down migration of 000423 refuses, rather than drops,
 // entered or held e-invoices and invoices entered from them (06 §6.4),
 // reading every tenant's rows.
 func TestEInvoiceEnteringDown(t *testing.T) {
 	need(t)
-	down := migrationNamed(t, "000421_einvoice_entering").Down
+	down := migrationNamed(t, "000423_einvoice_entering").Down
 	for name, seed := range map[string]string{
 		"a held e-invoice": `INSERT INTO einvoicing.einvoice (tenant_id, id, connector_id, message_id, status, sha256, size, content_ref,
 			fetch_operation_id, processed_at, processed_fetch_operation_id, validated_against, problem_code, problem_detail, entry_at,

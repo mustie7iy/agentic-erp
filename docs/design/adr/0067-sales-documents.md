@@ -2195,7 +2195,7 @@ post and E2 renders them (ADR-0061 As built E2, Gaps found, closed).
 - Tests: `TestSalesItemJurisdiction`, `TestOrderChangeKeepsJurisdiction`,
   `TestCaptureOrderJurisdiction`, `TestBillingJurisdictionRechecked`,
   `TestQuotationRefusals`, `TestCaptureOrderRefusals` (sales);
-  `TestSalesItemJurisdictionRules` (db). Walkthrough step 147,
+  `TestSalesItemJurisdictionRules` (db). Walkthrough step 148,
   `step_einvoice_billing`: Sally orders desks for step 145's Dubai
   customer under S5, refused without its emirate and ordered with AE-DU;
   the delivery is billed and posted, the customer invoice's item and its

@@ -2799,7 +2799,7 @@
        {
         "s": "D",
         "t": "Received e-invoices entered as supplier invoices: payables.EInvoices.Enter sharing capture's code, source einvoice, the order from the order reference, the supplier's TRN checked by fingerprint, items by order line or position with the order item's unit and tax code, codes from each line's category and rate by capturedTax's rule (ambiguity holds the invoice), every problem of the entering a hold (held with its code) through a savepoint rolled back on the problem, tested with a constraint-raised refusal (supplier_invoice_no_duplicates), only infrastructure errors failing; the gauge erp_einvoices_held; credit notes left received until T65e; entered; the invoice's document the XML; no model call; walkthrough: the received e-invoice becomes a parked invoice of source einvoice on the next fetch, posts after the three-way match, its document is the XML; one without an order is held with payables.capture_needs_order; a document not in AED: the entered invoice keeps its tax in AED as the document states it (IBT-111, reconciled per line with BTAE-08) for the VAT 201 to report, rather than a conversion of its tax (UAE tax specialist, po:2026-11-09, C5)",
-        "r": "ADR-0061 §6 · T65d · ADR-0061 §5 (answered, C5) · db/migrations/000421-000425 · payables.EnterEInvoice · payables.einvoice_seller_unknown · einvoicing.Payables · einvoicing.tax_currency_not_entered · authz.ActingFor · partner.Payees.HasTaxNumber · erp_einvoices_held · walkthrough step_einvoice (einvoice_order, einvoice_entered), step_evatra_inbound · ADR-0061 As built T65d (a document not in AED held, its VAT in AED the leaf after)",
+        "r": "ADR-0061 §6 · T65d · ADR-0061 §5 (answered, C5) · db/migrations/000423-000427 · payables.EnterEInvoice · payables.einvoice_seller_unknown · einvoicing.Payables · einvoicing.tax_currency_not_entered · authz.ActingFor · partner.Payees.HasTaxNumber · erp_einvoices_held · walkthrough step_einvoice (einvoice_order, einvoice_entered), step_evatra_inbound · ADR-0061 As built T65d (a document not in AED held, its VAT in AED the leaf after)",
         "src": "adr:ADR-0061 · po:2026-11-09",
         "c": []
        },
@@ -2854,7 +2854,7 @@
          {
           "s": "D",
           "t": "UAE emirate on sales items and billing documents: a sales document's item carries the emirate of its supply, so a UAE billing document can bill the standard-rated code S5 (which levies each line's emirate) instead of being refused sales.tax_jurisdiction_not_supported, and E2 renders the billing document's customer invoice; until then E2 renders only customer invoices and credit memos entered in receivables (batch 85)",
-          "r": "migration 000420 (sales.quotation_item.tax_jurisdiction, sales.sales_order_item.tax_jurisdiction) · ledger.TaxCode.RefuseItemJurisdiction · sales.tax_jurisdiction_required, sales.tax_jurisdiction_not_levied · TestSalesItemJurisdiction · TestBillingJurisdictionRechecked · TestSalesItemJurisdictionRules · walkthrough step_einvoice_billing (step 147) · ADR-0067 As built (The emirate on a sales item) · ADR-0061 As built E2 (Gaps found, closed) · ADR-0063 As built (The emirate on the item) · ADR-0049 §7 As built",
+          "r": "migration 000420 (sales.quotation_item.tax_jurisdiction, sales.sales_order_item.tax_jurisdiction) · ledger.TaxCode.RefuseItemJurisdiction · sales.tax_jurisdiction_required, sales.tax_jurisdiction_not_levied · TestSalesItemJurisdiction · TestBillingJurisdictionRechecked · TestSalesItemJurisdictionRules · walkthrough step_einvoice_billing (step 148) · ADR-0067 As built (The emirate on a sales item) · ADR-0061 As built E2 (Gaps found, closed) · ADR-0063 As built (The emirate on the item) · ADR-0049 §7 As built",
           "src": "review:batch84",
           "c": []
          },
@@ -5665,7 +5665,7 @@
      {
       "s": "D",
       "t": "A batch-managed material carries a batch, with manufacture and expiry dates, on every movement and stock row",
-      "r": "S2f · docs/design/plan-supply-chain.md §S2f · ADR-0082 As built S2f · db/migrations/000421, 000422 · materials.material.batch_managed · inventory.batch, .batch_stock · inventory.movement.batch_id · POST/GET /v1/batches · GET /v1/batches/{id} · GET /v1/batch-stock · batch_id on POST /v1/material-documents · inventory.batch.write · walkthrough step_batches",
+      "r": "S2f · docs/design/plan-supply-chain.md §S2f · ADR-0082 As built S2f · db/migrations/000428, 000429 · materials.material.batch_managed · inventory.batch, .batch_stock · inventory.movement.batch_id · POST/GET /v1/batches · GET /v1/batches/{id} · GET /v1/batch-stock · batch_id on POST /v1/material-documents · inventory.batch.write · walkthrough step_batches",
       "src": "po:2026-11-17",
       "c": []
      },
@@ -5777,7 +5777,7 @@
      {
       "s": "D",
       "t": "Confirming a sales order item checks the material's available quantity at the plant and confirms what is available on the requested date; two orders racing for the last quantity confirm it once",
-      "r": "S2j · docs/design/plan-supply-chain.md §S2j · ADR-0082 As built S2j · db/migrations/000421 · sales.sales_order.plant_id · sales.sales_order_item.confirmed_quantity · sales.plant_invalid · shipping.plant_mismatch · inventory.Endpoints.PlantStock · TestTwoOrdersRaceForTheLastQuantity · TestSalesAvailabilityRules · walkthrough step_available_to_promise (step 148)",
+      "r": "S2j · docs/design/plan-supply-chain.md §S2j · ADR-0082 As built S2j · db/migrations/000430 · sales.sales_order.plant_id · sales.sales_order_item.confirmed_quantity · sales.plant_invalid · shipping.plant_mismatch · inventory.Endpoints.PlantStock · TestTwoOrdersRaceForTheLastQuantity · TestSalesAvailabilityRules · walkthrough step_available_to_promise (step 148)",
       "src": "po:2026-11-17",
       "c": []
      },

@@ -169,7 +169,7 @@ func TestMaterialRules(t *testing.T) {
 
 // TestMaterialTriggersAsOwner (S1a, migration 000373): past the grants, as
 // the owner, a material's number, company, base unit, type and batch
-// management (S2f, migration 000421) stay fixed and the base unit takes no
+// management (S2f, migration 000428) stay fixed and the base unit takes no
 // conversion.
 func TestMaterialTriggersAsOwner(t *testing.T) {
 	need(t)

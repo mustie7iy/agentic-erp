@@ -1139,14 +1139,14 @@ reads a location's stock without a lock for shipping's picking.
   transit (`in_transit_quantity`), and a material document's lines which
   are in transit. A document's `reference` finds its order through
   `GET /v1/stock-transport-orders?number=` (review round 1).
-- Walkthrough step 146, `step_stock_transport`.
+- Walkthrough step 147, `step_stock_transport`.
 - **Not built** (Later, plan §S2h): partial issues and receipts,
   reversals (352, 102), cancelling an open order, a delivery between the
   plants, a list of stock in transit, intercompany transfers (S2i).
 
 ### S2f (2026-11-20)
 
-- Migrations 000421 and 000422 (03 §3.35, S2f): `materials.material.batch_managed`,
+- Migrations 000428 and 000429 (03 §3.35, S2f): `materials.material.batch_managed`,
   `inventory.batch`, `inventory.batch_stock`, `inventory.movement.batch_id`
   and the stock rows' `batch_managed`, under schema tests
   (`db/batch_test.go`, the batch's trigger also as the owner, the down's
@@ -1216,7 +1216,7 @@ reads a location's stock without a lock for shipping's picking.
   (`TestBatchIssuesAtOnce`).
 - `GET /v1/batch-stock` (material, plant, storage location, batch): each
   batch's stock at a location now, with its dates; as at a date is Later.
-- Walkthrough step 148, `step_batches`.
+- Walkthrough step 149, `step_batches`.
 - **Not built** (Later, plan §S2f): batches in the purchase order's
   goods receipt, the delivery's goods issue, stock transport orders,
   counts and the SAP take-over; a batch created at goods receipt; internal
@@ -1227,7 +1227,7 @@ reads a location's stock without a lock for shipping's picking.
 
 ### S2j (2026-11-20)
 
-- Migration 000421: `sales.sales_order.plant_id`,
+- Migration 000430: `sales.sales_order.plant_id`,
   `sales.sales_order_item.confirmed_quantity` with their rules and
   `sales.delivery_assignment.plant_id` (the existing assignments take
   their delivery's) (03
@@ -1311,7 +1311,7 @@ reads a location's stock without a lock for shipping's picking.
   the plant and each item checked, with its material, quantity, unit and
   confirmed quantity before and after); no new event or permission:
   confirming stays `sales.order.confirm`, human-only.
-- Walkthrough step 148, `step_available_to_promise`.
+- Walkthrough step 150, `step_available_to_promise`.
 - **Not built** (Later, plan §S2j): checking rules with replenishment
   lead time and planned receipts, back-order processing, product
   allocation, global ATP across plants, per-item plants.

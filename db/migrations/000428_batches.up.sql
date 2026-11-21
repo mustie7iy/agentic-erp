@@ -19,7 +19,7 @@
 -- batch; a stock row it writes is not batch-managed, so a batch-managed
 -- material is created once no previous version serves: one it moved
 -- first at a location would hold no batches there), a foreign key
--- and a check added NOT VALID (validated by 000422), a movement_stock that
+-- and a check added NOT VALID (validated by 000429), a movement_stock that
 -- does for every movement the previous version writes what it did, and a
 -- permission it neither reads nor writes.
 

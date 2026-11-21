@@ -1,4 +1,4 @@
--- Validates the checks 000421 added NOT VALID on einvoicing.einvoice and
+-- Validates the checks 000423 added NOT VALID on einvoicing.einvoice and
 -- payables.supplier_invoice (06 §6.4), scanning the tables without
 -- blocking writes.
 ALTER TABLE payables.supplier_invoice VALIDATE CONSTRAINT supplier_invoice_source_check;

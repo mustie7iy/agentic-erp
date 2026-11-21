@@ -4598,7 +4598,7 @@ before receipt (`einvoice_processed`); the status `refused` (from
 (`einvoice_read`, `einvoice_read_lengths`), fixed with the problem once
 processed (the trigger); the partial index `einvoice_unprocessed` the
 fetch lists by. A document above 10 MiB is not recorded (T65c As built),
-so `sha256` and `size` stay required. T65d (migrations 000421-000425)
+so `sha256` and `size` stay required. T65d (migrations 000423-000427)
 adds the entering: the statuses `entered` and `held` (from a processed
 `received` only, final until T65f, the trigger), `entry_at` and
 `entry_fetch_operation_id` set together exactly then, never before the
@@ -5643,7 +5643,7 @@ erDiagram
   (`sales_order_payment_term_kept`) and while no billing document of the
   order stands that is not cancelled (`sales_order_payment_term_billed`),
   for the tables' owner too; `net_amount` is the sum of the items that
-  are not removed. S2j (migration 000421; ADR-0082 As built S2j) adds
+  are not removed. S2j (migration 000430; ADR-0082 As built S2j) adds
   `plant_id`, the tenancy plant the order delivers from, optional,
   written with the order and never changed (the application's grants
   leave it out); `sales_order_by_plant` finds a plant's confirmed orders
@@ -5675,7 +5675,7 @@ erDiagram
   (`sales_order_item_added_kept`), numbered after the order's highest
   (`sales_order_item_added_after`), never to a cancelled order. A removed
   item stays, out of the order's value, its credit exposure and the
-  sales lines. S2j (migration 000421; ADR-0082 As built S2j) adds
+  sales lines. S2j (migration 000430; ADR-0082 As built S2j) adds
   `confirmed_quantity`, what the availability check confirmed of the
   item in its unit, null until then and for an item it does not check:
   never entered with the item, set only on an item of a material of a
@@ -6838,7 +6838,7 @@ erDiagram
   every line, so stock in transit is the receiving plant's valuated stock
   and no location's. No count blocks a line in transit
   (`count_posting_block` fires only on the others).
-- S2f (migrations 000421, 000422): `materials.material.batch_managed`
+- S2f (migrations 000428, 000429): `materials.material.batch_managed`
   (SAP MARA's XCHPF, from memory), fixed once created (`material_fixed`).
   `inventory.batch` (SAP MCH1, batch level material): a batch of a
   material, its `number` 1 to 10 capitals, digits, `-` or `_`
@@ -6846,7 +6846,7 @@ erDiagram
   `manufacture_date` and its `expiry_date`, never before it
   (`batch_dates`); insert-only. `inventory.movement.batch_id`: the batch a
   line moves, one of its material (`movement_batch_fkey`, NOT VALID and
-  validated by 000422), never on a line in transit
+  validated by 000429), never on a line in transit
   (`movement_batch_not_in_transit`). `inventory.stock.batch_managed` and
   `inventory.transit_stock.batch_managed`: whether the row's material is
   batch-managed, written with the row and not updated by the application.

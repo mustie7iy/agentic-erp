@@ -739,8 +739,8 @@ plants.
   (`confirmed_quantity`); deliveries take at most that, from the order's
   plant; a change rechecks the items it adds or changes. Per-item plants
   join the Later list.
-- **As built** (2026-11-20): ADR-0082 As built S2j, migration 000421,
-  walkthrough step 148.
+- **As built** (2026-11-20): ADR-0082 As built S2j, migration 000430,
+  walkthrough step 150.
 
 ### S2k MRP net requirements
 

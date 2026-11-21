@@ -52,7 +52,7 @@ func (s batchScene) received() []stmt {
 		s.batchMovement(1, "10", &s.l1), s.batchMovement(2, "5", &s.l2)}
 }
 
-// TestBatchRules (S2f, migrations 000421 and 000422; ADR-0082 As built
+// TestBatchRules (S2f, migrations 000428 and 000429; ADR-0082 As built
 // S2f): a batch's number is 1 to 10 capitals, digits, '-' or '_', once
 // per material, and it expires on or after the day it was made; a batch
 // and a batch stock row are insert-only and unchanged by the application;
@@ -181,7 +181,7 @@ func TestBatchRules(t *testing.T) {
 	})
 }
 
-// TestBatchTriggersAsOwner (S2f, migration 000421): past the grants, as
+// TestBatchTriggersAsOwner (S2f, migration 000428): past the grants, as
 // the owner, a batch is neither changed nor deleted.
 func TestBatchTriggersAsOwner(t *testing.T) {
 	need(t)
@@ -205,7 +205,7 @@ func TestBatchTriggersAsOwner(t *testing.T) {
 	}
 }
 
-// TestBatchDownRefused: 000421's down migration refuses to drop batches
+// TestBatchDownRefused: 000428's down migration refuses to drop batches
 // and batch-managed materials (06 §6.4: a down migration loses no data).
 func TestBatchDownRefused(t *testing.T) {
 	need(t)
@@ -228,7 +228,7 @@ func TestBatchDownRefused(t *testing.T) {
 			if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, s.tenant.String()), st(s)); err != nil {
 				t.Fatal(err)
 			}
-			failsWith(t, exec(tx, migrationNamed(t, "000421_batches").Down), "batches or batch-managed materials exist")
+			failsWith(t, exec(tx, migrationNamed(t, "000428_batches").Down), "batches or batch-managed materials exist")
 		})
 	}
 }

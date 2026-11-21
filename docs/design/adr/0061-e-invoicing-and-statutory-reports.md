@@ -1265,7 +1265,7 @@ default:
   sales e-invoiced here are customer invoices entered in receivables. The
   walkthrough therefore renders a customer invoice and a credit memo, not
   a billing document. (Closed in batch 85: ADR-0067 As built, the emirate
-  on a sales item; step 147 renders a billing document's customer invoice
+  on a sales item; step 148 renders a billing document's customer invoice
   as a valid 380. E2 needed no change: it renders the parties' emirates
   from their addresses and the VAT by category from the invoice's tax
   items.)
@@ -1673,14 +1673,14 @@ IBT-013 and the order line IBT-132). Decided by default:
 
 ### T65d: entering e-invoices as supplier invoices (adr:ADR-0061 · po:2026-11-09)
 
-Built as §6 and the entering half of §4's Process and §7: migrations 000421
+Built as §6 and the entering half of §4's Process and §7: migrations 000423
 (the statuses `entered` and `held`, `entry_at`, `entry_fetch_operation_id`,
 `supplier_invoice_id` and `supplier_id`, the checks NOT VALID, the trigger
 allowing a processed `received` document to move to either and fixing what
 the entering decided; payables' source `einvoice`, whose invoice keeps its
-document's hash as a captured one does), 000422 (the checks validated),
-000423 (`einvoice_to_enter`), 000424 (`einvoice_held`, cell-wide, for
-the gauge `erp_einvoices_held`) and 000425 (`einvoice_by_entry_fetch`); `payables.EnterEInvoice` (`einvoice.go`)
+document's hash as a captured one does), 000424 (the checks validated),
+000425 (`einvoice_to_enter`), 000426 (`einvoice_held`, cell-wide, for
+the gauge `erp_einvoices_held`) and 000427 (`einvoice_by_entry_fetch`); `payables.EnterEInvoice` (`einvoice.go`)
 behind the port `einvoicing.Payables` (`enter.go`), adapted in
 `internal/app/einvoicing.go`. Decided by default:
 
@@ -1694,7 +1694,7 @@ behind the port `einvoicing.Payables` (`enter.go`), adapted in
   (run-twice test): the row is read `FOR UPDATE` where it is still
   `received`, and the fetch's `entered` and `held` counts are read from the
   rows (`entry_fetch_operation_id`). The list's `fetch_operation_id` filter,
-  the fetch's `resource`, matches the entering fetch too (migration 000425,
+  the fetch's `resource`, matches the entering fetch too (migration 000427,
   `einvoice_by_entry_fetch`), so a fetch's `entered` and `held` lead to
   their documents, also those an earlier fetch recorded (review round 1).
   A retryable problem (a lock timeout or serialization failure, one with a

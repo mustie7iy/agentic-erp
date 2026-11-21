@@ -9,9 +9,9 @@
 -- the schema (02 §2.1). A supplier invoice entered from an e-invoice has
 -- the source einvoice and keeps the document's hash, as a captured one
 -- does. Expand only: nullable columns the previous version neither reads
--- nor writes, the checks widened NOT VALID (000422 validates them, 06
+-- nor writes, the checks widened NOT VALID (000424 validates them, 06
 -- §6.4), the trigger replaced to allow received to entered or held, and
--- the worker role's read of the status the held gauge counts (000423 adds
+-- the worker role's read of the status the held gauge counts (000425 adds
 -- the indexes).
 ALTER TABLE payables.supplier_invoice
   DROP CONSTRAINT supplier_invoice_source_check,

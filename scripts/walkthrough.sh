@@ -15470,7 +15470,7 @@ wait_transmission() {
 # the issue. The goods receipt (101) takes them out of transit into the
 # Montreal store and posts nothing; the order is received.
 step_stock_transport() {
-  heading "Step 146 — Stock transport order: washers ordered from the Toronto plant to the Montreal plant; the goods issue (351) puts them in transit, in neither store's stock but in Montreal's valuation at its standard price, the difference on price differences; the goods receipt (101) takes them out of transit into the Montreal store, posting nothing; a second issue and a reversal refused"
+  heading "Step 147 — Stock transport order: washers ordered from the Toronto plant to the Montreal plant; the goods issue (351) puts them in transit, in neither store's stock but in Montreal's valuation at its standard price, the difference on price differences; the goods receipt (101) takes them out of transit into the Montreal store, posting nothing; a second issue and a reversal refused"
   local montreal store washer order tag doc
   [ -n "$PLANT" ] || fail "step 122's plant is not there"
   accounts
@@ -15547,77 +15547,6 @@ step_stock_transport() {
   passed
 }
 
-# step_batches is S2f (ADR-0082 As built S2f, plan-supply-chain.md): Mira
-# creates a thread sealant managed in batches, which Priya approves and
-# Ines values. Wade creates two of its supplier's lots as batches, with
-# their manufacture and expiry dates (one expiring before it was made is
-# refused), and receives both into the main store (501), each item naming
-# its batch; an item without one is refused. An issue of more than a
-# batch holds is refused though the store holds more; a transfer to the
-# spares store keeps its batch. The stock by batch adds up to each
-# store's stock; a count of the sealant, which counts no batches yet, is
-# refused.
-step_batches() {
-  heading "Step 148 — Batches: a sealant managed in batches, two supplier lots created with their manufacture and expiry dates and received each in its batch; an item without a batch refused, an issue beyond a batch refused though the store holds more, a transfer keeping its batch; the stock by batch adds up to each store's"
-  local sealant early late cc
-  [ -n "$PLANT" ] || fail "step 122's plant is not there"
-  as mira
-  say "Mira creates the thread sealant, a raw material managed in batches, kept in Toronto's main and spares stores; Priya approves it:"
-  api 201 '"material \(.number) \(.description): batch-managed \(.batch_managed)"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
-      \"description\": \"Thread sealant 50 ml\", \"base_unit\": \"EA\", \"material_type\": \"raw_material\", \"material_group\": \"SEALANTS\", \"batch_managed\": true,
-      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\", \"$SPARES_STORE\"]}]}"
-  sealant=$(field .id)
-  approve priya "$(material_request "$sealant")" "Sealant for the assembly line."
-  as ines
-  say "Ines values it in Toronto at a moving price of 4.00 CAD:"
-  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
-      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"4.00\", \"currency\": \"CAD\"}}"
-  as wade
-  say "Wade creates the supplier's two lots as batches, each with its manufacture and expiry dates:"
-  api 201 '"batch \(.number) of \(.material_number): made \(.manufacture_date), expires \(.expiry_date)"' createBatch -body "{\"material_id\": \"$sealant\",
-      \"number\": \"L2611A\", \"manufacture_date\": \"2026-11-01\", \"expiry_date\": \"2027-05-01\"}"
-  early=$(field .id)
-  api 201 '"batch \(.number) of \(.material_number): made \(.manufacture_date), expires \(.expiry_date)"' createBatch -body "{\"material_id\": \"$sealant\",
-      \"number\": \"L2611B\", \"manufacture_date\": \"2026-11-10\", \"expiry_date\": \"2027-05-10\"}"
-  late=$(field .id)
-  say "A lot expiring before it was made, and the same lot number twice, are refused:"
-  refused 422 inventory.batch_dates createBatch -body "{\"material_id\": \"$sealant\", \"number\": \"L2611C\", \"manufacture_date\": \"2026-11-10\",
-      \"expiry_date\": \"2026-11-09\"}"
-  refused 409 inventory.batch_exists createBatch -body "{\"material_id\": \"$sealant\", \"number\": \"L2611A\", \"manufacture_date\": \"2026-11-01\"}"
-  say "Both lots arrive without an order (501), 30 tubes of L2611A worth 120.00 CAD and 20 of L2611B worth 80.00, each item naming its batch:"
-  api 201 '"material document \(.number) (\(.movement_type))", (.lines[] | "  line \(.line_no): \(.storage_location_code) batch \(.batch_number) \(.quantity.value) \(.quantity.unit), worth \(.amount.amount)")' \
-    createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
-      \"batch_id\": \"$early\", \"quantity\": {\"value\": \"30\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"120.00\", \"currency\": \"CAD\"}},
-      {\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"batch_id\": \"$late\",
-      \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"80.00\", \"currency\": \"CAD\"}}]}"
-  expect "the receipt's batches" "$(field '[.lines[] | "\(.batch_number):\(.quantity.value)"] | join(" ")')" "L2611A:30 L2611B:20"
-  say "A receipt of the sealant without its batch is refused, naming the field:"
-  refused 422 inventory.batch_required createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$sealant\",
-      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
-  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
-  cc=$(field '.items[0].id')
-  say "Maintenance asks for 25 tubes of L2611B: the store holds 50, but the batch only 20, so the issue is refused:"
-  refused 409 inventory.insufficient_stock createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$sealant\",
-      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"batch_id\": \"$late\", \"quantity\": {\"value\": \"25\", \"unit\": \"EA\"},
-      \"cost_center_id\": \"$cc\"}]}"
-  say "Wade moves 10 tubes of L2611A to the spares store (311); the batch goes with them:"
-  api 201 '"material document \(.number) (\(.movement_type))", (.lines[] | "  line \(.line_no): \(.storage_location_code) batch \(.batch_number) \(.quantity.value) \(.quantity.unit)")' \
-    createMaterialDocument -body "{\"movement_type\": \"311\", \"items\": [{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
-      \"batch_id\": \"$early\", \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}, \"to_storage_location_id\": \"$SPARES_STORE\"}]}"
-  expect "the transfer's batches" "$(field '[.lines[] | "\(.batch_number):\(.quantity.value)"] | join(" ")')" "L2611A:-10 L2611A:10"
-  say "The stock by batch adds up to each store's stock:"
-  api 200 '.items[] | "  \(.storage_location_code) batch \(.batch_number) (expires \(.expiry_date)): \(.quantity.value) \(.quantity.unit)"' \
-    listBatchStock -p "material_id=$sealant"
-  expect "the stock by batch" "$(field '[.items[] | "\(.storage_location_code) \(.batch_number) \(.quantity.value)"] | sort | join(", ")')" \
-    "SL01 L2611A 20, SL01 L2611B 20, SL02 L2611A 10"
-  QUIET=1 api 200 '' listStock -p "material_id=$sealant"
-  expect "the stock by store" "$(field '[.items[] | "\(.storage_location_code) \(.quantity.value)"] | sort | join(", ")')" "SL01 40, SL02 10"
-  say "A count of the sealant is refused: counts by batch are not built yet:"
-  refused 422 inventory.batch_not_supported createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$SPARES_STORE\",
-      \"items\": [{\"material_id\": \"$sealant\"}]}"
-  passed
-}
-
 # step_einvoice_billing is the emirate on a sales item (ADR-0067 As built,
 # the emirate on a sales item; review:batch84): the UAE company sells
 # through sales orders and bills them, its standard-rated code S5 levying
@@ -15628,7 +15557,7 @@ step_batches() {
 # entry's revenue and tax lines carry it, so the VAT 201 reads the sale
 # in Dubai. The invoice renders as a valid PINT AE tax invoice 380 (E2).
 step_einvoice_billing() {
-  heading "Step 147 — A UAE sales order billed under S5: each item names its emirate, the billing document posts a customer invoice whose item and entry lines carry it, rendered as a valid PINT AE tax invoice 380"
+  heading "Step 148 — A UAE sales order billed under S5: each item names its emirate, the billing document posts a customer invoice whose item and entry lines carry it, rendered as a valid PINT AE tax invoice 380"
   local ae day customer sales order doc invoice entry rendered number
   as sally
   QUIET=1 api 200 '' listLegalEntities -p page_size=100
@@ -15692,6 +15621,77 @@ step_einvoice_billing() {
   passed
 }
 
+# step_batches is S2f (ADR-0082 As built S2f, plan-supply-chain.md): Mira
+# creates a thread sealant managed in batches, which Priya approves and
+# Ines values. Wade creates two of its supplier's lots as batches, with
+# their manufacture and expiry dates (one expiring before it was made is
+# refused), and receives both into the main store (501), each item naming
+# its batch; an item without one is refused. An issue of more than a
+# batch holds is refused though the store holds more; a transfer to the
+# spares store keeps its batch. The stock by batch adds up to each
+# store's stock; a count of the sealant, which counts no batches yet, is
+# refused.
+step_batches() {
+  heading "Step 149 — Batches: a sealant managed in batches, two supplier lots created with their manufacture and expiry dates and received each in its batch; an item without a batch refused, an issue beyond a batch refused though the store holds more, a transfer keeping its batch; the stock by batch adds up to each store's"
+  local sealant early late cc
+  [ -n "$PLANT" ] || fail "step 122's plant is not there"
+  as mira
+  say "Mira creates the thread sealant, a raw material managed in batches, kept in Toronto's main and spares stores; Priya approves it:"
+  api 201 '"material \(.number) \(.description): batch-managed \(.batch_managed)"' createMaterial -body "{\"legal_entity_id\": \"$LE\",
+      \"description\": \"Thread sealant 50 ml\", \"base_unit\": \"EA\", \"material_type\": \"raw_material\", \"material_group\": \"SEALANTS\", \"batch_managed\": true,
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\", \"$SPARES_STORE\"]}]}"
+  sealant=$(field .id)
+  approve priya "$(material_request "$sealant")" "Sealant for the assembly line."
+  as ines
+  say "Ines values it in Toronto at a moving price of 4.00 CAD:"
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"4.00\", \"currency\": \"CAD\"}}"
+  as wade
+  say "Wade creates the supplier's two lots as batches, each with its manufacture and expiry dates:"
+  api 201 '"batch \(.number) of \(.material_number): made \(.manufacture_date), expires \(.expiry_date)"' createBatch -body "{\"material_id\": \"$sealant\",
+      \"number\": \"L2611A\", \"manufacture_date\": \"2026-11-01\", \"expiry_date\": \"2027-05-01\"}"
+  early=$(field .id)
+  api 201 '"batch \(.number) of \(.material_number): made \(.manufacture_date), expires \(.expiry_date)"' createBatch -body "{\"material_id\": \"$sealant\",
+      \"number\": \"L2611B\", \"manufacture_date\": \"2026-11-10\", \"expiry_date\": \"2027-05-10\"}"
+  late=$(field .id)
+  say "A lot expiring before it was made, and the same lot number twice, are refused:"
+  refused 422 inventory.batch_dates createBatch -body "{\"material_id\": \"$sealant\", \"number\": \"L2611C\", \"manufacture_date\": \"2026-11-10\",
+      \"expiry_date\": \"2026-11-09\"}"
+  refused 409 inventory.batch_exists createBatch -body "{\"material_id\": \"$sealant\", \"number\": \"L2611A\", \"manufacture_date\": \"2026-11-01\"}"
+  say "Both lots arrive without an order (501), 30 tubes of L2611A worth 120.00 CAD and 20 of L2611B worth 80.00, each item naming its batch:"
+  api 201 '"material document \(.number) (\(.movement_type))", (.lines[] | "  line \(.line_no): \(.storage_location_code) batch \(.batch_number) \(.quantity.value) \(.quantity.unit), worth \(.amount.amount)")' \
+    createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"batch_id\": \"$early\", \"quantity\": {\"value\": \"30\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"120.00\", \"currency\": \"CAD\"}},
+      {\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"batch_id\": \"$late\",
+      \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"80.00\", \"currency\": \"CAD\"}}]}"
+  expect "the receipt's batches" "$(field '[.lines[] | "\(.batch_number):\(.quantity.value)"] | join(" ")')" "L2611A:30 L2611B:20"
+  say "A receipt of the sealant without its batch is refused, naming the field:"
+  refused 422 inventory.batch_required createMaterialDocument -body "{\"movement_type\": \"501\", \"items\": [{\"material_id\": \"$sealant\",
+      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  say "Maintenance asks for 25 tubes of L2611B: the store holds 50, but the batch only 20, so the issue is refused:"
+  refused 409 inventory.insufficient_stock createMaterialDocument -body "{\"movement_type\": \"201\", \"items\": [{\"material_id\": \"$sealant\",
+      \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\", \"batch_id\": \"$late\", \"quantity\": {\"value\": \"25\", \"unit\": \"EA\"},
+      \"cost_center_id\": \"$cc\"}]}"
+  say "Wade moves 10 tubes of L2611A to the spares store (311); the batch goes with them:"
+  api 201 '"material document \(.number) (\(.movement_type))", (.lines[] | "  line \(.line_no): \(.storage_location_code) batch \(.batch_number) \(.quantity.value) \(.quantity.unit)")' \
+    createMaterialDocument -body "{\"movement_type\": \"311\", \"items\": [{\"material_id\": \"$sealant\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"batch_id\": \"$early\", \"quantity\": {\"value\": \"10\", \"unit\": \"EA\"}, \"to_storage_location_id\": \"$SPARES_STORE\"}]}"
+  expect "the transfer's batches" "$(field '[.lines[] | "\(.batch_number):\(.quantity.value)"] | join(" ")')" "L2611A:-10 L2611A:10"
+  say "The stock by batch adds up to each store's stock:"
+  api 200 '.items[] | "  \(.storage_location_code) batch \(.batch_number) (expires \(.expiry_date)): \(.quantity.value) \(.quantity.unit)"' \
+    listBatchStock -p "material_id=$sealant"
+  expect "the stock by batch" "$(field '[.items[] | "\(.storage_location_code) \(.batch_number) \(.quantity.value)"] | sort | join(", ")')" \
+    "SL01 L2611A 20, SL01 L2611B 20, SL02 L2611A 10"
+  QUIET=1 api 200 '' listStock -p "material_id=$sealant"
+  expect "the stock by store" "$(field '[.items[] | "\(.storage_location_code) \(.quantity.value)"] | sort | join(", ")')" "SL01 40, SL02 10"
+  say "A count of the sealant is refused: counts by batch are not built yet:"
+  refused 422 inventory.batch_not_supported createPhysicalInventoryDocument -body "{\"plant_id\": \"$PLANT\", \"storage_location_id\": \"$SPARES_STORE\",
+      \"items\": [{\"material_id\": \"$sealant\"}]}"
+  passed
+}
+
 # step_available_to_promise is S2j (ADR-0082 As built S2j,
 # plan-supply-chain.md): Mira creates the H20 hinge, kept in Toronto's
 # main store, and Wade enters 100 of them. Sally orders 60 for Northwind
@@ -15702,7 +15702,7 @@ step_einvoice_billing() {
 # delivery from the Montreal plant. Wade enters 50 more; Sally raises the
 # third order to 6, and its change confirms all 6.
 step_available_to_promise() {
-  heading "Step 148 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives"
+  heading "Step 150 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives"
   local hinge sales montreal store first second third
   [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
   accounts

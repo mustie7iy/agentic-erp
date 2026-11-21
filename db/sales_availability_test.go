@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestSalesAvailabilityRules (S2j, migration 000421; ADR-0082 As built
+// TestSalesAvailabilityRules (S2j, migration 000430; ADR-0082 As built
 // S2j): a sales order's plant is entered with it and never changed by the
 // application; an order item's confirmed quantity is never entered with
 // the item, is set only on an item of a material of a confirmed order
@@ -117,13 +117,13 @@ func TestSalesAvailabilityRules(t *testing.T) {
 	}
 }
 
-// TestDeliveryAssignmentPlantBackfilled (migration 000421): an
+// TestDeliveryAssignmentPlantBackfilled (migration 000430): an
 // assignment written before the migration takes the plant its outbound
 // delivery ships from; its down drops the column again.
 func TestDeliveryAssignmentPlantBackfilled(t *testing.T) {
 	conn := emptyDatabase(t)
 	ctx := t.Context()
-	up := migrateBefore(t, conn, "000421_sales_availability")
+	up := migrateBefore(t, conn, "000430_sales_availability")
 	tenant, order, delivery, plant := id(), id(), id(), id()
 	inTenant(t, conn, tenant, func(tx pgx.Tx) error {
 		return all(tx,
