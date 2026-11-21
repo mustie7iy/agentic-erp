@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
 // taxNumbers answers HasTaxNumber with held or err.
@@ -79,5 +80,14 @@ func TestExtractionOf(t *testing.T) {
 				t.Errorf("got %v, want payables.unreadable_document quoting at most 40 characters", err)
 			}
 		})
+	}
+}
+
+// TestEnterEInvoiceOutsideRequest: entering needs the request's
+// transaction; without one it is refused with reqctx's error and reads
+// nothing (ADR-0061 §6).
+func TestEnterEInvoiceOutsideRequest(t *testing.T) {
+	if _, err := (&Endpoints{}).EnterEInvoice(context.Background(), EInvoice{}); !errors.Is(err, reqctx.ErrOutsideRequest) {
+		t.Errorf("got %v, want %v", err, reqctx.ErrOutsideRequest)
 	}
 }
