@@ -44,9 +44,13 @@ func (a einvoicePayables) Enter(ctx context.Context, in einvoicing.Entry) (einvo
 		lines[i] = payables.EInvoiceLine{OrderLine: l.OrderLine, Description: l.Description, Quantity: l.Quantity, Net: l.Net, Category: l.Category,
 			Percent: l.Percent}
 	}
-	v, err := a.e.EnterEInvoice(ctx, payables.EInvoice{LegalEntityID: in.LegalEntityID, Number: d.Number, IssueDate: d.IssueDate, Currency: d.Currency,
-		Exponent: d.Exponent, OrderReference: d.OrderReference, SellerTRN: d.Seller.TRN, Lines: lines, Tax: d.Tax, Gross: d.TaxInclusive,
-		SHA256: in.SHA256, ObjectRef: in.ContentRef})
+	kind := payables.KindInvoice
+	if d.Kind == einvoicing.KindTaxCreditNote {
+		kind = payables.KindCreditMemo
+	}
+	v, err := a.e.EnterEInvoice(ctx, payables.EInvoice{LegalEntityID: in.LegalEntityID, Kind: kind, Number: d.Number, CreditedNumber: d.Reference,
+		IssueDate: d.IssueDate, Currency: d.Currency, Exponent: d.Exponent, OrderReference: d.OrderReference, SellerTRN: d.Seller.TRN, Lines: lines,
+		Tax: d.Tax, Gross: d.TaxInclusive, SHA256: in.SHA256, ObjectRef: in.ContentRef})
 	return einvoicing.Entered{InvoiceID: v.ID, SupplierID: v.SupplierID}, err
 }
 

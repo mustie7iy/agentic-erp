@@ -19,14 +19,17 @@ import (
 // e-invoice (ADR-0061 §6).
 const SourceEInvoice = "einvoice"
 
-// EInvoice is a received e-invoice's tax invoice as the einvoicing context
-// read and validated it (ADR-0061 §5, §6), to enter as a supplier
-// invoice: amounts in minor units of Currency, whose digits are Exponent.
-// Its bytes are kept already, under ObjectRef with their SHA256, and
-// become the invoice's document.
+// EInvoice is a received e-invoice's tax invoice or tax credit note as the
+// einvoicing context read and validated it (ADR-0061 §5, §6), to enter as
+// a supplier invoice or credit memo (Kind: KindInvoice or KindCreditMemo):
+// amounts in minor units of Currency, whose digits are Exponent. Its
+// bytes are kept already, under ObjectRef with their SHA256, and become
+// the invoice's document.
 type EInvoice struct {
 	LegalEntityID  uuid.UUID
+	Kind           string
 	Number         string    // IBT-001, the supplier reference
+	CreditedNumber string    // IBT-025, the invoice a credit note corrects
 	IssueDate      time.Time // IBT-002
 	Currency       string    // IBT-005
 	Exponent       int
@@ -47,14 +50,17 @@ type EInvoiceLine struct {
 	Category, Percent                string
 }
 
-// EnterEInvoice enters a received tax invoice as a supplier invoice with
-// capture's code and no model (ADR-0061 §6): the order from its order
-// reference, whose supplier must hold the seller's TRN as a tax
-// identifier (compared by fingerprint); its items by order line or by
-// position with the order items' units and codes; codes from each line's
-// category and rate by capturedTax's rule, an ambiguity holding it; the
-// document's bytes its document. It is parked, or on hold with capture's
-// reasons, as a captured invoice is, and published as
+// EnterEInvoice enters a received tax invoice as a supplier invoice, or a
+// tax credit note as a credit memo, with capture's code and no model
+// (ADR-0061 §6): the order from its order reference, whose supplier must
+// hold the seller's TRN as a tax identifier (compared by fingerprint); a
+// credit memo's reference the posted invoice of the supplier whose number
+// it cites, by capture's rule (creditedInvoice: one citing a number that
+// is no posted invoice of the supplier is on hold naming it); its items by
+// order line or by position with the order items' units and codes; codes
+// from each line's category and rate by capturedTax's rule, an ambiguity
+// holding it; the document's bytes its document. It is parked, or on hold
+// with capture's reasons, as a captured invoice is, and published as
 // SupplierInvoiceCaptured with source einvoice. Any refusal is a problem
 // (no order: payables.capture_needs_order), for the caller to hold the
 // e-invoice with; the caller runs it in a savepoint, since several are
@@ -94,14 +100,15 @@ func (e *Endpoints) EnterEInvoice(ctx context.Context, d EInvoice) (Invoice, err
 	return e.insert(ctx, tx, p, newInvoice{Input: in, source: SourceEInvoice, status: status, holdReason: reason, sha: d.SHA256, objectRef: d.ObjectRef})
 }
 
-// extractionOf is the e-invoice as capture's code reads a document: a tax
-// invoice, its amounts as decimals of its currency, its lines' order line
-// numbers as item numbers. An order line that is no item number is
-// refused, as capture refuses a line naming no item of the order.
+// extractionOf is the e-invoice as capture's code reads a document: an
+// invoice or a credit memo naming the invoice it credits (capture's kinds
+// are payables' own), its amounts as decimals of its currency, its lines'
+// order line numbers as item numbers. An order line that is no item number
+// is refused, as capture refuses a line naming no item of the order.
 func extractionOf(d EInvoice) (*capture.Extraction, error) {
-	ext := &capture.Extraction{DocumentKind: "invoice", InvoiceNumber: d.Number, InvoiceDate: d.IssueDate.Format(time.DateOnly),
-		PurchaseOrder: d.OrderReference, Currency: d.Currency, TaxAmount: d.Tax.Plain(d.Exponent), GrossAmount: d.Gross.Plain(d.Exponent),
-		Confidence: "high"}
+	ext := &capture.Extraction{DocumentKind: d.Kind, InvoiceNumber: d.Number, CreditedInvoiceNumber: d.CreditedNumber,
+		InvoiceDate: d.IssueDate.Format(time.DateOnly), PurchaseOrder: d.OrderReference, Currency: d.Currency, TaxAmount: d.Tax.Plain(d.Exponent),
+		GrossAmount: d.Gross.Plain(d.Exponent), Confidence: "high"}
 	for i, l := range d.Lines {
 		var no int
 		if l.OrderLine != "" {

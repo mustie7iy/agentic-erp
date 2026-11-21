@@ -29,7 +29,7 @@ type ublDocument struct {
 	Currency        string      `xml:"DocumentCurrencyCode"`
 	TaxCurrency     string      `xml:"TaxCurrencyCode"`
 	Discrepancy     *ublReason  `xml:"DiscrepancyResponse"`
-	BillingRef      string      `xml:"BillingReference>InvoiceDocumentReference>ID"`
+	BillingRefs     []string    `xml:"BillingReference>InvoiceDocumentReference>ID"`
 	OrderRef        string      `xml:"OrderReference>ID"`
 	Seller          ublParty    `xml:"AccountingSupplierParty>Party"`
 	Buyer           ublParty    `xml:"AccountingCustomerParty>Party"`
@@ -172,8 +172,11 @@ func (u ublDocument) document(exponent func(string) (int, bool)) (Document, erro
 		return Document{}, &FieldError{Term: "IBT-005", Err: fmt.Errorf("unknown currency %q", u.Currency)}
 	}
 	d := Document{Number: u.ID, Currency: u.Currency, TaxCurrency: u.TaxCurrency, Customization: u.Customization, Profile: u.Profile,
-		TransactionType: u.ProfileExec, Reference: u.BillingRef, OrderReference: u.OrderRef, Seller: u.Seller.party(), Buyer: u.Buyer.party(),
+		TransactionType: u.ProfileExec, Cited: u.BillingRefs, OrderReference: u.OrderRef, Seller: u.Seller.party(), Buyer: u.Buyer.party(),
 		PaymentMeans: u.PaymentMeans, Exponent: exp}
+	if len(u.BillingRefs) > 0 {
+		d.Reference = u.BillingRefs[0]
+	}
 	d.Kind, d.TypeCode = KindTaxInvoice, u.InvoiceType
 	lines := u.InvoiceLines
 	if u.XMLName.Space == nsCreditNote {

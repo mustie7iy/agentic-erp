@@ -3236,17 +3236,25 @@ type Invoker interface {
 	// (no order: `payables.capture_needs_order`; an unknown order or item, the seller's TRN not the
 	// supplier's `payables.einvoice_seller_unknown`, `payables.duplicate_invoice`,
 	// `payables.already_captured`, a closed period and any other) holds the document instead, `held` with
-	// that problem's code and detail, nothing of the entering kept; a tax invoice not in AED is held with
-	// `einvoicing.tax_currency_not_entered` (its VAT in AED, IBT-111, is to be kept as it states it, which
-	// the entering does not do yet). A tax credit note stays `received` until T65e enters credit notes; a
-	// tax invoice validated by a fetch before T65d is entered by the next one. When the fetch is done its
-	// Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a
-	// message found with other bytes; `refused`: the documents this fetch refused; `entered` and `held`:
-	// the documents this fetch entered and held; `waiting`: the connector's documents left unprocessed,
-	// waiting for the company's setup) and its `resource` the list of the documents it recorded, found
-	// changed, refused, entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the
-	// fetch as its `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier
-	// fetch recorded, as its `processed_fetch_operation_id`, and one entered or held as its
+	// that problem's code and detail, nothing of the entering kept; a tax invoice or tax credit note not
+	// in AED is held with `einvoicing.tax_currency_not_entered` (its VAT in AED, IBT-111, is to be kept as
+	// it states it, which the entering does not do yet). A valid tax credit note is entered the same way
+	// as a supplier credit memo (T65e), naming as its reference the invoice whose number it cites
+	// (IBT-025) by capture's rule: a posted invoice of the supplier in the company and the note's currency
+	// is its `reference_invoice_id`; a number that is none enters it `on_hold`, its hold reason naming the
+	// number, for a person to enter the reference; a tax credit note naming no invoice is held with
+	// `einvoicing.credit_note_names_no_invoice` (a UAE tax credit note names the invoice it corrects,
+	// IBG-03), nothing of it entered, rather than entered as correcting none; one naming several invoices
+	// (IBG-03 repeated) is held with `einvoicing.credit_note_names_several_invoices`, the detail naming
+	// them, since a credit memo names one. A tax invoice validated by a fetch before T65d, and a tax
+	// credit note validated before T65e, is entered by the next one. When the fetch is done its Operation
+	// succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found
+	// with other bytes; `refused`: the documents this fetch refused; `entered` and `held`: the documents
+	// this fetch entered and held; `waiting`: the connector's documents left unprocessed, waiting for the
+	// company's setup) and its `resource` the list of the documents it recorded, found changed, refused,
+	// entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
+	// `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier fetch
+	// recorded, as its `processed_fetch_operation_id`, and one entered or held as its
 	// `entry_fetch_operation_id`); a message not recorded fails the Operation with
 	// `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
 	// error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the
@@ -36908,17 +36916,25 @@ func (c *Client) sendExcludeBankStatementLine(ctx context.Context, request *Reas
 // (no order: `payables.capture_needs_order`; an unknown order or item, the seller's TRN not the
 // supplier's `payables.einvoice_seller_unknown`, `payables.duplicate_invoice`,
 // `payables.already_captured`, a closed period and any other) holds the document instead, `held` with
-// that problem's code and detail, nothing of the entering kept; a tax invoice not in AED is held with
-// `einvoicing.tax_currency_not_entered` (its VAT in AED, IBT-111, is to be kept as it states it, which
-// the entering does not do yet). A tax credit note stays `received` until T65e enters credit notes; a
-// tax invoice validated by a fetch before T65d is entered by the next one. When the fetch is done its
-// Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a
-// message found with other bytes; `refused`: the documents this fetch refused; `entered` and `held`:
-// the documents this fetch entered and held; `waiting`: the connector's documents left unprocessed,
-// waiting for the company's setup) and its `resource` the list of the documents it recorded, found
-// changed, refused, entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the
-// fetch as its `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier
-// fetch recorded, as its `processed_fetch_operation_id`, and one entered or held as its
+// that problem's code and detail, nothing of the entering kept; a tax invoice or tax credit note not
+// in AED is held with `einvoicing.tax_currency_not_entered` (its VAT in AED, IBT-111, is to be kept as
+// it states it, which the entering does not do yet). A valid tax credit note is entered the same way
+// as a supplier credit memo (T65e), naming as its reference the invoice whose number it cites
+// (IBT-025) by capture's rule: a posted invoice of the supplier in the company and the note's currency
+// is its `reference_invoice_id`; a number that is none enters it `on_hold`, its hold reason naming the
+// number, for a person to enter the reference; a tax credit note naming no invoice is held with
+// `einvoicing.credit_note_names_no_invoice` (a UAE tax credit note names the invoice it corrects,
+// IBG-03), nothing of it entered, rather than entered as correcting none; one naming several invoices
+// (IBG-03 repeated) is held with `einvoicing.credit_note_names_several_invoices`, the detail naming
+// them, since a credit memo names one. A tax invoice validated by a fetch before T65d, and a tax
+// credit note validated before T65e, is entered by the next one. When the fetch is done its Operation
+// succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found
+// with other bytes; `refused`: the documents this fetch refused; `entered` and `held`: the documents
+// this fetch entered and held; `waiting`: the connector's documents left unprocessed, waiting for the
+// company's setup) and its `resource` the list of the documents it recorded, found changed, refused,
+// entered or held (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its
+// `changed_fetch_operation_id`, one it processed, refused among them, also one an earlier fetch
+// recorded, as its `processed_fetch_operation_id`, and one entered or held as its
 // `entry_fetch_operation_id`); a message not recorded fails the Operation with
 // `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field
 // error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the

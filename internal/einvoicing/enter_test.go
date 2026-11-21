@@ -84,7 +84,8 @@ func (s *entering) entered(t *testing.T, message string, operation uuid.UUID) st
 // that does, else the invoice on hold; every refusal of the entering holds
 // the document with its code, a constraint the database raises
 // (supplier_invoice_no_duplicates) among them, with nothing of it kept; a
-// tax invoice not in AED is held; a credit note stays received. Run
+// tax invoice not in AED is held; a credit note citing an invoice not
+// posted is entered as a credit memo on hold naming it (T65e). Run
 // twice, the step enters, holds and publishes nothing again and still
 // counts what this fetch entered and held.
 func TestEnterEInvoices(t *testing.T) {
@@ -116,8 +117,8 @@ func TestEnterEInvoices(t *testing.T) {
 	s.recordAll(t, op)
 	ctx := context.Background()
 	for run := range 2 {
-		if got, err := s.e.ProcessEInvoices(ctx, s.connector, op, s.within()); err != nil || got.Entered != 2 || got.Held != 5 || got.Refused != 0 {
-			t.Fatalf("run %d: got %+v (%v), want 2 entered and 5 held", run+1, got, err)
+		if got, err := s.e.ProcessEInvoices(ctx, s.connector, op, s.within()); err != nil || got.Entered != 3 || got.Held != 5 || got.Refused != 0 {
+			t.Fatalf("run %d: got %+v (%v), want 3 entered and 5 held", run+1, got, err)
 		}
 	}
 	for message, want := range map[string]string{
@@ -127,7 +128,7 @@ func TestEnterEInvoices(t *testing.T) {
 		"GOI-4": "entered - einvoice on_hold GOI-4 - true",
 		"GOI-5": "held payables.duplicate_invoice - true",
 		"GOI-6": "held " + einvoicing.HeldNotInAED + " - true",
-		"GOI-7": "received - - false",
+		"GOI-7": "entered - einvoice on_hold GOI-7 V5 true",
 		"GOI-8": "held payables.unreadable_document - true",
 	} {
 		if got := s.entered(t, message, op); got != want {
@@ -138,8 +139,8 @@ func TestEnterEInvoices(t *testing.T) {
 	var hold, detail string
 	var ref bool
 	pgtest.Scan(t, `SELECT count(*) FROM payables.supplier_invoice WHERE tenant_id = $1 AND legal_entity_id = $2`, []any{s.f.Tenant.ID, s.le}, &invoices)
-	if invoices != 2 {
-		t.Errorf("supplier invoices: got %d, want 2, nothing of a held one kept", invoices)
+	if invoices != 3 {
+		t.Errorf("supplier invoices: got %d, want 3, nothing of a held one kept", invoices)
 	}
 	pgtest.Scan(t, `SELECT hold_reason FROM payables.supplier_invoice WHERE tenant_id = $1 AND supplier_reference = 'GOI-4'`, []any{s.f.Tenant.ID}, &hold)
 	if !strings.Contains(hold, "5% in VAT category S, which codes V5, VB5 charge") {
@@ -167,18 +168,18 @@ func TestEnterEInvoices(t *testing.T) {
 		}
 	}
 	if got := strings.Join(outcomes, ", "); got != "GOI-1 entered received invoice, GOI-2 held received, GOI-3 held received, GOI-4 entered received invoice, "+
-		"GOI-5 held received, GOI-6 held received, GOI-8 held received" {
+		"GOI-5 held received, GOI-6 held received, GOI-7 entered received invoice, GOI-8 held received" {
 		t.Errorf("EInvoiceChanged of the entering: got %s, want one per document entered or held", got)
 	}
 	captured := apitest.Published(t, s.f.Tenant, outbox.Event{Context: "payables", Name: "supplier_invoice_captured"})
-	if len(captured) != 2 || captured[0]["source"] != "einvoice" {
-		t.Errorf("SupplierInvoiceCaptured: got %v, want two of source einvoice", captured)
+	if len(captured) != 3 || captured[0]["source"] != "einvoice" {
+		t.Errorf("SupplierInvoiceCaptured: got %v, want three of source einvoice", captured)
 	}
 	var enteredAudits, heldAudits int
 	pgtest.Scan(t, `SELECT count(*) FILTER (WHERE action = 'einvoicing.einvoice.entered'), count(*) FILTER (WHERE action = 'einvoicing.einvoice.held')
 		FROM audit.audit_event WHERE tenant_id = $1 AND actor_id = $2`, []any{s.f.Tenant.ID, einvoicing.FetcherActor}, &enteredAudits, &heldAudits)
-	if enteredAudits != 2 || heldAudits != 5 {
-		t.Errorf("audit records: got %d entered and %d held, want 2 and 5, once each", enteredAudits, heldAudits)
+	if enteredAudits != 3 || heldAudits != 5 {
+		t.Errorf("audit records: got %d entered and %d held, want 3 and 5, once each", enteredAudits, heldAudits)
 	}
 	if got, err := s.e.ProcessEInvoices(ctx, s.connector, uuid.Must(uuid.NewV7()), s.within()); err != nil || got.Entered != 0 || got.Held != 0 {
 		t.Errorf("a later fetch: got %+v (%v), want nothing entered or held", got, err)
