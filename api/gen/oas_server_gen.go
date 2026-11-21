@@ -2461,26 +2461,27 @@ type Handler interface {
 	// `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
 	// `item_key` (neither is white space alone, 422 `request.validation_failed` naming the field), or by a
 	// `material_id` (S1f1, ADR-0082 As built S1f): a material of the tenant (422
-	// `request.reference_not_found` naming `items[i].material_id`) that is `active` (422
-	// `sales.material_not_usable`), whose number is then the item's `item_key` (another key is refused,
-	// 422 `sales.item_key_not_material` naming `items[i].item_key`) and whose description is the item's
-	// when it sends none; its quantity is in the material's base unit or one of its alternative units and
-	// converts to the base unit exactly in six decimals (422 `sales.invalid_material_quantity` naming
-	// `items[i].quantity.unit`). An item has a quantity more than zero in a unit of measure of the
-	// reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit`
-	// naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit` (1 when
-	// absent; sent without a unit price it is refused, 422 `request.validation_failed` naming
-	// `items[i].price_unit`), or without one the price recorded for its `item_key` that is valid on the
-	// quotation's date in the item's unit and the quotation's currency, the customer's before its price
-	// group's (by its sales data in the company, `createCustomerSalesData`) before the general one and
-	// then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a
-	// price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
-	// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
-	// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
-	// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code
-	// that levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is
-	// levied in, `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or
-	// none, 422 `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's
+	// `request.reference_not_found` naming `items[i].material_id`) that is `active` and not managed in
+	// batches (422 `sales.material_not_usable`; a delivery carries no batch yet, S2f), whose number is
+	// then the item's `item_key` (another key is refused, 422 `sales.item_key_not_material` naming
+	// `items[i].item_key`) and whose description is the item's when it sends none; its quantity is in the
+	// material's base unit or one of its alternative units and converts to the base unit exactly in six
+	// decimals (422 `sales.invalid_material_quantity` naming `items[i].quantity.unit`). An item has a
+	// quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity`
+	// naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit
+	// price in the quotation's currency per `price_unit` (1 when absent; sent without a unit price it is
+	// refused, 422 `request.validation_failed` naming `items[i].price_unit`), or without one the price
+	// recorded for its `item_key` that is valid on the quotation's date in the item's unit and the
+	// quotation's currency, the customer's before its price group's (by its sales data in the company,
+	// `createCustomerSalesData`) before the general one and then the latest `valid_from`
+	// (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is
+	// refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing
+	// credits, one that can be posted in the company (422 `sales.account_not_postable` naming
+	// `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the
+	// quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`), and with a code that
+	// levies the subdivision its lines name (the UAE's `S5`) the province or emirate its tax is levied in,
+	// `tax_jurisdiction` (422 `sales.tax_jurisdiction_required`; one with any other code, or none, 422
+	// `sales.tax_jurisdiction_not_levied`; both naming `items[i].tax_jurisdiction`). An item's
 	// `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's
 	// minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`,
 	// or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is
@@ -2494,8 +2495,7 @@ type Handler interface {
 	// §11). A `unit_price` entered with the item is its final net price: no discount is taken off it, and
 	// its price is its only condition. Amounts are net: the tax is calculated when the order is billed, at
 	// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-	// (`x-agent: false`). An item of a batch-managed material is refused (422
-	// `sales.material_not_usable`): a delivery carries no batch yet (S2f).
+	// (`x-agent: false`).
 	//
 	// POST /v1/quotations
 	CreateQuotation(ctx context.Context, req *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
@@ -2735,12 +2735,13 @@ type Handler interface {
 	// `sales.quotation_not_accepted`), and it gives one order: a second is refused (409
 	// `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`,
 	// `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
-	// the items are checked and priced as a quotation's are (`createQuotation`), on the order's date: an
-	// item without a `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when
-	// there is none). Either way the order needs the customer's data in the company, as a receivables
-	// document does: a customer that is not active, has no customer role, has no data in the company or is
-	// blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or
-	// `customer_id`). The order's payment term is `payment_term_code`, a configured term (422
+	// the items are checked and priced as a quotation's are (`createQuotation`; an item of a batch-managed
+	// material is refused, 422 `sales.material_not_usable`, S2f), on the order's date: an item without a
+	// `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when there is none).
+	// Either way the order needs the customer's data in the company, as a receivables document does: a
+	// customer that is not active, has no customer role, has no data in the company or is blocked for
+	// posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`).
+	// The order's payment term is `payment_term_code`, a configured term (422
 	// `sales.unknown_payment_term`), else the customer's in the company. `plant_id`, with either, is the
 	// plant the order delivers from: an active plant of the order's company (422 `sales.plant_invalid`);
 	// its confirmation then checks the availability of its items of a material kept in stock there (S2j,
@@ -2748,8 +2749,7 @@ type Handler interface {
 	// document number from the company's `sales_order` number range of that date's fiscal year; each item
 	// starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published
 	// as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only
-	// (`x-agent: false`). An item of a batch-managed material is refused (422
-	// `sales.material_not_usable`): a delivery carries no batch yet (S2f).
+	// (`x-agent: false`).
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, req *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)

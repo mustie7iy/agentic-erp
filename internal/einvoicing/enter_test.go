@@ -247,13 +247,19 @@ func TestEnterEInvoicesFailures(t *testing.T) {
 	if got := s.entered(t, "GOI-1", later) + ", " + s.entered(t, "GOI-2", later); got != "entered - einvoice parked GOI-1 V5 true, held payables.capture_needs_order - true" {
 		t.Errorf("after the failures: got %s, want GOI-1 entered and GOI-2 held by the later fetch", got)
 	}
-	var page *gen.EInvoicePage
-	if err := apitest.InRequest(t, s.f.Tenant, s.f.Tenant.Human, func(ctx context.Context) error {
-		res, err := s.e.ListEInvoices(ctx, gen.ListEInvoicesParams{FetchOperationID: gen.NewOptUUID(later)})
-		page, _ = res.(*gen.EInvoicePage)
+	var res gen.ListEInvoicesRes
+	if err := apitest.InRequest(t, s.f.Tenant, s.f.Tenant.Human, func(ctx context.Context) (err error) {
+		res, err = s.e.ListEInvoices(ctx, gen.ListEInvoicesParams{FetchOperationID: gen.NewOptUUID(later)})
 		return err
-	}); err != nil || page == nil || len(page.Items) != 2 {
-		t.Errorf("the later fetch's documents: got %v %v, want GOI-1 and GOI-2, which it entered and held", page, err)
+	}); err != nil {
+		t.Fatalf("the later fetch's documents: got %v, want its page", err)
+	}
+	page, ok := res.(*gen.EInvoicePage)
+	if !ok {
+		t.Fatalf("the later fetch's documents: got %T, want a page", res)
+	}
+	if len(page.Items) != 2 {
+		t.Errorf("the later fetch's documents: got %d, want 2, GOI-1 and GOI-2, which it entered and held", len(page.Items))
 	}
 	var invoices int
 	pgtest.Scan(t, `SELECT count(*) FROM payables.supplier_invoice WHERE tenant_id = $1 AND source = 'einvoice'`, []any{s.f.Tenant.ID}, &invoices)

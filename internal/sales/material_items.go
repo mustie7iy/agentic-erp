@@ -67,7 +67,7 @@ func (c itemCheck) material(field string, it ItemInput) (ItemInput, error) {
 	}
 	if m.BatchManaged && !it.Kept {
 		return ItemInput{}, problem.Invalid("sales.material_not_usable", field+".material_id", "Material "+m.Number+
-			" is managed in batches; a delivery carries no batch yet, so it is not sold.")
+			" is managed in batches; a delivery carries no batch yet, so it cannot be sold yet.")
 	}
 	text, err := m.ForItem(it.ItemKey, it.Description, it.Quantity, it.Unit, !it.Kept)
 	switch {
