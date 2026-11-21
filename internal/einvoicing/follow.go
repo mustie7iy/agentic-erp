@@ -132,8 +132,8 @@ func (e *Endpoints) followed(ctx context.Context, tx pgx.Tx, s submission, co Co
 // reads; after a request made, not before the tax data document's status
 // moves from the one the call left (tax_data_awaited: the provider may
 // show the outcome later; no longer awaited once no longer followed). A
-// read that failed, or that the connector or
-// the provider refused, records nothing but the count.
+// read that failed, or that the connector or the provider refused,
+// records nothing but the count.
 func (e *Endpoints) delivered(ctx context.Context, tx pgx.Tx, s submission, co Company, d Delivery, callErr error) (Step, error) {
 	now := clock.Now(e.Now)
 	response, detail, taxData := s.DeliveryStatus, s.DeliveryDetail, s.TaxDataStatus

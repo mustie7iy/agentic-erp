@@ -310,7 +310,7 @@ func (s submission) record(ctx context.Context, action string, company Company, 
 		"legal_entity_code": company.Code, "connector_id": s.ConnectorID, "operation_id": s.OperationID, "business_type": s.BusinessType,
 		"status": s.Status, "status_before": before, "provider_status": s.ProviderStatus, "tracking_id": s.TrackingID, "attempts": s.Attempts,
 		"resends": s.Resends, "problem_code": s.ProblemCode, "delivery_status": s.DeliveryStatus, "tax_data_status": s.TaxDataStatus,
-		"tax_data_request": s.TaxDataRequest, "version": s.Version}
+		"tax_data_request": s.TaxDataRequest, "tax_data_awaited": s.TaxDataAwaited, "version": s.Version}
 	return audit.Record(ctx, action, "einvoicing.outgoing_einvoice", s.OutgoingID, payload,
 		outbox.Event{Context: "einvoicing", Name: "outgoing_einvoice_transmission_changed", AggregateType: "einvoicing.outgoing_einvoice",
 			AggregateID: s.OutgoingID, Payload: payload})
