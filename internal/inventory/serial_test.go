@@ -318,6 +318,10 @@ func TestSerialMovementsAtOnce(t *testing.T) {
 		if fmt.Sprint(statuses) != "[201 409]" && fmt.Sprint(statuses) != "[409 201]" {
 			t.Errorf("round %d, receipts of %v in opposite order: got %v, want one 201 and one 409", round, pair, statuses)
 		}
+		first, second := e.places(t, "&number="+pair[0]), e.places(t, "&number="+pair[1])
+		if first[len(pair[0]):] != second[len(pair[1]):] || strings.HasSuffix(first, ":none") {
+			t.Errorf("round %d: got %s and %s, want the pair in stock together where its one receipt put it", round, first, second)
+		}
 	}
 	transfers := make([]int, 5)
 	for i := range transfers {
@@ -337,7 +341,8 @@ func TestSerialMovementsAtOnce(t *testing.T) {
 			t.Errorf("transfer %d: got %d, want 201", i, s)
 		}
 	}
-	if got := e.places(t, "&storage_location_id="+e.s1.String()); got != "Y1:S1 Y2:S1 Y3:S1 Y4:S1 Y5:S1" {
+	ys := slices.DeleteFunc(strings.Fields(e.places(t, "&storage_location_id="+e.s1.String())), func(p string) bool { return !strings.HasPrefix(p, "Y") })
+	if got := strings.Join(ys, " "); got != "Y1:S1 Y2:S1 Y3:S1 Y4:S1 Y5:S1" {
 		t.Errorf("at S1: got %s, want the Ys", got)
 	}
 }
@@ -387,4 +392,22 @@ func TestSerialDatabaseFailures(t *testing.T) {
 			t.Error("a page of no rows: got nil error, want an error")
 		}
 	})
+}
+
+// TestSerialManyUnits: an item of the contract's 1000 serial numbers is
+// received and transferred, each line counted once at commit.
+func TestSerialManyUnits(t *testing.T) {
+	e := serialSetup(t)
+	numbers := make([]string, 1000)
+	for i := range numbers {
+		numbers[i] = fmt.Sprintf("U%04d", i)
+	}
+	start := time.Now()
+	e.post(t, "501", e.of(nil, numbers...))
+	e.post(t, "311", e.of(map[string]any{"to_storage_location_id": e.s2}, numbers...))
+	t.Logf("a receipt and a transfer of 1000 serial numbers: %v", time.Since(start))
+	page, _ := e.Must(200, "GET", serials+"?page_size=1&in_stock=true&storage_location_id="+e.s2.String()+"&material_id="+e.gauge, "", "")
+	if items := rows(t, page, "items"); len(items) != 1 || page["next_page_token"] == nil {
+		t.Errorf("at S2: got %v, want a first page of the 1000", page)
+	}
 }

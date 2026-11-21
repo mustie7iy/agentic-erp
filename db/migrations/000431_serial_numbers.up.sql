@@ -183,5 +183,19 @@ END $$;
 ALTER FUNCTION inventory.movement_serials() OWNER TO erp_owner;
 CREATE CONSTRAINT TRIGGER movement_serials AFTER INSERT ON inventory.movement
   DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION inventory.movement_serials();
+-- A serial number added to a line this transaction wrote is counted by
+-- the line's own movement_serials, so each line is counted once at
+-- commit, not once per serial number; one added to a line written before
+-- (a committed one, or one written in a subtransaction) is counted here.
+CREATE FUNCTION inventory.movement_serial_counted() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM inventory.movement WHERE tenant_id = NEW.tenant_id AND material_document_id = NEW.material_document_id
+      AND line_no = NEW.line_no AND xmin = xid(pg_current_xact_id())) THEN
+    PERFORM inventory.check_movement_serials(NEW.tenant_id, NEW.material_document_id, NEW.line_no);
+  END IF;
+  RETURN NULL;
+END $$;
+ALTER FUNCTION inventory.movement_serial_counted() OWNER TO erp_owner;
 CREATE CONSTRAINT TRIGGER movement_serial_counted AFTER INSERT ON inventory.movement_serial
-  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION inventory.movement_serials();
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION inventory.movement_serial_counted();

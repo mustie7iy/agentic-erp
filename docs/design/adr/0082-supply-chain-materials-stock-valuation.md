@@ -1269,8 +1269,9 @@ reads a location's stock without a lock for shipping's picking.
   `serial_issued_from_stock`); at commit a line of a serial-managed stock
   row names one per unit and any other line none (`movement_serials` on
   the line, `movement_serial_counted` on each serial number added to a
-  line, so one added later to a committed line is refused too; review
-  round 1).
+  line written before, so one added later to a committed line is refused
+  too; each line is counted once at commit, review rounds 1 and 2;
+  `TestSerialManyUnits` posts an item of 1000).
   The posting checks both first and answers 409
   `inventory.serial_in_stock` (naming the serial number and where to read
   it) and `inventory.serial_not_in_stock` (naming the location).

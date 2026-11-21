@@ -10,6 +10,7 @@ BEGIN
 END $$;
 DROP TRIGGER movement_serials ON inventory.movement;
 DROP TABLE inventory.movement_serial;
+DROP FUNCTION inventory.movement_serial_counted();
 DROP FUNCTION inventory.movement_serials();
 DROP FUNCTION inventory.check_movement_serials(uuid, uuid, smallint);
 DROP FUNCTION inventory.movement_serial_moves();
