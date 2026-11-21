@@ -202,7 +202,8 @@ func deliverable(o Order, in []DeliveryItemInput) error {
 // takeable checks the items a delivery or an outbound delivery takes of
 // the order, read under its lock (taking): each names an item of the
 // order, once, with a quantity more than zero in the item's unit that is
-// at most the item's open quantity, what was ordered less what is
+// at most the item's open quantity, what was ordered (what was confirmed
+// of an item the availability check confirmed, S2j) less what is
 // delivered and what outbound deliveries hold (ADR-0083 §4); a removed
 // item (T78e) takes none. Every refusal names the request's own field
 // (items[i].noField or .quantity), and the last the item with what is
@@ -235,13 +236,16 @@ func takeable(o Order, in []ItemQuantity, document, noField string) error {
 		return problem.Invalid("sales.unknown_order_item", short.noField, fmt.Sprintf("Sales order %s has no item %d.", o.DocumentNumber, short.no))
 	}
 	it := ordered[short.no]
-	held := ""
+	held, confirmed := "", ""
 	if money.ParseRat(it.InDelivery).Sign() != 0 {
 		held = ", " + it.InDelivery + " in outbound deliveries"
 	}
+	if it.Confirmed != nil {
+		confirmed = ", " + *it.Confirmed + " confirmed as available"
+	}
 	return problem.Invalid("sales.exceeds_open_quantity", short.quantityField, fmt.Sprintf(
-		"Item %d of sales order %s has %s %s open for delivery (%s ordered, %s delivered%s); %s is more.",
-		short.no, o.DocumentNumber, money.PlainQuantity(short.open), it.Unit, it.Quantity, it.Delivered, held, short.quantity))
+		"Item %d of sales order %s has %s %s open for delivery (%s ordered%s, %s delivered%s); %s is more.",
+		short.no, o.DocumentNumber, money.PlainQuantity(short.open), it.Unit, it.Quantity, confirmed, it.Delivered, held, short.quantity))
 }
 
 // byHand refuses confirming the delivery of an item of a material kept in

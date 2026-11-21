@@ -56,7 +56,7 @@ func (e *Endpoints) PostGoodsIssue(ctx context.Context, id uuid.UUID, ifMatch fu
 	if err != nil {
 		return Delivery{}, err
 	}
-	issued := sales.GoodsIssue{OrderID: d.OrderID, DeliveryID: d.ID, DeliveryNumber: d.Number, MaterialDocumentID: doc.ID,
+	issued := sales.GoodsIssue{OrderID: d.OrderID, DeliveryID: d.ID, DeliveryNumber: d.Number, PlantID: d.PlantID, MaterialDocumentID: doc.ID,
 		MaterialDocumentNumber: doc.Number, Date: doc.PostingDate, Currency: doc.Currency, Items: make([]sales.IssuedItem, len(d.Items))}
 	for i, it := range d.Items {
 		issued.Items[i] = sales.IssuedItem{ItemNo: it.OrderItemNo, Held: it.Quantity, Issued: it.Picked}

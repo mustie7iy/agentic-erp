@@ -7,7 +7,10 @@
 // context's published read of one. The confirmation checks the order's
 // gross value against the customer's credit limit and blocks an order
 // over it until a credit manager releases it (ADR-0066 and ADR-0067, As
-// built T77b; credit.go). An item's price is the one entered
+// built T77b; credit.go). An order may name the plant it delivers from;
+// its confirmation then confirms each item of a material kept in stock
+// as far as the plant has it available, which its deliveries take at
+// most (ADR-0082 As built S2j; availability.go). An item's price is the one entered
 // with it, or the price record of its item key valid on the document's
 // date (ADR-0067 §10; prices.go the records, pricing.go the one function
 // that prices an item for both documents). A tenant whose configuration
@@ -80,6 +83,9 @@ const customerRole = "customer"
 // context).
 type LegalEntities interface {
 	Entity(ctx context.Context, id uuid.UUID) (tenancy.Entity, bool, error)
+	// OrgUnits reads org units by id: the plant an order delivers from
+	// (S2j).
+	OrgUnits(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]tenancy.Unit, error)
 }
 
 // Customers says whether a business partner may be sold to as a customer
@@ -169,6 +175,9 @@ type Endpoints struct {
 	People        People
 	// Materials are the materials items name (S1f1).
 	Materials Materials
+	// Stock is the plants' stock an order's availability check reads
+	// (S2j).
+	Stock Stock
 	// Uploads, OrderExtractor and Finder serve order capture (T90a): the
 	// upload's document, the model that reads it (nil: capture answers
 	// 503) and the customer it names.

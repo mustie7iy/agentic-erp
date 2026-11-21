@@ -700,10 +700,13 @@ type Handler interface {
 	// change that raises a confirmed order's net value checks the customer's credit for the increase, as a
 	// confirmation checks the order (`confirmSalesOrder`): an order that no longer fits the limit is
 	// blocked again (`credit_block` `blocked`, published as SalesOrderCreditBlocked), whatever an earlier
-	// release; a lower value leaves the block as it is. The change is kept, numbered within the order,
-	// with its reason and its values before and after (`listSalesOrderChanges`), and the order's `changes`
-	// counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-	// `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
+	// release; a lower value leaves the block as it is. A confirmed order with a plant has the items the
+	// change adds, and those whose quantity it changes, checked for availability again as a confirmation
+	// checks them (`confirmSalesOrder`, S2j): an item keeps what it had confirmed, up to its new quantity,
+	// and has more confirmed as far as the plant has it available. The change is kept, numbered within the
+	// order, with its reason and its values before and after (`listSalesOrderChanges`), and the order's
+	// `changes` counts it. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with
+	// the same `Idempotency-Key` answers the changed order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:change
 	ChangeSalesOrder(ctx context.Context, req *SalesOrderChangeRequest, params ChangeSalesOrderParams) (ChangeSalesOrderRes, error)
@@ -1010,10 +1013,19 @@ type Handler interface {
 	// date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
 	// `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
 	// confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
-	// amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
-	// limit and the exposure when the customer has a limit, and published as SalesOrderChanged, and as
-	// SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers
-	// the confirmed order. Human-only (`x-agent: false`).
+	// amount holds is refused too (422 `credit.amount_too_large`). An order with a plant (`plant_id`) has
+	// the availability of its items of a material kept in stock checked there (S2j, available-to-promise):
+	// each item is confirmed as far as the plant has the material available, its stock at the plant's
+	// storage locations, in the base unit, less what the other confirmed orders of the plant confirmed and
+	// have not yet delivered, item after item in the order's item order. An item may be confirmed in full,
+	// in part or not at all (`confirmed_quantity`, in the item's unit, rounded down to six decimals); a
+	// shortage refuses nothing. The check is of stock on hand, so what it confirms is available on the
+	// requested delivery date as it is today. Its outbound deliveries take at most what is confirmed
+	// (`createOutboundDelivery`). Two orders confirmed at once for the same material and plant are checked
+	// one after the other, so the last quantity is confirmed once. Audited, with the amount checked, the
+	// limit and the exposure when the customer has a limit and each item's confirmed quantity, and
+	// published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry
+	// with the same `Idempotency-Key` answers the confirmed order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:confirm
 	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
@@ -2244,16 +2256,18 @@ type Handler interface {
 	// or free-text item, or a material of type `non_stock` or `service`, is confirmed by
 	// `confirmSalesDelivery`) that is extended to the plant and kept at the storage location (422
 	// `shipping.material_not_at_location`), with a positive quantity (422 `sales.invalid_quantity`) in the
-	// order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered less
-	// what is delivered and what other deliveries not yet issued hold (422 `sales.exceeds_open_quantity`).
-	// Without `items` the delivery takes what is open of every order item of a material kept in stock at
-	// the location (422 `sales.nothing_to_deliver` when that is nothing). The quantities are held for the
-	// delivery on the order (`in_delivery_quantity` of its items), so the order's items are not changed
-	// below them, removed or cancelled while the delivery holds them. The delivery is created `created`,
-	// `not_picked`, dated and numbered from its company's `outbound_delivery` range of the fiscal year of
-	// the company's date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and
-	// published as OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery
-	// created. Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
+	// order item's unit (422 `sales.unit_mismatch`) of at most what is open of it: what was ordered (what
+	// is confirmed of it, for an item of an order with a plant, S2j) less what is delivered and what other
+	// deliveries not yet issued hold (422 `sales.exceeds_open_quantity`). An order that names a plant is
+	// delivered from that plant (422 `shipping.plant_mismatch`). Without `items` the delivery takes what
+	// is open of every order item of a material kept in stock at the location (422
+	// `sales.nothing_to_deliver` when that is nothing). The quantities are held for the delivery on the
+	// order (`in_delivery_quantity` of its items), so the order's items are not changed below them,
+	// removed or cancelled while the delivery holds them. The delivery is created `created`, `not_picked`,
+	// dated and numbered from its company's `outbound_delivery` range of the fiscal year of the company's
+	// date today (422 `ledger.no_fiscal_period`, `config.no_number_range`). Audited, and published as
+	// OutboundDeliveryChanged. A retry with the same `Idempotency-Key` answers the delivery created.
+	// Human-only (`x-agent: false`). An item of a batch-managed material is refused (422
 	// `shipping.material_not_usable`): a delivery carries no batch yet (S2f).
 	//
 	// POST /v1/outbound-deliveries
@@ -2727,13 +2741,15 @@ type Handler interface {
 	// document does: a customer that is not active, has no customer role, has no data in the company or is
 	// blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or
 	// `customer_id`). The order's payment term is `payment_term_code`, a configured term (422
-	// `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the
-	// company's date today in its time zone, with a document number from the company's `sales_order`
-	// number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
-	// are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
-	// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`). An item of a
-	// batch-managed material is refused (422 `sales.material_not_usable`): a delivery carries no batch yet
-	// (S2f).
+	// `sales.unknown_payment_term`), else the customer's in the company. `plant_id`, with either, is the
+	// plant the order delivers from: an active plant of the order's company (422 `sales.plant_invalid`);
+	// its confirmation then checks the availability of its items of a material kept in stock there (S2j,
+	// `confirmSalesOrder`). It is created `draft`, dated the company's date today in its time zone, with a
+	// document number from the company's `sales_order` number range of that date's fiscal year; each item
+	// starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published
+	// as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only
+	// (`x-agent: false`). An item of a batch-managed material is refused (422
+	// `sales.material_not_usable`): a delivery carries no batch yet (S2f).
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, req *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)

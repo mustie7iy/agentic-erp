@@ -59,7 +59,7 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Delivery, error) {
 	if err != nil {
 		return Delivery{}, err
 	}
-	ship := sales.ShipInput{OrderID: in.OrderID, DeliveryID: uuid.Must(uuid.NewV7()), Items: in.Items}
+	ship := sales.ShipInput{OrderID: in.OrderID, DeliveryID: uuid.Must(uuid.NewV7()), PlantID: in.PlantID, Items: in.Items}
 	if in.Items == nil {
 		ship.Open = src.eligibleItems()
 	}
@@ -97,7 +97,8 @@ func (e *Endpoints) Create(ctx context.Context, in Input) (Delivery, error) {
 
 // origin reads and checks what the request names: the order, of a company
 // the caller may act in (422 request.reference_not_found naming
-// sales_order_id otherwise), the plant and storage location, and the
+// sales_order_id otherwise), the plant, the order's own when it names one
+// (422 shipping.plant_mismatch; S2j), and storage location, and the
 // materials of the order's items.
 func (e *Endpoints) origin(ctx context.Context, in Input) (origin, error) {
 	o, ok, err := e.Orders.Order(ctx, in.OrderID)
@@ -121,6 +122,11 @@ func (e *Endpoints) origin(ctx context.Context, in Input) (origin, error) {
 	}
 	if src.plant, src.location, err = shipFrom(units, in, src.le); err != nil {
 		return origin{}, err
+	}
+	if o.PlantID != nil && *o.PlantID != src.plant.ID {
+		// The order's items were checked for availability at its plant (S2j).
+		return origin{}, problem.Invalid("shipping.plant_mismatch", "plant_id", "Sales order "+o.DocumentNumber+
+			" delivers from its own plant, whose stock confirmed its items; a delivery of it ships from that plant.")
 	}
 	if src.order, src.materials, err = e.orderMaterials(ctx, o); err != nil {
 		return origin{}, err

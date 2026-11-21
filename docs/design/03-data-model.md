@@ -5422,6 +5422,7 @@ erDiagram
     bigint net_amount "sum of the items'"
     text status "draft, confirmed, cancelled"
     date requested_delivery_date "optional, on order_date or later (T78d)"
+    uuid plant_id "tenancy, optional, fixed: the plant it delivers from (S2j)"
     int changes "the changes kept (T78d)"
     text cancellation_reason "when cancelled (T78d)"
     int version
@@ -5441,6 +5442,7 @@ erDiagram
     numeric delivered_quantity "at most quantity"
     numeric billed_quantity "at most delivered_quantity"
     numeric returned_quantity "at most billed_quantity (T85a)"
+    numeric confirmed_quantity "optional, the availability check's (S2j)"
   }
   sales_order ||--o{ delivery : "is delivered by"
   delivery ||--|{ delivery_item : "has"
@@ -5641,7 +5643,11 @@ erDiagram
   (`sales_order_payment_term_kept`) and while no billing document of the
   order stands that is not cancelled (`sales_order_payment_term_billed`),
   for the tables' owner too; `net_amount` is the sum of the items that
-  are not removed.
+  are not removed. S2j (migration 000421; ADR-0082 As built S2j) adds
+  `plant_id`, the tenancy plant the order delivers from, optional,
+  written with the order and never changed (the application's grants
+  leave it out); `sales_order_by_plant` finds a plant's confirmed orders
+  for the availability check.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
@@ -5669,7 +5675,23 @@ erDiagram
   (`sales_order_item_added_kept`), numbered after the order's highest
   (`sales_order_item_added_after`), never to a cancelled order. A removed
   item stays, out of the order's value, its credit exposure and the
-  sales lines.
+  sales lines. S2j (migration 000421; ADR-0082 As built S2j) adds
+  `confirmed_quantity`, what the availability check confirmed of the
+  item in its unit, null until then and for an item it does not check:
+  never entered with the item, set only on an item of a material of a
+  confirmed order with a plant, at most the item's `quantity` when set
+  (a change lowering the quantity sets it again), never
+  cleared (`sales_order_item_confirmed_by_check`, for the tables' owner
+  too), not below zero nor below what is delivered and in delivery of it
+  (`sales_order_item_confirmed`); the application may update it.
+  `sales_order_item_promised` indexes the items that promised more than
+  is delivered, by material. The same migration adds
+  `sales.delivery_assignment.plant_id`, the plant the delivery ships
+  from (null for an assignment written without it; the existing ones
+  take their delivery's), indexed by `delivery_assignment_by_plant`: what
+  deliveries of orders without a plant hold there counts in its
+  availability, read from the items something is in delivery of
+  (`sales_order_item_in_delivery_held`).
 - `sales.sales_order_change` (T78d, migration 000355): a change of an
   order, numbered from 1 within it (`sales_order_change_no_positive`,
   `sales_order_change_once`), with the order's version after it

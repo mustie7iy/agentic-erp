@@ -190,6 +190,32 @@ func TestPlainQuantity(t *testing.T) {
 	}
 }
 
+// TestFloorQuantity: a quotient is rounded down to six decimals, never
+// up; an exact one stays.
+func TestFloorQuantity(t *testing.T) {
+	for name, c := range map[string]struct {
+		num, den int64
+		want     string
+	}{"a third": {1, 3, "0.333333"}, "two thirds": {2, 3, "0.666666"}, "exact": {5, 4, "1.25"}, "nothing": {0, 7, "0"}} {
+		t.Run(name, func(t *testing.T) {
+			if got := PlainQuantity(FloorQuantity(big.NewRat(c.num, c.den))); got != c.want {
+				t.Errorf("FloorQuantity(%d/%d): got %s, want %s", c.num, c.den, got, c.want)
+			}
+		})
+	}
+}
+
+// TestMinMaxRat: the lesser and the greater of two rationals.
+func TestMinMaxRat(t *testing.T) {
+	one, two := big.NewRat(1, 1), big.NewRat(2, 1)
+	if got := MinRat(two, one); got != one {
+		t.Errorf("MinRat(2, 1): got %v, want 1", got)
+	}
+	if got := MaxRat(one, two); got != two {
+		t.Errorf("MaxRat(1, 2): got %v, want 2", got)
+	}
+}
+
 func TestRat(t *testing.T) {
 	cases := map[string]struct {
 		m    Minor

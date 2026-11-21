@@ -29,6 +29,8 @@ type references struct {
 	// entries are the journal entries' document numbers, which posted
 	// billing documents alone name (billingRefs).
 	entries map[uuid.UUID]string
+	// plants are the plants orders deliver from (orderRefs, S2j).
+	plants map[uuid.UUID]tenancy.Unit
 }
 
 // named is what one document names by id: its company, its customer and

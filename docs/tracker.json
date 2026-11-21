@@ -5775,9 +5775,9 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "D",
       "t": "Confirming a sales order item checks the material's available quantity at the plant and confirms what is available on the requested date; two orders racing for the last quantity confirm it once",
-      "r": "S2j · docs/design/plan-supply-chain.md §S2j",
+      "r": "S2j · docs/design/plan-supply-chain.md §S2j · ADR-0082 As built S2j · db/migrations/000421 · sales.sales_order.plant_id · sales.sales_order_item.confirmed_quantity · sales.plant_invalid · shipping.plant_mismatch · inventory.Endpoints.PlantStock · TestTwoOrdersRaceForTheLastQuantity · TestSalesAvailabilityRules · walkthrough step_available_to_promise (step 148)",
       "src": "po:2026-11-17",
       "c": []
      },

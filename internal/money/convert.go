@@ -238,6 +238,32 @@ func PlainQuantity(r *big.Rat) string {
 	return strings.TrimSuffix(strings.TrimRight(r.FloatString(6), "0"), ".")
 }
 
+// FloorQuantity is r, not below zero, rounded down to a quantity's
+// QuantityDecimals decimals: the most of r a quantity can say without
+// promising more than r.
+func FloorQuantity(r *big.Rat) *big.Rat {
+	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(QuantityDecimals), nil)
+	n := new(big.Int).Mul(r.Num(), scale)
+	n.Div(n, r.Denom()) // Euclidean division rounds down for the non-negative r it is given
+	return new(big.Rat).SetFrac(n, scale)
+}
+
+// MinRat is the lesser of a and b (a when they are equal).
+func MinRat(a, b *big.Rat) *big.Rat {
+	if a.Cmp(b) <= 0 {
+		return a
+	}
+	return b
+}
+
+// MaxRat is the greater of a and b (a when they are equal).
+func MaxRat(a, b *big.Rat) *big.Rat {
+	if a.Cmp(b) >= 0 {
+		return a
+	}
+	return b
+}
+
 // ParseRat reads a decimal a numeric column rendered as text ("12.500"),
 // exactly. A decimal always parses; anything else is nil, so it is for
 // database values and input already checked as a decimal.

@@ -15692,6 +15692,95 @@ step_einvoice_billing() {
   passed
 }
 
+# step_available_to_promise is S2j (ADR-0082 As built S2j,
+# plan-supply-chain.md): Mira creates the H20 hinge, kept in Toronto's
+# main store, and Wade enters 100 of them. Sally orders 60 for Northwind
+# delivered from the Toronto plant: confirming it confirms all 60. A
+# second order of 60 is confirmed for the 40 left, a third of 5 for none:
+# a shortage refuses nothing. Wade's delivery of the second takes its 40
+# confirmed hinges; more is refused naming what is confirmed, and so is a
+# delivery from the Montreal plant. Wade enters 50 more; Sally raises the
+# third order to 6, and its change confirms all 6.
+step_available_to_promise() {
+  heading "Step 148 — Available-to-promise: an order delivered from the Toronto plant confirms what its stock has available less what confirmed orders promised; in full, in part, or nothing; deliveries take at most what is confirmed, from the order's plant; a raised quantity confirmed again as stock arrives"
+  local hinge sales montreal store first second third
+  [ -n "$PLANT" ] && [ -n "$MAIN_STORE" ] || fail "step 122's plant and storage locations are not there"
+  accounts
+  sales=$(account 4000)
+  as mira
+  QUIET=1 api 200 '' listOrgUnits -p page_size=100
+  montreal=$(field '.items[] | select(.kind == "plant" and .code == "P200") | .id')
+  store=$(field '.items[] | select(.kind == "storage_location" and .code == "SL03" and .parent_id == "'"$montreal"'") | .id')
+  say "Mira creates the H20 hinge, kept in Toronto's main store and the Montreal store; Priya approves it:"
+  api 201 '"material \(.number) \(.description)"' createMaterial -body "{\"legal_entity_id\": \"$LE\", \"description\": \"Hinge H20\",
+      \"base_unit\": \"EA\", \"material_type\": \"trading_good\", \"material_group\": \"FASTENERS\",
+      \"plants\": [{\"plant_id\": \"$PLANT\", \"storage_location_ids\": [\"$MAIN_STORE\"]}, {\"plant_id\": \"$montreal\", \"storage_location_ids\": [\"$store\"]}]}"
+  hinge=$(field .id)
+  approve priya "$(material_request "$hinge")" "Standard hinge."
+  as ines
+  QUIET=1 api 201 '' createMaterialValuation -body "{\"material_id\": \"$hinge\", \"plant_id\": \"$PLANT\", \"valuation_class\": \"3100\",
+      \"price_control\": \"moving_average\", \"price\": {\"amount\": \"1.50\", \"currency\": \"CAD\"}}"
+  as wade
+  say "Wade enters 100 hinges on the main store's shelves (561):"
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$hinge\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}}]}"
+  as sally
+  hinge_order() { # quantity: a draft order of Northwind's for the hinges, delivered from the Toronto plant
+    api 201 '"sales order \(.document_number) from plant \(.plant_code) \(.plant_name): \(.items[0].quantity.value) \(.items[0].quantity.unit)"' \
+      createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$CUSTOMER\", \"currency\": \"CAD\", \"plant_id\": \"$PLANT\", \"items\": [
+        {\"material_id\": \"$hinge\", \"quantity\": {\"value\": \"$1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"4.00\", \"currency\": \"CAD\"},
+         \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  }
+  hinge_confirm() { # order: confirmed, its credit block released when Northwind is over its limit
+    QUIET=1 api 200 '' getSalesOrder -p "id=$1"
+    api 200 '"sales order \(.document_number): \(.status), \(.items[0].quantity.value) ordered, \(.items[0].confirmed_quantity.value) \(.items[0].confirmed_quantity.unit) confirmed"' \
+      confirmSalesOrder -p "id=$1" -if-match "$ETAG"
+    if [ "$(field .credit_block)" = blocked ]; then
+      local tag=$ETAG confirmed
+      confirmed=$(field '.items[0].confirmed_quantity.value')
+      as ruth
+      say "  Northwind is over its credit limit; Ruth releases the block:"
+      QUIET=1 api 200 '' releaseSalesOrderCreditBlock -p "id=$1" -if-match "$tag"
+      as sally
+      QUIET=1 api 200 '' getSalesOrder -p "id=$1"
+      expect "the confirmed quantity after the release" "$(field '.items[0].confirmed_quantity.value')" "$confirmed"
+    fi
+  }
+  say "Sally orders 60 hinges for Northwind, delivered from the Toronto plant; confirming the order checks what the plant"
+  say "has available (SAP's availability check, ATP): its 100 in stock, of which no order has promised any:"
+  hinge_order 60
+  first=$(field .id)
+  hinge_confirm "$first"
+  expect "the first order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 60
+  say "A second order of 60 has the 40 left confirmed; a third of 5 has none. A shortage refuses nothing:"
+  hinge_order 60
+  second=$(field .id)
+  hinge_confirm "$second"
+  expect "the second order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 40
+  hinge_order 5
+  third=$(field .id)
+  hinge_confirm "$third"
+  expect "the third order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 0
+  as wade
+  say "Wade's delivery of the second order takes at most what is confirmed, 40 hinges, and only from the order's plant:"
+  refused 422 sales.exceeds_open_quantity createOutboundDelivery -body "{\"sales_order_id\": \"$second\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\",
+      \"items\": [{\"order_item_no\": 1, \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}}]}"
+  refused 422 shipping.plant_mismatch createOutboundDelivery -body "{\"sales_order_id\": \"$second\", \"plant_id\": \"$montreal\", \"storage_location_id\": \"$store\"}"
+  expect "the field refused" "$(field '.errors[0].field')" plant_id
+  api 201 '"outbound delivery \(.number) of \(.sales_order_number): \(.items[0].quantity.value) \(.items[0].quantity.unit)"' \
+    createOutboundDelivery -body "{\"sales_order_id\": \"$second\", \"plant_id\": \"$PLANT\", \"storage_location_id\": \"$MAIN_STORE\"}"
+  expect "the delivery's quantity" "$(field '.items[0].quantity.value')" 40
+  say "Wade enters 50 more hinges; Sally raises the third order to 6, and its change confirms all 6 of the 50 now free:"
+  QUIET=1 api 201 '' createMaterialDocument -body "{\"movement_type\": \"561\", \"items\": [{\"material_id\": \"$hinge\", \"plant_id\": \"$PLANT\",
+      \"storage_location_id\": \"$MAIN_STORE\", \"quantity\": {\"value\": \"50\", \"unit\": \"EA\"}}]}"
+  as sally
+  QUIET=1 api 200 '' getSalesOrder -p "id=$third"
+  api 200 '"sales order \(.document_number): \(.items[0].quantity.value) ordered, \(.items[0].confirmed_quantity.value) confirmed"' \
+    changeSalesOrder -p "id=$third" -if-match "$ETAG" -body '{"reason": "Northwind takes 6", "items": [{"item_no": 1, "quantity": {"value": "6", "unit": "EA"}}]}'
+  expect "the third order's confirmed quantity" "$(field '.items[0].confirmed_quantity.value')" 6
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -17722,7 +17811,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_revenue_schedule step_sales_analytics step_spend step_credit_agent step_returns step_return_receipt step_credit_memo_request step_credit_memo_posting step_controls step_control_matrix step_access_agent step_access_sod step_access_review step_margin step_plan_version step_drill_through step_follow_up step_regulatory_agent step_support_agent step_risks step_retention step_privacy step_saved_report step_metric_forecast step_metric_watch step_dispute step_lease step_expense_report step_profitability step_order_capture step_collections_agent step_process_mining step_integration_agent step_mcp step_savings_agent step_control_agent step_risk_agent step_planning_agent step_enablement_agent step_partial_payment step_payment_on_account step_dunning_charges step_dunning_blocks step_promise_to_pay step_collection_contacts step_sales_order_change step_billing_cancellation step_rfq_requisition step_receipt_several_customers step_payment_reset step_revenue_follows_order step_sales_order_items step_material step_material_governance step_valuation step_goods_movements step_stock_receipt step_debit_memo step_memo_reversal step_price_scales step_price_groups step_credit_limit_validity step_credit_limit_approval step_aging_as_at step_aging_by_center step_material_items step_receipt_other_currency step_payment_difference_reasons step_dunning_postings step_dispute_items step_dispute_resolution step_count step_outbound_delivery step_goods_issue step_evatra_inbound step_einvoice_render step_einvoice_send step_stock_transport step_einvoice_billing step_batches step_available_to_promise step_close'
 
 main() {
   stop_unseen

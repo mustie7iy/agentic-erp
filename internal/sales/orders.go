@@ -57,7 +57,12 @@ type OrderItem struct {
 	Delivered string `json:"delivered_quantity"`
 	// InDelivery is what outbound deliveries not yet issued hold of it
 	// (ADR-0083 §4).
-	InDelivery      string         `json:"in_delivery_quantity"`
+	InDelivery string `json:"in_delivery_quantity"`
+	// Confirmed is what the availability check confirmed of an item of a
+	// material kept in stock of an order with a plant (S2j), what its
+	// outbound deliveries take at most; nil for any other item, and for
+	// one of an order not yet confirmed.
+	Confirmed       *string        `json:"confirmed_quantity"`
 	Billed          string         `json:"billed_quantity"`
 	Returned        string         `json:"returned_quantity"`
 	RemovedInChange *int32         `json:"removed_in_change"`
@@ -92,17 +97,21 @@ func standing(items []OrderItem) []OrderItem {
 // for; Changes counts the order's changes; a Cancelled order names its
 // reason, who cancelled it and when (T78d).
 type Order struct {
-	ID                   uuid.UUID
-	DocumentNumber       string
-	LegalEntityID        uuid.UUID
-	CustomerID           uuid.UUID
-	QuotationID          *uuid.UUID
-	QuotationNumber      *string
-	OrderDate            time.Time
-	Currency             string
-	Exponent             int
-	PaymentTermCode      string
-	DeliveryDate         *time.Time
+	ID              uuid.UUID
+	DocumentNumber  string
+	LegalEntityID   uuid.UUID
+	CustomerID      uuid.UUID
+	QuotationID     *uuid.UUID
+	QuotationNumber *string
+	OrderDate       time.Time
+	Currency        string
+	Exponent        int
+	PaymentTermCode string
+	DeliveryDate    *time.Time
+	// PlantID is the plant the order delivers from, nil for none: its
+	// items of a material kept in stock are checked for availability
+	// there when it is confirmed (S2j).
+	PlantID              *uuid.UUID
 	Net                  money.Minor
 	Status               string
 	Changes              int32
@@ -135,7 +144,9 @@ type OrderInput struct {
 	Currency        *string
 	PaymentTermCode *string
 	DeliveryDate    *time.Time
-	Items           []ItemInput
+	// PlantID is the plant the order delivers from (S2j), with either.
+	PlantID *uuid.UUID
+	Items   []ItemInput
 }
 
 // orderQuery reads orders with their items; extra is further key and
@@ -145,11 +156,11 @@ type OrderInput struct {
 func orderQuery(extra string) string {
 	return `SELECT o.id, o.document_number, o.legal_entity_id, o.customer_id, o.quotation_id,
 		(SELECT q.document_number FROM sales.quotation q WHERE q.tenant_id = o.tenant_id AND q.id = o.quotation_id), o.order_date, o.currency,
-		c.exponent, o.payment_term_code, o.requested_delivery_date, o.net_amount, o.status, o.changes, o.cancellation_reason, o.cancelled_at,
+		c.exponent, o.payment_term_code, o.requested_delivery_date, o.plant_id, o.net_amount, o.status, o.changes, o.cancellation_reason, o.cancelled_at,
 		o.cancelled_by, o.cancelled_by_name, o.credit_block, o.credit_released_by, o.credit_released_by_name, o.credit_released_at, ` +
 		itemsJSON("sales_order_item", "sales_order_id", "o",
 			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'in_delivery_quantity', trim_scale(t.in_delivery_quantity)::text,
-				'billed_quantity', trim_scale(t.billed_quantity)::text,
+				'confirmed_quantity', trim_scale(t.confirmed_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text,
 				'returned_quantity', trim_scale(t.returned_quantity)::text, 'removed_in_change', t.removed_in_change`+extra) + `,
 		o.capture, o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
 	FROM sales.sales_order o JOIN ref.currency c ON c.code = o.currency`
@@ -163,7 +174,7 @@ var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries + i
 func scanOrder(row pgx.Row) (Order, error) {
 	var o Order
 	header := []any{&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.CustomerID, &o.QuotationID, &o.QuotationNumber, &o.OrderDate, &o.Currency,
-		&o.Exponent, &o.PaymentTermCode, &o.DeliveryDate, &o.Net, &o.Status, &o.Changes, &o.CancellationReason, &o.CancelledAt, &o.CancelledBy, &o.CancelledByName,
+		&o.Exponent, &o.PaymentTermCode, &o.DeliveryDate, &o.PlantID, &o.Net, &o.Status, &o.Changes, &o.CancellationReason, &o.CancelledAt, &o.CancelledBy, &o.CancelledByName,
 		&o.CreditBlock, &o.CreditReleasedBy, &o.CreditReleasedByName, &o.CreditReleasedAt}
 	err := row.Scan(append(header, &o.Items, &o.Capture, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy)...)
 	return o, errs.Wrapf(err, "scan sales order")
@@ -305,6 +316,9 @@ func (e *Endpoints) makeOrder(ctx context.Context, in OrderInput, captured *Capt
 	if err := deliveryDateFrom(in.DeliveryDate, src.doc.date); err != nil {
 		return Order{}, err
 	}
+	if err := e.orderPlant(ctx, in.PlantID, src.doc.le); err != nil {
+		return Order{}, err
+	}
 	number, err := e.number(ctx, src.doc.le.ID, OrderRange, src.doc.date)
 	if err != nil {
 		return Order{}, err
@@ -315,10 +329,10 @@ func (e *Endpoints) makeOrder(ctx context.Context, in OrderInput, captured *Capt
 		upload = &captured.UploadID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, quotation_id, order_date,
-			currency, payment_term_code, net_amount, status, capture_upload_id, capture, created_by, updated_by, requested_delivery_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15)`,
+			currency, payment_term_code, net_amount, status, capture_upload_id, capture, created_by, updated_by, requested_delivery_date, plant_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15, $16)`,
 		p.TenantID, id, number, src.doc.le.ID, src.customer, src.quotation, src.doc.date, src.doc.currency, term, src.net, Draft, upload, captured,
-		p.ID, in.DeliveryDate); err != nil {
+		p.ID, in.DeliveryDate, in.PlantID); err != nil {
 		return Order{}, fmt.Errorf("sales: insert sales order %s: %w", id, err)
 	}
 	if err := insertItems(ctx, tx, "sales_order_item", "sales_order_id", p.TenantID, id, src.items); err != nil {
@@ -445,7 +459,10 @@ func (e *Endpoints) paymentTerm(ctx context.Context, given *string, customer par
 // second confirmation waits for the first and is then refused, 409
 // sales.invalid_status. The order's gross value is checked against the
 // customer's credit limit (creditCheck; ADR-0066, As built T77b): an
-// order over it is confirmed all the same, with a credit block. The new
+// order over it is confirmed all the same, with a credit block. An order
+// with a plant has its items of a material kept in stock confirmed as far
+// as the plant has them available (availability; S2j), after the credit
+// check, whose lock on the customer comes before the check's locks. The new
 // status with the block, its audit record, SalesOrderChanged and, for a
 // blocked order, SalesOrderCreditBlocked are written in the request's
 // transaction.
@@ -480,12 +497,20 @@ func (e *Endpoints) ConfirmOrder(ctx context.Context, id uuid.UUID, ifMatch func
 		id, Confirmed, p.ID, check.block); err != nil {
 		return Order{}, fmt.Errorf("sales: mark sales order %s confirmed: %w", id, err)
 	}
+	promises, err := e.availability(ctx, tx, o, o.Items, func(OrderItem) bool { return true })
+	if err != nil {
+		return Order{}, err
+	}
 	confirmed, err := loadOrder(ctx, tx, id, false)
 	if err != nil {
 		return Order{}, err
 	}
 	before := Draft
-	return confirmed, recordOrder(ctx, "sales.sales_order.confirm", confirmed, le, names[o.CustomerID].Number, &before, &check, nil)
+	var extra map[string]any
+	if checked := promised(promises, o.PlantID); checked != nil {
+		extra = map[string]any{"availability": checked}
+	}
+	return confirmed, recordOrder(ctx, "sales.sales_order.confirm", confirmed, le, names[o.CustomerID].Number, &before, &check, extra)
 }
 
 // recordOrder adds the audit record of an order's change and publishes
