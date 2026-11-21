@@ -4613,12 +4613,18 @@ processing (`einvoice_entry`), `supplier_invoice_id` and `supplier_id`
 (`einvoice_entered`), the problem exactly when refused or held
 (`einvoice_problem` widened), what the entering decided fixed (the
 trigger); the partial index `einvoice_to_enter` (processed tax invoices
-still received) and the cell-wide `einvoice_held` the gauge
-`erp_einvoices_held` counts, `einvoice_by_entry_fetch` for the list's fetch filter, the worker role reading `status`. The
+still received; dropped by 000434, T65e) and the cell-wide
+`einvoice_held` the gauge `erp_einvoices_held` counts,
+`einvoice_by_entry_fetch` for the list's fetch filter, the worker role
+reading `status`; `einvoice_by_processed_fetch` (migration 000432,
+review:batch86) lets the filter match the processing fetch too. The
 supplier invoice it enters has the source `einvoice` and keeps the
 document's hash and key as a captured one does
-(`supplier_invoice_document_hash`, `supplier_invoice_source_check`). The
-other columns below arrive with the slices that write them (T65e, T65f;
+(`supplier_invoice_document_hash`, `supplier_invoice_source_check`). T65e
+(migrations 000433, 000434) enters tax credit notes too, as credit memos:
+a fetch lists every `received` document by `einvoice_to_process` (the
+status alone), which replaces `einvoice_to_enter`; no column changes. The
+other columns below arrive with the slices that write them (T65f;
 the lines and totals read are not stored, the bytes being kept).
 E2 (migration 000415; ADR-0061 As built E2) adds
 `einvoicing.outgoing_einvoice`: a posted customer invoice or credit memo

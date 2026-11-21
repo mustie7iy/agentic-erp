@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ type ublDocument struct {
 	Currency        string      `xml:"DocumentCurrencyCode"`
 	TaxCurrency     string      `xml:"TaxCurrencyCode"`
 	Discrepancy     *ublReason  `xml:"DiscrepancyResponse"`
-	BillingRef      string      `xml:"BillingReference>InvoiceDocumentReference>ID"`
+	BillingRefs     []string    `xml:"BillingReference>InvoiceDocumentReference>ID"`
 	OrderRef        string      `xml:"OrderReference>ID"`
 	Seller          ublParty    `xml:"AccountingSupplierParty>Party"`
 	Buyer           ublParty    `xml:"AccountingCustomerParty>Party"`
@@ -165,6 +166,19 @@ func parseAmount(raw string, exp int) (money.Minor, error) {
 	return m, nil
 }
 
+// distinctRefs are the invoice numbers IBG-03 states, trimmed, each once,
+// in their order, blanks left out: a number repeated or an empty reference
+// beside one names that one invoice.
+func distinctRefs(refs []string) []string {
+	var out []string
+	for _, r := range refs {
+		if r = strings.TrimSpace(r); r != "" && !slices.Contains(out, r) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // document turns the UBL into a Document.
 func (u ublDocument) document(exponent func(string) (int, bool)) (Document, error) {
 	exp, ok := exponent(u.Currency)
@@ -172,8 +186,11 @@ func (u ublDocument) document(exponent func(string) (int, bool)) (Document, erro
 		return Document{}, &FieldError{Term: "IBT-005", Err: fmt.Errorf("unknown currency %q", u.Currency)}
 	}
 	d := Document{Number: u.ID, Currency: u.Currency, TaxCurrency: u.TaxCurrency, Customization: u.Customization, Profile: u.Profile,
-		TransactionType: u.ProfileExec, Reference: u.BillingRef, OrderReference: u.OrderRef, Seller: u.Seller.party(), Buyer: u.Buyer.party(),
+		TransactionType: u.ProfileExec, OrderReference: u.OrderRef, Seller: u.Seller.party(), Buyer: u.Buyer.party(),
 		PaymentMeans: u.PaymentMeans, Exponent: exp}
+	if d.Cited = distinctRefs(u.BillingRefs); len(d.Cited) > 0 {
+		d.Reference = d.Cited[0]
+	}
 	d.Kind, d.TypeCode = KindTaxInvoice, u.InvoiceType
 	lines := u.InvoiceLines
 	if u.XMLName.Space == nsCreditNote {

@@ -5297,9 +5297,11 @@ uae_return() {
 # are not a change again. T65c's (ADR-0061 §5): the fetch validates the
 # e-invoice as PINT AE and leaves it received with what it read; a
 # malformed e-invoice and one whose buyer's TRN is not the company's are
-# refused with their reasons.
+# refused with their reasons. T65e's (ADR-0061 §6): a tax credit note
+# citing the entered e-invoice is entered as a credit memo naming its
+# posted invoice; one naming no invoice is held for a person.
 step_einvoice() {
-  heading "Step 43 — E-invoices fetched: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged, validated as PINT AE and entered as a supplier invoice on its order, posted after the three-way match, downloaded as received, a redelivery with other bytes recorded as its change once; a malformed one and one addressed to another TRN refused with their reasons, one naming no order held"
+  heading "Step 43 — E-invoices fetched: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged, validated as PINT AE and entered as a supplier invoice on its order, posted after the three-way match, downloaded as received, a redelivery with other bytes recorded as its change once; a malformed one and one addressed to another TRN refused with their reasons, one naming no order held; a credit note citing it entered as a credit memo of that invoice, one naming none held"
   local connector op doc sum changed
   as ada
   say "The UAE company $AE receives its suppliers' e-invoices through an accredited provider (ADR-0049, ADR-0061). No"
@@ -5357,6 +5359,7 @@ step_einvoice() {
   expect "the connector's documents" "$(field '.items | length')" 1
   einvoice_original "$connector" "$doc" "$sum"
   einvoice_refusals "$connector" "$doc"
+  einvoice_credit_notes "$connector" "$doc"
   passed
 }
 
@@ -5434,6 +5437,77 @@ einvoice_refusals() {
     "GOI-2005 payables.capture_needs_order -"
   QUIET=1 api 200 '' getEInvoice -p "id=$doc"
   expect "GOI-2001 still entered" "$(field '"\(.status) \(.problem_code // "-")"')" "entered -"
+}
+
+# pint_ae_credit_note writes Gulf Office Interiors' PINT AE tax credit
+# note NUMBER (381, an illustrative document, dated today) correcting its
+# invoice CREDITED (IBT-025; none when empty): one desk of order AE_ORDER's
+# line 1 found damaged, 250.00 AED with 12.50 VAT at 5%, its reason
+# (BTAE-03) illustrative.
+pint_ae_credit_note() {
+  local number=$1 credited=${2:-}
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+  printf '<!-- Illustrative only: a supplier'"'"'s PINT AE tax credit note. -->\n'
+  printf '<CreditNote xmlns="urn:oasis:names:specification:ubl:schema:xsd:CreditNote-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">'
+  printf '<cbc:CustomizationID>urn:peppol:pint:billing-1@ae-1</cbc:CustomizationID><cbc:ProfileID>urn:peppol:bis:billing</cbc:ProfileID>'
+  printf '<cbc:ProfileExecutionID>00000000</cbc:ProfileExecutionID><cbc:ID>%s</cbc:ID><cbc:IssueDate>%s</cbc:IssueDate>' "$number" "$TODAY"
+  printf '<cbc:CreditNoteTypeCode>381</cbc:CreditNoteTypeCode><cbc:DocumentCurrencyCode>AED</cbc:DocumentCurrencyCode>'
+  printf '<cac:DiscrepancyResponse><cbc:ResponseCode>VD</cbc:ResponseCode><cbc:Description>Desk damaged in delivery</cbc:Description></cac:DiscrepancyResponse>'
+  printf '<cac:OrderReference><cbc:ID>%s</cbc:ID></cac:OrderReference>' "$AE_ORDER"
+  [ -z "$credited" ] || printf '<cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>%s</cbc:ID></cac:InvoiceDocumentReference></cac:BillingReference>' "$credited"
+  printf '<cac:AccountingSupplierParty><cac:Party><cbc:EndpointID schemeID="0235">1005555555</cbc:EndpointID>'
+  printf '<cac:PostalAddress><cbc:StreetName>Sheikh Zayed Road</cbc:StreetName><cbc:CityName>Dubai</cbc:CityName><cbc:CountrySubentity>DXB</cbc:CountrySubentity><cac:Country><cbc:IdentificationCode>AE</cbc:IdentificationCode></cac:Country></cac:PostalAddress>'
+  printf '<cac:PartyTaxScheme><cbc:CompanyID>100555555500003</cbc:CompanyID><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:PartyTaxScheme>'
+  printf '<cac:PartyLegalEntity><cbc:RegistrationName>Gulf Office Interiors LLC</cbc:RegistrationName></cac:PartyLegalEntity></cac:Party></cac:AccountingSupplierParty>'
+  printf '<cac:AccountingCustomerParty><cac:Party><cbc:EndpointID schemeID="0235">%s</cbc:EndpointID>' "$AE_TIN"
+  printf '<cac:PostalAddress><cbc:StreetName>Gulf Tower</cbc:StreetName><cbc:CityName>Dubai</cbc:CityName><cbc:CountrySubentity>DXB</cbc:CountrySubentity><cac:Country><cbc:IdentificationCode>AE</cbc:IdentificationCode></cac:Country></cac:PostalAddress>'
+  printf '<cac:PartyTaxScheme><cbc:CompanyID>%s</cbc:CompanyID><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:PartyTaxScheme>' "$AE_TRN"
+  printf '<cac:PartyLegalEntity><cbc:RegistrationName>Maple Gulf Trading</cbc:RegistrationName></cac:PartyLegalEntity></cac:Party></cac:AccountingCustomerParty>'
+  printf '<cac:PaymentMeans><cbc:PaymentMeansCode>30</cbc:PaymentMeansCode></cac:PaymentMeans>'
+  printf '<cac:TaxTotal><cbc:TaxAmount currencyID="AED">12.50</cbc:TaxAmount><cac:TaxSubtotal><cbc:TaxableAmount currencyID="AED">250.00</cbc:TaxableAmount>'
+  printf '<cbc:TaxAmount currencyID="AED">12.50</cbc:TaxAmount><cac:TaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>5</cbc:Percent><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:TaxCategory></cac:TaxSubtotal></cac:TaxTotal>'
+  printf '<cac:LegalMonetaryTotal><cbc:LineExtensionAmount currencyID="AED">250.00</cbc:LineExtensionAmount><cbc:TaxExclusiveAmount currencyID="AED">250.00</cbc:TaxExclusiveAmount>'
+  printf '<cbc:TaxInclusiveAmount currencyID="AED">262.50</cbc:TaxInclusiveAmount><cbc:PayableAmount currencyID="AED">262.50</cbc:PayableAmount></cac:LegalMonetaryTotal>'
+  printf '<cac:CreditNoteLine><cbc:ID>1</cbc:ID><cbc:CreditedQuantity unitCode="C62">1</cbc:CreditedQuantity><cbc:LineExtensionAmount currencyID="AED">250.00</cbc:LineExtensionAmount>'
+  printf '<cac:OrderLineReference><cbc:LineID>1</cbc:LineID></cac:OrderLineReference>'
+  printf '<cac:Item><cbc:Description>Oak desk, 160 cm, damaged</cbc:Description><cbc:Name>Desk</cbc:Name><cac:ClassifiedTaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>5</cbc:Percent><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:ClassifiedTaxCategory></cac:Item>'
+  printf '<cac:Price><cbc:PriceAmount currencyID="AED">250.00</cbc:PriceAmount></cac:Price></cac:CreditNoteLine></CreditNote>\n'
+}
+
+# einvoice_credit_notes is T65e's part of step_einvoice (ADR-0061 §6, §5
+# C4): Gulf Office Interiors sends a tax credit note correcting GOI-2001
+# (IBT-025), which the next fetch enters as a supplier credit memo naming
+# GOI-2001's posted invoice as its reference; and one naming no invoice,
+# which is held for a person (einvoicing.credit_note_names_no_invoice)
+# rather than entered as correcting none.
+einvoice_credit_notes() {
+  local connector=$1 doc=$2 op invoice memo
+  QUIET=1 api 200 '' getEInvoice -p "id=$doc"
+  invoice=$(field .supplier_invoice_id)
+  say "One of GOI-2001's desks arrived damaged: Gulf Office Interiors sends a tax credit note, GOI-2101, correcting GOI-2001"
+  say "(IBT-025), one desk of order $AE_ORDER's line 1, AED 250.00 with 12.50 VAT. By mistake it also sends GOI-2102, the"
+  say "same credit naming no invoice; a UAE tax credit note names the invoice it corrects (IBG-03), so that one goes to a"
+  say "person rather than being entered as correcting none (the UAE tax specialist, C4):"
+  pint_ae_credit_note GOI-2101 GOI-2001 >"$WORK/provider/inbox/GOI-2101.xml"
+  pint_ae_credit_note GOI-2102 >"$WORK/provider/inbox/GOI-2102.xml"
+  printf '0235:%s\n' "$AE_TIN" | tee "$WORK/provider/inbox/GOI-2101.receiver" >"$WORK/provider/inbox/GOI-2102.receiver"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  op=$(field .id)
+  excerpt '"operation \(.status): recorded \(.result.recorded), refused \(.result.refused), entered \(.result.entered), held \(.result.held)"'
+  expect "the credit notes' fetch counts" "$(field '"\(.result.recorded) \(.result.refused) \(.result.entered) \(.result.held)"')" "2 0 1 1"
+  api 200 '.items[] | "  \(.message_id) \(.document_kind): \(.status)\(if .supplier_invoice_number then ", supplier invoice \(.supplier_invoice_number) (\(.supplier_invoice_status))" else "" end)\(if .problem_code then " \(.problem_code): \(.problem_detail)" else "" end)"' \
+    listEInvoices -p "fetch_operation_id=$op"
+  expect "the fetch's credit notes" "$(field '[.items[] | "\(.message_id) \(.document_kind) \(.status) \(.problem_code // "-")"] | sort | join(", ")')" \
+    "GOI-2101 credit_note entered -, GOI-2102 credit_note held einvoicing.credit_note_names_no_invoice"
+  memo=$(field '.items[] | select(.message_id == "GOI-2101") | .supplier_invoice_id')
+  say "GOI-2101 is a supplier credit memo of source einvoice, parked for Alex, naming GOI-2001's posted invoice as the invoice"
+  say "it credits (capture's rule: a posted invoice of the supplier), its line on the order's line 1 with V5:"
+  api 200 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), source \(.source), \(.gross_amount.amount) \(.gross_amount.currency), crediting \(.reference_invoice_id)", (.items[] | "  item \(.item_no): \(.quantity) \(.unit), \(.amount.amount), \(.tax_code)")' \
+    getSupplierInvoice -p "id=$memo"
+  expect "the credit memo" "$(field '"\(.kind) \(.supplier_reference) \(.status) \(.source) \(.gross_amount.amount) \(.tax_amount.amount) \([.items[].tax_code] | join(","))"')" \
+    "credit_memo GOI-2101 parked einvoice 262.50 12.50 V5"
+  expect "the invoice it credits, GOI-2001's" "$(field .reference_invoice_id)" "$invoice"
 }
 
 # einvoice_order is T65d's setup in step_einvoice: Alex records Gulf Office

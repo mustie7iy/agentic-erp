@@ -199,23 +199,25 @@ func TestProcessEInvoices(t *testing.T) {
 }
 
 // TestProcessedEInvoiceListed: the list and the document carry what
-// processing read and decided (ADR-0061 §15).
+// processing read and decided (ADR-0061 §15); the processing fetch's
+// documents, its Operation's resource, are those it refused and held,
+// though an earlier fetch recorded them (review:batch86).
 func TestProcessedEInvoiceListed(t *testing.T) {
 	s := receiving(t)
 	s.srv.Deliver("GOI-1", uaeParticipant, einvoicing.RenderPINTAE(supplierInvoice("GOI-1")))
 	s.srv.Deliver("BAD", uaeParticipant, []byte("not XML"))
-	op := uuid.Must(uuid.NewV7())
-	s.recordAll(t, op)
-	if _, err := s.e.ProcessEInvoices(context.Background(), s.connector, op, s.within()); err != nil {
-		t.Fatal(err)
+	recorded, op := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	s.recordAll(t, recorded)
+	if got, err := s.e.ProcessEInvoices(context.Background(), s.connector, op, s.within()); err != nil || got.Refused != 1 || got.Held != 1 {
+		t.Fatalf("the processing fetch: got %+v (%v), want BAD refused and GOI-1 held", got, err)
 	}
 	var page *gen.EInvoicePage
 	if err := apitest.InRequest(t, s.f.Tenant, s.f.Tenant.Human, func(ctx context.Context) error {
-		res, err := s.e.ListEInvoices(ctx, gen.ListEInvoicesParams{ConnectorID: gen.NewOptUUID(s.connector)})
+		res, err := s.e.ListEInvoices(ctx, gen.ListEInvoicesParams{FetchOperationID: gen.NewOptUUID(op)})
 		page, _ = res.(*gen.EInvoicePage)
 		return err
 	}); err != nil || page == nil || len(page.Items) != 2 {
-		t.Fatalf("the list: got %v %v, want two documents", page, err)
+		t.Fatalf("the processing fetch's documents: got %v %v, want the two it refused and held", page, err)
 	}
 	byID := map[string]gen.EInvoice{}
 	for _, d := range page.Items {
@@ -233,7 +235,7 @@ func TestProcessedEInvoiceListed(t *testing.T) {
 			good.SupplierInvoiceID)
 	}
 	if bad.Status != einvoicing.StatusRefused || bad.ProblemCode.Value != einvoicing.RefusedUnreadable || !bad.ProblemDetail.Set ||
-		bad.DocumentNumber.Set || bad.GrossAmount.Set {
+		bad.DocumentNumber.Set || bad.GrossAmount.Set || bad.ProcessedFetchOperationID.Value != op || bad.FetchOperationID != recorded {
 		t.Errorf("the refused document: got %s %v %v, want refused unreadable with its detail and nothing read", bad.Status, bad.ProblemCode,
 			bad.DocumentNumber)
 	}

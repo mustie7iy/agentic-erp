@@ -45832,13 +45832,16 @@ type EInvoice struct {
 	CompanyCode NilString `json:"company_code"`
 	// The company's name; null with `legal_entity_id`.
 	CompanyName NilString `json:"company_name"`
-	// Open enum: received (recorded; once processed, read as a PINT AE document and found valid: a tax
-	// credit note waits there to be entered, T65e), refused (T65c: read and refused by validation,
-	// `problem_code` and `problem_detail` saying why; kept, never entered, final), entered (T65d: a valid
-	// tax invoice entered as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured
-	// one is) or held (T65d: its entering refused, `problem_code` and `problem_detail` saying why, such as
-	// `payables.capture_needs_order` for one naming no purchase order, for a person to resolve). The later
-	// slices add dismissed (ADR-0061 §7).
+	// Open enum: received (recorded; once processed, read as a PINT AE document and found valid, until it
+	// is entered or held), refused (T65c: read and refused by validation, `problem_code` and
+	// `problem_detail` saying why; kept, never entered, final), entered (T65d: a valid tax invoice entered
+	// as a supplier invoice, `supplier_invoice_id`, parked or on hold as a captured one is; T65e: a valid
+	// tax credit note entered as a supplier credit memo naming the invoice it cites) or held (T65d: its
+	// entering refused, `problem_code` and `problem_detail` saying why, such as
+	// `payables.capture_needs_order` for one naming no purchase order, or
+	// `einvoicing.credit_note_names_no_invoice` and `einvoicing.credit_note_names_several_invoices` for a
+	// tax credit note naming no invoice it corrects or several, for a person to resolve). The later slices
+	// add dismissed (ADR-0061 §7).
 	Status string `json:"status"`
 	// When a fetch processed it (T65c, ADR-0061 §4, §5): read it as PINT AE and validated it, refusing
 	// it or leaving it received. Omitted until then; every fetch processes the documents of its connector
@@ -45850,17 +45853,20 @@ type EInvoice struct {
 	// `PINT AE Billing 1.0.4`. Omitted with `processed_at`.
 	ValidatedAgainst OptString `json:"validated_against"`
 	// Why it was refused (ADR-0061 §5) or held (§6, T65d: any problem its entering as a supplier invoice
-	// met, payables' codes among them, or einvoicing.tax_currency_not_entered for a tax invoice not in
-	// AED, whose VAT in AED the entering does not keep yet). Refusals: unreadable (not well-formed XML, or
-	// declaring a DTD or an entity, never expanded), unsupported_document (not a UBL Invoice of type 380
-	// or CreditNote of type 381 following PINT AE), missing_field (a field the ERP reads missing or
-	// malformed, `problem_detail` naming each by its business term), amount_precision (an amount with more
-	// decimals than its currency's minor unit), totals_inconsistent (the lines not summing to their total,
-	// the total without VAT and the VAT not to the total with VAT, or the VAT subtotals not to the VAT
-	// total, with the figures), not_addressed_to_company (listed for none of the connector's companies,
-	// its buyer's electronic address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not
-	// the company's FTA registration on its issue date). Omitted unless refused. Open enumeration: clients
-	// must accept and preserve values not listed here; values may be added within /v1.
+	// met, payables' codes among them, einvoicing.tax_currency_not_entered for a document not in AED,
+	// whose VAT in AED the entering does not keep yet, einvoicing.credit_note_names_no_invoice for a tax
+	// credit note naming no invoice it corrects, IBG-03 and IBT-025, or
+	// einvoicing.credit_note_names_several_invoices for one naming more than one, which a credit memo
+	// cannot, T65e). Refusals: unreadable (not well-formed XML, or declaring a DTD or an entity, never
+	// expanded), unsupported_document (not a UBL Invoice of type 380 or CreditNote of type 381 following
+	// PINT AE), missing_field (a field the ERP reads missing or malformed, `problem_detail` naming each by
+	// its business term), amount_precision (an amount with more decimals than its currency's minor unit),
+	// totals_inconsistent (the lines not summing to their total, the total without VAT and the VAT not to
+	// the total with VAT, or the VAT subtotals not to the VAT total, with the figures),
+	// not_addressed_to_company (listed for none of the connector's companies, its buyer's electronic
+	// address IBT-049 not the company's participant, or its buyer's TRN IBT-048 not the company's FTA
+	// registration on its issue date). Omitted unless refused. Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
 	ProblemCode OptString `json:"problem_code"`
 	// What was found, for a person to take up with the supplier or to correct (no TRN in clear). Omitted
 	// unless refused or held.
@@ -45885,7 +45891,8 @@ type EInvoice struct {
 	// `fetch_operation_id` too. Omitted with `entered_at`.
 	EntryFetchOperationID OptUUID `json:"entry_fetch_operation_id"`
 	// The supplier invoice it was entered as (`getSupplierInvoice`, source `einvoice`, its document this
-	// e-invoice's bytes). Omitted unless entered.
+	// e-invoice's bytes): a credit memo (`kind` `credit_memo`, its `reference_invoice_id` the invoice it
+	// cites when that is a posted invoice of the supplier) for a tax credit note. Omitted unless entered.
 	SupplierInvoiceID OptUUID `json:"supplier_invoice_id"`
 	// That invoice's document number. Omitted with `supplier_invoice_id`.
 	SupplierInvoiceNumber OptString `json:"supplier_invoice_number"`

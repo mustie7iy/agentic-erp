@@ -2804,9 +2804,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "fix: GET /v1/e-invoices?fetch_operation_id= also lists the documents a fetch refused that an earlier fetch recorded (processed_fetch_operation_id, with its index), as it lists those it entered or held (000427), so a fetch's refused count leads to its documents",
-        "r": "internal/einvoicing/list.go · internal/einvoicing/process.go (refused counted by processed_fetch_operation_id) · ADR-0061 As built T65c, T65d",
+        "r": "internal/einvoicing/list.go · internal/einvoicing/process.go (refused counted by processed_fetch_operation_id) · ADR-0061 As built T65c, T65d · db/migrations/000432 (einvoice_by_processed_fetch) · TestProcessedEInvoiceListed",
         "src": "review:batch86",
         "c": []
        },
@@ -2818,9 +2818,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "E-invoice credit notes: entered as credit memos naming the invoice they cite by capture's rule (none, a posted invoice of the supplier, or on_hold naming the number); credit notes left received by T65d processed by the next fetch; walkthrough: a credit note citing the e-invoice of T65d entered as a credit memo referencing that invoice; a credit note naming no invoice is held for a person rather than entered as correcting none (UAE tax specialist, po:2026-11-09, C4 [M]: a UAE tax credit note must name the invoice it corrects, IBG-03 and IBT-025)",
-        "r": "ADR-0061 §6 · T65e · ADR-0061 §5 (answered, C4)",
+        "r": "ADR-0061 §6 · T65e · ADR-0061 §5 (answered, C4) · db/migrations/000433, 000434 (einvoice_to_process) · einvoicing.HeldNoInvoice (einvoicing.credit_note_names_no_invoice) · payables.EInvoice.Kind, CreditedNumber · TestEnterCreditNotes · TestEnterCreditNoteValidatedBefore · walkthrough step_einvoice (einvoice_credit_notes) · ADR-0061 As built T65e",
         "src": "adr:ADR-0061 · po:2026-11-09",
         "c": []
        },

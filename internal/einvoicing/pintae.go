@@ -55,6 +55,7 @@ type Document struct {
 	Profile         string     // IBT-023
 	TransactionType string     // BTAE-02, eight flags
 	Reference       string     // IBT-025, the invoice a credit note corrects
+	Cited           []string   // IBT-025 of each IBG-03 a received document states, distinct, Reference first
 	OrderReference  string     // IBT-013, a received document's purchase order
 	Reason          *Reason    // BTAE-03, a credit note's
 	Seller, Buyer   Party

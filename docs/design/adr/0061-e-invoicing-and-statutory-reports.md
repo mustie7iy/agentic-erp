@@ -1696,7 +1696,11 @@ behind the port `einvoicing.Payables` (`enter.go`), adapted in
   rows (`entry_fetch_operation_id`). The list's `fetch_operation_id` filter,
   the fetch's `resource`, matches the entering fetch too (migration 000427,
   `einvoice_by_entry_fetch`), so a fetch's `entered` and `held` lead to
-  their documents, also those an earlier fetch recorded (review round 1).
+  their documents, also those an earlier fetch recorded (review round 1);
+  since review:batch86 it matches the processing fetch as well
+  (`processed_fetch_operation_id`, migration 000432,
+  `einvoice_by_processed_fetch`), so the `refused` count leads to the
+  documents it refused that an earlier fetch recorded.
   A retryable problem (a lock timeout or serialization failure, one with a
   Retry-After) fails the step rather than holding the document, and the
   audit entries buffered inside the savepoint (a rule's hold of the new
@@ -1778,3 +1782,67 @@ behind the port `einvoicing.Payables` (`enter.go`), adapted in
   0 (as EN 16931's BR-AE-05 has it, from memory) or the rate self-assessed;
   BTAE-08's and BTAE-10's UBL paths (C5), which the entering of documents
   not in AED needs.
+
+### T65e: e-invoice credit notes (adr:ADR-0061 · po:2026-11-09)
+
+Built as §6's credit memo rule and §5 C4: no column changes; migrations
+000433 (`einvoice_to_process`, the received documents of a connector by
+status alone) and 000434 (`einvoice_to_enter`, tax invoices only, dropped
+as its contract step: the new index serves the previous version's
+condition too, which implies it). Decided by default:
+
+- **What is entered.** A valid tax credit note (381) is entered in the
+  processing transaction as a tax invoice is (T65d), through the same
+  port and savepoint, as a supplier credit memo of source `einvoice`
+  (`payables.EnterEInvoice` with the kind `credit_memo` and the cited
+  number, IBT-025): capture's code names as its reference the posted
+  invoice of the supplier in the company and the note's currency whose
+  supplier reference is that number (`creditedInvoice`, 03 §3.9), and the
+  memo is parked; a number that is no such invoice (not posted yet, or
+  none) enters it `on_hold`, its hold reason naming the number, for a
+  person to enter the reference rather than having it dropped. Its
+  items, tax codes by category and rate, the duplicate guard and every
+  other refusal are T65d's; its tax date is the credited invoice's when
+  it names one (`taxDateOf`, P6).
+- **A credit note naming no invoice is held**
+  (`einvoicing.credit_note_names_no_invoice`), not handed to payables:
+  capture's rule would enter a paper memo naming none as correcting none,
+  but a UAE tax credit note names the invoice it corrects (IBG-03,
+  IBT-025; the UAE tax specialist, C4 [M]), and routing one that names
+  none to a person is safer than entering it. Decided in the einvoicing
+  context beside the hold of a document not in AED, which now applies to
+  credit notes as well (C5).
+- **A credit note naming several invoices is held**
+  (`einvoicing.credit_note_names_several_invoices`, the detail naming
+  them): the mandate lets one e-credit note cover several invoices, but a
+  credit memo names one invoice and its credit limit is that invoice's
+  gross, so a person enters one memo per invoice rather than the note
+  being entered against the first alone. The parser now reads every
+  IBG-03 (`Document.Cited`, each number once, blanks left out; before,
+  the last one silently won). A tax invoice may state a preceding invoice
+  in IBG-03 too: only a credit note's is handed to payables as the
+  invoice it credits, so such an invoice is entered as before (review
+  round 1).
+- **Credit notes left received by T65d.** A fetch lists every `received`
+  document of its connector (`toProcess` is the status alone: every
+  processed document still received is a tax invoice or tax credit note),
+  so a credit note validated before T65e is entered by the next fetch
+  without being validated again (tested), as T65d did for tax invoices.
+  The step stays idempotent (run twice, tested).
+- **The fetch's documents** (review:batch86, migration 000432,
+  `einvoice_by_processed_fetch`): `fetch_operation_id` matches the
+  processing fetch too, so the `refused` count leads to the documents it
+  refused that an earlier fetch recorded.
+- **Not built:** the credit note's reason (BTAE-03) is read but not kept
+  on the memo, and its credited invoice's date (IBT-026) is not read.
+- **The walkthrough.** `step_einvoice` (step 43, `einvoice_credit_notes`):
+  GOI-2101, a tax credit note correcting GOI-2001 (one damaged desk, AED
+  262.50), is entered by the next fetch as a parked credit memo of source
+  `einvoice` whose `reference_invoice_id` is GOI-2001's posted invoice,
+  with V5; GOI-2102, naming no invoice, is held with
+  `einvoicing.credit_note_names_no_invoice`.
+- **For the specialist:** whether a tax credit note correcting several
+  invoices repeats IBG-03 (several `BillingReference`) in PINT AE, as
+  assumed here from the mandate's summary [secondary, plan
+  einvoicing-evatra.md], and so whether entering one memo per invoice is
+  what the VAT 201 expects.
